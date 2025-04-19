@@ -89,7 +89,6 @@ hf_datasets_path: Path = hf_home_path / "datasets"
 
 from retail_ai.datasets import HuggingfaceDataSource
 
-
 spark.dataSource.register(HuggingfaceDataSource)
 
 # COMMAND ----------
@@ -100,7 +99,6 @@ from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
 
 from delta.tables import DeltaTable, IdentityGenerator
-
 
 
 datasets_config: dict[str, Any] = config.get("datasets")
@@ -118,12 +116,14 @@ wands_df: DataFrame = (
     .load()
 )
 
+wands_df = wands_df.filter(F.col("product_description").isNotNull())
+
 wands_df = wands_df.withColumns(
   {
-    "repo_id": F.lit(wands_repo_id),
+    "content": F.col("product_description"),
+    "doc_uri": F.lit(wands_repo_id),
   }
 )
-
 
 (
   DeltaTable.createOrReplace(spark)
@@ -138,11 +138,3 @@ spark.sql(f"ALTER TABLE {wands_table_name} ADD CONSTRAINT {wands_primary_key}_pk
 wands_df.write.mode("append").saveAsTable(wands_table_name)
 
 display(spark.table(wands_table_name))
-
-# COMMAND ----------
-
-display(wands_df)
-
-# COMMAND ----------
-
-display(df)

@@ -56,12 +56,7 @@ from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
 import pandas as pd
 
-parsed_docs_df: DataFrame = spark.table(source_table_name).withColumnsRenamed(
-  {
-    "repo_id": "doc_uri",
-    "product_description": "content"
-  }
-)
+parsed_docs_df: DataFrame = spark.table(source_table_name)
 parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
 
 display(parsed_docs_pdf)
