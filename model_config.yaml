@@ -1,0 +1,77 @@
+catalog_name: nfleming
+database_name: retail_ai
+volume_name: retail_ai
+
+datasets:
+  huggingface:
+    repo_id: napsternxg/wands
+    primary_key: id
+    table_name: nfleming.retail_ai.wands
+
+evaluation:
+  model_name: databricks-meta-llama-3-3-70b-instruct
+  table_name: nfleming.retail_ai.wands_evaluation
+
+app:
+  registered_model_name: nfleming.retail_ai.retail_ai_agent
+  endpoint_name: retail_ai_agent
+  example_input:
+    messages:
+      - role: user
+        content: Draft an email to engineering about next weeks status meeting
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        tone: pirate
+
+
+agents:
+
+  supervisor:
+    model_name: databricks-meta-llama-3-3-70b-instruct
+
+  image_summarization:
+    model_name: databricks-meta-llama-3-3-70b-instruct
+    
+  inventory:
+    model_name: databricks-meta-llama-3-3-70b-instruct
+    genie_space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+
+  order_status:
+    model_name: databricks-meta-llama-3-3-70b-instruct
+
+  recommendation:
+    model_name: databricks-meta-llama-3-3-70b-instruct
+    prompt: |
+      You are an AI assistant specializing in making recommendations about pairing items
+
+      #### Tone: 
+      {tone}
+
+      #### Context:
+      {context}
+
+      #### Instructions:
+      {content}
+      
+      Now, draft the response accordingly.
+
+
+retriever:
+  embedding_model_endpoint_name: databricks-gte-large-en
+  endpoint_name: one-env-shared-endpoint-12
+  endpoint_type: STANDARD
+  index_name: nfleming.retail_ai.wands_index
+  primary_key: id
+  embedding_source_column: product_description
+  columns:
+    - product_id
+    - product_name
+    - product_class
+    - category_hierarchy
+    - rating_count
+    - average_rating
+    - review_count
+    - doc_uri
+  search_parameters:
+    k: 10
