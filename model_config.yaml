@@ -15,6 +15,7 @@ evaluation:
 app:
   registered_model_name: nfleming.retail_ai.retail_ai_agent
   endpoint_name: retail_ai_agent
+  connection_url: pgsql://
   example_input:
     messages:
       - role: user
@@ -63,7 +64,7 @@ retriever:
   endpoint_type: STANDARD
   index_name: nfleming.retail_ai.wands_index
   primary_key: id
-  embedding_source_column: product_description
+  embedding_source_column: content
   columns:
     - product_id
     - product_name
