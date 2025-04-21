@@ -1,9 +1,12 @@
+from typing import TypedDict, Literal, Sequence
 from langgraph.graph import MessagesState
-from typing import TypedDict, Literal
+from langchain_core.documents.base import Document
 
+ 
 
-class AppConfig(TypedDict):
+class AgentConfig(TypedDict):
   ...
 
-class AppState(MessagesState):
-  ...
+class AgentState(MessagesState):
+  context: Sequence[Document]
+  route: str
