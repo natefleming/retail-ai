@@ -2,8 +2,10 @@
 from typing import Sequence
 
 pip_requirements: Sequence[str] = (
+  "langgraph",
+  "langchain",
+  "databricks-langchain", 
   "databricks-sdk",
-  "databricks-vectorsearch",
   "mlflow",
   "python-dotenv"
 )
@@ -16,27 +18,23 @@ pip_requirements: str = " ".join(pip_requirements)
 # COMMAND ----------
 
 from typing import Sequence
-
 from importlib.metadata import version
 
-
 pip_requirements: Sequence[str] = (
+  f"langgraph=={version('langgraph')}",
+  f"langchain=={version('langchain')}"
+  f"databricks-langchain=={version('databricks-langchain')}",
   f"databricks-sdk=={version('databricks-sdk')}",
-  f"databricks-vectorsearch=={version('databricks-vectorsearch')}",
   f"mlflow=={version('mlflow')}",
+  f"python-dotenv=={version('python-dotenv')}"
 )
+
 print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
-
-# COMMAND ----------
-
-from dotenv import find_dotenv, load_dotenv
-
-_ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
@@ -77,59 +75,24 @@ assert search_parameters is not None
 
 # COMMAND ----------
 
-from databricks.vector_search.client import VectorSearchClient
-from retail_ai.vector_search import endpoint_exists
-
-vsc: VectorSearchClient = VectorSearchClient()
-
-if not endpoint_exists(vsc, endpoint_name):
-    vsc.create_endpoint_and_wait(name=endpoint_name, verbose=True, endpoint_type=endpoint_type)
-
-print(f"Endpoint named {endpoint_name} is ready.")
-
-
-# COMMAND ----------
-
+from langchain_core.tools.base import BaseTool
+from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
 from databricks.sdk import WorkspaceClient
-from databricks.vector_search.index import VectorSearchIndex
-from retail_ai.vector_search import index_exists
 
 
-if not index_exists(vsc, endpoint_name, index_name):
-  print(f"Creating index {index_name} on endpoint {endpoint_name}...")
-  vsc.create_delta_sync_index_and_wait(
-    endpoint_name=endpoint_name,
+
+
+w: WorkspaceClient = WorkspaceClient()
+vector_search_retriever_tool: BaseTool = (
+  VectorSearchRetrieverTool(
+    name="vector_search_retriever_tool",
+    description="Retrieves documents from a vector search index",
     index_name=index_name,
-    source_table_name=source_table_name,
-    pipeline_type="TRIGGERED",
-    primary_key=primary_key,
-    embedding_source_column=embedding_source_column, #The column containing our text
-    embedding_model_endpoint_name=embedding_model_endpoint_name #The embedding endpoint used to create the embeddings
+    columns=None,
+    workspace_client=w,
   )
-else:
-  vsc.get_index(endpoint_name, index_name).sync()
-
-print(f"index {index_name} on table {source_table_name} is ready")
+)
 
 # COMMAND ----------
 
-from typing import Dict, Any, List
-
-import mlflow.deployments
-from databricks.vector_search.index import VectorSearchIndex
-from mlflow.deployments.databricks import DatabricksDeploymentClient
-
-deploy_client: DatabricksDeploymentClient = mlflow.deployments.get_deploy_client("databricks")
-
-question = "What is Databricks?"
-
-index: VectorSearchIndex = vsc.get_index(endpoint_name, index_name)
-k: int = search_parameters.get("k", 3)
-
-search_results: Dict[str, Any] = index.similarity_search(
-  query_text=question,
-  columns=columns,
-  num_results=k)
-
-chunks: List[str] = search_results.get('result', {}).get('data_array', [])
-chunks
+\
