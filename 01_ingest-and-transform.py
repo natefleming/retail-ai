@@ -6,7 +6,7 @@ pip_requirements: Sequence[str] = (
   "delta-spark",
   "mlflow",
   "datasets",
-  "faker"
+  "python-dotenv",
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -33,6 +33,12 @@ print("\n".join(pip_requirements))
 
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
+
+# COMMAND ----------
+
+from dotenv import find_dotenv, load_dotenv
+
+_ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 

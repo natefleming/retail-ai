@@ -5,7 +5,7 @@ pip_requirements: Sequence[str] = (
   "databricks-agents",
   "backoff",
   "mlflow",
-  "loguru"
+  "python-dotenv",
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -18,16 +18,25 @@ pip_requirements: str = " ".join(pip_requirements)
 from typing import Sequence
 
 from importlib.metadata import version
-from loguru import logger
 
 
 pip_requirements: Sequence[str] = (
   f"databricks-agents=={version('databricks-agents')}",
   f"backoff=={version('backoff')}",
   f"mlflow=={version('mlflow')}",
-  f"loguru=={version('loguru')}",
 )
 logger.info("\n".join(pip_requirements))
+
+# COMMAND ----------
+
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+
+# COMMAND ----------
+
+from dotenv import find_dotenv, load_dotenv
+
+_ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
@@ -46,8 +55,8 @@ huggingface_config: Dict[str, Any] = datasets_config.get("huggingface")
 evaluation_table_name: str = evaluation_config.get("table_name")
 source_table_name: str = huggingface_config.get("table_name")
 
-logger.info(f"evaluation_table_name: {evaluation_table_name}")
-logger.info(f"source_table_name: {source_table_name}")
+print(f"evaluation_table_name: {evaluation_table_name}")
+print(f"source_table_name: {source_table_name}")
 
 
 # COMMAND ----------
