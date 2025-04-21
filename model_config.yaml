@@ -15,7 +15,6 @@ evaluation:
 app:
   registered_model_name: nfleming.retail_ai.retail_ai_agent
   endpoint_name: retail_ai_agent
-  connection_url: pgsql://
   example_input:
     messages:
       - role: user
@@ -24,6 +23,13 @@ app:
       configurable:
         thread_id: "1"
         tone: pirate
+
+
+checkpointer:
+  connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
+  connection_kwargs:
+    autocommit: True
+    prepare_threshold: 0
 
 
 agents:
