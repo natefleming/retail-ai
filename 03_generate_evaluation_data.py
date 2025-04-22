@@ -25,12 +25,7 @@ pip_requirements: Sequence[str] = (
   f"backoff=={version('backoff')}",
   f"mlflow=={version('mlflow')}",
 )
-logger.info("\n".join(pip_requirements))
-
-# COMMAND ----------
-
-# MAGIC %load_ext autoreload
-# MAGIC %autoreload 2
+print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
@@ -53,11 +48,12 @@ datasets_config: Dict[str, Any] = model_config.get("datasets")
 huggingface_config: Dict[str, Any] = datasets_config.get("huggingface")
 
 evaluation_table_name: str = evaluation_config.get("table_name")
+num_evals: int = evaluation_config.get("num_evals")
 source_table_name: str = huggingface_config.get("table_name")
 
 print(f"evaluation_table_name: {evaluation_table_name}")
 print(f"source_table_name: {source_table_name}")
-
+print(f"num_evals: {num_evals}")
 
 # COMMAND ----------
 
@@ -94,12 +90,11 @@ question_guidelines = f"""
 - Questions should be succinct, and human-like
 """
 
-num_evals = 25
 evals_pdf: pd.DataFrame = generate_evals_df(
     docs=parsed_docs_pdf[
         :500
-    ],  # Pass your docs. They should be in a Pandas or Spark DataFrame with columns `content STRING` and `doc_uri STRING`.
-    num_evals=num_evals,  # How many synthetic evaluations to generate
+    ],  
+    num_evals=num_evals, 
     agent_description=agent_description,
     question_guidelines=question_guidelines,
 )

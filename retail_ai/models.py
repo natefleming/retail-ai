@@ -1,9 +1,12 @@
 from typing import Any, Generator, Optional
 
+
+from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 
 import mlflow
-from mlflow.langchain.chat_agent_langgraph import ChatAgentState, ChatAgentToolNode
+from mlflow import MlflowClient
+from mlflow.langchain.chat_agent_langgraph import ChatAgentState, ChatAgentToolNode, parse_message
 from mlflow.pyfunc import ChatAgent
 from mlflow.types.agent import (
     ChatAgentChunk,
@@ -11,6 +14,18 @@ from mlflow.types.agent import (
     ChatAgentResponse,
     ChatContext,
 )
+
+
+
+def get_latest_model_version(model_name: str) -> int:
+    mlflow_client: MlflowClient = MlflowClient()
+    latest_version: int = 1
+    for mv in mlflow_client.search_model_versions(f"name='{model_name}'"):
+        version_int = int(mv.version)
+        if version_int > latest_version:
+            latest_version = version_int
+    return latest_version
+
 
 class LangGraphChatAgent(ChatAgent):
     def __init__(self, agent: CompiledStateGraph):
@@ -49,3 +64,5 @@ class LangGraphChatAgent(ChatAgent):
                 if isinstance(msg, BaseMessage):
                     msg = parse_message(msg)
                     yield ChatAgentChunk(**{"delta": msg})
+
+
