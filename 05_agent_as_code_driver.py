@@ -440,14 +440,6 @@ with mlflow.start_run():
 
 # COMMAND ----------
 
-from databricks.sdk import WorkspaceClient
-
-w: WorkspaceClient = WorkspaceClient()
-
-w.statement_execution.execute_statement(statement= "", warehouse_id="", catalog=optional)
-
-# COMMAND ----------
-
 import mlflow
 from mlflow.entities.model_registry.model_version import ModelVersion
 
