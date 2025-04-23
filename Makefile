@@ -35,8 +35,8 @@ depends:
 	$(UV_SYNC) 
 
 format: depends
-	$(RUFF) $(SRC_DIR) 
 	$(ISORT) $(SRC_DIR) 
+	$(RUFF) $(SRC_DIR) 
 
 
 clean: 
