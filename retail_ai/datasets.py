@@ -1,18 +1,13 @@
-from typing import Iterator, Sequence
 import os
 import re
-import time
 from pathlib import Path
-
-from pyspark.sql.datasource import DataSource, DataSourceReader, SimpleDataSourceStreamReader, InputPartition
-from pyspark.sql import SparkSession, DataFrame, Row
-import pyspark.sql.types as T
-import pyspark.sql.functions as F
+from typing import Iterator, Sequence
 
 import pandas as pd
-
-from datasets import load_dataset, DatasetDict
-
+import pyspark.sql.types as T
+from datasets import DatasetDict, load_dataset
+from pyspark.sql import Row
+from pyspark.sql.datasource import DataSource, DataSourceReader, InputPartition
 
 
 def _dataset_dict_to_pandas(

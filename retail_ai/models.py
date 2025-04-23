@@ -1,25 +1,12 @@
-from typing import (
-    Any, 
-    Generator, 
-    Optional, 
-    Union, 
-    Sequence, 
-    Iterator
-)
+from typing import Any, Generator, Iterator, Optional, Sequence, Union
 
 from langchain_core.messages import BaseMessage, MessageLikeRepresentation
 from langgraph.graph.state import CompiledStateGraph
-
-import mlflow
 from mlflow import MlflowClient
-from mlflow.langchain.chat_agent_langgraph import ChatAgentState, ChatAgentToolNode, parse_message
+from mlflow.langchain.chat_agent_langgraph import parse_message
 from mlflow.pyfunc import ChatAgent
-from mlflow.types.agent import (
-    ChatAgentChunk,
-    ChatAgentMessage,
-    ChatAgentResponse,
-    ChatContext,
-)
+from mlflow.types.agent import (ChatAgentChunk, ChatAgentMessage,
+                                ChatAgentResponse, ChatContext)
 
 
 def get_latest_model_version(model_name: str) -> int:

@@ -1,19 +1,13 @@
-from typing import (
-    Callable,
-    Sequence, 
-    Literal, 
-    Optional, 
-    Any, 
-    Generator
-)
+from typing import Callable, Optional, Sequence
 
-from langgraph.prebuilt import create_react_agent
+from databricks_ai_bridge.genie import GenieResponse
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools.base import BaseTool
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import create_react_agent
 
-from retail_ai.tools import create_vector_search_tool, create_genie_tool
-from retail_ai.state import AgentState, AgentConfig
+from retail_ai.state import AgentConfig, AgentState
+from retail_ai.tools import create_genie_tool, create_vector_search_tool
 
 
 def create_vector_search_agent(
@@ -57,7 +51,7 @@ def create_genie_agent(
         name="genie_agent",
         model=model,
         tools=[genie_tool],
-        prompt=f"""
+        prompt="""
             You are an intelligent agent that can answer questions about retail items. You have access to a warehouse that contains product information. Use tools to answer the question. If the question is not related to product details, just say that you don't know.
         """,
         state_schema=AgentState,

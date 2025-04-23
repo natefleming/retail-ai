@@ -1,6 +1,5 @@
-from typing import Any, Callable
-
 import importlib
+from typing import Any, Callable
 
 
 def callable_from_fqn(fqn: str) -> Callable[[Any, ...], Any]:
