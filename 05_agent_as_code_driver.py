@@ -507,3 +507,19 @@ users: Sequence[str] = config.get("app").get("users")
 if users:
   set_permissions(model_name=registered_model_name, users=users, permission_level=PermissionLevel.CAN_MANAGE)
 
+
+# COMMAND ----------
+
+from typing import Any
+from mlflow.deployments import get_deploy_client
+
+from agent_as_code import config
+
+endpoint_name: str = config.get("app").get("endpoint_name")
+example_input: dict[str, Any] = config.get("app").get("example_input")
+
+get_deploy_client("databricks").predict(
+  endpoint=endpoint_name,
+  inputs=example_input,
+)
+
