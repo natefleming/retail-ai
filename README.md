@@ -43,11 +43,11 @@ The agent uses a routing architecture that directs user questions to specialized
 
 ```bash
 # Create and activate a Python virtual environment 
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+uv venv
+source  .venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
-pip install -e .
+uv sync
 ```
 
 ## Configuration
@@ -87,12 +87,6 @@ The project includes several notebooks for setup and execution:
 
 ```bash
 make dist
-```
-
-### Running Tests
-
-```bash
-make test
 ```
 
 ## Deployment
