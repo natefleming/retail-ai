@@ -10,3 +10,4 @@ class AgentConfig(TypedDict):
 class AgentState(MessagesState):
   context: Sequence[Document]
   route: str
+  remaining_steps: int

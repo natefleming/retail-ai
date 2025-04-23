@@ -1,4 +1,11 @@
 # Databricks notebook source
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+# MAGIC # Enables autoreload; learn more at https://docs.databricks.com/en/files/workspace-modules.html#autoreload-for-python-modules
+# MAGIC # To disable autoreload; run %autoreload 0
+
+# COMMAND ----------
+
 from typing import Sequence
 
 pip_requirements: Sequence[str] = (
@@ -61,6 +68,7 @@ datasets_config: dict[str, Any] = config.get("datasets")
 huggingface_config: dict[str, Any] = datasets_config.get("huggingface")
 source_table_name: str = huggingface_config.get("table_name")
 
+space_id = config.get("genie").get("space_id")
 
 assert embedding_model_endpoint_name is not None
 assert endpoint_name is not None
@@ -71,7 +79,7 @@ assert embedding_source_column is not None
 assert source_table_name is not None
 assert columns is not None
 assert search_parameters is not None
-
+assert space_id is not None
 
 # COMMAND ----------
 
@@ -95,4 +103,57 @@ vector_search_retriever_tool: BaseTool = (
 
 # COMMAND ----------
 
-\
+from langgraph.prebuilt import create_react_agent
+from databricks_langchain import ChatDatabricks
+from retail_ai.tools import create_vector_search_tool
+from retail_ai.state import AgentState, AgentConfig
+
+
+vs_tool = create_vector_search_tool(
+    name="vector_search_tool",
+    description="find context from vector search",
+    index_name=index_name,
+    columns=columns
+)
+
+model_name: str = "databricks-meta-llama-3-3-70b-instruct"
+vector_search_agent = create_react_agent(
+    model=ChatDatabricks(model=model_name, temperature=0.1),
+    tools=[vs_tool],
+    prompt="You are an intelligent agent that can answer questions about summarizing product reviews. You have access to a vector search index that contains product reviews. Use the vector search index to answer the question. If the question is not related to product reviews, just say that you don't know.",
+    state_schema=AgentState,
+    config_schema=AgentConfig,
+    checkpointer=None,
+)
+
+# COMMAND ----------
+
+type(vector_search_agent)
+
+# COMMAND ----------
+
+
+input = config.get("app").get("example_input")
+
+foo = vector_search_agent.invoke(input=input)
+
+# COMMAND ----------
+
+ffoo
+
+# COMMAND ----------
+
+space_id
+
+# COMMAND ----------
+
+from retail_ai.tools import create_genie_tool
+
+genie_tool= create_genie_tool(
+    space_id=space_id
+)
+
+
+# COMMAND ----------
+
+type(genie_tool.__doc__)

@@ -1,9 +1,18 @@
 from typing import Sequence, Optional, Callable
 
-from langchain_core.tools.base import BaseTool
+from langchain_core.tools import BaseTool, tool
 from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
 from databricks_langchain.genie import Genie
 from databricks_ai_bridge.genie import GenieResponse
+from databricks_langchain import UCFunctionToolkit
+
+
+def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
+  if isinstance(function_names, str):
+    function_names = [function_names]
+  toolkit: UCFunctionToolkit = UCFunctionToolkit(function_names=function_names)
+  return toolkit.tools
+
 
 def create_vector_search_tool(
   name: str,
@@ -28,20 +37,17 @@ def create_vector_search_tool(
 # Try to ask for aggregations on the data and ask very simple questions. 
 # Prefer to call this tool multiple times rather than asking a complex question.
 
-def create_genie_tool(
-  name: str,
-  description: str,
-  space_id: Optional[str] = None) -> Callable[[str], GenieResponse]:
+def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieResponse]:
 
     space_id = space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
     genie: Genie = Genie(
         space_id=space_id,
     )
 
-    @tool(name)
+    @tool
     def genie_tool(question: str) -> GenieResponse:
-        f"""
-        {description}
+        """
+        Use this tool to use Genie to answer questions about the data.
 
         Args:
             question (str): The question to ask to ask Genie
@@ -50,7 +56,7 @@ def create_genie_tool(
             response (GenieResponse): An object containing the Genie response
         """
 
-        response: GenieResponse = genie.ask_question(content)
+        response: GenieResponse = genie.ask_question(question)
         return response
 
     return genie_tool
