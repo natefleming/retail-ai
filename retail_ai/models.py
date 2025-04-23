@@ -1,7 +1,13 @@
-from typing import Any, Generator, Optional
+from typing import (
+    Any, 
+    Generator, 
+    Optional, 
+    Union, 
+    Sequence, 
+    Iterator
+)
 
-
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, MessageLikeRepresentation
 from langgraph.graph.state import CompiledStateGraph
 
 import mlflow
@@ -14,7 +20,6 @@ from mlflow.types.agent import (
     ChatAgentResponse,
     ChatContext,
 )
-
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -65,4 +70,26 @@ class LangGraphChatAgent(ChatAgent):
                     msg = parse_message(msg)
                     yield ChatAgentChunk(**{"delta": msg})
 
+
+def create_agent(graph: CompiledStateGraph) -> ChatAgent:
+    return LangGraphChatAgent(graph)
+    
+
+def process_messages_stream(
+    app: ChatAgent,
+    messages: Union[Sequence[MessageLikeRepresentation], dict[str, Any]]
+) -> Iterator[BaseMessage]:
+  if isinstance(messages, list):
+    messages = {"messages": messages}
+  for event in app.predict_stream(messages):
+    yield event
+
+
+def process_messages(
+    app: ChatAgent,
+    messages: Union[Sequence[MessageLikeRepresentation], dict[str, Any]]
+) -> Iterator[BaseMessage]:
+  if isinstance(messages, list):
+    messages = {"messages": messages}
+  return app.predict(messages)
 

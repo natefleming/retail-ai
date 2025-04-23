@@ -22,6 +22,22 @@ app:
       configurable:
         thread_id: "1"
         tone: pirate
+  recommendation_example:
+    messages:
+      - role: user
+        content: Can you recommend a lamp to match my oak side tables?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        tone: pirate
+  inventory_example:
+    messages:
+      - role: user
+        content: How many oak tables do we have in stock?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        tone: pirate
 
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
