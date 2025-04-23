@@ -33,12 +33,6 @@ def create_vector_search_tool(
   return vector_search_tool
 
 
-# This tool lets you have a conversation and chat with tabular data about <topic>. You should ask
-# questions about the data and the tool will try to answer them.
-# Please ask simple clear questions that can be answer by sql queries. If you need to do statistics or other forms of testing defer to using another tool.
-# Try to ask for aggregations on the data and ask very simple questions. 
-# Prefer to call this tool multiple times rather than asking a complex question.
-
 def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieResponse]:
 
     space_id = space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
@@ -49,7 +43,11 @@ def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieRe
     @tool
     def genie_tool(question: str) -> GenieResponse:
         """
-        Use this tool to use Genie to answer questions about the data.
+        This tool lets you have a conversation and chat with tabular data about <topic>. You should ask
+        questions about the data and the tool will try to answer them.
+        Please ask simple clear questions that can be answer by sql queries. If you need to do statistics or other forms of testing defer to using another tool.
+        Try to ask for aggregations on the data and ask very simple questions. 
+        Prefer to call this tool multiple times rather than asking a complex question.
 
         Args:
             question (str): The question to ask to ask Genie

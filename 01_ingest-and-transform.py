@@ -75,7 +75,7 @@ w: WorkspaceClient = WorkspaceClient()
 
 catalog: CatalogInfo = get_or_create_catalog(name=catalog_name, w=w)
 database: SchemaInfo = get_or_create_database(catalog=catalog, name=database_name, w=w)
-volume: VolumeInfo = get_or_create_volume(database=database, name=volume_name, w=w)
+volume: VolumeInfo = get_or_create_volume(catalog=catalog, database=database, name=volume_name, w=w)
 
 print(f"catalog: {catalog.full_name}")
 print(f"database: {database.full_name}")
