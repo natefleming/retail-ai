@@ -1,36 +1,20 @@
-from typing import (
-    Callable,
-    Sequence, 
-    Literal, 
-    Optional, 
-    Any, 
-    Generator
-)
+from typing import Literal, Optional, Sequence
 
 import mlflow
-
+from databricks_langchain import ChatDatabricks, DatabricksVectorSearch
 from langchain.prompts import PromptTemplate
+from langchain_core.documents.base import Document
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage
+from langchain_core.runnables import RunnableSequence
 from langchain_core.vectorstores.base import VectorStore
-from langchain_core.documents.base import Document
-from langchain_core.tools.base import BaseTool
-
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import create_react_agent
-
-from databricks_langchain import ChatDatabricks, DatabricksVectorSearch
-from databricks_langchain.genie import Genie
-from databricks_ai_bridge.genie import GenieResponse
-
-
-from retail_ai.state import AgentState, AgentConfig
-from retail_ai.messages import last_message, last_human_message
-from retail_ai.types import AgentCallable
-from retail_ai.agents import create_genie_agent, create_vector_search_agent
-
-
 from pydantic import BaseModel, Field
+
+from retail_ai.agents import create_genie_agent, create_vector_search_agent
+from retail_ai.messages import last_human_message, last_message
+from retail_ai.state import AgentConfig, AgentState
+from retail_ai.types import AgentCallable
 
 allowed_routes: Sequence[str] = (
     "code", 

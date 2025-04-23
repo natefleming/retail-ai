@@ -1,6 +1,7 @@
 
 from databricks.vector_search.client import VectorSearchClient
 
+
 def endpoint_exists(vsc: VectorSearchClient, vs_endpoint_name: str) -> bool:
     try:
         return vs_endpoint_name in [e['name'] for e in vsc.list_endpoints().get('endpoints', [])]
@@ -17,6 +18,6 @@ def index_exists(vsc: VectorSearchClient, endpoint_name: str, index_full_name: s
         return True
     except Exception as e:
         if 'RESOURCE_DOES_NOT_EXIST' not in str(e):
-            print(f'Unexpected error describing the index. This could be a permission issue.')
+            print('Unexpected error describing the index. This could be a permission issue.')
             raise e
     return False

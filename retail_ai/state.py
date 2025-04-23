@@ -1,8 +1,8 @@
-from typing import TypedDict, Literal, Sequence
-from langgraph.graph import MessagesState
+from typing import Sequence, TypedDict
+
 from langchain_core.documents.base import Document
-from mlflow.langchain.chat_agent_langgraph import ChatAgentState
- 
+from langgraph.graph import MessagesState
+
 
 class AgentConfig(TypedDict):
   ...

@@ -1,11 +1,7 @@
-from typing import Sequence, Callable, Optional
+from typing import Callable, Optional, Sequence
 
-from langchain_core.messages import (
-  AIMessage, 
-  BaseMessage, 
-  HumanMessage, 
-  ToolMessage
-)
+from langchain_core.messages import (AIMessage, BaseMessage, HumanMessage,
+                                     ToolMessage)
 
 
 def last_message(
@@ -13,7 +9,9 @@ def last_message(
   predicate: Optional[Callable[[BaseMessage], bool]] = None
 ) -> Optional[BaseMessage]:
   if predicate is None:
-    predicate = lambda m: True
+    def null_predicate(m: BaseMessage) -> bool:
+      return True
+    predicate = null_predicate
     
   return next(reversed([m for m in messages if predicate(m)]), None)
 
