@@ -1,13 +1,14 @@
 import os
 from typing import Callable, Optional, Sequence
 
+import mlflow
 from databricks_ai_bridge.genie import GenieResponse
 from databricks_langchain import UCFunctionToolkit
 from databricks_langchain.genie import Genie
 from databricks_langchain.vector_search_retriever_tool import \
     VectorSearchRetrieverTool
 from langchain_core.tools import BaseTool, tool
-import mlflow
+
 
 def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
   if isinstance(function_names, str):
