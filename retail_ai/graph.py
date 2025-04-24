@@ -15,21 +15,28 @@ def create_graph(
     model_name: str,
     endpoint: str,
     index_name: str,
-    search_parameters: dict[str, str],
+    primary_key: str,
+    text_column: str,
+    doc_uri: str,
     columns: Sequence[str],
+    search_parameters: dict[str, str],
     space_id: str
 ) -> CompiledStateGraph:
 
-    route_question: AgentCallable = route_question_node(model_name)
+    route_question: AgentCallable = route_question_node(model_name=model_name)
     genie_question: AgentCallable = genie_question_node(model_name=model_name, space_id=space_id)
-    code_question: AgentCallable = code_question_node(model_name)
+    code_question: AgentCallable = code_question_node(model_name=model_name)
     vector_search_question: AgentCallable = vector_search_question_node(
         model_name=model_name,
         index_name=index_name,
+        primary_key=primary_key,
+        text_column=text_column,
+        doc_uri=doc_uri,
         columns=columns,
+        search_parameters=search_parameters,
     )
-    generic_question: AgentCallable = generic_question_node(model_name)
-    summarize_response: AgentCallable = summarize_response_node(model_name)
+    generic_question: AgentCallable = generic_question_node(model_name=model_name)
+    summarize_response: AgentCallable = summarize_response_node(model_name=model_name)
 
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
