@@ -7,7 +7,7 @@ from databricks_langchain.genie import Genie
 from databricks_langchain.vector_search_retriever_tool import \
     VectorSearchRetrieverTool
 from langchain_core.tools import BaseTool, tool
-
+import mlflow
 
 def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
   if isinstance(function_names, str):
@@ -20,7 +20,11 @@ def create_vector_search_tool(
   name: str,
   description: str,
   index_name: str,
+  primary_key: str = "id",
+  text_column: str = "content",
+  doc_uri: str = "doc_uri",
   columns: Sequence[str] = None,
+  search_parameters: dict[str, str] = {},
 ) -> BaseTool:
   vector_search_tool: BaseTool = (
     VectorSearchRetrieverTool(
@@ -28,8 +32,18 @@ def create_vector_search_tool(
       description=description,
       index_name=index_name,
       columns=columns,
+      **search_parameters,
     )
   )
+
+  mlflow.models.set_retriever_schema(
+      name=name,
+      primary_key=primary_key,
+      text_column=text_column,
+      doc_uri=doc_uri,
+      other_columns=columns
+  )
+
   return vector_search_tool
 
 

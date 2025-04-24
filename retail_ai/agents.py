@@ -13,14 +13,22 @@ from retail_ai.tools import create_genie_tool, create_vector_search_tool
 def create_vector_search_agent(
     model: LanguageModelLike, 
     index_name: str,
-    columns: Optional[Sequence[str]] = None
+    primary_key: str = "id",
+    text_column: str = "content",
+    doc_uri: str = "doc_uri",
+    columns: Optional[Sequence[str]] = None,
+    search_parameters: dict[str, str] = {},
 ) -> CompiledStateGraph:
 
     vs_tool: BaseTool = create_vector_search_tool(
         name="vector_search_tool",
         description="find context from vector search",
         index_name=index_name,
-        columns=columns
+        primary_key=primary_key,
+        text_column=text_column,
+        doc_uri=doc_uri,
+        columns=columns,
+        search_parameters=search_parameters,
     )
 
     vector_search_agent: CompiledStateGraph = create_react_agent(

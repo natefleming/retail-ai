@@ -87,14 +87,23 @@ def code_question_node(model_name: str) -> AgentCallable:
 def vector_search_question_node(
     model_name: str, 
     index_name: str,
-    columns: Optional[Sequence[str]] = None) -> AgentCallable:
+    primary_key: str,
+    text_column: str,
+    doc_uri: str,
+    columns: Optional[Sequence[str]] = None,
+    search_parameters: dict[str, str] = {},    
+) -> AgentCallable:
 
     model: LanguageModelLike = ChatDatabricks(model=model_name, temperature=0.1)
 
     vector_search_agent: CompiledStateGraph = create_vector_search_agent(
         model=model,
         index_name=index_name,
-        columns=columns
+        primary_key=primary_key,
+        text_column=text_column,
+        doc_uri=doc_uri,
+        columns=columns,
+        search_parameters=search_parameters,
     )
 
     @mlflow.trace()

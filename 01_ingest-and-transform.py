@@ -50,10 +50,16 @@ config: ModelConfig = ModelConfig(development_config="model_config.yaml")
 catalog_name: str = config.get("catalog_name")
 database_name: str = config.get("database_name")
 volume_name: str = config.get("volume_name")
+primary_key: str = config.get("retriever").get("primary_key")
+doc_uri: str = config.get("retriever").get("doc_uri")
+embedding_source_column: str = config.get("retriever").get("embedding_source_column")
 
 print(f"catalog_name: {catalog_name}")
 print(f"database_name: {database_name}")
 print(f"volume_name: {volume_name}")
+print(f"primary_key: {primary_key}")
+print(f"doc_uri: {doc_uri}")
+print(f"embedding_source_column: {embedding_source_column}")
 
 # COMMAND ----------
 
@@ -117,7 +123,7 @@ wands_df: DataFrame = (
   spark.read
     .format("huggingface")
     .option("repo_id", wands_repo_id)
-    .option("primary_key", "id")
+    .option("primary_key", wands_primary_key)
     .option("cache_dir", hf_datasets_path.as_posix())
     .load()
 )
@@ -126,8 +132,9 @@ wands_df = wands_df.filter(F.col("product_description").isNotNull())
 
 wands_df = wands_df.withColumns(
   {
-    "content": F.col("product_description"),
-    "doc_uri": F.lit(wands_repo_id),
+    embedding_source_column: F.col("product_description"),
+    doc_uri: F.lit(wands_repo_id),
+    primary_key: F.col(wands_primary_key)
   }
 )
 

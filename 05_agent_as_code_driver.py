@@ -72,16 +72,23 @@ print("\n".join(pip_requirements))
 # MAGIC endpoint: str = config.get("retriever").get("endpoint_name")
 # MAGIC index_name: str = config.get("retriever").get("index_name")
 # MAGIC search_parameters: dict[str, str] = config.get("retriever").get("search_parameters")
+# MAGIC primary_key: str = config.get("retriever").get("primary_key")
+# MAGIC doc_uri: str = config.get("retriever").get("doc_uri")
+# MAGIC text_column: str = config.get("retriever").get("embedding_source_column")
 # MAGIC columns: Sequence[str] = config.get("retriever").get("columns")
 # MAGIC space_id: str = config.get("genie").get("space_id")
+# MAGIC
 # MAGIC
 # MAGIC graph: CompiledStateGraph = (
 # MAGIC     create_graph(
 # MAGIC         model_name=model_name,
 # MAGIC         endpoint=endpoint,
 # MAGIC         index_name=index_name,
-# MAGIC         search_parameters=search_parameters,
+# MAGIC         primary_key=primary_key,
+# MAGIC         doc_uri=doc_uri,
+# MAGIC         text_column=text_column,
 # MAGIC         columns=columns,
+# MAGIC         search_parameters=search_parameters,
 # MAGIC         space_id=space_id
 # MAGIC     )
 # MAGIC )
@@ -183,25 +190,18 @@ from agent_as_code import config
 model_name: str = config.get("llms").get("model_name")
 index_name: str = config.get("retriever").get("index_name")
 space_id: str = config.get("genie").get("space_id")
+functions: Sequence[str] = config.get("functions")
 
 resources: Sequence[DatabricksResource] = [
     DatabricksServingEndpoint(endpoint_name=model_name),
     DatabricksVectorSearchIndex(index_name=index_name),
     DatabricksGenieSpace(genie_space_id=space_id),
-    DatabricksFunction(function_name="nfleming.retail_ai.find_wands_product_by_id"),
-    DatabricksFunction(function_name="system.ai.python_exec")
 ]
-
-# tools = []
-# for tool in tools:
-#     if isinstance(tool, VectorSearchRetrieverTool):
-#         resources.extend(tool.resources)
-#     elif isinstance(tool, UnityCatalogTool):
-#         resources.append(DatabricksFunction(function_name=tool.uc_function_name))
+resources += [DatabricksFunction(function_name=f) for f in functions]
 
 
 with mlflow.start_run(run_name="agent"):
-    mlflow.set_tag("type", "chain")
+    mlflow.set_tag("type", "agent")
     logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
         python_model="agent_as_code.py",
         code_paths=["retail_ai"],

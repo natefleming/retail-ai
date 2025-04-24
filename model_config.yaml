@@ -53,12 +53,17 @@ evaluation:
 genie:
   space_id: 01f01c91f1f414d59daaefd2b7ec82ea
 
+functions:
+  - nfleming.retail_ai.find_wands_product_by_id
+  - system.ai.python_exec
+
 retriever:
   embedding_model_endpoint_name: databricks-gte-large-en
   endpoint_name: one-env-shared-endpoint-12
   endpoint_type: STANDARD
   index_name: nfleming.retail_ai.wands_index
   primary_key: id
+  doc_uri: doc_uri
   embedding_source_column: content
   columns:
     - product_id
@@ -70,7 +75,9 @@ retriever:
     - review_count
     - doc_uri
   search_parameters:
-    k: 10
+    num_results: 10
+    filter: {}
+    query_type: ANN
 
 agents:
 
