@@ -1,0 +1,208 @@
+
+# yaml-language-server: $schema=./agent_as_code.json
+
+unity-catalog:
+    catalog_name: nfleming
+    database_name: retail_ai
+    volume_name: retail_ai
+    grant: 
+        - principal: nate.fleming@databricks.com
+          privileges: 
+            - ALL_PRIVILEGES
+
+            
+resources:
+    llms:
+        tool-calling-llm: &tool-calling-llm
+            name: "Tool Calling LLM"
+            model: databricks-meta-llama-3-3-70b-instruct
+            temperature: 0.1
+            max_tokens: 8192
+            
+        reasoning-llm: &reasoning-llm
+            name: "Reasoning LLM"
+            model: databricks-claude-3-7-sonnet
+            temperature: 0.1
+            max_tokens: 8192   
+
+        judge-llm: &judge-llm
+            name: "Judge LLM"
+            model: databricks-claude-3-7-sonnet
+            temperature: 0.5
+            max_tokens: 50
+
+        embedding-model: &embedding-model
+            name: "Embedding Model"
+            model: databricks-gte-large-en
+
+
+    retrievers:
+        retail-vector-search-retriever: &retail-vector-search-retriever
+            name: "Vector Search Retriever"
+            description: "A retriever for performing vector searches in a database."
+            endpoint_name: one-env-shared-endpoint-12
+            embedding_model: *embedding-model
+            endpoint_type: STANDARD
+            index_name: nfleming.retail_ai.wands_index
+            embedding_dimension: 1024
+            primary_key: id
+            doc_uri: doc_uri
+            embedding_source_column: content
+            columns_to_sync: ~
+            
+    functions:
+        find_product_id_by_name: &find_product_id_by_name
+            name: nfleming.retail_ai.find_product_id_by_name
+        code_execution: &code_execution
+            name: system.ai.python_exec  
+
+    warehouses:
+        shared-endpoint-warehouse: &shared-endpoint-warehouse
+            name: "Shared Endpoint Warehouse"
+            description: "A warehouse for shared endpoints"
+            warehouse_id: 148ccb90800933a1
+
+    genie_rooms:
+        retail-genie-room: &retail-genie-room
+            name: "Retail AI Genie Room"
+            description: "A room for Genie agents to interact"
+            space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+
+    databases:
+        retail-database: &retail-database
+            name: "Retail Database"
+            connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
+            connection_kwargs:
+                autocommit: True
+                prepare_threshold: 0
+
+tools:
+    find_product_id_by_name_tool: &find_product_id_by_name_tool
+        name: find_product_id_by_name_tool
+        description: "A tool for finding product IDs by name."
+        function: 
+            <<: *find_product_id_by_name
+            type: unity-catalog
+
+    vector_search_tool: &vector_search_tool
+        name: Vector Search Tool
+        description: "A tool for performing vector searches in a database."
+        function: 
+            name: retail_ai.tools.vector_search
+            type: python
+            parameters: 
+                <<: *retail-vector-search-retriever
+                columns:
+                    - product_id
+                    - product_name
+                    - product_class
+                    - category_hierarchy
+                    - rating_count
+                    - average_rating
+                    - review_count
+                    - doc_uri
+                num_results: 5
+                filter: {}
+                query_type: ANN
+
+    web_search_tool: &web_search_tool
+        name: "Web Search Tool"
+        description: "A tool for performing web searches."
+        function: 
+            name: retail_ai.tools.web_search
+            type: python
+            parameters:
+                api_key: "your_api_key_here"
+
+    code_execution_tool: &code_execution_tool
+        name: "Code Execution Tool"
+        description: "A tool for executing code snippets."
+        function: 
+            <<: *code_execution
+            type: unity-catalog
+
+    genie_tool: &genie_tool
+        name: "Genie Tool"
+        description: "A tool for generating code snippets."
+        function: 
+            name: retail_ai.tools.genie
+            type: python
+            parameters: *retail-genie-room
+
+checkpointer: &checkpointer
+    type: postgres
+    storage: *retail-database
+
+agents:
+    genie_agent: &genie_agent
+        name: "Genie Agent"
+        prompt: "You are a Genie agent. Your task is to generate code snippets based on user queries."
+        handoff_prompt: "If you cannot answer the question, please hand off to the reasoning LLM."
+        llm: *tool-calling-llm
+        tools:
+            - *genie_tool
+        checkpointer: *checkpointer
+
+    vector_search_agent: &vector_search_agent
+        name: "Vector Search Agent"
+        prompt: "You are a Vector Search agent. Your task is to perform vector searches in a database."
+        handoff_prompt: "If you cannot answer the question, please hand off to the reasoning LLM."
+        llm: *tool-calling-llm
+        tools:
+            - *vector_search_tool
+        checkpointer: *checkpointer
+
+    research_agent: &research_agent
+        name: "Research Agent"
+        prompt: "You are a Research agent. Your task is to perform web searches and gather information."
+        handoff_prompt: "If you cannot answer the question, please hand off to the reasoning LLM."
+        llm: *reasoning-llm
+        tools:
+            - *web_search_tool
+        checkpointer: *checkpointer
+
+app:
+    registered_model_name: nfleming.retail_ai.retail_ai_agent    
+    endpoint_name: retail_ai_agent
+    tags:
+        business: retail
+        streaming: true
+        purpose: demo
+        endpointSource: playground
+
+    agents:
+        - *genie_agent
+        - *vector_search_agent
+        - *research_agent
+
+    input_examples: 
+        recommendation_example:
+            messages:
+            - role: user
+              content: Can you recommend a lamp to match my oak side tables?
+            custom_inputs: {}
+            configurable:
+                thread_id: "1"
+                tone: pirate
+        inventory_example:
+            messages:
+            - role: user
+              content: How many oak tables do we have in stock?
+            custom_inputs: {}
+            configurable:
+                thread_id: "1"
+                tone: pirate
+
+
+evaluation:
+    llm: *judge-llm
+    table_name: nfleming.retail_ai.wands_evaluation
+    num_evals: 10
+
+
+
+datasets:
+  huggingface:
+    repo_id: napsternxg/wands
+    primary_key: id
+    table_name: nfleming.retail_ai.wands
