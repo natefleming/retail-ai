@@ -1,269 +1,535 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Agent-as-Code Configuration Schema",
-    "type": "object",
-    "required": ["unity-catalog", "resources", "tools", "checkpointer", "agents", "app"],
-    "properties": {
-      "unity-catalog": {
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent-as-Code Configuration",
+  "description": "Schema for configuring Agent-as-Code deployments",
+  "type": "object",
+  "required": [
+    "unity_catalog",
+    "resources",
+    "tools",
+    "agents",
+    "app"
+  ],
+  "properties": {
+    "unity_catalog": {
+      "type": "object",
+      "required": [
+        "catalog_name",
+        "database_name"
+      ],
+      "properties": {
+        "catalog_name": {
+          "type": "string"
+        },
+        "database_name": {
+          "type": "string"
+        },
+        "volume_name": {
+          "type": "string"
+        },
+        "grant": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "principal",
+              "privileges"
+            ],
+            "properties": {
+              "principal": {
+                "type": "string"
+              },
+              "privileges": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "llms": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name",
+              "model"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "temperature": {
+                "type": "number"
+              },
+              "max_tokens": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "retrievers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name",
+              "description",
+              "endpoint_name",
+              "index_name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "endpoint_name": {
+                "type": "string"
+              },
+              "embedding_model": {
+                "type": "object"
+              },
+              "endpoint_type": {
+                "type": "string"
+              },
+              "index_name": {
+                "type": "string"
+              },
+              "embedding_dimension": {
+                "type": "integer"
+              },
+              "primary_key": {
+                "type": "string"
+              },
+              "doc_uri": {
+                "type": "string"
+              },
+              "embedding_source_column": {
+                "type": "string"
+              },
+              "columns_to_sync": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "functions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "warehouses": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name",
+              "description",
+              "warehouse_id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "warehouse_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "genie_rooms": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name",
+              "description",
+              "space_id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "space_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "databases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name",
+              "connection_url"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "connection_url": {
+                "type": "string"
+              },
+              "connection_kwargs": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "connections": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name",
+              "description"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": {
         "type": "object",
-        "required": ["catalog_name", "database_name", "volume_name"],
+        "required": [
+          "name",
+          "description",
+          "function"
+        ],
         "properties": {
-          "catalog_name": { "type": "string" },
-          "database_name": { "type": "string" },
-          "volume_name": { "type": "string" },
-          "grant": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "function": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "unity_catalog",
+                  "python"
+                ]
+              },
+              "parameters": {
+                "type": [
+                  "object",
+                  "string"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "checkpointer": {
+      "type": "object",
+      "required": [
+        "type",
+        "storage"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "postgres",
+            "memory"
+          ]
+        },
+        "storage": {
+          "type": [
+            "object",
+            "string"
+          ]
+        }
+      }
+    },
+    "guardrails": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "strategy",
+          "evaluation_function",
+          "reward_function"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "best_of_n",
+              "refine"
+            ]
+          },
+          "evaluation_function": {
+            "type": "string"
+          },
+          "reward_function": {
+            "type": "string"
+          },
+          "N": {
+            "type": "integer"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "failed_count": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "name",
+          "prompt",
+          "llm",
+          "tools"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "handoff_prompt": {
+            "type": "string"
+          },
+          "llm": {
+            "type": [
+              "object",
+              "string"
+            ]
+          },
+          "tools": {
             "type": "array",
             "items": {
-              "type": "object",
-              "required": ["principal", "privileges"],
-              "properties": {
-                "principal": { "type": "string" },
-                "privileges": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "enum": [
-                      "ALL_PRIVILEGES",
-                      "MANAGE",
-                      "USE_CATALOG",
-                      "USE_SCHEMA",
-                      "APPLY_TAG",
-                      "BROWSE",
-                      "EXECUTE",
-                      "READ_VOLUME",
-                      "SELECT",
-                      "MODIFY",
-                      "REFRESH",
-                      "WRITE_VOLUME",
-                      "CREATE_FUNCTION",
-                      "CREATE_MATERIALIZED_VIEW",
-                      "CREATE_MODEL",
-                      "CREATE_MODEL_VERSION",
-                      "CREATE_SCHEMA",
-                      "CREATE_TABLE",
-                      "CREATE_VOLUME"
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "resources": {
-        "type": "object",
-        "required": ["llms", "retrievers", "functions", "warehouses", "genie_rooms", "databases"],
-        "properties": {
-          "llms": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "required": ["name", "model"],
-              "properties": {
-                "name": { "type": "string" },
-                "model": { "type": "string" },
-                "temperature": { "type": "number", "minimum": 0, "maximum": 1 },
-                "max_tokens": { "type": "integer", "minimum": 1 }
-              }
-            }
-          },
-          "retrievers": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "required": ["name", "description", "endpoint_name", "embedding_model", "endpoint_type", "index_name", "embedding_dimension", "primary_key", "doc_uri", "embedding_source_column"],
-              "properties": {
-                "name": { "type": "string" },
-                "description": { "type": "string" },
-                "endpoint_name": { "type": "string" },
-                "embedding_model": { "type": "object" },
-                "endpoint_type": { "type": "string", "enum": ["STANDARD"] },
-                "index_name": { "type": "string" },
-                "embedding_dimension": { "type": "integer", "minimum": 1 },
-                "primary_key": { "type": "string" },
-                "doc_uri": { "type": "string" },
-                "embedding_source_column": { "type": "string" },
-                "columns_to_sync": { "type": ["array", "null"] }
-              }
-            }
-          },
-          "functions": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "required": ["name"],
-              "properties": {
-                "name": { "type": "string" }
-              }
-            }
-          },
-          "warehouses": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "required": ["name", "warehouse_id"],
-              "properties": {
-                "name": { "type": "string" },
-                "description": { "type": "string" },
-                "warehouse_id": { "type": "string" }
-              }
-            }
-          },
-          "genie_rooms": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "required": ["name", "description", "space_id"],
-              "properties": {
-                "name": { "type": "string" },
-                "description": { "type": "string" },
-                "space_id": { "type": "string" }
-              }
-            }
-          },
-          "databases": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "required": ["name", "connection_url", "connection_kwargs"],
-              "properties": {
-                "name": { "type": "string" },
-                "connection_url": { "type": "string" },
-                "connection_kwargs": {
-                  "type": "object",
-                  "properties": {
-                    "autocommit": { "type": "boolean" },
-                    "prepare_threshold": { "type": "integer" }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "tools": {
-        "type": "object",
-        "additionalProperties": {
-          "type": "object",
-          "required": ["name", "description", "function"],
-          "properties": {
-            "name": { "type": "string" },
-            "description": { "type": "string" },
-            "function": {
-              "type": "object",
-              "oneOf": [
-                {
-                  "required": ["name", "type"],
-                  "properties": {
-                    "name": { "type": "string" },
-                    "type": { "type": "string", "enum": ["unity-catalog"] }
-                  }
-                },
-                {
-                  "required": ["name", "type", "parameters"],
-                  "properties": {
-                    "name": { "type": "string" },
-                    "type": { "type": "string", "enum": ["python"] },
-                    "parameters": { "type": "object" }
-                  }
-                }
+              "type": [
+                "object",
+                "string"
               ]
             }
-          }
-        }
-      },
-      "checkpointer": {
-        "type": "object",
-        "required": ["type", "storage"],
-        "properties": {
-          "type": { "type": "string", "enum": ["postgres"] },
-          "storage": { "type": "object" }
-        }
-      },
-      "agents": {
-        "type": "object",
-        "additionalProperties": {
-          "type": "object",
-          "required": ["name", "prompt", "handoff_prompt", "llm", "tools", "checkpointer"],
-          "properties": {
-            "name": { "type": "string" },
-            "prompt": { "type": "string" },
-            "handoff_prompt": { "type": "string" },
-            "llm": { "type": "object" },
-            "tools": {
-              "type": "array",
-              "items": { "type": "object" }
-            },
-            "checkpointer": { "type": "object" }
-          }
-        }
-      },
-      "app": {
-        "type": "object",
-        "required": ["registered_model_name", "endpoint_name", "tags", "agents", "input_examples"],
-        "properties": {
-          "registered_model_name": { "type": "string" },
-          "endpoint_name": { "type": "string" },
-          "tags": {
-            "type": "object",
-            "additionalProperties": { "type": ["string", "boolean"] }
           },
-          "agents": {
+          "checkpointer": {
+            "type": [
+              "object",
+              "string"
+            ]
+          },
+          "guardrails": {
             "type": "array",
-            "items": { "type": "object" }
+            "items": {
+              "type": [
+                "object",
+                "string"
+              ]
+            }
           },
-          "input_examples": {
+          "function": {
             "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "required": ["messages"],
-              "properties": {
-                "messages": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": ["role", "content"],
-                    "properties": {
-                      "role": { "type": "string", "enum": ["user", "system", "assistant"] },
-                      "content": { "type": "string" }
-                    }
-                  }
-                },
-                "custom_inputs": { "type": "object" },
-                "configurable": {
-                  "type": "object",
-                  "properties": {
-                    "thread_id": { "type": "string" },
-                    "tone": { "type": "string" }
-                  }
-                }
+            "required": [
+              "name",
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "unity_catalog",
+                  "python"
+                ]
+              },
+              "parameters": {
+                "type": [
+                  "object",
+                  "string"
+                ]
               }
             }
           }
         }
-      },
-      "evaluation": {
-        "type": "object",
-        "required": ["llm", "table_name", "num_evals"],
-        "properties": {
-          "llm": { "type": "object" },
-          "table_name": { "type": "string" },
-          "num_evals": { "type": "integer", "minimum": 1 }
-        }
-      },
-      "datasets": {
-        "type": "object",
-        "properties": {
-          "huggingface": {
+      }
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "registered_model_name",
+        "endpoint_name",
+        "agents"
+      ],
+      "properties": {
+        "registered_model_name": {
+          "type": "string"
+        },
+        "endpoint_name": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": [
+              "object",
+              "string"
+            ]
+          }
+        },
+        "input_examples": {
+          "type": "object",
+          "additionalProperties": {
             "type": "object",
-            "required": ["repo_id", "primary_key", "table_name"],
             "properties": {
-              "repo_id": { "type": "string" },
-              "primary_key": { "type": "string" },
-              "table_name": { "type": "string" }
+              "messages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "role",
+                    "content"
+                  ],
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "assistant",
+                        "system"
+                      ]
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "custom_inputs": {
+                "type": "object"
+              },
+              "configurable": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "required": [
+        "llm",
+        "table_name",
+        "num_evals"
+      ],
+      "properties": {
+        "llm": {
+          "type": [
+            "object",
+            "string"
+          ]
+        },
+        "table_name": {
+          "type": "string"
+        },
+        "num_evals": {
+          "type": "integer"
+        }
+      }
+    },
+    "datasets": {
+      "type": "object",
+      "properties": {
+        "huggingface": {
+          "type": "object",
+          "required": [
+            "repo_id",
+            "primary_key",
+            "table_name"
+          ],
+          "properties": {
+            "repo_id": {
+              "type": "string"
+            },
+            "primary_key": {
+              "type": "string"
+            },
+            "table_name": {
+              "type": "string"
             }
           }
         }
       }
     }
   }
+}

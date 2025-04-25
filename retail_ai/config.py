@@ -1,44 +1,83 @@
-from typing import Dict, List, Literal, Optional, Union
+from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
-class UnityCatalogGrant(BaseModel):
+class UnityCatalogPrivilege(str, Enum):
+    ALL_PRIVILEGES = "ALL_PRIVILEGES"
+    MANAGE = "MANAGE"
+    USE_CATALOG = "USE_CATALOG"
+    USE_SCHEMA = "USE_SCHEMA"
+    APPLY_TAG = "APPLY_TAG"
+    BROWSE = "BROWSE"
+    EXECUTE = "EXECUTE"
+    READ_VOLUME = "READ_VOLUME"
+    SELECT = "SELECT"
+    MODIFY = "MODIFY"
+    REFRESH = "REFRESH"
+    WRITE_VOLUME = "WRITE_VOLUME"
+    CREATE_FUNCTION = "CREATE_FUNCTION"
+    CREATE_MATERIALIZED_VIEW = "CREATE_MATERIALIZED_VIEW"
+    CREATE_MODEL = "CREATE_MODEL"
+    CREATE_MODEL_VERSION = "CREATE_MODEL_VERSION"
+    CREATE_SCHEMA = "CREATE_SCHEMA"
+    CREATE_TABLE = "CREATE_TABLE"
+    CREATE_VOLUME = "CREATE_VOLUME"
+    DATABRICKS_STORAGE = "DATABRICKS_STORAGE"
+
+
+class ToolType(str, Enum):
+    UNITY_CATALOG = "unity_catalog"
+    PYTHON = "python"
+
+
+class CheckpointerType(str, Enum):
+    POSTGRES = "postgres"
+    MEMORY = "memory"
+
+
+class GuardrailStrategy(str, Enum):
+    BEST_OF_N = "best_of_n"
+    REFINE = "refine"
+
+
+class MessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class Grant(BaseModel):
     principal: str
-    privileges: List[Literal[
-        "ALL_PRIVILEGES", "MANAGE", "USE_CATALOG", "USE_SCHEMA", "APPLY_TAG",
-        "BROWSE", "EXECUTE", "READ_VOLUME", "SELECT", "MODIFY", "REFRESH",
-        "WRITE_VOLUME", "CREATE_FUNCTION", "CREATE_MATERIALIZED_VIEW",
-        "CREATE_MODEL", "CREATE_MODEL_VERSION", "CREATE_SCHEMA", "CREATE_TABLE",
-        "CREATE_VOLUME"
-    ]]
+    privileges: List[UnityCatalogPrivilege]
 
 
 class UnityCatalog(BaseModel):
     catalog_name: str
     database_name: str
-    volume_name: str
-    grant: Optional[List[UnityCatalogGrant]] = None
+    volume_name: Optional[str] = None
+    grant: Optional[List[Grant]] = None
 
 
 class LLM(BaseModel):
     name: str
     model: str
-    temperature: Optional[float] = Field(default=None, ge=0, le=1)
-    max_tokens: Optional[float] = Field(default=None, gt=0)
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
 
 
 class Retriever(BaseModel):
     name: str
     description: str
     endpoint_name: str
-    embedding_model: dict
-    endpoint_type: Literal["STANDARD"]
     index_name: str
-    embedding_dimension: int = Field(gt=0)
-    primary_key: str
-    doc_uri: str
-    embedding_source_column: str
+    embedding_model: Optional[Dict[str, Any]] = None
+    endpoint_type: Optional[str] = None
+    embedding_dimension: Optional[int] = None
+    primary_key: Optional[str] = None
+    doc_uri: Optional[str] = None
+    embedding_source_column: Optional[str] = None
     columns_to_sync: Optional[List[str]] = None
 
 
@@ -58,85 +97,95 @@ class GenieRoom(BaseModel):
     space_id: str
 
 
-class DatabaseConnectionKwargs(BaseModel):
-    autocommit: Optional[bool] = None
-    prepare_threshold: Optional[int] = None
-
-
 class Database(BaseModel):
     name: str
     connection_url: str
-    connection_kwargs: DatabaseConnectionKwargs
+    connection_kwargs: Optional[Dict[str, Any]] = None
+
+
+class Connection(BaseModel):
+    name: str
+    description: str
 
 
 class Resources(BaseModel):
-    llms: Dict[str, LLM]
-    retrievers: Dict[str, Retriever]
-    functions: Dict[str, Function]
-    warehouses: Dict[str, Warehouse]
-    genie_rooms: Dict[str, GenieRoom]
-    databases: Dict[str, Database]
-    
-
-class UnityCatalogFunctionDefinition(BaseModel):
-    name: str
-    type: Literal["unity-catalog"]
+    llms: Optional[Dict[str, LLM]] = None
+    retrievers: Optional[Dict[str, Retriever]] = None
+    functions: Optional[Dict[str, Function]] = None
+    warehouses: Optional[Dict[str, Warehouse]] = None
+    genie_rooms: Optional[Dict[str, GenieRoom]] = None
+    databases: Optional[Dict[str, Database]] = None
+    connections: Optional[Dict[str, Connection]] = None
 
 
-class PythonFunctionDefinition(BaseModel):
-    name: str
-    type: Literal["python"]
-    parameters: dict
+class ToolFunction(BaseModel):
+    name: Optional[str] = None
+    type: ToolType
+    parameters: Optional[Union[Dict[str, Any], str]] = None
 
 
 class Tool(BaseModel):
     name: str
     description: str
-    function: Union[UnityCatalogFunctionDefinition, PythonFunctionDefinition]
+    function: ToolFunction
 
 
 class Checkpointer(BaseModel):
-    type: Literal["postgres"]
+    type: CheckpointerType
     storage: Database
+
+
+class Guardrail(BaseModel):
+    name: str
+    description: str
+    strategy: GuardrailStrategy
+    evaluation_function: str
+    reward_function: str
+    N: Optional[int] = None
+    threshold: Optional[float] = None
+    failed_count: Optional[int] = None
+
+
+class AgentFunction(BaseModel):
+    name: str
+    type: ToolType
+    parameters: Optional[Union[Dict[str, Any], str]] = {}
 
 
 class Agent(BaseModel):
     name: str
     prompt: str
-    handoff_prompt: str
-    llm: LLM
+    handoff_prompt: Optional[str] = None
+    llm: Union[LLM]
     tools: List[Tool]
-    checkpointer: Checkpointer
+    checkpointer: Optional[Checkpointer] = None
+    guardrails: Optional[List[Guardrail]] = None
+    function: Optional[AgentFunction] = None
 
 
 class Message(BaseModel):
-    role: Literal["user", "system", "assistant"]
+    role: MessageRole
     content: str
-
-
-class ConfigurableInputs(BaseModel):
-    thread_id: Optional[str] = None
-    tone: Optional[str] = None
 
 
 class InputExample(BaseModel):
     messages: List[Message]
-    custom_inputs: Optional[dict] = None
-    configurable: Optional[ConfigurableInputs] = None
+    custom_inputs: Optional[Dict[str, Any]] = None
+    configurable: Optional[Dict[str, Any]] = None
 
 
 class App(BaseModel):
     registered_model_name: str
     endpoint_name: str
-    tags: Dict[str, Union[str, bool]]
+    tags: Optional[Dict[str, Any]] = None
     agents: List[Agent]
-    input_examples: Dict[str, InputExample]
+    input_examples: Optional[Dict[str, InputExample]] = None
 
 
 class Evaluation(BaseModel):
     llm: LLM
     table_name: str
-    num_evals: int = Field(gt=0)
+    num_evals: int
 
 
 class HuggingFaceDataset(BaseModel):
@@ -145,16 +194,55 @@ class HuggingFaceDataset(BaseModel):
     table_name: str
 
 
-class Datasets(BaseModel):
-    huggingface: Optional[HuggingFaceDataset] = None
-
-
 class AppConfig(BaseModel):
-    unity_catalog: UnityCatalog = Field(..., alias="unity-catalog")
+    """Main configuration model for Agent-as-Code deployments"""
+
+    unity_catalog: UnityCatalog
     resources: Resources
     tools: Dict[str, Tool]
-    checkpointer: Checkpointer
+    checkpointer: Optional[Checkpointer] = None
+    guardrails: Optional[Dict[str, Guardrail]] = None
     agents: Dict[str, Agent]
     app: App
     evaluation: Optional[Evaluation] = None
-    datasets: Optional[Datasets] = None
+
+
+def load_config(file_path: str) -> AppConfig:
+    """
+    Load configuration from a YAML file
+
+    Args:
+        file_path: Path to the configuration YAML file
+
+    Returns:
+        Parsed configuration object
+    """
+    import yaml
+
+    with open(file_path, "r") as f:
+        config_data = yaml.safe_load(f)
+
+    # Convert unity-catalog key to unity_catalog for pydantic model
+    if "unity_catalog" in config_data:
+        config_data["unity_catalog"] = config_data.pop("unity_catalog")
+
+    return AppConfig(**config_data)
+
+
+def save_config(config: AppConfig, file_path: str) -> None:
+    """
+    Save configuration to a YAML file
+
+    Args:
+        config: Configuration object
+        file_path: Path to save the configuration file
+    """
+    import yaml
+
+    # Convert to dict and restore original key format
+    config_dict = config.dict(exclude_none=True)
+    if "unity_catalog" in config_dict:
+        config_dict["unity_catalog"] = config_dict.pop("unity_catalog")
+
+    with open(file_path, "w") as f:
+        yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)

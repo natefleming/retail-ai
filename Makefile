@@ -1,6 +1,7 @@
 TOP_DIR := .
 SRC_DIR := $(TOP_DIR)/retail_ai
 DIST_DIR := $(TOP_DIR)/dist
+TEST_DIR := $(TOP_DIR)/tests
 LIB_NAME := retail_ai
 LIB_VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
 LIB := $(LIB_NAME)-$(LIB_VERSION)-py3-none-any.whl
@@ -15,6 +16,7 @@ endif
 UV := uv
 UV_SYNC := $(UV) sync 
 UV_BUILD := $(UV) build 
+PYTEST := pytest -xvs
 RUFF := $(UV) run ruff check --fix --ignore E501
 ISORT := $(UV) run isort
 FIND := $(shell which find)
@@ -38,10 +40,12 @@ format: depends
 	$(ISORT) $(SRC_DIR) 
 	$(RUFF) $(SRC_DIR) 
 
+test:
+	$(PYTEST) $(TEST_DIR)
 
 clean: 
-	$(FIND) $(SRC_DIR) -name \*.pyc -exec rm -f {} \;
-	$(FIND) $(SRC_DIR) -name \*.pyo -exec rm -f {} \;
+	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyc -exec rm -f {} \;
+	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyo -exec rm -f {} \;
 
 
 distclean: clean
@@ -56,9 +60,10 @@ test:
 help:
 	$(info TOP_DIR: $(TOP_DIR))
 	$(info SRC_DIR: $(SRC_DIR))
+	$(info TEST_DIR: $(TEST_DIR))
 	$(info DIST_DIR: $(DIST_DIR))
 	$(info )
-	$(info $$> make [all|dist|install|clean|distclean|format|depends])
+	$(info $$> make [all|dist|install|clean|distclean|format|depends|test])
 	$(info )
 	$(info       all          - build library: [$(LIB)]. This is the default)
 	$(info       dist         - build library: [$(LIB)])
@@ -68,5 +73,8 @@ help:
 	$(info       distclean    - removes library)
 	$(info       format       - format source code)
 	$(info       depends      - installs library dependencies)
+	$(info       test         - run tests)
+	$(info       help         - show this help message)
+	$(info )
 	@true
 
