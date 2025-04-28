@@ -114,40 +114,50 @@ from delta.tables import DeltaTable, IdentityGenerator
 
 
 datasets_config: dict[str, Any] = config.get("datasets")
-huggingface_config: dict[str, Any] = datasets_config.get("huggingface")
-wands_repo_id: str = huggingface_config.get("repo_id")
-wands_primary_key: str = huggingface_config.get("primary_key")
-wands_table_name: str = huggingface_config.get("table_name")
+huggingface_configs: dict[str, Any] = datasets_config.get("huggingface")
 
-wands_df: DataFrame = (
-  spark.read
-    .format("huggingface")
-    .option("repo_id", wands_repo_id)
-    .option("primary_key", wands_primary_key)
-    .option("cache_dir", hf_datasets_path.as_posix())
-    .load()
-)
+for huggingface_config in huggingface_configs:
+  url: str = huggingface_config.get("url") 
+  repo_id: str = huggingface_config.get("repo_id")
+  primary_key: str = huggingface_config.get("primary_key")
+  table_name: str = huggingface_config.get("table_name")
 
-wands_df = wands_df.filter(F.col("product_description").isNotNull())
+  source_type: str = "repo_id" if repo_id else "url"
+  source_path: str = repo_id if repo_id else url
 
-wands_df = wands_df.withColumns(
-  {
-    embedding_source_column: F.col("product_description"),
-    doc_uri: F.lit(wands_repo_id),
-    primary_key: F.col(wands_primary_key)
+  wands_df: DataFrame = (
+    spark.read
+      .format("huggingface")
+      .option(source_type, source_path) 
+      .option("primary_key", primary_key)
+      .option("cache_dir", hf_datasets_path.as_posix())
+      .load()
+  )
+
+  if "product_description" in wands_df.columns:
+    wands_df = wands_df.filter(F.col("product_description").isNotNull())
+
+  additional_cols = {
+      doc_uri: F.lit(source_path),
+      primary_key: F.col(primary_key)
   }
-)
 
-(
-  DeltaTable.createOrReplace(spark)
-    .tableName(wands_table_name)
-    .property("delta.enableChangeDataFeed", "true")
-    .addColumns(wands_df.schema)
-    .execute()
-)
+  if "product_description" in wands_df.columns:
+    additional_cols[embedding_source_column] = F.col("product_description")
+                                                     
+  wands_df = wands_df.withColumns(additional_cols)
+  
+  (
+    DeltaTable.createOrReplace(spark)
+      .tableName(table_name)
+      .property("delta.enableChangeDataFeed", "true")
+      .addColumns(wands_df.schema)
+      .execute()
+  )
 
-spark.sql(f"ALTER TABLE {wands_table_name} ADD CONSTRAINT {wands_primary_key}_pk PRIMARY KEY ({wands_primary_key})")
+  pk_constraint: str = f"{table_name.replace(".", "_")}_{primary_key}_pk"
+  spark.sql(f"ALTER TABLE {table_name} ADD CONSTRAINT {pk_constraint} PRIMARY KEY ({primary_key})")
 
-wands_df.write.mode("append").saveAsTable(wands_table_name)
+  wands_df.write.mode("append").saveAsTable(table_name)
 
-display(spark.table(wands_table_name))
+  display(spark.table(table_name))

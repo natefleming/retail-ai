@@ -35,6 +35,7 @@ DatasetDict.to_pandas = _dataset_dict_to_pandas
 
 allowed_options: Sequence[str] = (
     "repo_id", 
+    "url",
     "cache_dir", 
     "split_col",
     "splits",
@@ -47,20 +48,34 @@ def _validate_options(options: dict[str, str]) -> None:
         if option not in allowed_options:
             raise ValueError(f"Invalid option: {option}")
 
+    has_repo_id: bool = "repo_id" in options
+    has_url: bool = "url" in options
+    has_cache_dir: bool = (
+        "cache_dir" in options and "HF_DATASETS_CACHE" not in os.environ
+    )
+    if not has_repo_id and not has_url:
+        raise ValueError("Either repo_id or url is required")
+
+    if has_url and has_repo_id:
+        raise ValueError("Either repo_id or url is required, not both")
+
+    if has_url and not re.match(r'^(hf://|https?://)', options["url"]):
+        raise ValueError("url must start with hf://, http://, or https://")
+
+    if has_repo_id and not has_cache_dir:
+        raise ValueError("cache_dir is required or HF_DATASETS_CACHE environment variable is required")
 
 def _repo_id_from(options: dict[str, str]) -> str:
     repo_id: str = options.get("repo_id")
-    if repo_id is None:
-        raise ValueError("repo_id is required")
     return repo_id
     
+def _url_from(options: dict[str, str]) -> str:
+    url: str = options.get("url")
+    return url
 
 def _cache_dir_from(options: dict[str, str]) -> str:
     cache_dir: str = options.get("cache_dir", os.environ.get("HF_DATASETS_CACHE"))
-    if cache_dir is None:
-        raise ValueError("cache_dir is required or HF_DATASETS_CACHE environment variable is required")
     return cache_dir
-
 
 def _primary_key_from(options: dict[str, str]) -> str | None:
     return options.get("primary_key", "").lower()
@@ -75,20 +90,31 @@ def _splits_from(options: dict[str, str]) -> Sequence[str]:
 
 
 def _load_dataset(
+    url: str,
     repo_id: str, 
     cache_dir: str, 
     split_col: str = "split",
     splits: Sequence[str] = [],
 ) -> pd.DataFrame:
-    _ = Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    if cache_dir:
+        _ = Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
-    datasets: DatasetDict = load_dataset(
-        path=repo_id, 
-        cache_dir=cache_dir
-    )
-    
-    pdf: pd.DataFrame = datasets.to_pandas(split_col=split_col, splits=splits)
+    pdf: pd.DataFrame
 
+    if repo_id:
+        datasets: DatasetDict = load_dataset(
+            path=repo_id, 
+            cache_dir=cache_dir
+        )
+        pdf = datasets.to_pandas(split_col=split_col, splits=splits)
+    else:
+        if url.endswith(".parquet"):
+            pdf = pd.read_parquet(url)
+        elif url.endswith(".csv"):
+            print("Loading csv...")
+            pdf = pd.read_csv(url, sep="\t")
+        else:
+            raise ValueError(f"Unsupported file type: {url}")
     return pdf
 
 
@@ -101,12 +127,14 @@ class HuggingfaceDataSource(DataSource):
 
     def schema(self) -> T.StructType | str:
         repo_id: str = _repo_id_from(self.options)
+        url: str = _url_from(self.options)
         cache_dir: str = _cache_dir_from(self.options)
         split_col: str = _split_col_from(self.options)
         splits: Sequence[str] = _splits_from(self.options)
         primary_key: str = _primary_key_from(self.options)
 
         pdf: pd.DataFrame = _load_dataset(
+            url=url,
             repo_id=repo_id, 
             cache_dir=cache_dir, 
             split_col=split_col,
@@ -147,6 +175,7 @@ class HuggingfaceDataSourceReader(DataSourceReader):
         _validate_options(options)
         self.schema: T.StructType = schema
         self.repo_id: str = _repo_id_from(options)
+        self.url: str = _url_from(options)
         self.cache_dir: str = _cache_dir_from(options)
         self.split_col: str = _split_col_from(options)
         self.splits: Sequence[str] = _splits_from(options)
@@ -154,6 +183,7 @@ class HuggingfaceDataSourceReader(DataSourceReader):
     def read(self, partition: InputPartition) -> Iterator[tuple] | Iterator[Row]:
 
         pdf: pd.DataFrame = _load_dataset(
+            url=self.url,
             repo_id=self.repo_id, 
             cache_dir=self.cache_dir, 
             split_col=self.split_col,
