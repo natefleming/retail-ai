@@ -83,7 +83,8 @@
               "name",
               "description",
               "endpoint_name",
-              "index_name"
+              "index_name",
+              "source_table_name"
             ],
             "properties": {
               "name": {
@@ -102,6 +103,9 @@
                 "type": "string"
               },
               "index_name": {
+                "type": "string"
+              },
+              "source_table_name": {
                 "type": "string"
               },
               "embedding_dimension": {

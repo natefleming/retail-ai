@@ -47,6 +47,7 @@ resources:
             embedding_model: *embedding_model
             endpoint_type: STANDARD
             index_name: nfleming.retail_ai.wands_index
+            source_table_name: nfleming.retail_ai.wands
             embedding_dimension: 1024
             primary_key: id
             doc_uri: doc_uri
