@@ -6,7 +6,7 @@ concurrency = multiprocessing
 parallel = true
 sigterm = true
 data_file = .coverage
-source = fastapi_mcp
+source = retail_ai
 
 [report]
 show_missing = true

@@ -55,7 +55,7 @@ from retail_ai.config import AppConfig
 
 file_path: Path = Path("agent_as_config.yaml")
 
-config: AppConfig = AppConfig.load_from(file_path=file_path)
+config: AppConfig = AppConfig(config=file_path)
 
 catalog_name: str = config.unity_catalog.catalog_name
 database_name: str = config.unity_catalog.database_name

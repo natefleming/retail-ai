@@ -4,13 +4,16 @@ import json
 from rich import print as pprint
 from rich.console import Console
 
-from retail_ai.config import AppConfig, Agent, load_config
+from retail_ai.config import AppConfig, Agent
 
 def main():
 
 
 
-    app_config: AppConfig = load_config("agent_as_config.yaml")
+    app_config: AppConfig = AppConfig(config="agent_as_config.yaml")
+
+    globals()["__mlflow_model_config__"] = app_config.model_dump()
+    app_config2: AppConfig = AppConfig()
     
     pprint(app_config.model_dump_json(indent=2))
     for agent_name, agent in app_config.agents.items():

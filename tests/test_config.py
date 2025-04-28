@@ -3,7 +3,7 @@ import pytest
 import yaml
 from pathlib import Path
 
-from retail_ai.config import AppConfig, load_config, ToolType, CheckpointerType, GuardrailStrategy
+from retail_ai.config import AppConfig, ToolType, CheckpointerType, GuardrailStrategy
 
 
 @pytest.fixture
@@ -64,9 +64,17 @@ def sample_config_file(sample_config, tmp_path):
     return config_file
 
 
+def test_app_config_from_globals(sample_config):
+
+
+    globals()["__mlflow_model_config__"] = sample_config
+    app_config: AppConfig = AppConfig()
+    assert app_config is not None
+    
+    
 def test_app_config_init_from_dict(sample_config):
     """Test that AppConfig can be initialized from a dictionary"""
-    app_config = AppConfig(**sample_config)
+    app_config = AppConfig(config=sample_config)
     
     # Verify top-level fields are loaded correctly
     assert app_config.unity_catalog.catalog_name == "test_catalog"
@@ -94,7 +102,7 @@ def test_app_config_init_from_dict(sample_config):
 
 def test_load_config_from_file(sample_config_file):
     """Test that configuration can be loaded from a YAML file"""
-    app_config = load_config(sample_config_file)
+    app_config = AppConfig(config=sample_config_file)
     
     # Verify basic config loading worked
     assert isinstance(app_config, AppConfig)
@@ -136,7 +144,7 @@ def test_load_config_with_guardrails(sample_config, tmp_path):
     with open(config_file, "w") as f:
         yaml.dump(sample_config, f)
     
-    app_config = load_config(config_file)
+    app_config = AppConfig(config=config_file)
     
     # Verify guardrails are loaded
     assert len(app_config.guardrails) == 1
@@ -153,7 +161,7 @@ def test_load_config_with_guardrails(sample_config, tmp_path):
 def test_load_config_with_agent_functions(sample_config, tmp_path):
     """Test loading configuration with agent functions"""
     # Add function to an agent
-    sample_config["agents"]["test_agent"]["function"] = {
+    sample_config["agents"]["test_agent"]["factory"] = {
         "name": "retail_ai.agents.test_function",
         "type": "python",
         "parameters": {"param1": "value1"}
@@ -163,13 +171,13 @@ def test_load_config_with_agent_functions(sample_config, tmp_path):
     with open(config_file, "w") as f:
         yaml.dump(sample_config, f)
     
-    app_config = load_config(config_file)
+    app_config = AppConfig(config=config_file)
     
     # Verify agent function is loaded
-    assert app_config.agents["test_agent"].function is not None
-    assert app_config.agents["test_agent"].function.name == "retail_ai.agents.test_function"
-    assert app_config.agents["test_agent"].function.type == ToolType.PYTHON
-    assert app_config.agents["test_agent"].function.parameters == {"param1": "value1"}
+    assert app_config.agents["test_agent"].factory is not None
+    assert app_config.agents["test_agent"].factory.name == "retail_ai.agents.test_function"
+    assert app_config.agents["test_agent"].factory.type == ToolType.PYTHON
+    assert app_config.agents["test_agent"].factory.parameters == {"param1": "value1"}
 
 
 def test_load_real_config():
@@ -180,7 +188,7 @@ def test_load_real_config():
         pytest.skip("agent_as_config.yaml not found")
     
     try:
-        app_config = load_config(config_path)
+        app_config = AppConfig(config=config_path)
         assert isinstance(app_config, AppConfig)
         # Basic validation that config loaded properly
         assert app_config.unity_catalog.catalog_name is not None

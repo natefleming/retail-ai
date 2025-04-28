@@ -110,7 +110,7 @@ from retail_ai.config import AppConfig, Retriever
 
 
 file_path: str = "agent_as_config.yaml"
-config: AppConfig = AppConfig.load_from(file_path=file_path)
+config: AppConfig = AppConfig(config=file_path)
 
 vsc: VectorSearchClient = VectorSearchClient()
 
@@ -144,7 +144,7 @@ from retail_ai.config import AppConfig, Retriever
 
 
 file_path: str = "agent_as_config.yaml"
-config: AppConfig = AppConfig.load_from(file_path=file_path)
+config: AppConfig = AppConfig(config=file_path)
 
 vsc: VectorSearchClient = VectorSearchClient()
 

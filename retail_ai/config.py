@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from loguru import logger
 
-
+__mlflow_model_config__ = None
 
 class UnityCatalogPrivilege(str, Enum):
     ALL_PRIVILEGES = "ALL_PRIVILEGES"
@@ -208,10 +208,9 @@ class HuggingFaceDataset(BaseModel):
     table_name: str
 
 
+
 class AppConfig(BaseModel):
-
-# config = globals().get("__mlflow_model_config__", None)
-
+    """Configuration for the retail AI application."""
     unity_catalog: UnityCatalog
     resources: Resources
     tools: Dict[str, Tool]
@@ -221,41 +220,54 @@ class AppConfig(BaseModel):
     app: App
     evaluation: Optional[Evaluation] = None
 
-    @classmethod
-    def load_from(cls, file_path: PathLike) -> "AppConfig":
+    def __init__(self, config=None, **kwargs):
 
+        if isinstance(config, dict):
+            config_dict = config
+        elif config is not None and isinstance(config, (Path, str)):
+            config_dict = self._load_config_from_file(config)
+        else:
+            # Try to get from MLflow globals
+            config_dict = globals().get("__mlflow_model_config__", None)
+            if not config_dict:
+                config_dict = {}
+                
+        # Update with any kwargs
+        config_dict.update(kwargs)
+        
+        # Initialize the model
+        super().__init__(**config_dict)
+    
+    def _load_config_from_file(self, file_path):
         file_path = Path(file_path)
-
-        def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-            """Merge two dictionaries recursively."""
-            result = base.copy()
-            for key, value in override.items():
-                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                    result[key] = _deep_merge(result[key], value)
-                else:
-                    result[key] = value
-            return result
-
-        YamlIncludeLoader.add_constructor("!include", YamlIncludeLoader.include)
-
-        # Ensure we have an absolute path
         abs_file_path = os.path.abspath(file_path)
-
+        
+        YamlIncludeLoader.add_constructor("!include", YamlIncludeLoader.include)
+        
         try:
             with open(abs_file_path, "r") as f:
-                # Directly load the file using the custom loader
+                # Load the file using the custom loader
                 config = yaml.load(f, YamlIncludeLoader)
                 
                 # Check if there's an imported configuration to merge
                 if "import" in config and isinstance(config["import"], dict):
                     parent_config = config.pop("import")
-                    config = _deep_merge(parent_config, config)
+                    config = self._merge_configs(parent_config, config)
                     logger.trace(f"Merged configuration with parent. Keys: {list(config.keys())}")
+            return config
         except Exception as e:
             logger.error(f"Error loading configuration from {abs_file_path}: {str(e)}")
             raise
+    
+    def _merge_configs(self, base, override):
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._merge_configs(result[key], value)
+            else:
+                result[key] = value
+        return result
 
-        return AppConfig(**config)
 
 
 class YamlIncludeLoader(yaml.SafeLoader):
@@ -274,5 +286,3 @@ class YamlIncludeLoader(yaml.SafeLoader):
             included_data = yaml.load(f, cls)
                         
         return included_data
-
-
