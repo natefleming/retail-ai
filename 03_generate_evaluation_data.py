@@ -49,7 +49,7 @@ huggingface_config: Dict[str, Any] = datasets_config.get("huggingface")
 
 evaluation_table_name: str = evaluation_config.get("table_name")
 num_evals: int = evaluation_config.get("num_evals")
-source_table_name: str = huggingface_config.get("table_name")
+source_table_name: str = datasets_config.get("table_name")
 
 print(f"evaluation_table_name: {evaluation_table_name}")
 print(f"source_table_name: {source_table_name}")
@@ -61,7 +61,7 @@ from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
 import pandas as pd
 
-parsed_docs_df: DataFrame = spark.table(source_table_name)
+parsed_docs_df: DataFrame = spark.table(source_table_name).withColumn("id", F.col("product_id"))
 parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
 
 display(parsed_docs_pdf)
@@ -103,3 +103,7 @@ evals_df: DataFrame = spark.createDataFrame(evals_pdf)
 
 evals_df.write.mode("overwrite").saveAsTable(evaluation_table_name)
 
+
+# COMMAND ----------
+
+display(spark.table(evaluation_table_name))

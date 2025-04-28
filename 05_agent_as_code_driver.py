@@ -348,10 +348,6 @@ print(response["messages"][-1]["content"])
 
 # COMMAND ----------
 
-list = [oldprompt2, oldprompt1, newpronit]
-
-# COMMAND ----------
-
 example_input
 
 # COMMAND ----------

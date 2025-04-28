@@ -62,7 +62,7 @@ retriever:
   endpoint_name: one-env-shared-endpoint-12
   endpoint_type: STANDARD
   index_name: nfleming.retail_ai.wands_index
-  primary_key: id
+  primary_key: product_id
   doc_uri: doc_uri
   embedding_source_column: content
   columns:
@@ -111,7 +111,9 @@ agents:
       Now, draft the response accordingly.
 
 datasets:
+  table_name: nfleming.retail_ai.wands_product
   huggingface:
+
     - repo_id: napsternxg/wands
       primary_key: id
       table_name: nfleming.retail_ai.wands

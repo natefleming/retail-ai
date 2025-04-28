@@ -61,7 +61,7 @@ search_parameters: dict[str, Any] = retreiver_config.get("search_parameters", {}
 
 datasets_config: dict[str, Any] = config.get("datasets")
 huggingface_config: dict[str, Any] = datasets_config.get("huggingface")
-source_table_name: str = huggingface_config.get("table_name")
+source_table_name: str = datasets_config.get("table_name")
 
 
 assert embedding_model_endpoint_name is not None
