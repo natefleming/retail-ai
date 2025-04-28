@@ -4,18 +4,15 @@ import json
 from rich import print as pprint
 from rich.console import Console
 
-from retail_ai.config import AppConfig, Agent
+from retail_ai.config import AppConfig, Agent, load_config
 
 def main():
 
-    # Load the configuration file
-    with open("agent_as_config.yaml", "r") as file:
-        config = yaml.safe_load(file)
 
-    pprint(json.dumps(config, indent=2))
 
-    app_config: AppConfig = AppConfig(**config)
+    app_config: AppConfig = load_config("agent_as_config.yaml")
     
+    pprint(app_config.model_dump_json(indent=2))
     for agent_name, agent in app_config.agents.items():
         # Load the agent from the configuration
     

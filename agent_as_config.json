@@ -3,14 +3,12 @@
   "title": "Agent-as-Code Configuration",
   "description": "Schema for configuring Agent-as-Code deployments",
   "type": "object",
-  "required": [
-    "unity_catalog",
-    "resources",
-    "tools",
-    "agents",
-    "app"
-  ],
+  "required": [],
   "properties": {
+    "import": {
+      "type": "string",
+      "description": "Include another YAML file"
+    },
     "unity_catalog": {
       "type": "object",
       "required": [
@@ -232,8 +230,19 @@
         "type": "object",
         "required": [
           "name",
-          "description",
-          "function"
+          "description"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "function"
+            ]
+          },
+          {
+            "required": [
+              "factory"
+            ]
+          }
         ],
         "properties": {
           "name": {
@@ -255,6 +264,29 @@
                 "type": "string",
                 "enum": [
                   "unity_catalog",
+                  "python"
+                ]
+              },
+              "parameters": {
+                "type": [
+                  "object",
+                  "string"
+                ]
+              }
+            }
+          },
+          "factory": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
                   "python"
                 ]
               },
@@ -384,11 +416,10 @@
               ]
             }
           },
-          "function": {
+          "factory": {
             "type": "object",
             "required": [
-              "name",
-              "type"
+              "name"
             ],
             "properties": {
               "name": {
@@ -397,7 +428,6 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "unity_catalog",
                   "python"
                 ]
               },

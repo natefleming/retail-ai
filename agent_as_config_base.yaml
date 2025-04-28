@@ -1,0 +1,254 @@
+# yaml-language-server: $schema=./agent_as_config.json
+
+
+# Unity Catalog configuration - defines database objects and permissions
+unity_catalog:
+    catalog_name: nfleming
+    database_name: retail_ai
+    volume_name: retail_ai
+    grant:
+        - principal: nate.fleming@databricks.com
+          privileges:
+              - ALL_PRIVILEGES
+
+# Resources section - defines all the components needed for the agent system
+resources:
+    # Language models configuration with different models for different purposes
+    llms:
+        parent_calling_llm: &parent_calling_llm
+            name: "Parent Calling LLM"
+            model: databricks-meta-llama-3-3-70b-instruct
+            temperature: 0.1 # Lower temperature for more deterministic outputs
+            max_tokens: 8192
+
+        # tool_calling_llm: &tool_calling_llm
+        #     name: "Tool Calling LLM"
+        #     model: databricks-meta-llama-3-3-70b-instruct
+        #     temperature: 0.1 # Lower temperature for more deterministic outputs
+        #     max_tokens: 8192
+
+        # reasoning_llm: &reasoning_llm
+        #     name: "Reasoning LLM"
+        #     model: databricks_claude-3-7-sonnet
+        #     temperature: 0.1
+        #     max_tokens: 8192
+
+        # judge_llm: &judge_llm
+        #     name: "Judge LLM"
+        #     model: databricks-claude-3-7-sonnet
+        #     temperature: 0.5 # Higher temperature for more diverse evaluation
+        #     max_tokens: 50
+
+#         embedding_model: &embedding_model
+#             name: "Embedding Model"
+#             model: databricks-gte-large-en
+
+#     # Vector database retriever configuration
+#     retrievers:
+#         retail_vector_search_retriever: &retail_vector_search_retriever
+#             name: "Vector Search Retriever"
+#             description: "A retriever for performing vector searches in a database."
+#             endpoint_name: one-env-shared-endpoint-12
+#             embedding_model: *embedding_model
+#             endpoint_type: STANDARD
+#             index_name: nfleming.retail_ai.wands_index
+#             embedding_dimension: 1024
+#             primary_key: id
+#             doc_uri: doc_uri
+#             embedding_source_column: content
+#             columns_to_sync: ~
+
+#     # Function references for tools to use
+#     functions:
+#         find_product_id_by_name: &find_product_id_by_name
+#             name: nfleming.retail_ai.find_product_id_by_name
+#         code_execution: &code_execution
+#             name: system.ai.python_exec
+
+#     # Databricks compute resources
+#     warehouses:
+#         shared_endpoint_warehouse: &shared_endpoint_warehouse
+#             name: "Shared Endpoint Warehouse"
+#             description: "A warehouse for shared endpoints"
+#             warehouse_id: 148ccb90800933a1
+
+#     # Genie workspace configuration
+#     genie_rooms:
+#         retail_genie_room: &retail_genie_room
+#             name: "Retail AI Genie Room"
+#             description: "A room for Genie agents to interact"
+#             space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+
+#     # Database connection for state management
+#     databases:
+#         retail_database: &retail_database
+#             name: "Retail Database"
+#             connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
+#             connection_kwargs:
+#                 autocommit: True
+#                 prepare_threshold: 0
+
+#     # Connections for external services
+#     connections:
+#         retail_ai_connection: &retail_ai_connection
+#             name: "Retail AI Connection"
+#             description: "A connection to the Retail AI service"
+
+# # Tools section - defines the capabilities available to agents
+# tools:
+#     find_product_id_by_name_tool: &find_product_id_by_name_tool
+#         name: find_product_id_by_name_tool
+#         description: "A tool for finding product IDs by name."
+#         function:
+#             <<: *find_product_id_by_name # Inherits properties from the function reference
+#             type: unity_catalog
+
+#     vector_search_tool: &vector_search_tool
+#         name: Vector Search Tool
+#         description: "A tool for performing vector searches in a database."
+#         function:
+#             name: retail_ai.tools.vector_search
+#             type: python
+#             parameters:
+#                 <<: *retail_vector_search_retriever # Inherits from retriever config
+#                 columns: # Specifies which columns to return in results
+#                     - product_id
+#                     - product_name
+#                     - product_class
+#                     - category_hierarchy
+#                     - rating_count
+#                     - average_rating
+#                     - review_count
+#                     - doc_uri
+#                 num_results: 5
+#                 filter: {}
+#                 query_type: ANN # Approximate Nearest Neighbors search
+
+#     web_search_tool: &web_search_tool
+#         name: "Web Search Tool"
+#         description: "A tool for performing web searches."
+#         function:
+#             name: retail_ai.tools.web_search
+#             type: python
+#             parameters:
+#                 api_key: "your_api_key_here"
+
+#     code_execution_tool: &code_execution_tool
+#         name: "Code Execution Tool"
+#         description: "A tool for executing code snippets."
+#         function:
+#             <<: *code_execution
+#             type: unity_catalog
+
+#     genie_tool: &genie_tool
+#         name: "Genie Tool"
+#         description: "A tool for generating code snippets."
+#         function:
+#             name: retail_ai.tools.genie
+#             type: python
+#             parameters: *retail_genie_room
+
+# # Checkpointer for saving agent state
+# checkpointer: &checkpointer
+#     type: postgres
+#     storage: *retail_database
+
+# # Guardrails section - defines rules and constraints for agent behavior
+# guardrails:
+#     correctness_guardrail: &correctness_guardrail
+#         name: "Correctness Guardrail"
+#         description: "A set of rules to ensure the correctness of the agent's responses."
+#         strategy: "best_of_n" # Generates multiple responses and selects the best one
+#         evaluation_function: "retail_ai.guardrails.correctness_evaluation"
+#         reward_function: "retail_ai.guardrails.correctness_reward"
+#         N: 5 # Number of responses to generate for evaluation
+#         threshold: 0.8 # Minimum score for correctness
+#         failed_count: 1
+
+#     brevity_guardrail: &brevity_guardrail
+#         name: "Brevity Guardrail"
+#         description: "A set of rules to ensure the correctness of the agent's responses."
+#         strategy: "refine" # Generates multiple responses and selects the best one
+#         evaluation_function: "retail_ai.guardrails.correctness_evaluation"
+#         reward_function: "retail_ai.guardrails.correctness_reward"
+#         N: 5
+#         threshold: 1.0
+#         failed_count: 3
+
+# # Agent definitions - each agent has a specific role and capabilities
+# agents:
+#     genie_agent: &genie_agent
+#         name: "Genie Agent"
+#         prompt: "You are a Genie agent. Your task is to generate code snippets based on user queries."
+#         handoff_prompt: "If you cannot answer the question, please hand off to the reasoning LLM."
+#         llm: *tool_calling_llm # Uses the tool-calling LLM model
+#         tools:
+#             - *genie_tool # Has access to the Genie tool
+#         checkpointer: *checkpointer
+#         # Specifies the function or operation that this agent will execute.
+#         # This field defines the callable function name or reference that will be invoked
+#         # when this agent is triggered. The function should implement the core logic
+#         # for this specific agent's functionality.
+#         function:
+#             name: retail_ai.tools.genie
+#             type: python
+#             parameters: {}
+
+#     vector_search_agent: &vector_search_agent
+#         name: "Vector Search Agent"
+#         prompt: "You are a Vector Search agent. Your task is to perform vector searches in a database."
+#         handoff_prompt: "If you cannot answer the question, please hand off to the reasoning LLM."
+#         llm: *tool_calling_llm
+#         tools:
+#             - *vector_search_tool # Has access to vector search capabilities
+#         checkpointer: *checkpointer
+#         guardrails:
+#             - *correctness_guardrail # Applies the correctness guardrail
+#             - *brevity_guardrail # Applies the brevity guardrail
+
+#     research_agent: &research_agent
+#         name: "Research Agent"
+#         prompt: "You are a Research agent. Your task is to perform web searches and gather information."
+#         handoff_prompt: "If you cannot answer the question, please hand off to the reasoning LLM."
+#         llm: *reasoning_llm # Uses the reasoning LLM model
+#         tools:
+#             - *web_search_tool # Has access to web search capabilities
+#         checkpointer: *checkpointer
+
+# # Application configuration - defines how the agents are deployed and used
+# app:
+#     registered_model_name: nfleming.retail_ai.retail_ai_agent
+#     endpoint_name: retail_ai_agent
+#     tags: # Metadata for the application
+#         business: retail
+#         streaming: True
+#         purpose: demo
+#         endpointSource: playground
+
+#     # List of agents that make up this application
+#     agents:
+#         - *genie_agent
+#         - *vector_search_agent
+#         - *research_agent
+
+#     # Example inputs for testing the application
+#     input_examples:
+#         recommendation_example:
+#             messages:
+#                 - role: user
+#                   content: Can you recommend a lamp to match my oak side tables?
+#             custom_inputs: {}
+#             configurable:
+#                 thread_id: "1"
+#                 tone: pirate
+#         inventory_example:
+#             messages:
+#                 - role: user
+#                   content: How many oak tables do we have in stock?
+#             custom_inputs: {}
+#             configurable:
+#                 thread_id: "1"
+#                 tone: pirate
+
+
+

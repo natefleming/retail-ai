@@ -1,7 +1,12 @@
+import os
+import re
+import yaml
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union, Literal
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
-
 from pydantic import BaseModel
+
+
 
 
 class UnityCatalogPrivilege(str, Enum):
@@ -124,15 +129,22 @@ class ToolFunction(BaseModel):
     parameters: Optional[Union[Dict[str, Any], str]] = None
 
 
+class ToolFactory(BaseModel):
+    name: Optional[str] = None
+    type: Literal["python"] = None
+    parameters: Optional[Union[Dict[str, Any], str]] = None
+    
+    
 class Tool(BaseModel):
     name: str
     description: str
-    function: ToolFunction
+    function: Optional[ToolFunction] = None
+    factory: Optional[ToolFactory] = None
 
 
 class Checkpointer(BaseModel):
     type: CheckpointerType
-    storage: Database
+    storage: Optional[Database] = None
 
 
 class Guardrail(BaseModel):
@@ -146,11 +158,11 @@ class Guardrail(BaseModel):
     failed_count: Optional[int] = None
 
 
-class AgentFunction(BaseModel):
+class AgentFactory(BaseModel):
     name: str
-    type: ToolType
+    type: Optional[Literal["python"]] = None
     parameters: Optional[Union[Dict[str, Any], str]] = {}
-
+    
 
 class Agent(BaseModel):
     name: str
@@ -160,8 +172,7 @@ class Agent(BaseModel):
     tools: List[Tool]
     checkpointer: Optional[Checkpointer] = None
     guardrails: Optional[List[Guardrail]] = None
-    function: Optional[AgentFunction] = None
-
+    factory: Optional[AgentFactory] = None
 
 class Message(BaseModel):
     role: MessageRole
@@ -207,42 +218,53 @@ class AppConfig(BaseModel):
     evaluation: Optional[Evaluation] = None
 
 
+
+class YamlIncludeLoader(yaml.SafeLoader):
+
+    def __init__(self, stream):
+        self._root = os.path.dirname(os.path.abspath(stream.name))
+        super(YamlIncludeLoader, self).__init__(stream)
+    
+    @classmethod
+    def include(cls, loader, node):
+        """Process the !include directive"""
+        filename = loader.construct_scalar(node)
+        filepath = os.path.join(loader._root, filename)
+        
+        with open(filepath, 'r') as f:
+            included_data = yaml.load(f, cls)
+                        
+        return included_data
+
+def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge two dictionaries recursively."""
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
 def load_config(file_path: str) -> AppConfig:
-    """
-    Load configuration from a YAML file
 
-    Args:
-        file_path: Path to the configuration YAML file
+    YamlIncludeLoader.add_constructor("!include", YamlIncludeLoader.include)
 
-    Returns:
-        Parsed configuration object
-    """
-    import yaml
+    # Ensure we have an absolute path
+    abs_file_path = os.path.abspath(file_path)
 
-    with open(file_path, "r") as f:
-        config_data = yaml.safe_load(f)
+    try:
+        with open(abs_file_path, "r") as f:
+            # Directly load the file using the custom loader
+            config = yaml.load(f, YamlIncludeLoader)
+            
+            # Check if there's an imported configuration to merge
+            if "import" in config and isinstance(config["import"], dict):
+                parent_config = config.pop("import")
+                config = deep_merge(parent_config, config)
+                print(f"Merged configuration with parent. Keys: {list(config.keys())}")
+    except Exception as e:
+        print(f"Error loading configuration from {abs_file_path}: {str(e)}")
+        raise
 
-    # Convert unity-catalog key to unity_catalog for pydantic model
-    if "unity_catalog" in config_data:
-        config_data["unity_catalog"] = config_data.pop("unity_catalog")
-
-    return AppConfig(**config_data)
-
-
-def save_config(config: AppConfig, file_path: str) -> None:
-    """
-    Save configuration to a YAML file
-
-    Args:
-        config: Configuration object
-        file_path: Path to save the configuration file
-    """
-    import yaml
-
-    # Convert to dict and restore original key format
-    config_dict = config.dict(exclude_none=True)
-    if "unity_catalog" in config_dict:
-        config_dict["unity_catalog"] = config_dict.pop("unity_catalog")
-
-    with open(file_path, "w") as f:
-        yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+    return AppConfig(**config)

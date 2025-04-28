@@ -1,4 +1,6 @@
-# yaml-language-server: $schema=./agent_as_code.json
+# yaml-language-server: $schema=./agent_as_config.json
+
+import: !include agent_as_config_base.yaml
 
 # Unity Catalog configuration - defines database objects and permissions
 unity_catalog:
@@ -182,7 +184,7 @@ agents:
         # This field defines the callable function name or reference that will be invoked
         # when this agent is triggered. The function should implement the core logic
         # for this specific agent's functionality.
-        function:
+        factory:
             name: retail_ai.tools.genie
             type: python
             parameters: {}
