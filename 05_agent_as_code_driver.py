@@ -345,3 +345,30 @@ response = get_deploy_client("databricks").predict(
 )
 
 print(response["messages"][-1]["content"])
+
+# COMMAND ----------
+
+list = [oldprompt2, oldprompt1, newpronit]
+
+# COMMAND ----------
+
+example_input
+
+# COMMAND ----------
+
+from typing import Any
+from mlflow.deployments import get_deploy_client
+
+from agent_as_code import config
+from rich import print as pprint
+
+
+endpoint_name: str = config.get("app").get("endpoint_name")
+example_input: dict[str, Any] = config.get("app").get("example_input")
+
+response = get_deploy_client("databricks").predict(
+  endpoint=endpoint_name,
+  inputs=example_input,
+)
+
+pprint(response["messages"])
