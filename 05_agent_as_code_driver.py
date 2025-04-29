@@ -200,7 +200,6 @@ class ConfigurableInputs():
 # Additional input fields must be marked as Optional and have a default value
 @dataclass
 class CustomChatCompletionRequest(ChatCompletionRequest):
-    #configurable: Optional[ConfigurableInputs] = field(default_factory=ConfigurableInputs)
     configurable: Optional[dict[str, Any]] = field(default_factory={})
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -208,12 +207,6 @@ class CustomChatCompletionRequest(ChatCompletionRequest):
 
 sample_input = CustomChatCompletionRequest(
     messages=[{"role": "user", "content": "What is the inventory of the product with id 1?"}],
-    # configurable=ConfigurableInputs(
-    #     thread_id=None,
-    #     user_id=None,
-    #     scd_ids=None,
-    #     store_num=None,
-    # ),
     configurable={
         "thread_id": None,
         "user_id": None,

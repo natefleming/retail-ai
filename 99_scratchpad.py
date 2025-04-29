@@ -199,6 +199,36 @@ agent.invoke(
 
 # COMMAND ----------
 
+from databricks_langchain import ChatDatabricks
+from langchain_core.messages import HumanMessage
+from langgraph.prebuilt import create_react_agent
+from retail_ai.tools import create_sku_extraction_tool
+
+
+model_name: str = "databricks-meta-llama-3-3-70b-instruct"
+llm: ChatDatabricks = ChatDatabricks(model=model_name)
+
+sku_extraction_tool = create_sku_extraction_tool(llm=llm)
+
+agent = create_react_agent(
+    model=llm,
+    prompt="Use to tools to extract a sku",
+    tools=[sku_extraction_tool],
+)
+agent.invoke(
+    {
+        "messages": [
+            HumanMessage(
+                content="""
+  The "DreamDrift" combines a recliner and cocoon hammock (45624WQRSTS) with adjustable opacity panels, whisper-quiet hovering technology, SKU: 1234313AA45 and biometric sensors that adjust firmness and temperature to your changing comfort needs throughout the day.
+"""
+            )
+        ]
+    }
+)
+
+# COMMAND ----------
+
 
 input = config.get("app").get("example_input")
 
