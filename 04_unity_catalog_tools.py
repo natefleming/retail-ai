@@ -5,9 +5,11 @@ pip_requirements: Sequence[str] = (
   "langgraph",
   "langchain",
   "databricks-langchain",
+  "unitycatalog-langchain[databricks]",
   "databricks-sdk",
   "mlflow",
-  "python-dotenv"
+  "python-dotenv",
+
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -27,6 +29,7 @@ pip_requirements: Sequence[str] = (
   f"databricks-sdk=={version('databricks-sdk')}",
   f"mlflow=={version('mlflow')}",
   f"python-dotenv=={version('python-dotenv')}",
+  f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
 )
 
 print("\n".join(pip_requirements))
@@ -123,41 +126,50 @@ display(pdf)
 
 # COMMAND ----------
 
+
+column_name: str = "product_class"
+table_name: str = f"{catalog_name}.{database_name}.wands_product"
+
 client.create_function(
   sql_function_body=f"""
-    CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_wands_product_description(
-      description STRING COMMENT 'The product description'
-    ) 
-    RETURNS TABLE(
-      id INT
-      ,product_name STRING
-      ,product_class STRING
-      ,product_description STRING
-      ,average_rating FLOAT
-      ,rating_count INT
-    )
-    READS SQL DATA
-    COMMENT 'This function returns the product details for a given product id'
-    RETURN 
-    WITH search_products AS(
-       SELECT product_id FROM VECTOR_SEARCH(
-        index => {repr(index_name)}
-        ,query_text => description
-        ,num_results => 10
-      )
-    ) 
-    SELECT 
-      id
-      ,product_name
-      ,product_class
-      ,product_description
-      ,average_rating
-      ,rating_count
-    FROM {catalog_name}.{database_name}.wands 
-    WHERE product_id IN (SELECT product_id FROM search_products)
-    LIMIT 10
+  CREATE OR REPLACE FUNCTION  {catalog_name}.{database_name}.find_allowable_product_classifications()
+  RETURNS TABLE(
+    classification STRING
+  )
+  READS SQL DATA
+  COMMENT 'Returns a unique list of allowable product classifications'
+  RETURN
+    SELECT DISTINCT {column_name}
+    FROM {table_name}
   """
 )
+
+
+
+
+# COMMAND ----------
+
+import pandas as pd
+from io import StringIO
+
+from unitycatalog.ai.core.base import FunctionExecutionResult
+
+
+result: FunctionExecutionResult = client.execute_function(
+    function_name=f"{catalog_name}.{database_name}.find_allowable_product_classifications",
+    parameters={}
+)
+
+if result.error:
+  raise Exception(result.error)
+
+pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
+
+display(pdf)
+
+# COMMAND ----------
+
+pdf['classification'].tolist()
 
 # COMMAND ----------
 

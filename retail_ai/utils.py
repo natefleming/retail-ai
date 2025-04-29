@@ -1,5 +1,5 @@
 import importlib
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 
 def callable_from_fqn(fqn: str) -> Callable[[Any, ...], Any]:
@@ -12,3 +12,6 @@ def callable_from_fqn(fqn: str) -> Callable[[Any, ...], Any]:
     return func
   except(ImportError, AttributeError, TypeError) as e:
     raise ImportError(f"Failed to import {fqn}: {e}")
+
+
+
