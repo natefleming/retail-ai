@@ -7,7 +7,12 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import create_genie_tool, create_vector_search_tool
+from retail_ai.tools import (
+    create_genie_tool, 
+    create_vector_search_tool, 
+    allowable_classifications, 
+    create_product_classification_tool
+)
 
 
 def create_vector_search_agent(

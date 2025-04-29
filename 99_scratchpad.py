@@ -1,11 +1,4 @@
 # Databricks notebook source
-# MAGIC %load_ext autoreload
-# MAGIC %autoreload 2
-# MAGIC # Enables autoreload; learn more at https://docs.databricks.com/en/files/workspace-modules.html#autoreload-for-python-modules
-# MAGIC # To disable autoreload; run %autoreload 0
-
-# COMMAND ----------
-
 from typing import Sequence
 
 pip_requirements: Sequence[str] = (
@@ -14,7 +7,8 @@ pip_requirements: Sequence[str] = (
   "databricks-langchain", 
   "databricks-sdk",
   "mlflow",
-  "python-dotenv"
+  "python-dotenv",
+  "loguru",
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -33,7 +27,8 @@ pip_requirements: Sequence[str] = (
   f"databricks-langchain=={version('databricks-langchain')}",
   f"databricks-sdk=={version('databricks-sdk')}",
   f"mlflow=={version('mlflow')}",
-  f"python-dotenv=={version('python-dotenv')}"
+  f"python-dotenv=={version('python-dotenv')}",
+  f"loguru=={version('loguru')}",
 )
 
 print("\n".join(pip_requirements))
@@ -55,6 +50,8 @@ config: ModelConfig = ModelConfig(development_config=model_config_file)
 
 retreiver_config: dict[str, Any] = config.get("retriever")
 
+catalog_name: str = config.get("catalog_name")
+database_name: str = config.get("database_name")
 embedding_model_endpoint_name: str = retreiver_config.get("embedding_model_endpoint_name")
 endpoint_name: str = retreiver_config.get("endpoint_name")
 endpoint_type: str = retreiver_config.get("endpoint_type")
@@ -66,10 +63,12 @@ search_parameters: dict[str, Any] = retreiver_config.get("search_parameters", {}
 
 datasets_config: dict[str, Any] = config.get("datasets")
 huggingface_config: dict[str, Any] = datasets_config.get("huggingface")
-source_table_name: str = huggingface_config.get("table_name")
+source_table_name: str = datasets_config.get("table_name")
 
 space_id = config.get("genie").get("space_id")
 
+assert catalog_name is not None
+assert database_name is not None
 assert embedding_model_endpoint_name is not None
 assert endpoint_name is not None
 assert endpoint_type is not None
@@ -86,8 +85,6 @@ assert space_id is not None
 from langchain_core.tools.base import BaseTool
 from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
 from databricks.sdk import WorkspaceClient
-
-
 
 
 w: WorkspaceClient = WorkspaceClient()
@@ -128,7 +125,77 @@ vector_search_agent = create_react_agent(
 
 # COMMAND ----------
 
-type(vector_search_agent)
+from databricks.sdk import WorkspaceClient
+from retail_ai.tools import find_allowable_classifications
+
+w: WorkspaceClient = WorkspaceClient()
+
+allowable_classifications = find_allowable_classifications(w=w, catalog_name=catalog_name, database_name=database_name)
+
+# COMMAND ----------
+
+from databricks_langchain import ChatDatabricks
+from langchain_core.messages import HumanMessage
+from langgraph.prebuilt import create_react_agent, chat_agent_executor
+from retail_ai.tools import create_product_classification_tool
+
+
+model_name: str = "databricks-meta-llama-3-3-70b-instruct"
+llm: ChatDatabricks = ChatDatabricks(model=model_name)
+
+product_classification_tool = create_product_classification_tool(
+    llm=llm, allowable_classifications=allowable_classifications
+)
+
+agent = create_react_agent(
+    model=llm,
+    prompt="classify the prompt using the provided tools",
+    tools=[product_classification_tool],
+)
+agent.invoke(
+    {
+        "messages": [
+            HumanMessage(
+                content="""
+  The "DreamDrift" combines a recliner and cocoon hammock with adjustable opacity panels, whisper-quiet hovering technology, and biometric sensors that adjust firmness and temperature to your changing comfort needs throughout the day.
+"""
+            )
+        ]
+    }
+)
+
+# COMMAND ----------
+
+from retail_ai.tools import create_find_product_details_by_description
+
+
+find_product_details_by_description = create_find_product_details_by_description(
+  endpoint_name=endpoint_name,
+  index_name=index_name,
+  columns=columns,
+  filter_column="product_class",
+  k=5
+)
+
+agent = create_react_agent(
+    model=llm,
+    prompt="Find product details by description using the tools provided",
+    tools=[product_classification_tool, find_product_details_by_description],
+)
+agent.invoke(
+    {
+        "messages": [
+            HumanMessage(
+                content="""
+  The "DreamDrift" combines a recliner and cocoon hammock with adjustable opacity panels, whisper-quiet hovering technology, and biometric sensors that adjust firmness and temperature to your changing comfort needs throughout the day.
+"""
+            )
+        ]
+    }
+)
+
+
+
 
 # COMMAND ----------
 

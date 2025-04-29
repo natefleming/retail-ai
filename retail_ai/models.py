@@ -57,14 +57,14 @@ class LangGraphChatAgent(ChatAgent):
         request = {"messages": self._convert_messages_to_dict(messages)}
 
         for message, metadata in self.agent.stream(request, config=custom_inputs, stream_mode="messages"):
-            logger.info("predict_stream: message={message}, type={type}, metadata={metadata}", message=message, type=type(message), metadata=metadata)
+            logger.debug("predict_stream: message={message}, type={type}, metadata={metadata}", message=message, type=type(message), metadata=metadata)
             if isinstance(message, BaseMessage):
                 if not message.content or message.additional_kwargs.get("tool_calls"):
                     continue
                 parsed_message = parse_message(message)
-                logger.info("predict_stream: parsed_message={parsed_message}", parsed_message=parsed_message)
+                logger.debug("predict_stream: parsed_message={parsed_message}", parsed_message=parsed_message)
                 chunk: ChatAgentChunk = ChatAgentChunk(**{"delta": parsed_message})
-                logger.info("predict_stream: chunk={chunk}", chunk=chunk)
+                logger.debug("predict_stream: chunk={chunk}", chunk=chunk)
                 yield chunk
 
 
@@ -111,10 +111,10 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
       input_data: dict[str, Any], 
       config: Optional[dict[str, Any]],
   ) -> Sequence[BaseMessage]:
-    logger.info("invoke_agent: input_data={input_data}, config={config}", input_data=input_data, config=config)
+    logger.debug(f"invoke_agent: input_data={input_data}, config={config}")
     result: AddableValuesDict = agent.invoke(input_data, config=config)
     messages: Sequence[BaseMessage] = result["messages"]
-    logger.info("invoke_agent: result={result}", result=result)
+    logger.debug("invoke_agent: result={result}", result=result)
     return messages
 
 
@@ -123,7 +123,7 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
       input_data: dict[str, Any], 
       config: Optional[dict[str, Any]],
   ) -> Iterator[BaseMessage]:
-    logger.info("stream_agent: input_data={input_data}, config={config}", input_data=input_data, config=config)
+    logger.debug(f"stream_agent: input_data={input_data}, config={config}")
     return agent.stream(
         input_data, 
         config=config, 
@@ -139,7 +139,7 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
     return config
 
   def runnable_with_config(input_data: MessageLikeRepresentation, config: Optional[dict] = None) -> Sequence[BaseMessage] | Iterator[BaseMessage]:
-      logger.info("runnable_with_config: input_data={input_data}, config={config}", input_data=input_data, config=config)
+      logger.debug(f"runnable_with_config: input_data={input_data}, config={config}")
       
       formatted_input: dict = format_input(input_data)
       config: dict[str, Any] = parse_configurable(input_data)

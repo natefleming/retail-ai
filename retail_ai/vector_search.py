@@ -21,3 +21,4 @@ def index_exists(vsc: VectorSearchClient, endpoint_name: str, index_full_name: s
             print('Unexpected error describing the index. This could be a permission issue.')
             raise e
     return False
+
