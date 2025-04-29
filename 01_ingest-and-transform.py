@@ -139,7 +139,7 @@ for huggingface_config in huggingface_configs:
 
   additional_cols = {
       doc_uri: F.lit(source_path),
-      primary_key: F.col(primary_key)
+      primary_key: F.col(primary_key),
   }
 
   if "product_description" in wands_df.columns:
@@ -147,6 +147,13 @@ for huggingface_config in huggingface_configs:
                                                      
   wands_df = wands_df.withColumns(additional_cols)
   
+  wands_df = wands_df.withColumns(
+    {
+      "doc_uri": F.col(doc_uri),
+      "id": F.col(primary_key)
+    }
+  )
+
   (
     DeltaTable.createOrReplace(spark)
       .tableName(table_name)
