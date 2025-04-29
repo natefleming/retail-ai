@@ -108,37 +108,58 @@ def create_product_classification_tool(llm: LanguageModelLike, allowable_classif
 
 
 def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
+  """
+  Create a tool that leverages an LLM to extract SKU identifiers from natural language text.
+  
+  In GenAI applications, this tool enables automated extraction of product SKUs from
+  customer queries, support tickets, reviews, or conversational inputs without requiring
+  explicit structured input. This facilitates product lookups, inventory checks, and
+  personalized recommendations in conversational AI systems.
+  
+  Args:
+    llm: Language model to use for SKU extraction from unstructured text
+    
+  Returns:
+    A callable tool function that extracts a list of SKUs from input text
+  """
+  logger.debug("create_sku_extraction_tool: initializing")
 
-    logger.debug(f"create_sku_extraction_tool")
+  # Define a Pydantic model to enforce structured output from the LLM
+  class SkuIdentifier(BaseModel):
+    sku: list[str] = (
+      Field(
+        ...,
+        description="The SKU of the product. Typically 8-12 characters", 
+        default_factory=list
+      )
+    )
 
-    # Define a Pydantic model to enforce valid classifications through type checking
-    class SkuIdentifier(BaseModel):
-        sku: list[str] = (
-            Field(
-                ...,
-                description="The SKU of the product. Typically 8-12 characters", default_factory=list
-            )
-        )
+  @tool
+  def sku_extraction(input: str) -> list[str]:
+    """
+    Extract product SKUs from natural language text for product identification.
+    
+    This tool parses unstructured text to identify and extract product SKUs,
+    enabling downstream tools to perform inventory checks, price lookups,
+    or detailed product information retrieval. It handles various text formats
+    including customer queries, product descriptions, and conversation history.
+    
+    Args:
+      input (str): Natural language text that may contain product SKU references
+             (e.g., "I'm looking for information about SKU ABC123")
 
-    @tool
-    def sku_extraction(input: str) -> list[str]:
-        """
-        This tool lets you extract zero or more SKUs from a product description or prompt. 
-        These SKUs can be used as input to other tools and functions
-        Args:
-            input (str): The input prompt to extract skus from
+    Returns:
+      list[str]: A list of extracted SKU identifiers (empty list if none found)
+    """
+    # Configure the LLM to output in the structured SkuIdentifier format
+    llm_with_tools: LanguageModelLike = llm.with_structured_output(SkuIdentifier)
+    # Invoke the LLM to extract SKUs from the input text
+    skus: list[str] = llm_with_tools.invoke(input=input).sku
 
-        Returns:
-            list[str]: A list of zero or more skus
-        """
-
-        llm_with_tools: LanguageModelLike = llm.with_structured_output(SkuIdentifier)
-        skus: list[str] = llm_with_tools.invoke(input=input).sku
-
-        logger.debug(f"sku_extraction: skus={skus}")
-        return skus
-        
-    return sku_extraction
+    logger.debug(f"sku_extraction: extracted skus={skus}")
+    return skus
+    
+  return sku_extraction
 
 
 def create_find_product_details_by_description(endpoint_name: str, index_name: str, columns: Sequence[str], filter_column: str, k: int = 10) -> Callable[[str, str], Sequence[Document]]:
