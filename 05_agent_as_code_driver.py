@@ -14,6 +14,7 @@ pip_requirements: Sequence[str] = (
   "python-dotenv",
   "uv",
   "grandalf",
+  "loguru",
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -39,6 +40,7 @@ pip_requirements: Sequence[str] = [
     f"psycopg[binary,pool]=={version('psycopg')}", 
     f"databricks-agents=={version('databricks-agents')}",
     f"pydantic=={version('pydantic')}",
+    f"loguru=={version('loguru')}",
 ]
 print("\n".join(pip_requirements))
 
@@ -53,14 +55,19 @@ print("\n".join(pip_requirements))
 # MAGIC %%writefile agent_as_code.py
 # MAGIC
 # MAGIC from typing import Sequence
+# MAGIC import sys
 # MAGIC
 # MAGIC import mlflow
 # MAGIC from mlflow.models import ModelConfig
 # MAGIC
+# MAGIC from langchain_core.runnables import RunnableSequence
 # MAGIC from langgraph.graph.state import CompiledStateGraph
 # MAGIC
 # MAGIC from retail_ai.graph import create_graph
-# MAGIC from retail_ai.models import LangGraphChatAgent, create_agent
+# MAGIC from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain
+# MAGIC
+# MAGIC from loguru import logger
+# MAGIC
 # MAGIC
 # MAGIC
 # MAGIC mlflow.langchain.autolog()
@@ -77,7 +84,9 @@ print("\n".join(pip_requirements))
 # MAGIC text_column: str = config.get("retriever").get("embedding_source_column")
 # MAGIC columns: Sequence[str] = config.get("retriever").get("columns")
 # MAGIC space_id: str = config.get("genie").get("space_id")
+# MAGIC log_level: str = config.get("app").get("log_level")
 # MAGIC
+# MAGIC logger.add(sys.stderr, level=log_level)
 # MAGIC
 # MAGIC graph: CompiledStateGraph = (
 # MAGIC     create_graph(
@@ -92,8 +101,10 @@ print("\n".join(pip_requirements))
 # MAGIC         space_id=space_id
 # MAGIC     )
 # MAGIC )
-# MAGIC app: LangGraphChatAgent = create_agent(graph)
 # MAGIC
+# MAGIC #app: LangGraphChatAgent = create_agent(graph)
+# MAGIC
+# MAGIC app: RunnableSequence = as_langgraph_chain(graph)
 # MAGIC
 # MAGIC mlflow.models.set_model(app)
 # MAGIC
@@ -125,7 +136,11 @@ from agent_as_code import app, config
 
 example_input: dict[str, Any] = config.get("app").get("inventory_example")
 
-app.predict(example_input)
+app.invoke(example_input)
+
+# COMMAND ----------
+
+example_input
 
 # COMMAND ----------
 
@@ -134,40 +149,12 @@ from agent_as_code import app, config
 
 example_input: dict[str, Any] = config.get("app").get("recommendation_example")
 
-app.predict(example_input)
-
-# COMMAND ----------
-
-from typing import Any
-from mlflow.types.agent import ChatAgentResponse
-from retail_ai.models import process_messages
-from agent_as_code import app, config
-
-example_input: dict[str, Any] = config.get("app").get("example_input")
-
-result: ChatAgentResponse = process_messages(app, example_input)
-print(result.messages[-1].content)
-print(result.usage)
-
-# COMMAND ----------
-
-from typing import Any
-from mlflow.types.agent import ChatAgentChunk
-from retail_ai.models import process_messages_stream
-from agent_as_code import app, config
-
-
-example_input: dict[str, Any] = config.get("app").get("example_input")
-
-for event in process_messages_stream(app, example_input["messages"]):
-  event: ChatAgentChunk
-  print(event, "-----------\n")
-
+app.invoke(example_input)
 
 # COMMAND ----------
 
 
-from typing import Sequence
+from typing import Sequence, Optional
 
 from databricks_langchain import VectorSearchRetrieverTool
 
@@ -183,7 +170,14 @@ from mlflow.models.resources import (
 )
 import mlflow
 from mlflow.models.model import ModelInfo
-
+from mlflow.models import infer_signature
+from mlflow.models.signature import ModelSignature
+from mlflow.models.rag_signatures import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    StringResponse,
+)
+from dataclasses import dataclass, field, asdict
 from agent_as_code import config
 
 
@@ -191,6 +185,40 @@ model_name: str = config.get("llms").get("model_name")
 index_name: str = config.get("retriever").get("index_name")
 space_id: str = config.get("genie").get("space_id")
 functions: Sequence[str] = config.get("functions")
+tables: Sequence[str] = config.get("tables")
+
+@dataclass
+class ConfigurableInputs():
+    thread_id: str = None
+    user_id: str = None
+    scd_ids: Optional[list[str]] = field(default_factory=list)
+    store_num: int = None
+
+
+# Additional input fields must be marked as Optional and have a default value
+@dataclass
+class CustomChatCompletionRequest(ChatCompletionRequest):
+    configurable: Optional[ConfigurableInputs] = field(default_factory=ConfigurableInputs)
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    stream: Optional[bool] = None
+
+sample_input = CustomChatCompletionRequest(
+    messages=[{"role": "user", "content": "What is the inventory of the product with id 1?"}],
+    configurable=ConfigurableInputs(
+        thread_id=None,
+        user_id=None,
+        scd_ids=None,
+        store_num=None,
+    ),
+    temperature=None,
+    max_tokens=None,
+    stream=None
+
+)
+
+signature: ModelSignature = infer_signature(asdict(sample_input), StringResponse())
+
 
 resources: Sequence[DatabricksResource] = [
     DatabricksServingEndpoint(endpoint_name=model_name),
@@ -198,17 +226,21 @@ resources: Sequence[DatabricksResource] = [
     DatabricksGenieSpace(genie_space_id=space_id),
 ]
 resources += [DatabricksFunction(function_name=f) for f in functions]
+resources += [DatabricksTable(table_name=t) for t in tables]
 
+input_example: dict[str, Any] = config.get("app").get("example_input")
 
 with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
-    logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
-        python_model="agent_as_code.py",
+    logged_agent_info: ModelInfo = mlflow.langchain.log_model(
+        lc_model="agent_as_code.py",
         code_paths=["retail_ai"],
         model_config=config.to_dict(),
         artifact_path="agent",
         pip_requirements=pip_requirements,
         resources=resources,
+        signature=signature,
+        input_example=input_example,
     )
 
 # COMMAND ----------
@@ -290,6 +322,14 @@ print(champion_model)
 
 # COMMAND ----------
 
+from rich import print as pprint
+
+
+input_example: dict[str, Any] = config.get("app").get("example_input")
+pprint(input_example)
+
+# COMMAND ----------
+
 from databricks import agents
 from databricks.sdk.service.serving import (
     ServedModelInputWorkloadSize, 
@@ -333,22 +373,22 @@ if users:
 
 from typing import Any
 from mlflow.deployments import get_deploy_client
-
+from rich import print as pprint
 from agent_as_code import config
 
 endpoint_name: str = config.get("app").get("endpoint_name")
-example_input: dict[str, Any] = config.get("app").get("example_input")
+example_input: dict[str, Any] = config.get("app").get("inventory_example")
 
 response = get_deploy_client("databricks").predict(
   endpoint=endpoint_name,
   inputs=example_input,
 )
 
-print(response["messages"][-1]["content"])
+pprint(response)
 
 # COMMAND ----------
 
-example_input
+response
 
 # COMMAND ----------
 
@@ -360,11 +400,65 @@ from rich import print as pprint
 
 
 endpoint_name: str = config.get("app").get("endpoint_name")
-example_input: dict[str, Any] = config.get("app").get("example_input")
+example_input: dict[str, Any] = config.get("app").get("recommendation_example")
 
 response = get_deploy_client("databricks").predict(
   endpoint=endpoint_name,
   inputs=example_input,
 )
 
-pprint(response["messages"])
+pprint(response)
+
+# COMMAND ----------
+
+from databricks.sdk import WorkspaceClient
+from rich import print as pprint
+
+w: WorkspaceClient = WorkspaceClient()
+
+openai_client = w.serving_endpoints.get_open_ai_client()
+
+response = openai_client.chat.completions.create(
+    model=endpoint_name,
+    messages=example_input["messages"],
+)
+
+pprint(response)
+
+# COMMAND ----------
+
+from databricks.sdk import WorkspaceClient
+from rich import print as pprint
+
+
+w: WorkspaceClient = WorkspaceClient()
+
+openai_client = w.serving_endpoints.get_open_ai_client()
+
+
+example_input: dict[str, Any] = config.get("app").get("recommendation_example")
+
+messages = example_input["messages"]
+
+# Create a streaming request with custom inputs properly placed in extra_body
+response_stream = openai_client.chat.completions.create(
+    model=endpoint_name,
+    messages=messages,
+    temperature=0.0,
+    max_tokens=100,
+    stream=True,  # Enable streaming
+    extra_body=example_input["configurable"]
+)
+
+# Process the streaming response
+print("Streaming response:")
+collected_content = ""
+for chunk in response_stream:
+    if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+        content = chunk.choices[0].delta.content
+        if content is not None:  # Check for None explicitly
+            collected_content += content
+            print(content, end="", flush=True)  # Print chunks as they arrive
+
+print("\n\nFull collected response:")
+print(collected_content)

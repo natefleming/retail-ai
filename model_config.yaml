@@ -1,3 +1,4 @@
+
 catalog_name: nfleming
 database_name: retail_ai
 volume_name: retail_ai
@@ -7,6 +8,7 @@ llms:
   model_name: databricks-meta-llama-3-3-70b-instruct
 
 app:
+  log_level: INFO
   registered_model_name: nfleming.retail_ai.retail_ai_agent    
   endpoint_name: retail_ai_agent
   tags:
@@ -18,26 +20,38 @@ app:
     messages:
       - role: user
         content: Can you recommend a lamp to match my oak side tables?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        tone: pirate
+    configurable:
+      thread_id: "1"
+      user_id: nate.fleming
+      store_num: 123
+      scd_ids:
+        - "1"
+        - "2"
+        - "3"
   recommendation_example:
     messages:
       - role: user
         content: Can you recommend a lamp to match my oak side tables?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        tone: pirate
+    configurable:
+      thread_id: "1"
+      user_id: nate.fleming
+      store_num: 123
+      scd_ids:
+        - "1"
+        - "2"
+        - "3"
   inventory_example:
     messages:
       - role: user
         content: How many oak tables do we have in stock?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        tone: pirate
+    configurable:
+      thread_id: "1"
+      user_id: nate.fleming
+      store_num: 123
+      scd_ids:
+        - "1"
+        - "2"
+        - "3"
 
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
@@ -52,6 +66,10 @@ evaluation:
 
 genie:
   space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+
+tables:
+  - nfleming.retail_ai.wands
+  - nfleming.retail_ai.wands_product
 
 functions:
   - nfleming.retail_ai.find_wands_product_by_id
