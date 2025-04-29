@@ -107,6 +107,40 @@ def create_product_classification_tool(llm: LanguageModelLike, allowable_classif
     return product_classification
 
 
+def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
+
+    logger.debug(f"create_sku_extraction_tool")
+
+    # Define a Pydantic model to enforce valid classifications through type checking
+    class SkuIdentifier(BaseModel):
+        sku: list[str] = (
+            Field(
+                ...,
+                description="The SKU of the product. Typically 8-12 characters", default_factory=list
+            )
+        )
+
+    @tool
+    def sku_extraction(input: str) -> list[str]:
+        """
+        This tool lets you extract zero or more SKUs from a product description or prompt. 
+        These SKUs can be used as input to other tools and functions
+        Args:
+            input (str): The input prompt to extract skus from
+
+        Returns:
+            list[str]: A list of zero or more skus
+        """
+
+        llm_with_tools: LanguageModelLike = llm.with_structured_output(SkuIdentifier)
+        skus: list[str] = llm_with_tools.invoke(input=input).sku
+
+        logger.debug(f"sku_extraction: skus={skus}")
+        return skus
+        
+    return sku_extraction
+
+
 def create_find_product_details_by_description(endpoint_name: str, index_name: str, columns: Sequence[str], filter_column: str, k: int = 10) -> Callable[[str, str], Sequence[Document]]:
     """
     Create a tool for finding product details using vector search with classification filtering.

@@ -170,23 +170,3 @@ display(pdf)
 # COMMAND ----------
 
 pdf['classification'].tolist()
-
-# COMMAND ----------
-
-import pandas as pd
-from io import StringIO
-
-from unitycatalog.ai.core.base import FunctionExecutionResult
-
-
-result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_wands_product_description",
-    parameters={"description": "A white ottoman" }
-)
-
-if result.error:
-  raise Exception(result.error)
-
-pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
-
-display(pdf)
