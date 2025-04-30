@@ -114,13 +114,9 @@ display(content)
 from typing import Any
 from agent_as_code import app, config
 
-example_input: dict[str, Any] = config.get("app").get("inventory_example")
+example_input: dict[str, Any] = config.get("app").get("comparison_example")
 
 app.invoke(example_input)
-
-# COMMAND ----------
-
-example_input
 
 # COMMAND ----------
 
@@ -130,6 +126,31 @@ from agent_as_code import app, config
 example_input: dict[str, Any] = config.get("app").get("recommendation_example")
 
 app.invoke(example_input)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+
+example_input: dict[str, Any] = config.get("app").get("inventory_example")
+
+app.invoke(example_input)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+
+from loguru import logger
+
+logger.remove()
+
+example_input: dict[str, Any] = config.get("app").get("recommendation_example")
+
+for event in app.stream(example_input):
+  print(event.content, end="", flush=True)
+
+print("\n")
 
 # COMMAND ----------
 
@@ -166,13 +187,6 @@ index_name: str = config.get("retriever").get("index_name")
 space_id: str = config.get("genie").get("space_id")
 functions: Sequence[str] = config.get("functions")
 tables: Sequence[str] = config.get("tables")
-
-@dataclass
-class ConfigurableInputs():
-    thread_id: str = None
-    user_id: str = None
-    scd_ids: Optional[list[str]] = field(default_factory=list)
-    store_num: int = None
 
 
 # Additional input fields must be marked as Optional and have a default value
