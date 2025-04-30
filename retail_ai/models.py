@@ -229,34 +229,37 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         A LangChain runnable that invokes the agent with proper formatting
     """
 
-    def format_input(input_data: MessageLikeRepresentation) -> dict[str, Sequence[BaseMessage]]:
+    def to_state(input_data: MessageLikeRepresentation) -> AgentState:
         """
-        Format various input types into a standardized message dictionary.
+        Format various input types into an AgentState object.
         
         Handles different input formats (string, list of messages, dictionary)
-        and converts them to the format expected by LangGraph agents.
+        and converts them to a proper AgentState instance for LangGraph agents.
         
         Args:
             input_data: Input in various formats
             
         Returns:
-            Dictionary with messages key containing properly formatted messages
+            AgentState object with properly formatted messages
         """
         match input_data:
             case str():
-                return {"messages": [HumanMessage(content=input_data)]}
+                return AgentState(messages=[HumanMessage(content=input_data)])
             case list() if all(isinstance(msg, BaseMessage) for msg in input_data):
-                return {"messages": input_data}
+                return AgentState(messages=input_data)
             case dict() if "messages" in input_data:
-                return input_data
+                # If input is already a dict with messages, convert to AgentState
+                messages = input_data.get("messages", [])
+                config = AgentConfig(**(input_data.get("config", {}) or {}))
+                return AgentState(messages=messages, config=config)
             case _:
-                return {"messages": [HumanMessage(content=str(input_data))]}
+                return AgentState(messages=[HumanMessage(content=str(input_data))])
 
 
     def invoke_agent(
         agent: CompiledStateGraph, 
-        input_data: dict[str, Any], 
-        config: Optional[dict[str, Any]],
+        state: AgentState, 
+        config: Optional[AgentConfig],
     ) -> Sequence[BaseMessage]:
         """
         Invoke the agent in batch mode.
@@ -271,8 +274,8 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         Returns:
             Sequence of messages from the completed execution
         """
-        logger.debug(f"invoke_agent: input_data={input_data}, config={config}")
-        result: AddableValuesDict = agent.invoke(input_data, config=config)
+        logger.debug(f"invoke_agent: state={state}, config={config}")
+        result: AddableValuesDict = agent.invoke(state, config=config)
         messages: Sequence[BaseMessage] = result["messages"]
         logger.debug(f"invoke_agent: result={result}")
         return messages
@@ -280,8 +283,8 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
 
     def stream_agent(
         agent: CompiledStateGraph, 
-        input_data: dict[str, Any], 
-        config: Optional[dict[str, Any]],
+        state: AgentState, 
+        config: Optional[AgentConfig],
     ) -> Iterator[BaseMessage]:
         """
         Invoke the agent in streaming mode.
@@ -296,9 +299,9 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         Returns:
             Iterator of messages from the streaming execution
         """
-        logger.debug(f"stream_agent: input_data={input_data}, config={config}")
+        logger.debug(f"stream_agent: state={state}, config={config}")
         return agent.stream(
-            input_data, 
+            state, 
             config=config, 
             stream_mode="messages"
         )
@@ -320,18 +323,17 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         """
         logger.debug(f"runnable_with_config: input_data={input_data}, config={config}")
         
-        custom_config: dict = {}
+        configurable: dict[str, Any] = {}
         if "configurable" in input_data:
-            custom_config["configurable"] = input_data.pop("configurable")
-
-        formatted_input: dict = format_input(input_data)
-      
+            configurable: dict[str, Any] = input_data.pop("configurable")
+        agent_state: AgentState = to_state(input_data)
+        agent_config: AgentConfig = AgentConfig(**{"configurable": configurable})
         
-        # Determine whether to stream based on configuration
-        should_stream: bool = strtobool(str(custom_config.get("stream", "true")))
+        
+        should_stream: bool = strtobool(str(configurable.get("stream", "true")))
         if should_stream:
             # Stream mode - yield messages one by one
-            for message, metadata in stream_agent(agent, formatted_input, custom_config):
+            for message, metadata in stream_agent(agent, agent_state, agent_config):
                 if isinstance(message, BaseMessage):
                     # Skip empty, tool call, or tool messages to clean the stream
                     if not message.content or message.additional_kwargs.get("tool_calls") or isinstance(message, ToolMessage):
@@ -339,7 +341,7 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
                     yield message
         else:
             # Batch mode - return all messages at once
-            return invoke_agent(agent, formatted_input, custom_config)
+            return invoke_agent(agent, agent_state, agent_config)
   
     # Create and return the runnable
     return RunnableLambda(runnable_with_config)
