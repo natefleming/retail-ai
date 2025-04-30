@@ -11,7 +11,7 @@ from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
 
 
-def create_graph(
+def create_retail_graph(
     model_name: str,
     endpoint: str,
     index_name: str,
