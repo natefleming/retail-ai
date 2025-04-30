@@ -9,6 +9,34 @@ from langgraph.prebuilt import create_react_agent
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import create_genie_tool, create_vector_search_tool
 
+from mlflow.models import ModelConfig
+
+
+from databricks_langchain import ChatDatabricks
+
+from loguru import logger
+
+def create_arma_agent(model_config: ModelConfig, config: AgentState) -> CompiledStateGraph:
+    logger.debug(f"config: {config}")
+    model_name: str = model_config.get("agents").get("arma").get("model_name")
+    if not model_name:
+        model_name = model_config.get("llms").get("model_name")
+
+    prompt: str = model_config.get("agents").get("arma").get("prompt")
+
+    llm: LanguageModelLike = ChatDatabricks(model=model_name, temperature=0.1)
+
+    agent: CompiledStateGraph = create_react_agent(
+        name="arma_agent",
+        model=llm,
+        prompt=prompt,
+        state_schema=AgentState,
+        config_schema=AgentConfig,
+        tools=[],
+    )
+
+    return agent    
+
 
 def create_vector_search_agent(
     model: LanguageModelLike, 

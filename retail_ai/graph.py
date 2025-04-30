@@ -10,6 +10,20 @@ from retail_ai.nodes import (code_question_node, generic_question_node,
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
 
+from retail_ai.nodes import arma_node
+
+from mlflow.models import ModelConfig
+
+def create_ace_arma_graph(model_config: ModelConfig) -> CompiledStateGraph:
+    workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
+
+    workflow.add_node("arma", arma_node(model_config=model_config))
+
+    workflow.set_entry_point("arma")
+    workflow.set_finish_point("arma")
+
+    return workflow.compile()
+
 
 def create_retail_graph(
     model_name: str,

@@ -14,6 +14,8 @@ from mlflow.types.agent import (ChatAgentChunk, ChatAgentMessage,
                                 ChatAgentResponse, ChatContext)
 
 
+from retail_ai.state import AgentState, AgentConfig
+
 def get_latest_model_version(model_name: str) -> int:
     """
     Retrieve the latest version number of a registered MLflow model.
@@ -301,25 +303,6 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
             stream_mode="messages"
         )
 
-    def parse_configurable(input_data: MessageLikeRepresentation) -> dict[str, Any]:
-        """
-        Extract configurable parameters from input data.
-        
-        Looks for a 'configurable' key in dictionary inputs and extracts
-        its contents for use in agent configuration.
-        
-        Args:
-            input_data: Input that might contain configurable parameters
-            
-        Returns:
-            Dictionary with configurable parameters if found, empty dict otherwise
-        """
-        config: dict[str, Any] = {}
-        if isinstance(input_data, dict) and "configurable" in input_data:
-            config = {
-                "configurable": input_data.pop("configurable")
-            } 
-        return config
 
     def runnable_with_config(input_data: MessageLikeRepresentation, config: Optional[dict] = None) -> Sequence[BaseMessage] | Iterator[BaseMessage]:
         """
@@ -337,19 +320,18 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         """
         logger.debug(f"runnable_with_config: input_data={input_data}, config={config}")
         
-        # Format the input and extract configurable parameters
+        custom_config: dict = {}
+        if "configurable" in input_data:
+            custom_config["configurable"] = input_data.pop("configurable")
+
         formatted_input: dict = format_input(input_data)
-        extracted_config: dict[str, Any] = parse_configurable(input_data)
-        
-        # Merge provided config with extracted config
-        if config:
-            extracted_config.update(config)
+      
         
         # Determine whether to stream based on configuration
-        should_stream: bool = strtobool(str(extracted_config.get("stream", "true")))
+        should_stream: bool = strtobool(str(custom_config.get("stream", "true")))
         if should_stream:
             # Stream mode - yield messages one by one
-            for message, metadata in stream_agent(agent, formatted_input, extracted_config):
+            for message, metadata in stream_agent(agent, formatted_input, custom_config):
                 if isinstance(message, BaseMessage):
                     # Skip empty, tool call, or tool messages to clean the stream
                     if not message.content or message.additional_kwargs.get("tool_calls") or isinstance(message, ToolMessage):
@@ -357,7 +339,7 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
                     yield message
         else:
             # Batch mode - return all messages at once
-            return invoke_agent(agent, formatted_input, extracted_config)
+            return invoke_agent(agent, formatted_input, custom_config)
   
     # Create and return the runnable
     return RunnableLambda(runnable_with_config)
