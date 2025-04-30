@@ -58,51 +58,60 @@ def find_allowable_classifications(w: WorkspaceClient, catalog_name: str, databa
     return classifications
 
 
-def create_product_classification_tool(llm: LanguageModelLike, allowable_classifications: Sequence[str]) -> Callable[[str], str]:
+def create_product_classification_tool(
+  llm: LanguageModelLike, 
+  allowable_classifications: Sequence[str],
+  k: int = 1,
+) -> Callable[[str], list[str]]:
     """
     Create a tool that uses an LLM to classify product descriptions into predefined categories.
     
     This factory function generates a tool that leverages a language model to classify
-    product descriptions into one of the allowable classifications. The classifications are
-    enforced through a Pydantic model with a Literal field.
+    product descriptions into one or more of the allowable classifications. The number of 
+    classifications returned is determined by the 'k' parameter.
     
     Args:
         llm: Language model to use for classification
         allowable_classifications: List of valid classification categories
+        k: Number of classifications to return (default: 1)
         
     Returns:
-        A callable tool function that takes a product description and returns a classification
+        A callable tool function that takes a product description and returns a list of classifications
     """
     logger.debug(f"create_product_classification_tool: allowable_classifications={allowable_classifications}")
 
     # Define a Pydantic model to enforce valid classifications through type checking
     class Classifier(BaseModel):
-        classification: Literal[tuple(allowable_classifications)] = (
+        classifications: list[Literal[tuple(allowable_classifications)]] = (
             Field(
                 ...,
-                description=f"The classification of the product. Must be one of: {allowable_classifications}"
+                description=f"The classifications of the product. Return {k} classifications from: {allowable_classifications}"
             )
         )
 
     @tool
-    def product_classification(input: str) -> str:
+    def product_classification(input: str) -> list[str]:
         """
-        This tool lets you extract a classification from a product description or prompt. 
-        This classification can be used to apply a filter during vector search lookup
+        This tool lets you extract classifications from a product description or prompt. 
+        This classification can be used to apply a filter during vector search lookup.
 
         Args:
             input (str): The input prompt to ask to classify the product
 
         Returns:
-            str: The classification of the product
+            list[str]: A list of {k} classifications for the product
         """  
         # Configure the LLM to output in the structured Classifier format
         llm_with_tools: LanguageModelLike = llm.with_structured_output(Classifier)
         # Invoke the LLM to classify the input text
-        classification: str = llm_with_tools.invoke(input=input).classification
-
-        logger.debug(f"product_classification: classification={classification}")
-        return classification
+        classifications: list[str] = llm_with_tools.invoke(input=input).classifications
+        
+        # Ensure we return exactly k classifications
+        if len(classifications) > k:
+            classifications = classifications[:k]
+        
+        logger.debug(f"product_classification: classifications={classifications}")
+        return classifications
         
     return product_classification
 
@@ -163,48 +172,59 @@ def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
 
 
 def create_find_product_details_by_description(endpoint_name: str, index_name: str, columns: Sequence[str], filter_column: str, k: int = 10) -> Callable[[str, str], Sequence[Document]]:
+  """
+  Create a tool for finding product details using vector search with classification filtering.
+  
+  This factory function generates a specialized search tool that combines semantic vector search 
+  with categorical filtering to improve product discovery in retail applications. It enables 
+  natural language product lookups with classification-based narrowing of results.
+  
+  Args:
+    endpoint_name: Name of the Databricks Vector Search endpoint to query
+    index_name: Name of the specific vector index containing product information
+    columns: List of columns to retrieve from the product database
+    filter_column: Database column name that contains product classification values
+    k: Maximum number of search results to return (default: 10)
+    
+  Returns:
+    A callable tool function that performs filtered vector search using both 
+    product descriptions and classification categories
+  """
+  @tool
+  def find_product_details_by_description(content: str, product_classifications: list[str]) -> Sequence[Document]:
     """
-    Create a tool for finding product details using vector search with classification filtering.
+    Find products matching a description, filtered by product classifications.
     
-    This factory function generates a tool that uses Databricks Vector Search to find
-    products similar to a given description, filtered by a specific product classification.
-    This enables more precise product recommendations and lookups.
-    
+    This tool performs semantic search over product data to find items that match 
+    the given description text, while limiting results to products belonging to the 
+    specified classification categories. It enables more targeted product lookups
+    compared to pure text-based search.
+
     Args:
-        endpoint_name: Name of the Vector Search endpoint
-        index_name: Name of the vector index to search
-        columns: Specific columns to retrieve from search results
-        filter_column: Name of the column to use for classification filtering
-        k: Maximum number of results to return (default: 10)
-        
-    Returns:
-        A callable tool function that searches for products by description and classification
-    """
-    @tool
-    def find_product_details_by_description(content: str, product_classification: str) -> Sequence[Document]:
-        """
-        This tool lets you find product details by description. It will return a list of documents that match the description.
-
-        Args:
-            content (str): The content to search for
-            product_classification (str): The classification of the product. This can be returned from the `product_classification` tool
-        """
-        # Initialize the Vector Search client
-        vector_search: VectorStore = DatabricksVectorSearch(
-            endpoint=endpoint_name,
-            index_name=index_name,
-            columns=columns,
-            client_args={},
-        )
-
-        # Perform similarity search with classification filter
-        documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, k=k, filter={filter_column: [product_classification]}
-        )
-
-        return documents
+      content (str): Natural language description of the product(s) to find
+      product_classifications (list[str]): List of product classifications to filter by,
+                        typically obtained from the `product_classification` tool
     
-    return find_product_details_by_description
+    Returns:
+      Sequence[Document]: A list of matching product documents with relevant metadata
+    """
+    # Initialize the Vector Search client with endpoint and index configuration
+    vector_search: VectorStore = DatabricksVectorSearch(
+      endpoint=endpoint_name,
+      index_name=index_name,
+      columns=columns,
+      client_args={},
+    )
+
+    # Execute vector similarity search with classification-based filtering
+    # to narrow results to specific product categories
+    documents: Sequence[Document] = vector_search.similarity_search(
+      query=content, k=k, filter={filter_column: product_classifications}
+    )
+
+    return documents
+  
+  return find_product_details_by_description
             
             
 def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
