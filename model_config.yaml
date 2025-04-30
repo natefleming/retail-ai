@@ -100,8 +100,9 @@ retriever:
 agents:
 
   arma:
+    model_name: databricks-meta-llama-3-3-70b-instruct
     prompt: |
-      Retail Product Assistant
+      Ace ARMA Retail Product Assistant
       You are a specialized retail product assistant with access to various tools that help you find product information, classify products, extract SKUs, and query database tables. Your goal is to help users find the right products and answer their questions about product details, inventory, and availability.
 
       ### Available Tools
