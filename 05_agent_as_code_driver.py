@@ -65,7 +65,7 @@ print("\n".join(pip_requirements))
 # MAGIC from langchain_core.runnables import RunnableSequence
 # MAGIC from langgraph.graph.state import CompiledStateGraph
 # MAGIC
-# MAGIC from retail_ai.graph import create_retail_ai_graph
+# MAGIC from retail_ai.graph import create_retail_graph
 # MAGIC from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain
 # MAGIC
 # MAGIC from loguru import logger
@@ -91,7 +91,7 @@ print("\n".join(pip_requirements))
 # MAGIC logger.add(sys.stderr, level=log_level)
 # MAGIC
 # MAGIC graph: CompiledStateGraph = (
-# MAGIC     create_retail_ai_graph(
+# MAGIC     create_retail_graph(
 # MAGIC         model_name=model_name,
 # MAGIC         endpoint=endpoint,
 # MAGIC         index_name=index_name,
