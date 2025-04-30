@@ -1,20 +1,17 @@
 from typing import Callable, Optional, Sequence
 
 from databricks_ai_bridge.genie import GenieResponse
+from databricks_langchain import ChatDatabricks
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools.base import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
+from loguru import logger
+from mlflow.models import ModelConfig
 
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import create_genie_tool, create_vector_search_tool
 
-from mlflow.models import ModelConfig
-
-
-from databricks_langchain import ChatDatabricks
-
-from loguru import logger
 
 def create_arma_agent(model_config: ModelConfig, config: AgentState) -> CompiledStateGraph:
     logger.debug(f"config: {config}")

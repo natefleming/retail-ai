@@ -2,17 +2,15 @@ from typing import Sequence
 
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from mlflow.models import ModelConfig
 
-from retail_ai.nodes import (code_question_node, generic_question_node,
-                             genie_question_node, route_question_node,
-                             summarize_response_node,
+from retail_ai.nodes import (arma_node, code_question_node,
+                             generic_question_node, genie_question_node,
+                             route_question_node, summarize_response_node,
                              vector_search_question_node)
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
 
-from retail_ai.nodes import arma_node
-
-from mlflow.models import ModelConfig
 
 def create_ace_arma_graph(model_config: ModelConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)

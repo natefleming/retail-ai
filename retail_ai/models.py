@@ -13,8 +13,8 @@ from mlflow.pyfunc import ChatAgent
 from mlflow.types.agent import (ChatAgentChunk, ChatAgentMessage,
                                 ChatAgentResponse, ChatContext)
 
+from retail_ai.state import AgentConfig, AgentState
 
-from retail_ai.state import AgentState, AgentConfig
 
 def get_latest_model_version(model_name: str) -> int:
     """
