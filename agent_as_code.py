@@ -8,7 +8,7 @@ from mlflow.models import ModelConfig
 from langchain_core.runnables import RunnableSequence
 from langgraph.graph.state import CompiledStateGraph
 
-from retail_ai.graph import create_retail_ai_graph
+from retail_ai.graph import create_retail_graph
 from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain
 
 from loguru import logger
@@ -34,7 +34,7 @@ log_level: str = config.get("app").get("log_level")
 logger.add(sys.stderr, level=log_level)
 
 graph: CompiledStateGraph = (
-    create_retail_ai_graph(
+    create_retail_graph(
         model_name=model_name,
         endpoint=endpoint,
         index_name=index_name,
