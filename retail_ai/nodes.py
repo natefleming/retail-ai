@@ -3,6 +3,7 @@ from typing import Literal, Optional, Sequence
 import mlflow
 from databricks_langchain import ChatDatabricks, DatabricksVectorSearch
 from langchain.prompts import PromptTemplate
+
 from langchain_core.documents.base import Document
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage
@@ -66,11 +67,15 @@ def arma_node(model_config: ModelConfig) -> AgentCallable:
     @mlflow.trace()
     def arma_question(state: AgentState, config: AgentConfig) -> dict[str, str]:
         logger.debug(f"state: {state}, config: {config}")
-        #last_message: HumanMessage = last_human_message(state["messages"])
+      
+        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
+        prompt_
 
         agent: CompiledStateGraph = create_arma_agent(model_config=model_config, config=config)
+        messages: Sequence[BaseMessage] = state["messages"]
+        last_message: HumanMessage = last_human_message(messages)
 
-        response = agent.invoke(input=state, config=config)
+        response = agent.invoke(input=last_message, config=config)
         logger.debug(f"response: {response}")
         return {"messages": [response]}
 

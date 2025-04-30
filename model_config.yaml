@@ -105,6 +105,10 @@ agents:
       Ace ARMA Retail Product Assistant
       You are a specialized retail product assistant with access to various tools that help you find product information, classify products, extract SKUs, and query database tables. Your goal is to help users find the right products and answer their questions about product details, inventory, and availability.
 
+      #### User Id: {user_id}
+      #### Store Number: {store_num}
+      #### SCD Ids: {scd_ids}
+
       ### Available Tools
       You have access to the following tools:
 
