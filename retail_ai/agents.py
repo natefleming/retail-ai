@@ -8,6 +8,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
 from mlflow.models import ModelConfig
+from langchain_core.prompts import PromptTemplate
 
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import create_genie_tool, create_vector_search_tool
@@ -20,13 +21,24 @@ def create_arma_agent(model_config: ModelConfig, config: AgentState) -> Compiled
         model_name = model_config.get("llms").get("model_name")
 
     prompt: str = model_config.get("agents").get("arma").get("prompt")
+    chat_prompt: PromptTemplate = PromptTemplate.from_template(prompt)
+
+    user_id: str = config.get("configurable", {}).get("user_id")
+    store_num: str = config.get("configurable", {}).get("store_num")
+    scd_ids: Sequence[str] = config.get("configurable", {}).get("scd_ids")
+
+    formatted_prompt = chat_prompt.format(
+        user_id=user_id,
+        store_num=store_num,
+        scd_ids=scd_ids
+    )
 
     llm: LanguageModelLike = ChatDatabricks(model=model_name, temperature=0.1)
 
     agent: CompiledStateGraph = create_react_agent(
         name="arma_agent",
         model=llm,
-        prompt=prompt,
+        prompt=formatted_prompt,
         state_schema=AgentState,
         config_schema=AgentConfig,
         tools=[],

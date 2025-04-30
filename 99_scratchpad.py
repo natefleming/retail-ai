@@ -253,4 +253,21 @@ genie_tool= create_genie_tool(
 
 # COMMAND ----------
 
-type(genie_tool.__doc__)
+from langchain_core.prompts import PromptTemplate 
+from langchain_core.prompt_values import ChatPromptValue
+
+
+
+prompt: str = config.get("agents").get("arma").get("prompt")
+
+chat_prompt: PromptTemplate = PromptTemplate.from_template(prompt)
+formatted_prompt = chat_prompt.format(
+    user_id=1234,
+    store_num=34655,
+    scd_ids=[1, 2, 3]
+)
+
+
+formatted_prompt
+
+
