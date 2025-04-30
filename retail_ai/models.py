@@ -119,8 +119,7 @@ class LangGraphChatAgent(ChatAgent):
 
         # Stream messages from the agent's execution
         for message, metadata in self.agent.stream(request, config=custom_inputs, stream_mode="messages"):
-            logger.debug("predict_stream: message={message}, type={type}, metadata={metadata}", 
-                        message=message, type=type(message), metadata=metadata)
+            logger.debug(f"predict_stream: message={message}, type={type}, metadata={metadata}")
             
             if isinstance(message, BaseMessage):
                 # Skip empty messages and tool calls to avoid streaming internal operations
@@ -129,11 +128,11 @@ class LangGraphChatAgent(ChatAgent):
                     
                 # Parse the message into a format suitable for MLflow
                 parsed_message = parse_message(message)
-                logger.debug("predict_stream: parsed_message={parsed_message}", parsed_message=parsed_message)
+                logger.debug(f"predict_stream: parsed_message={parsed_message}")
                 
                 # Create and yield a chunk for streaming
                 chunk: ChatAgentChunk = ChatAgentChunk(**{"delta": parsed_message})
-                logger.debug("predict_stream: chunk={chunk}", chunk=chunk)
+                logger.debug(f"predict_stream: chunk={chunk}")
                 yield chunk
 
     def _convert_messages_to_dict(self, messages: list[ChatAgentMessage]) -> list[dict[str, Any]]:
@@ -273,7 +272,7 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         logger.debug(f"invoke_agent: input_data={input_data}, config={config}")
         result: AddableValuesDict = agent.invoke(input_data, config=config)
         messages: Sequence[BaseMessage] = result["messages"]
-        logger.debug("invoke_agent: result={result}", result=result)
+        logger.debug(f"invoke_agent: result={result}")
         return messages
 
 
