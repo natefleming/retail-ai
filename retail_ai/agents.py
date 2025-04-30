@@ -11,8 +11,17 @@ from mlflow.models import ModelConfig
 from langchain_core.prompts import PromptTemplate
 
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import create_genie_tool, create_vector_search_tool
+from retail_ai.tools import (
+    create_genie_tool, 
+    create_vector_search_tool,
+    create_sku_extraction_tool,
+    create_find_product_details_by_description_tool,
+    create_uc_tools,
+    create_product_classification_tool,
+    create_product_comparison_tool,
+    find_allowable_classifications,
 
+)
 
 def create_arma_agent(model_config: ModelConfig, config: AgentState) -> CompiledStateGraph:
     logger.debug(f"config: {config}")
@@ -35,13 +44,47 @@ def create_arma_agent(model_config: ModelConfig, config: AgentState) -> Compiled
 
     llm: LanguageModelLike = ChatDatabricks(model=model_name, temperature=0.1)
 
+    catalog_name: str = model_config.get("catalog_name")
+    database_name: str = model_config.get("database_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    index_name: str = model_config.get("retriever").get("index_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    space_id: str = model_config.get("genie").get("space_id")
+    function_names: Sequence[str] = model_config.get("functions") or []
+
+    find_product_details_by_description = create_find_product_details_by_description_tool(
+        endpoint_name=endpoint_name,
+        index_name=index_name,
+        columns=columns,
+        filter_column="product_class",
+        k=5
+    )
+
+    allowable_classifications = config.get("allowable_classifications")
+    product_classification = create_product_classification_tool(
+        llm=llm, allowable_classifications=allowable_classifications
+    )
+
+    #product_comparison = create_product_comparison_tool(llm=llm)
+    create_sku_extraction = create_sku_extraction_tool(llm=llm)
+
+    unity_catalog_tools = create_uc_tools(function_names=function_names)
+
+    tools = [
+        product_classification,
+       # product_comparison,
+        find_product_details_by_description,
+        create_sku_extraction,
+    ]
+    tools.extend(unity_catalog_tools)
+
     agent: CompiledStateGraph = create_react_agent(
         name="arma_agent",
         model=llm,
         prompt=formatted_prompt,
         state_schema=AgentState,
         config_schema=AgentConfig,
-        tools=[],
+        tools=tools,
     )
 
     return agent    

@@ -6,6 +6,7 @@ users: []
 
 llms:
   model_name: databricks-meta-llama-3-3-70b-instruct
+  #model_name: databricks-claude-3-7-sonnet
 
 app:
   log_level: INFO
@@ -52,6 +53,18 @@ app:
         - "1"
         - "2"
         - "3"
+  comparison_example:
+    messages:
+      - role: user
+        content: Can you compare items with product ids 14523 and 25163
+    configurable:
+      thread_id: "1"
+      user_id: nate.fleming
+      store_num: 123
+      scd_ids:
+        - "1"
+        - "2"
+        - "3"
 
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
@@ -72,8 +85,7 @@ tables:
   - nfleming.retail_ai.wands_product
 
 functions:
-  - nfleming.retail_ai.find_wands_product_by_id
-  - system.ai.python_exec
+  - nfleming.retail_ai.find_product_by_sku
 
 retriever:
   embedding_model_endpoint_name: databricks-gte-large-en
@@ -100,10 +112,11 @@ retriever:
 agents:
 
   arma:
+    #model_name: databricks-claude-3-7-sonnet
     model_name: databricks-meta-llama-3-3-70b-instruct
     prompt: |
       Ace ARMA Retail Product Assistant
-      You are a specialized retail product assistant with access to various tools that help you find product information, classify products, extract SKUs, and query database tables. Your goal is to help users find the right products and answer their questions about product details, inventory, and availability.
+      You are a specialized retail product assistant with access to various tools that help you find product information, classify products, compare products, extract SKUs, and query database tables. Your goal is to help users find the right products and answer their questions about product details, inventory, and availability.
 
       ### User Information
       - **User Id**: {user_id}
@@ -114,10 +127,11 @@ agents:
       You have access to the following tools:
 
       - **product_classification**: Identifies the categories a product belongs to based on descriptions.
+      - **product_comparison**: Compares products
       - **sku_extraction**: Extracts product SKUs from natural language text.
       - **find_product_details_by_description**: Searches for products matching descriptions, filtered by classifications.
       - **genie_tool**: Enables natural language queries against database tables for inventory and sales data.
-      - **uc_catalog_query**: Allows you to lookup SKUs and product information from Unity Catalog warehouse tables.
+      - **nfleming.retail_ai.find_wands_product_by_id**: Allows you to lookup SKUs and product information from Unity Catalog warehouse tables.
 
       ### Tool Usage Guidelines
       #### Product Search Strategy
@@ -143,6 +157,13 @@ agents:
       - **Handle partial matches**: If no exact matches are found, suggest closest alternatives.
       - **Explain limitations**: If you cannot find certain information, explain why.
 
+
+      ### Product Comparison
+      - For question about product comparisons
+      1. Use **find_wands_product_by_id** 
+      2. Use **product_comparison** to compare products
+      3. This two-step approach yields more accurate results than direct search.
+
       ### Domain Knowledge
       In retail product contexts:
       - SKUs are typically 8-12 character product identifiers.
@@ -150,7 +171,7 @@ agents:
       - When dealing with search results, consider both product specifications and availability.
       - Users may use imprecise or general language to describe products they're looking for.
 
-      Your primary objective is to help users find the right products and information efficiently and accurately.prompt: |
+      Your primary objective is to help users find the right products and information efficiently and accurately.
 
 
      
