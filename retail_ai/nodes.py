@@ -1,7 +1,6 @@
 from typing import Literal, Optional, Sequence
 
 import mlflow
-from mlflow.models import ModelConfig
 from databricks_langchain import ChatDatabricks, DatabricksVectorSearch
 from langchain.prompts import PromptTemplate
 from langchain_core.documents.base import Document
@@ -10,15 +9,15 @@ from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableSequence
 from langchain_core.vectorstores.base import VectorStore
 from langgraph.graph.state import CompiledStateGraph
+from loguru import logger
+from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 
-from retail_ai.agents import create_genie_agent, create_vector_search_agent, create_arma_agent
+from retail_ai.agents import (create_arma_agent, create_genie_agent,
+                              create_vector_search_agent)
 from retail_ai.messages import last_human_message, last_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
-
-from loguru import logger
-
 
 # Define the valid routing destinations for the multi-agent system
 allowed_routes: Sequence[str] = (
@@ -67,7 +66,7 @@ def arma_node(model_config: ModelConfig) -> AgentCallable:
     @mlflow.trace()
     def arma_question(state: AgentState, config: AgentConfig) -> dict[str, str]:
         logger.debug(f"state: {state}, config: {config}")
-        last_message: HumanMessage = last_human_message(state["messages"])
+        #last_message: HumanMessage = last_human_message(state["messages"])
 
         agent: CompiledStateGraph = create_arma_agent(model_config=model_config, config=config)
 
