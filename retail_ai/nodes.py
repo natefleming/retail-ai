@@ -68,9 +68,6 @@ def arma_node(model_config: ModelConfig) -> AgentCallable:
     def arma_question(state: AgentState, config: AgentConfig) -> dict[str, str]:
         logger.debug(f"state: {state}, config: {config}")
       
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        prompt_
-
         agent: CompiledStateGraph = create_arma_agent(model_config=model_config, config=config)
         messages: Sequence[BaseMessage] = state["messages"]
         last_message: HumanMessage = last_human_message(messages)
