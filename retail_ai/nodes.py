@@ -1,6 +1,7 @@
 from typing import Literal, Optional, Sequence
 
 import mlflow
+from mlflow.models import ModelConfig
 from databricks_langchain import ChatDatabricks, DatabricksVectorSearch
 from langchain.prompts import PromptTemplate
 from langchain_core.documents.base import Document
@@ -11,10 +12,13 @@ from langchain_core.vectorstores.base import VectorStore
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
-from retail_ai.agents import create_genie_agent, create_vector_search_agent
+from retail_ai.agents import create_genie_agent, create_vector_search_agent, create_arma_agent
 from retail_ai.messages import last_human_message, last_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
+
+from loguru import logger
+
 
 # Define the valid routing destinations for the multi-agent system
 allowed_routes: Sequence[str] = (
@@ -42,6 +46,36 @@ class Router(BaseModel):
             description=f"The route to take. Must be one of {allowed_routes}"
         )
     )
+
+
+def arma_node(model_config: ModelConfig) -> AgentCallable:
+
+    model_name: str = model_config.get("llms").get("model_name")
+
+    endpoint: str = model_config.get("retriever").get("endpoint_name")
+    index_name: str = model_config.get("retriever").get("index_name")
+    search_parameters: dict[str, str] = model_config.get("retriever").get("search_parameters")
+    primary_key: str = model_config.get("retriever").get("primary_key")
+    doc_uri: str = model_config.get("retriever").get("doc_uri")
+    text_column: str = model_config.get("retriever").get("embedding_source_column")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    space_id: str = model_config.get("genie").get("space_id")
+    log_level: str = model_config.get("app").get("log_level")
+
+    prompt: str = model_config.get("agents").get("arma").get("prompt")
+
+    @mlflow.trace()
+    def arma_question(state: AgentState, config: AgentConfig) -> dict[str, str]:
+        logger.debug(f"state: {state}, config: {config}")
+        last_message: HumanMessage = last_human_message(state["messages"])
+
+        agent: CompiledStateGraph = create_arma_agent(model_config=model_config, config=config)
+
+        response = agent.invoke(input=state, config=config)
+        logger.debug(f"response: {response}")
+        return {"messages": [response]}
+
+    return arma_question
 
 
 def route_question_node(model_name: str) -> AgentCallable:

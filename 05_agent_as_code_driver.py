@@ -65,46 +65,20 @@ print("\n".join(pip_requirements))
 # MAGIC from langchain_core.runnables import RunnableSequence
 # MAGIC from langgraph.graph.state import CompiledStateGraph
 # MAGIC
-# MAGIC from retail_ai.graph import create_retail_graph
+# MAGIC from retail_ai.graph import create_ace_arma_graph
 # MAGIC from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain
 # MAGIC
 # MAGIC from loguru import logger
 # MAGIC
 # MAGIC
-# MAGIC
 # MAGIC mlflow.langchain.autolog()
 # MAGIC
 # MAGIC config: ModelConfig = ModelConfig(development_config="model_config.yaml")
-# MAGIC
-# MAGIC model_name: str = config.get("llms").get("model_name")
-# MAGIC
-# MAGIC endpoint: str = config.get("retriever").get("endpoint_name")
-# MAGIC index_name: str = config.get("retriever").get("index_name")
-# MAGIC search_parameters: dict[str, str] = config.get("retriever").get("search_parameters")
-# MAGIC primary_key: str = config.get("retriever").get("primary_key")
-# MAGIC doc_uri: str = config.get("retriever").get("doc_uri")
-# MAGIC text_column: str = config.get("retriever").get("embedding_source_column")
-# MAGIC columns: Sequence[str] = config.get("retriever").get("columns")
-# MAGIC space_id: str = config.get("genie").get("space_id")
 # MAGIC log_level: str = config.get("app").get("log_level")
 # MAGIC
 # MAGIC logger.add(sys.stderr, level=log_level)
 # MAGIC
-# MAGIC graph: CompiledStateGraph = (
-# MAGIC     create_retail_graph(
-# MAGIC         model_name=model_name,
-# MAGIC         endpoint=endpoint,
-# MAGIC         index_name=index_name,
-# MAGIC         primary_key=primary_key,
-# MAGIC         doc_uri=doc_uri,
-# MAGIC         text_column=text_column,
-# MAGIC         columns=columns,
-# MAGIC         search_parameters=search_parameters,
-# MAGIC         space_id=space_id
-# MAGIC     )
-# MAGIC )
-# MAGIC
-# MAGIC #app: LangGraphChatAgent = create_agent(graph)
+# MAGIC graph: CompiledStateGraph = create_ace_arma_graph(model_config=config)
 # MAGIC
 # MAGIC app: RunnableSequence = as_langgraph_chain(graph)
 # MAGIC
@@ -130,6 +104,10 @@ html_content = f"""
 content = HTML(html_content)
 
 display(content)
+
+# COMMAND ----------
+
+# MAGIC %restart_python
 
 # COMMAND ----------
 
