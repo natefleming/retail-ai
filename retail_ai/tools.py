@@ -1,3 +1,4 @@
+from typing import Any
 import os
 from io import StringIO
 from typing import Callable, Literal, Optional, Sequence
@@ -17,10 +18,142 @@ from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 from pydantic import BaseModel, Field
-from unitycatalog.ai.core.base import FunctionExecutionResult
+from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
+from langchain_core.prompts import PromptTemplate
+
+from loguru import logger
 
 
-def find_allowable_classifications(w: WorkspaceClient, catalog_name: str, database_name: str) -> Sequence[str]:
+
+set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
+
+
+class ProductFeature(BaseModel):
+    """A specific feature or attribute of a product for comparison."""
+    name: str = Field(description="Name of the feature being compared")
+    description: str = Field(description="Brief description of what this feature represents")
+    importance: int = Field(description="Importance rating from 1-10, where 10 is most important")
+
+    model_config = {
+        "extra": "forbid",  # This prevents additional properties
+        "json_schema_extra": {
+            "additionalProperties": False  # Explicitly set in schema
+        }
+    }
+
+class ProductAttribute(BaseModel):
+    """A specific attribute and its value for a product."""
+    feature: str = Field(description="Name of the feature/attribute")
+    value: str = Field(description="The value or description of this attribute for this product")
+    rating: Optional[int] = Field(None, description="Optional numerical rating (1-10) if applicable")
+    pros: list[str] = Field(default_factory=list, description="Positive aspects of this attribute")
+    cons: list[str] = Field(default_factory=list, description="Negative aspects of this attribute")
+
+    model_config = {
+        "extra": "forbid",  # This prevents additional properties
+        "json_schema_extra": {
+            "additionalProperties": False  # Explicitly set in schema
+        }
+    }
+
+class ProductInfo(BaseModel):
+    """Information about a specific product."""
+    product_id: str = Field(description="Unique identifier for the product")
+    product_name: str = Field(description="Name of the product")
+    attributes: list[ProductAttribute] = Field(description="List of attributes for this product")
+    overall_rating: int = Field(description="Overall rating of the product from 1-10")
+    price_value_ratio: int = Field(description="Rating of price-to-value ratio from 1-10")
+    summary: str = Field(description="Brief summary of this product's strengths and weaknesses")
+
+    model_config = {
+        "extra": "forbid",  # This prevents additional properties
+        "json_schema_extra": {
+            "additionalProperties": False  # Explicitly set in schema
+        }
+    }
+
+class ComparisonResult(BaseModel):
+    """The final comparison between multiple products."""
+    products: list[ProductInfo] = Field(description="List of products being compared")
+    key_features: list[ProductFeature] = Field(description="Key features that were compared")
+    winner: Optional[str] = Field(None, description="Product ID of the overall winner, if there is one")
+    best_value: Optional[str] = Field(None, description="Product ID with the best value for money")
+    comparison_summary: str = Field(description="Overall summary of the comparison results")
+    recommendations: list[str, str] = Field(description="Recommendations for different user needs/scenarios")
+
+    model_config = {
+        "extra": "forbid",  # This prevents additional properties
+        "json_schema_extra": {
+            "additionalProperties": False  # Explicitly set in schema
+        }
+    }
+    
+def create_product_comparison_tool(
+  llm: LanguageModelLike, 
+) -> Callable[[str], list[str]]:
+    """
+    Creates a product comparison tool that can compare multiple products.
+    
+    Args:
+        llm: The language model to use for comparison analysis
+        
+    Returns:
+        A callable tool that performs product comparisons
+    """
+
+    logger.debug(f"create_product_comparison_tool")
+    
+    # Create the prompt template for product comparison
+    comparison_template = """
+    You are a retail product comparison expert. Analyze the following products and provide a detailed comparison.
+    
+    Products to compare:
+    {products}
+    
+    Based on the information provided, compare these products across their features, specifications, price points, 
+    and overall value. Identify strengths and weaknesses of each product.
+    
+    Your analysis should be thorough and objective. Consider various use cases and customer needs.
+    
+    """
+    
+    prompt = PromptTemplate(
+        template=comparison_template,
+        input_variables=["products"],
+    )
+
+
+    @tool
+    def product_comparison(products: list[dict[str, Any]]) -> ComparisonResult:
+        """
+        Compare multiple products and provide structured analysis of their features,
+        specifications, pros, cons, and recommendations for different user needs.
+        
+        Args:
+            products: List of product dictionaries to compare. Each product should include 
+                     at minimum: product_id, product_name, price, and relevant specifications.
+                     
+        Returns:
+            A ComparisonResult object with detailed comparison analysis
+        """
+        logger.debug(f"product_comparison: {len(products)} products")
+        
+        # Format the products for the prompt
+        products_str = "\n\n".join([f"Product {i+1}: {str(product)}" for i, product in enumerate(products)])
+        
+        # Generate the comparison using the LLM
+        formatted_prompt = prompt.format(products=products_str)
+        llm_with_tools = llm.with_structured_output(ComparisonResult)
+        comparison_result: ComparisonResult = llm.invoke(formatted_prompt)
+
+        logger.debug(f"comparison_result: {comparison_result}")
+        return comparison_result
+
+
+    return product_comparison
+
+
+def find_allowable_classifications(catalog_name: str, database_name: str, w: Optional[WorkspaceClient] = None) -> Sequence[str]:
     """
     Retrieve the list of allowable product classifications from a Unity Catalog function.
     
@@ -39,8 +172,15 @@ def find_allowable_classifications(w: WorkspaceClient, catalog_name: str, databa
     Raises:
         Exception: If the Unity Catalog function execution fails
     """
+    
+    logger.debug(f"catalog_name={catalog_name}, database_name={database_name}")
+
+    if w is None:
+        w = WorkspaceClient()
+
     client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
     
+
     # Execute the Unity Catalog function to retrieve classifications
     result: FunctionExecutionResult = client.execute_function(
         function_name=f"{catalog_name}.{database_name}.find_allowable_product_classifications",
@@ -55,6 +195,9 @@ def find_allowable_classifications(w: WorkspaceClient, catalog_name: str, databa
     pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
     # Extract the classification column as a list
     classifications: Sequence = pdf['classification'].tolist()
+    
+    logger.debug(f"classifications={classifications}")
+
     return classifications
 
 
@@ -101,6 +244,7 @@ def create_product_classification_tool(
         Returns:
             list[str]: A list of {k} classifications for the product
         """  
+        logger.debug(f"product_classification: input={input}")
         # Configure the LLM to output in the structured Classifier format
         llm_with_tools: LanguageModelLike = llm.with_structured_output(Classifier)
         # Invoke the LLM to classify the input text
@@ -131,11 +275,11 @@ def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
   Returns:
     A callable tool function that extracts a list of SKUs from input text
   """
-  logger.debug("create_sku_extraction_tool: initializing")
+  logger.debug("create_sku_extraction_tool")
 
   # Define a Pydantic model to enforce structured output from the LLM
   class SkuIdentifier(BaseModel):
-    sku: list[str] = (
+    skus: list[str] = (
       Field(
         ...,
         description="The SKU of the product. Typically 8-12 characters", 
@@ -160,10 +304,11 @@ def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
     Returns:
       list[str]: A list of extracted SKU identifiers (empty list if none found)
     """
+    logger.debug(f"sku_extraction: input={input}")
     # Configure the LLM to output in the structured SkuIdentifier format
     llm_with_tools: LanguageModelLike = llm.with_structured_output(SkuIdentifier)
     # Invoke the LLM to extract SKUs from the input text
-    skus: list[str] = llm_with_tools.invoke(input=input).sku
+    skus: Sequence[str] = llm_with_tools.invoke(input=input).skus
 
     logger.debug(f"sku_extraction: extracted skus={skus}")
     return skus
@@ -171,7 +316,7 @@ def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
   return sku_extraction
 
 
-def create_find_product_details_by_description(endpoint_name: str, index_name: str, columns: Sequence[str], filter_column: str, k: int = 10) -> Callable[[str, str], Sequence[Document]]:
+def create_find_product_details_by_description_tool(endpoint_name: str, index_name: str, columns: Sequence[str], filter_column: str, k: int = 10) -> Callable[[str, str], Sequence[Document]]:
   """
   Create a tool for finding product details using vector search with classification filtering.
   
@@ -208,6 +353,9 @@ def create_find_product_details_by_description(endpoint_name: str, index_name: s
     Returns:
       Sequence[Document]: A list of matching product documents with relevant metadata
     """
+
+    logger.debug(f"content={content}, product_classifications={product_classifications}")
+
     # Initialize the Vector Search client with endpoint and index configuration
     vector_search: VectorStore = DatabricksVectorSearch(
       endpoint=endpoint_name,
@@ -218,10 +366,16 @@ def create_find_product_details_by_description(endpoint_name: str, index_name: s
 
     # Execute vector similarity search with classification-based filtering
     # to narrow results to specific product categories
+
+    product_filter = None
+    if filter_column and product_classifications:
+        product_filter = {filter_column: product_classifications}
+
     documents: Sequence[Document] = vector_search.similarity_search(
-      query=content, k=k, filter={filter_column: product_classifications}
+      query=content, k=k, filter=product_filter
     )
 
+    logger.debug(f"found {len(documents)} documents")
     return documents
   
   return find_product_details_by_description
@@ -245,6 +399,9 @@ def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
     if isinstance(function_names, str):
         function_names = [function_names]
     toolkit: UCFunctionToolkit = UCFunctionToolkit(function_names=function_names)
+
+
+
     return toolkit.tools
 
 

@@ -35,6 +35,12 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
+set_uc_function_client()
+
+
+# COMMAND ----------
+
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
 
@@ -253,4 +259,110 @@ genie_tool= create_genie_tool(
 
 # COMMAND ----------
 
-type(genie_tool.__doc__)
+from langchain_core.prompts import PromptTemplate 
+from langchain_core.prompt_values import ChatPromptValue
+
+
+
+prompt: str = config.get("agents").get("arma").get("prompt")
+
+agent_config = {
+    "user_id": 2234,
+    "store_num": "23423423",
+    "scd_ids": [1,2,3],
+    "foo": "bar"
+}
+chat_prompt: PromptTemplate = PromptTemplate.from_template(prompt)
+formatted_prompt = chat_prompt.format(
+    **agent_config
+)
+
+
+formatted_prompt
+
+
+
+# COMMAND ----------
+
+type(formatted_prompt)
+
+# COMMAND ----------
+
+from typing import Callable, Optional, Sequence
+
+from databricks_ai_bridge.genie import GenieResponse
+from databricks_langchain import ChatDatabricks
+from langchain_core.language_models import LanguageModelLike
+from langchain_core.tools.base import BaseTool
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import create_react_agent
+from loguru import logger
+from mlflow.models import ModelConfig
+from langchain_core.prompts import PromptTemplate
+
+from retail_ai.state import AgentConfig, AgentState
+from retail_ai.tools import create_genie_tool, create_vector_search_tool
+
+from langchain_core.messages import HumanMessage
+
+
+model_name: str = config.get("agents").get("arma").get("model_name")
+if not model_name:
+    model_name = config.get("llms").get("model_name")
+
+prompt: str = config.get("agents").get("arma").get("prompt")
+chat_prompt: PromptTemplate = PromptTemplate.from_template(prompt)
+
+user_id: str = "Nate Fleming"
+store_num: str = "12345"
+scd_ids: Sequence[str] = [1,2,34]
+
+formatted_prompt = chat_prompt.format(
+    user_id=user_id,
+    store_num=store_num,
+    scd_ids=scd_ids
+)
+
+llm: LanguageModelLike = ChatDatabricks(model=model_name, temperature=0.1)
+
+agent: CompiledStateGraph = create_react_agent(
+    name="arma_agent",
+    model=llm,
+    prompt=formatted_prompt,
+    state_schema=AgentState,
+    config_schema=AgentConfig,
+    tools=[],
+) 
+
+agent.invoke(
+  {
+    "messages": [
+      HumanMessage(
+        content="What is the best selling product for store 12345?"
+      )
+    ]
+  }
+)
+
+
+# COMMAND ----------
+
+from databricks_langchain import ChatDatabricks
+from langchain_core.language_models import LanguageModelLike
+from pydantic import BaseModel, Field
+
+model_name: str = config.get("agents").get("supervisor").get("model_name")
+if not model_name:
+    model_name = config.get("llms").get("model_name")
+
+class Foo(BaseModel):
+    foo: str = Field(default="bar", description="foo")
+
+llm: LanguageModelLike = ChatDatabricks(model=model_name, temperature=0.1)
+
+llm_with_tools = llm.with_structured_output(Foo)
+
+
+# COMMAND ----------
+
+type(llm_with_tools)
