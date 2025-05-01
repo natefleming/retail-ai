@@ -266,17 +266,25 @@ from langchain_core.prompt_values import ChatPromptValue
 
 prompt: str = config.get("agents").get("arma").get("prompt")
 
+agent_config = {
+    "user_id": 2234,
+    "store_num": "23423423",
+    "scd_ids": [1,2,3],
+    "foo": "bar"
+}
 chat_prompt: PromptTemplate = PromptTemplate.from_template(prompt)
 formatted_prompt = chat_prompt.format(
-    user_id=1234,
-    store_num=34655,
-    scd_ids=[1, 2, 3]
+    **agent_config
 )
 
 
 formatted_prompt
 
 
+
+# COMMAND ----------
+
+type(formatted_prompt)
 
 # COMMAND ----------
 
@@ -336,3 +344,25 @@ agent.invoke(
   }
 )
 
+
+# COMMAND ----------
+
+from databricks_langchain import ChatDatabricks
+from langchain_core.language_models import LanguageModelLike
+from pydantic import BaseModel, Field
+
+model_name: str = config.get("agents").get("supervisor").get("model_name")
+if not model_name:
+    model_name = config.get("llms").get("model_name")
+
+class Foo(BaseModel):
+    foo: str = Field(default="bar", description="foo")
+
+llm: LanguageModelLike = ChatDatabricks(model=model_name, temperature=0.1)
+
+llm_with_tools = llm.with_structured_output(Foo)
+
+
+# COMMAND ----------
+
+type(llm_with_tools)
