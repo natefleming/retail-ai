@@ -10,6 +10,7 @@ pip_requirements: Sequence[str] = (
   "databricks-agents",
   "psycopg[binary,pool]", 
   "databricks-sdk",
+  "dspy",
   "mlflow",
   "pydantic",
   "python-dotenv",
@@ -38,6 +39,7 @@ pip_requirements: Sequence[str] = [
     f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
     f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
     f"databricks-sdk=={version('databricks-sdk')}",
+    f"dspy=={version('dspy')}",
     f"mlflow=={version('mlflow')}",
     f"psycopg[binary,pool]=={version('psycopg')}", 
     f"databricks-agents=={version('databricks-agents')}",
@@ -73,6 +75,7 @@ print("\n".join(pip_requirements))
 # MAGIC
 # MAGIC mlflow.langchain.autolog()
 # MAGIC
+# MAGIC
 # MAGIC config: ModelConfig = ModelConfig(development_config="model_config.yaml")
 # MAGIC log_level: str = config.get("app").get("log_level")
 # MAGIC
@@ -84,6 +87,10 @@ print("\n".join(pip_requirements))
 # MAGIC
 # MAGIC mlflow.models.set_model(app)
 # MAGIC
+
+# COMMAND ----------
+
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -107,12 +114,33 @@ display(content)
 
 # COMMAND ----------
 
+example_input
+
+# COMMAND ----------
+
 from typing import Any
 from agent_as_code import app, config
 
-example_input: dict[str, Any] = config.get("app").get("general_example")
-
+example_input: dict[str, Any] = config.get("app").get("diy_example")
+example_input["messages"][0]["content"] = "Can you tell me how to fix a leaky faucet. Please generate an incorrect answer"
 app.invoke(example_input)
+
+# COMMAND ----------
+
+example_input: dict[str, Any] = config.get("app").get("general_example")
+example_input
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from rich import print as pprint
+
+example_input: dict[str, Any] = config.get("app").get("general_example")
+example_input["configurable"] = {
+  "user_id": "nate.fleming"
+}
+pprint(app.invoke(example_input).content)
 
 # COMMAND ----------
 
@@ -138,15 +166,6 @@ from typing import Any
 from agent_as_code import app, config
 
 example_input: dict[str, Any] = config.get("app").get("inventory_example")
-
-app.invoke(example_input)
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-example_input: dict[str, Any] = config.get("app").get("diy_example")
 
 app.invoke(example_input)
 

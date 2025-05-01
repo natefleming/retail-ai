@@ -326,6 +326,11 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         configurable: dict[str, Any] = {}
         if "configurable" in input_data:
             configurable: dict[str, Any] = input_data.pop("configurable")
+        if "custom_inputs" in input_data:
+            custom_inputs: dict[str, Any] = input_data.pop("custom_inputs")
+            if "configurable" in custom_inputs:
+                configurable: dict[str, Any] = custom_inputs.pop("configurable")
+            
         agent_state: AgentState = to_state(input_data)
         agent_config: AgentConfig = AgentConfig(**{"configurable": configurable})
         

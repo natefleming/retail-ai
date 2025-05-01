@@ -16,6 +16,7 @@ from loguru import logger
 
 mlflow.langchain.autolog()
 
+
 config: ModelConfig = ModelConfig(development_config="model_config.yaml")
 log_level: str = config.get("app").get("log_level")
 
