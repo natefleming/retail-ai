@@ -87,27 +87,36 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+# MAGIC %restart_python
+
+# COMMAND ----------
+
 from agent_as_code import graph
 
 from IPython.display import HTML, Image, display
 
 
-# try:
-#   content = Image(graph.get_graph(xray=True).draw_mermaid_png())
-# except Exception as e:
-ascii_graph: str = graph.get_graph(xray=True).draw_ascii()
-html_content = f"""
-<pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
-{ascii_graph}
-</pre>
-"""
-content = HTML(html_content)
+try:
+  content = Image(graph.get_graph(xray=True).draw_mermaid_png())
+except Exception as e:
+  ascii_graph: str = graph.get_graph(xray=True).draw_ascii()
+  html_content = f"""
+  <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
+  {ascii_graph}
+  </pre>
+  """
+  content = HTML(html_content)
 
 display(content)
 
 # COMMAND ----------
 
-# MAGIC %restart_python
+from typing import Any
+from agent_as_code import app, config
+
+example_input: dict[str, Any] = config.get("app").get("general_example")
+
+app.invoke(example_input)
 
 # COMMAND ----------
 
@@ -133,6 +142,24 @@ from typing import Any
 from agent_as_code import app, config
 
 example_input: dict[str, Any] = config.get("app").get("inventory_example")
+
+app.invoke(example_input)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+
+example_input: dict[str, Any] = config.get("app").get("diy_example")
+
+app.invoke(example_input)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+
+example_input: dict[str, Any] = config.get("app").get("orders_example")
 
 app.invoke(example_input)
 
