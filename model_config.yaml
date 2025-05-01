@@ -101,6 +101,19 @@ app:
         - "1"
         - "2"
         - "3"
+  product_example:
+    messages:
+      - role: user
+        content: Can you give me information about the Big Green Egg grill?
+    configurable:
+      thread_id: "1"
+      user_id: nate.fleming
+      store_num: 123
+      scd_ids:
+        - "1"
+        - "2"
+        - "3"
+
 
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
