@@ -78,29 +78,29 @@ client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
 
 client.create_function(
   sql_function_body=f"""
-    CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_wands_product_by_id(
-      product_id INT COMMENT 'The product id'
-    )
-    RETURNS TABLE(
-      id INT
-      ,product_name STRING
-      ,product_class STRING
-      ,product_description STRING
-      ,average_rating FLOAT
-      ,rating_count INT
-    )
-    READS SQL DATA
-    COMMENT 'This function returns the product details for a given product id'
-    RETURN 
-    SELECT 
-      id
-      ,product_name
-      ,product_class
-      ,product_description
-      ,average_rating
-      ,rating_count
-    FROM {catalog_name}.{database_name}.wands 
-    WHERE product_id = find_wands_product_by_id.product_id;
+CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_sku(
+  sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value'
+)
+RETURNS TABLE(
+  id INT COMMENT 'Unique identifier for the wand product',
+  product_name STRING COMMENT 'Name of the magic wand product',
+  product_class STRING COMMENT 'Classification category of the wand (e.g., Beginner, Expert, Professional)',
+  product_description STRING COMMENT 'Detailed description of the wand including materials, properties, and special features',
+  average_rating FLOAT COMMENT 'Average customer rating of the product on a scale of 1.0 to 5.0',
+  rating_count INT COMMENT 'Total number of customer ratings submitted for this product'
+)
+READS SQL DATA
+COMMENT 'Retrieves detailed information about a specific magic wand product by its ID. This function is designed for product information retrieval in retail applications and can be used for product display pages, comparison tools, and recommendation systems.'
+RETURN 
+SELECT 
+  id,
+  product_name,
+  product_class,
+  product_description,
+  average_rating,
+  rating_count
+FROM {catalog_name}.{database_name}.wands 
+WHERE sku = find_product_by_sku.sku;
   """
 )
 
