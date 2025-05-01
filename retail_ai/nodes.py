@@ -29,6 +29,8 @@ def message_validation_node(model_config: ModelConfig) -> AgentCallable:
 
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
+        logger.debug(f"state: {state}")
+     
         configurable: dict[str, Any] = config.get("configurable", {})
         validation_errors: list[str] = []
         

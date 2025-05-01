@@ -138,13 +138,6 @@ print("\n")
 
 # COMMAND ----------
 
-example_input: dict[str, Any] = config.get("app").get("diy_example")
-example_input["stream"] = False
-example_input['configurable']["stream"] = False
-example_input
-
-# COMMAND ----------
-
 from typing import Any
 from agent_as_code import app, config
 from rich import print as pprint
