@@ -10,7 +10,8 @@ pip_requirements: Sequence[str] = (
   "databricks-agents",
   "psycopg[binary,pool]", 
   "databricks-sdk",
-  "dspy",
+  "langgraph-reflection",
+  "openevals",
   "mlflow",
   "pydantic",
   "python-dotenv",
@@ -39,7 +40,8 @@ pip_requirements: Sequence[str] = [
     f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
     f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
     f"databricks-sdk=={version('databricks-sdk')}",
-    f"dspy=={version('dspy')}",
+    f"langgraph-reflection=={version('langgraph-reflection')}",
+    f"openevals=={version('openevals')}",
     f"mlflow=={version('mlflow')}",
     f"psycopg[binary,pool]=={version('psycopg')}", 
     f"databricks-agents=={version('databricks-agents')}",
@@ -102,6 +104,7 @@ from IPython.display import HTML, Image, display
 try:
   content = Image(graph.get_graph(xray=True).draw_mermaid_png())
 except Exception as e:
+  print(e)
   ascii_graph: str = graph.get_graph(xray=True).draw_ascii()
   html_content = f"""
   <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
@@ -121,9 +124,43 @@ example_input
 from typing import Any
 from agent_as_code import app, config
 
+from loguru import logger
+
+logger.remove()
+
 example_input: dict[str, Any] = config.get("app").get("diy_example")
 example_input["messages"][0]["content"] = "Can you tell me how to fix a leaky faucet. Please generate an incorrect answer"
-app.invoke(example_input)
+
+for event in app.stream(example_input):
+  print(event.content, end="", flush=True)
+
+print("\n")
+
+# COMMAND ----------
+
+example_input: dict[str, Any] = config.get("app").get("diy_example")
+example_input["stream"] = False
+example_input['configurable']["stream"] = False
+example_input
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from rich import print as pprint
+
+example_input: dict[str, Any] = config.get("app").get("diy_example")
+example_input["messages"][0]["content"] = "Can you tell me how to fix a leaky faucet. Please generate an incorrect answer"
+# example_input["stream"] = False
+answer = app.invoke(example_input)
+
+
+
+# COMMAND ----------
+
+from rich import print as pprint
+
+pprint(answer)
 
 # COMMAND ----------
 
