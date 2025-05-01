@@ -67,9 +67,7 @@ embedding_source_column: str = retreiver_config.get("embedding_source_column")
 columns: Sequence[str] = retreiver_config.get("columns", [])
 search_parameters: dict[str, Any] = retreiver_config.get("search_parameters", {})
 
-datasets_config: dict[str, Any] = config.get("datasets")
-huggingface_config: dict[str, Any] = datasets_config.get("huggingface")
-source_table_name: str = datasets_config.get("table_name")
+
 
 space_id = config.get("genie").get("space_id")
 
@@ -81,7 +79,7 @@ assert endpoint_type is not None
 assert index_name is not None
 assert primary_key is not None
 assert embedding_source_column is not None
-assert source_table_name is not None
+
 assert columns is not None
 assert search_parameters is not None
 assert space_id is not None
@@ -365,4 +363,68 @@ llm_with_tools = llm.with_structured_output(Foo)
 
 # COMMAND ----------
 
-type(llm_with_tools)
+from typing import Callable, Sequence
+from pydantic import BaseModel, Field
+from databricks_langchain import ChatDatabricks
+from langchain_core.language_models import LanguageModelLike
+from langchain_core.runnables import RunnableSequence
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+
+from loguru import logger
+
+
+llm: LanguageModelLike = ChatDatabricks(model="databricks-meta-llama-3-3-70b-instruct", temperature=0.1)
+
+class FactualityJudge(BaseModel):
+    is_factual: bool = Field(..., description="Whether the statement is factually correct")
+    reason: str = Field(..., description="Why the statement is factually correct or incorrect")
+
+class FactualityReward(BaseModel):
+  judge: FactualityJudge = Field(..., description="Whether the statement is factually correct")
+  score: float = Field(..., description="A score between 0 and 1 indicating the degree of correctness")
+
+def factuality_judge(statement: AIMessage) -> FactualityJudge:
+  llm_with_tools: RunnableSequence = llm.with_structured_output(FactualityJudge)
+  response: FactualityJudge = llm_with_tools.invoke(statement)
+  return response
+
+def factuality_reward(statement: AIMessage) -> FactualityReward:
+  logger.debug("factuality_reward")
+  result: FactualityJudge = factuality_judge(statement)    
+  logger.debug(f"factuality_reward: {result}")
+  score: float = 1.0 if result.is_factual else 0.0
+  return FactualityReward(judge=result, score=score)
+
+  
+def refine(
+  chain: RunnableSequence,
+  messages: AIMessage | Sequence[BaseMessage], 
+  N: int, 
+  reward_fn: Callable[[..., AIMessage], FactualityReward],
+  threshold: float = 1.0
+) -> Sequence[BaseMessage]:
+  logger.debug("refine")
+
+  for i in range(N):
+    logger.debug(f"Attempt: {i} to refine chain: {messages}")
+    results: Sequence[BaseMessage] = chain.invoke(messages)
+    logger.debug(f"refine: {results}")
+    reward: FactualityReward = reward_fn(results)
+    if reward.score >= threshold:
+      break
+    else:
+      reasoning_message: HumanMessage = HumanMessage(content=reward.judge.reason)
+      messages.append(reasoning_message)
+
+    return results
+  
+
+refine(
+  chain=llm,
+  messages=[HumanMessage(content="The sky is red")],
+  N=3,
+  reward_fn=factuality_reward,
+  threshold=1.0
+)
+
+
