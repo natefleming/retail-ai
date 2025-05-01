@@ -97,9 +97,9 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
 
-        logger.info(f"Sending messages to model: {messages}")
+        logger.debug(f"Sending messages to model: {messages}")
         response = llm.invoke(messages)
-        logger.info(f"Received response from model: {response}")
+        logger.debug(f"Received response from model: {response}")
 
         # Return the response as a message to update the agent state
         return {"messages": [response]}
@@ -128,9 +128,9 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
 
-        logger.info(f"Sending messages to model: {messages}")
+        logger.debug(f"Sending messages to model: {messages}")
         response = llm.invoke(messages)
-        logger.info(f"Received response from model: {response}")
+        logger.debug(f"Received response from model: {response}")
         
         # Return the response as a message to update the agent state
         return {"messages": [response]}
@@ -158,9 +158,9 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
 
-        logger.info(f"Sending messages to model: {messages}")
+        logger.debug(f"Sending messages to model: {messages}")
         response = llm.invoke(messages)
-        logger.info(f"Received response from model: {response}")
+        logger.debug(f"Received response from model: {response}")
         
         # Return the response as a message to update the agent state
         return {"messages": [response]}
@@ -188,9 +188,9 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
 
-        logger.info(f"Sending messages to model: {messages}")
+        logger.debug(f"Sending messages to model: {messages}")
         response = llm.invoke(messages)
-        logger.info(f"Received response from model: {response}")
+        logger.debug(f"Received response from model: {response}")
         
         # Return the response as a message to update the agent state
         return {"messages": [response]}
@@ -218,9 +218,9 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
 
-        logger.info(f"Sending messages to model: {messages}")
+        logger.debug(f"Sending messages to model: {messages}")
         response = llm.invoke(messages)
-        logger.info(f"Received response from model: {response}")
+        logger.debug(f"Received response from model: {response}")
         
         # Return the response as a message to update the agent state
         return {"messages": [response]}
@@ -248,9 +248,9 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
 
-        logger.info(f"Sending messages to model: {messages}")
+        logger.debug(f"Sending messages to model: {messages}")
         response = llm.invoke(messages)
-        logger.info(f"Received response from model: {response}")
+        logger.debug(f"Received response from model: {response}")
         
         # Return the response as a message to update the agent state
         return {"messages": [response]}
@@ -278,9 +278,9 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
 
-        logger.info(f"Sending messages to model: {messages}")
+        logger.debug(f"Sending messages to model: {messages}")
         response = llm.invoke(messages)
-        logger.info(f"Received response from model: {response}")
+        logger.debug(f"Received response from model: {response}")
         
         # Return the response as a message to update the agent state
         return {"messages": [response]}
