@@ -87,10 +87,6 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
-# MAGIC %restart_python
-
-# COMMAND ----------
-
 from agent_as_code import graph
 
 from IPython.display import HTML, Image, display
@@ -168,6 +164,15 @@ app.invoke(example_input)
 from typing import Any
 from agent_as_code import app, config
 
+example_input: dict[str, Any] = config.get("app").get("product_example")
+
+app.invoke(example_input)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+
 from loguru import logger
 
 logger.remove()
@@ -182,7 +187,7 @@ print("\n")
 # COMMAND ----------
 
 
-from typing import Sequence, Optional
+from typing import Any, Sequence, Optional
 
 from databricks_langchain import VectorSearchRetrieverTool
 
@@ -209,7 +214,11 @@ from dataclasses import dataclass, field, asdict
 from agent_as_code import config
 
 
-model_name: str = config.get("llms").get("model_name")
+model_names: set = set()
+for name, agent in config.get("agents").items():
+    model_names.add(agent["model_name"])
+model_names.add(config.get("llms").get("model_name"))
+
 index_name: str = config.get("retriever").get("index_name")
 space_id: str = config.get("genie").get("space_id")
 functions: Sequence[str] = config.get("functions")
@@ -240,12 +249,11 @@ sample_input = CustomChatCompletionRequest(
 
 signature: ModelSignature = infer_signature(asdict(sample_input), StringResponse())
 
-
 resources: Sequence[DatabricksResource] = [
-    DatabricksServingEndpoint(endpoint_name=model_name),
     DatabricksVectorSearchIndex(index_name=index_name),
     DatabricksGenieSpace(genie_space_id=space_id),
 ]
+resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names]
 resources += [DatabricksFunction(function_name=f) for f in functions]
 resources += [DatabricksTable(table_name=t) for t in tables]
 
@@ -352,9 +360,7 @@ pprint(input_example)
 # COMMAND ----------
 
 from databricks import agents
-from databricks.sdk.service.serving import (
-    ServedModelInputWorkloadSize, 
-)
+
 
 from agent_as_code import config
 from retail_ai.models import get_latest_model_version
@@ -370,7 +376,7 @@ agents.deploy(
   model_version=latest_version, 
   scale_to_zero=True,
   environment_vars={},
-  workload_size=ServedModelInputWorkloadSize.SMALL,
+  workload_size="Small",
   endpoint_name=endpoint_name,
   tags=tags
 )
