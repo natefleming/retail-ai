@@ -2,7 +2,7 @@ from distutils.util import strtobool
 from typing import Any, Generator, Iterator, Optional, Sequence, Union
 
 from langchain_core.messages import (BaseMessage, HumanMessage,
-                                     MessageLikeRepresentation, ToolMessage)
+                                     MessageLikeRepresentation, ToolMessage, convert_to_openai_messages)
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.pregel.io import AddableValuesDict
@@ -14,7 +14,9 @@ from mlflow.types.agent import (ChatAgentChunk, ChatAgentMessage,
                                 ChatAgentResponse, ChatContext)
 
 from retail_ai.state import AgentConfig, AgentState
-
+from mlflow.langchain.output_parsers import (
+    ChatCompletionsOutputParser,StringResponseOutputParser
+)
 
 def get_latest_model_version(model_name: str) -> int:
     """
@@ -214,6 +216,13 @@ def process_messages(
     return app.predict(messages)
 
 
+def to_open_ai_messages(messages):
+    if isinstance(messages, dict) and "messages" in messages:
+        messages = messages["messages"]
+    return { "messages": convert_to_openai_messages(messages=messages) }
+
+
+
 def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
     """
     Convert a LangGraph agent into a LangChain runnable.
@@ -229,6 +238,11 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
         A LangChain runnable that invokes the agent with proper formatting
     """
 
+
+
+    return agent | ChatCompletionsOutputParser()
+
+    
     def to_state(input_data: MessageLikeRepresentation) -> AgentState:
         """
         Format various input types into an AgentState object.
