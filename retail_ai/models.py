@@ -11,11 +11,106 @@ from loguru import logger
 from mlflow import MlflowClient
 from mlflow.langchain.chat_agent_langgraph import parse_message
 from mlflow.langchain.output_parsers import (ChatCompletionsOutputParser)
-from mlflow.pyfunc import ChatAgent
+from mlflow.pyfunc import ChatAgent, ChatModel
 from mlflow.types.agent import (ChatAgentChunk, ChatAgentMessage,
                                 ChatAgentResponse, ChatContext)
 
 from retail_ai.state import AgentConfig, AgentState
+
+from mlflow.types.llm import (
+    # Non-streaming helper classes
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionChunk,
+    ChatMessage,
+    ChatChoice,
+    ChatParams,
+    # Helper classes for streaming agent output
+    ChatChoiceDelta,
+    ChatChunkChoice,
+)
+
+class LangGraphChatModel(ChatModel):
+    """
+    ChatModel that delegates requests to a LangGraph CompiledStateGraph.
+    """
+
+    def __init__(self, graph: CompiledStateGraph) -> None:
+        self.graph = graph
+
+    def predict(
+        self, context, messages: list[ChatMessage], params: Optional[ChatParams] = None
+    ) -> ChatCompletionResponse:
+        logger.debug(f"messages: {messages}, params: {params}")
+        if not messages:
+            raise ValueError("Message list is empty.")
+
+        request = {"messages": self._convert_messages_to_dict(messages)}
+        
+        config: AgentState = self._convert_to_config(params)
+
+        response = self.graph.invoke(request, config=config)
+
+        last_message = response["messages"][-1]
+
+        response_message = ChatMessage(
+            role="assistant",
+            content=last_message.content
+        )
+        return ChatCompletionResponse(
+            choices=[ChatChoice(message=response_message)]
+        )
+
+    def _convert_to_config(self, params: Optional[ChatParams]) -> AgentConfig:
+        if not params:
+            return {}
+        
+        input_data = params.to_dict()
+        configurable: dict[str, Any] = {}
+        if "configurable" in input_data:
+            configurable: dict[str, Any] = input_data.pop("configurable")
+        if "custom_inputs" in input_data:
+            custom_inputs: dict[str, Any] = input_data.pop("custom_inputs")
+            if "configurable" in custom_inputs:
+                configurable: dict[str, Any] = custom_inputs.pop("configurable")
+            
+        agent_config: AgentConfig = AgentConfig(**{"configurable": configurable})
+        return agent_config
+
+
+    def predict_stream(
+        self, context, messages: list[ChatMessage], params: ChatParams
+    ) -> Generator[ChatCompletionChunk, None, None]:
+        logger.debug(f"messages: {messages}, params: {params}")
+        if not messages:
+            raise ValueError("Message list is empty.")
+
+        request = {"messages": self._convert_messages_to_dict(messages)}
+
+        config: AgentState = self._convert_to_config(params)    
+
+        # Assumes LangGraph graph has a stream method. Otherwise simulate it.
+        for message, _ in self.graph.stream(request, config=config, stream_mode="messages"):
+            content = message.content
+            if content:
+                yield self._create_chat_completion_chunk(content)
+
+    def _create_chat_completion_chunk(self, content: str) -> ChatCompletionChunk:
+        return ChatCompletionChunk(
+            choices=[
+                ChatChunkChoice(
+                    delta=ChatChoiceDelta(
+                        role="assistant",
+                        content=content
+                    )
+                )
+            ]
+        )
+
+    def _convert_messages_to_dict(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
+        
+        return [message.to_dict() for message in messages]
+    
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -73,7 +168,7 @@ class LangGraphChatAgent(ChatAgent):
         the execution.
         
         Args:
-            messages: List of chat messages representing the conversation history
+            messages: list of chat messages representing the conversation history
             context: Optional context information for the agent
             custom_inputs: Optional configuration parameters for the agent
             
@@ -111,7 +206,7 @@ class LangGraphChatAgent(ChatAgent):
         Filters out tool messages and empty content to provide a clean stream.
         
         Args:
-            messages: List of chat messages representing the conversation history
+            messages: list of chat messages representing the conversation history
             context: Optional context information for the agent
             custom_inputs: Optional configuration parameters for the agent
             
@@ -147,10 +242,10 @@ class LangGraphChatAgent(ChatAgent):
         format expected by LangGraph agents.
         
         Args:
-            messages: List of ChatAgentMessage objects
+            messages: list of ChatAgentMessage objects
             
         Returns:
-            List of message dictionaries
+            list of message dictionaries
         """
         return [message.model_dump() for message in messages]
 
@@ -240,7 +335,7 @@ def as_langgraph_chain(agent: CompiledStateGraph) -> RunnableLambda:
 
 
 
-    return agent | ChatCompletionsOutputParser()
+    #return agent | ChatCompletionsOutputParser()
 
     
     def to_state(input_data: MessageLikeRepresentation) -> AgentState:
