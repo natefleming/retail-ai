@@ -70,13 +70,12 @@ print("\n".join(pip_requirements))
 # MAGIC from langgraph.graph.state import CompiledStateGraph
 # MAGIC
 # MAGIC from retail_ai.graph import create_ace_arma_graph
-# MAGIC from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain
+# MAGIC from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain, LangGraphChatModel
 # MAGIC
 # MAGIC from loguru import logger
 # MAGIC
 # MAGIC
 # MAGIC mlflow.langchain.autolog()
-# MAGIC
 # MAGIC
 # MAGIC config: ModelConfig = ModelConfig(development_config="model_config.yaml")
 # MAGIC log_level: str = config.get("app").get("log_level")
@@ -85,7 +84,7 @@ print("\n".join(pip_requirements))
 # MAGIC
 # MAGIC graph: CompiledStateGraph = create_ace_arma_graph(model_config=config)
 # MAGIC
-# MAGIC app: RunnableSequence = as_langgraph_chain(graph)
+# MAGIC app: RunnableSequence = LangGraphChatModel(graph)
 # MAGIC
 # MAGIC mlflow.models.set_model(app)
 # MAGIC
@@ -96,8 +95,55 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+example_input["messages"]
+
+# COMMAND ----------
+
 from typing import Any
 from agent_as_code import app, config
+
+from mlflow.types.llm import (
+    # Non-streaming helper classes
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionChunk,
+    ChatMessage,
+    ChatChoice,
+    ChatParams,
+    # Helper classes for streaming agent output
+    ChatChoiceDelta,
+    ChatChunkChoice,
+)
+
+example_input: dict[str, Any] = config.get("app").get("diy_example")
+# input = {
+#   "messages": example_input["messages"]
+# }
+# config = {
+#   "configurable": example_input["configurable"]
+# }
+
+for event in app.predict_stream(None, [ChatMessage(example_input["messages"])], ChatParams(**example_input["custom_inputs"])):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+
+from mlflow.types.llm import (
+    # Non-streaming helper classes
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionChunk,
+    ChatMessage,
+    ChatChoice,
+    ChatParams,
+    # Helper classes for streaming agent output
+    ChatChoiceDelta,
+    ChatChunkChoice,
+)
 
 example_input: dict[str, Any] = config.get("app").get("diy_example")
 input = {
@@ -106,7 +152,7 @@ input = {
 config = {
   "configurable": example_input["configurable"]
 }
-app.invoke(input, config)
+app.predict(None, [ChatMessage(role="user", content="What is the weather like in San Francisco?")], ChatParams(custom_inputs=config))
 
 # COMMAND ----------
 
@@ -282,28 +328,28 @@ tables: Sequence[str] = config.get("tables")
 
 
 # Additional input fields must be marked as Optional and have a default value
-@dataclass
-class CustomChatCompletionRequest(ChatCompletionRequest):
-    configurable: Optional[dict[str, Any]] = field(default_factory={})
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    stream: Optional[bool] = None
+# @dataclass
+# class CustomChatCompletionRequest(ChatCompletionRequest):
+#     configurable: Optional[dict[str, Any]] = field(default_factory={})
+#     temperature: Optional[float] = None
+#     max_tokens: Optional[int] = None
+#     stream: Optional[bool] = None
 
-sample_input = CustomChatCompletionRequest(
-    messages=[{"role": "user", "content": "What is the inventory of the product with id 1?"}],
-    configurable={
-        "thread_id": None,
-        "user_id": None,
-        "scd_ids": None,
-        "store_num": None,
-    },
-    temperature=None,
-    max_tokens=None,
-    stream=None
+# sample_input = CustomChatCompletionRequest(
+#     messages=[{"role": "user", "content": "What is the inventory of the product with id 1?"}],
+#     configurable={
+#         "thread_id": None,
+#         "user_id": None,
+#         "scd_ids": None,
+#         "store_num": None,
+#     },
+#     temperature=None,
+#     max_tokens=None,
+#     stream=None
 
-)
+# )
 
-signature: ModelSignature = infer_signature(asdict(sample_input), StringResponse())
+#signature: ModelSignature = infer_signature(asdict(sample_input), StringResponse())
 
 resources: Sequence[DatabricksResource] = [
     DatabricksVectorSearchIndex(index_name=index_name),
@@ -317,15 +363,15 @@ input_example: dict[str, Any] = config.get("app").get("example_input")
 
 with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
-    logged_agent_info: ModelInfo = mlflow.langchain.log_model(
-        lc_model="agent_as_code.py",
+    logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
+        python_model="agent_as_code.py",
         code_paths=["retail_ai"],
         model_config=config.to_dict(),
         artifact_path="agent",
         pip_requirements=pip_requirements,
         resources=resources,
-        signature=signature,
-        input_example=input_example,
+        # signature=signature,
+        # input_example=input_example,
     )
 
 # COMMAND ----------
@@ -526,7 +572,7 @@ response_stream = openai_client.chat.completions.create(
     temperature=0.0,
     max_tokens=100,
     stream=True,  # Enable streaming
-    extra_body=example_input["configurable"]
+    extra_body={"custom_inputs": example_input["custom_inputs"]}
 )
 
 # Process the streaming response
@@ -555,4 +601,50 @@ result = app.invoke(example_input)
 
 # COMMAND ----------
 
-result
+
+from mlflow.types.llm import (
+    # Non-streaming helper classes
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionChunk,
+    ChatMessage,
+    ChatChoice,
+    ChatParams,
+    # Helper classes for streaming agent output
+    ChatChoiceDelta,
+    ChatChunkChoice,
+)
+
+ChatMessage(**messages[0])
+
+# COMMAND ----------
+
+messages
+
+# COMMAND ----------
+
+from databricks.sdk import WorkspaceClient
+from rich import print as pprint
+
+
+w: WorkspaceClient = WorkspaceClient()
+
+openai_client = w.serving_endpoints.get_open_ai_client()
+
+
+example_input: dict[str, Any] = config.get("app").get("recommendation_example")
+
+messages = example_input["messages"]
+custom_inputs = example_input["custom_inputs"]
+
+# Create a streaming request with custom inputs properly placed in extra_body
+response = openai_client.chat.completions.create(
+    model=endpoint_name,
+    messages=messages,
+    temperature=0.0,
+    max_tokens=100,
+    extra_body={"custom_inputs": custom_inputs}
+)
+
+print(response)
+
