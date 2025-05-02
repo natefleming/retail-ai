@@ -7,9 +7,9 @@ from mlflow.models import ModelConfig
 
 from langchain_core.runnables import RunnableSequence
 from langgraph.graph.state import CompiledStateGraph
-
+from mlflow.pyfunc import ChatModel
 from retail_ai.graph import create_ace_arma_graph
-from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain
+from retail_ai.models import create_agent 
 
 from loguru import logger
 
@@ -23,6 +23,6 @@ logger.add(sys.stderr, level=log_level)
 
 graph: CompiledStateGraph = create_ace_arma_graph(model_config=config)
 
-app: RunnableSequence = as_langgraph_chain(graph)
+app: ChatModel = create_agent(graph)
 
 mlflow.models.set_model(app)

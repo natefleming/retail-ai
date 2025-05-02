@@ -15,8 +15,8 @@ endif
 UV := uv
 UV_SYNC := $(UV) sync 
 UV_BUILD := $(UV) build 
-RUFF := $(UV) run ruff check --fix --ignore E501
-ISORT := $(UV) run isort
+RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 $(SRC_DIR)
+RUFF_FORMAT := $(UV) run ruff format --line-length 100 $(SRC_DIR)
 FIND := $(shell which find)
 RM := rm -rf
 CD := cd
@@ -35,8 +35,8 @@ depends:
 	$(UV_SYNC) 
 
 format: depends
-	$(ISORT) $(SRC_DIR) 
-	$(RUFF) $(SRC_DIR) 
+	$(RUFF_CHECK)
+	$(RUFF_FORMAT)
 
 
 clean: 

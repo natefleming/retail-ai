@@ -36,4 +36,8 @@ class AgentState(MessagesState):
     """
     context: Sequence[Document]  # Documents retrieved from vector search
     route: str  # Current routing path (e.g., "genie", "vector_search", "code", "general")
-    remaining_steps: int  # Steps remaining in the current reasoning process
+    #remaining_steps: int  # Steps remaining in the current reasoning process
+    is_valid_config: bool
+    retry_count: int
+    is_factual_response: bool
+    factuality_message: str

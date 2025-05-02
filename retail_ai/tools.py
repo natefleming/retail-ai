@@ -1,7 +1,6 @@
-from typing import Any
 import os
 from io import StringIO
-from typing import Callable, Literal, Optional, Sequence
+from typing import Any, Callable, Literal, Optional, Sequence
 
 import mlflow
 import pandas as pd
@@ -14,16 +13,13 @@ from databricks_langchain.vector_search_retriever_tool import \
     VectorSearchRetrieverTool
 from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 from pydantic import BaseModel, Field
-from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
-from langchain_core.prompts import PromptTemplate
-
-from loguru import logger
-
-
+from unitycatalog.ai.core.base import (FunctionExecutionResult,
+                                       set_uc_function_client)
 
 set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
 
@@ -101,7 +97,7 @@ def create_product_comparison_tool(
         A callable tool that performs product comparisons
     """
 
-    logger.debug(f"create_product_comparison_tool")
+    logger.debug("create_product_comparison_tool")
     
     # Create the prompt template for product comparison
     comparison_template = """
