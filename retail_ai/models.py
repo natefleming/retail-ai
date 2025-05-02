@@ -2,21 +2,21 @@ from distutils.util import strtobool
 from typing import Any, Generator, Iterator, Optional, Sequence, Union
 
 from langchain_core.messages import (BaseMessage, HumanMessage,
-                                     MessageLikeRepresentation, ToolMessage, convert_to_openai_messages)
+                                     MessageLikeRepresentation, ToolMessage,
+                                     convert_to_openai_messages)
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.pregel.io import AddableValuesDict
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.langchain.chat_agent_langgraph import parse_message
+from mlflow.langchain.output_parsers import (ChatCompletionsOutputParser)
 from mlflow.pyfunc import ChatAgent
 from mlflow.types.agent import (ChatAgentChunk, ChatAgentMessage,
                                 ChatAgentResponse, ChatContext)
 
 from retail_ai.state import AgentConfig, AgentState
-from mlflow.langchain.output_parsers import (
-    ChatCompletionsOutputParser,StringResponseOutputParser
-)
+
 
 def get_latest_model_version(model_name: str) -> int:
     """
