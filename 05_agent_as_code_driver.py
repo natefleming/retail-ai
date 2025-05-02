@@ -96,6 +96,20 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+from typing import Any
+from agent_as_code import app, config
+
+example_input: dict[str, Any] = config.get("app").get("diy_example")
+input = {
+  "messages": example_input["messages"]
+}
+config = {
+  "configurable": example_input["configurable"]
+}
+app.invoke(input, config)
+
+# COMMAND ----------
+
 from agent_as_code import graph
 
 from IPython.display import HTML, Image, display
@@ -117,10 +131,6 @@ display(content)
 
 # COMMAND ----------
 
-example_input
-
-# COMMAND ----------
-
 from typing import Any
 from agent_as_code import app, config
 
@@ -129,6 +139,7 @@ from loguru import logger
 logger.remove()
 
 example_input: dict[str, Any] = config.get("app").get("diy_example")
+
 example_input["messages"][0]["content"] = "Can you tell me how to fix a leaky faucet. Please generate an incorrect answer"
 
 for event in app.stream(example_input):
@@ -143,17 +154,22 @@ from agent_as_code import app, config
 from rich import print as pprint
 
 example_input: dict[str, Any] = config.get("app").get("diy_example")
-example_input["messages"][0]["content"] = "Can you tell me how to fix a leaky faucet. Please generate an incorrect answer"
-# example_input["stream"] = False
-answer = app.invoke(example_input)
+
+input = {'messages': [{'role': 'user',
+   'content': 'Can you tell me how to fix a leaky faucet?'}]
+}
+config = {'configurable': {'thread_id': '1',
+  'user_id': 'nate.fleming',
+  'store_num': 123,
+  'scd_ids': ['1', '2', '3']}}
 
 
 
-# COMMAND ----------
+#answer = app.invoke(input=input, config=config)
 
-from rich import print as pprint
+for event, _ in app.stream(input=input, config=config, stream_mode="messages"):
+  print(event.content, end="", flush=True)
 
-pprint(answer)
 
 # COMMAND ----------
 
@@ -171,15 +187,6 @@ example_input["configurable"] = {
   "user_id": "nate.fleming"
 }
 pprint(app.invoke(example_input).content)
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-example_input: dict[str, Any] = config.get("app").get("comparison_example")
-
-app.invoke(example_input)
 
 # COMMAND ----------
 
@@ -401,10 +408,10 @@ print(champion_model)
 # COMMAND ----------
 
 from rich import print as pprint
-
+import json
 
 input_example: dict[str, Any] = config.get("app").get("example_input")
-pprint(input_example)
+pprint(json.dumps(input_example))
 
 # COMMAND ----------
 
@@ -461,10 +468,6 @@ response = get_deploy_client("databricks").predict(
 )
 
 pprint(response)
-
-# COMMAND ----------
-
-response
 
 # COMMAND ----------
 
@@ -538,3 +541,18 @@ for chunk in response_stream:
 
 print("\n\nFull collected response:")
 print(collected_content)
+
+# COMMAND ----------
+
+from agent_as_code import graph
+
+from typing import Any
+from agent_as_code import app, config
+
+example_input: dict[str, Any] = config.get("app").get("diy_example")
+
+result = app.invoke(example_input)
+
+# COMMAND ----------
+
+result

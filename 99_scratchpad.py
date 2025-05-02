@@ -521,7 +521,7 @@ judge_graph = (
 
 # Create the complete reflection graph
 reflection_app = create_reflection_graph(assistant_graph, judge_graph)
-reflection_app = reflection_app.compile()
+reflection_app = reflection_app.compile(stream_mode="messages")
 
 
 # COMMAND ----------
@@ -534,3 +534,8 @@ example_query = [
 ]
 
 result = reflection_app.invoke({"messages": example_query})
+
+# COMMAND ----------
+
+from agent_as_code import app
+
