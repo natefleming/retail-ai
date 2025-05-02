@@ -1,23 +1,14 @@
-from typing import Sequence
 
-from langgraph.graph import StateGraph, START, END, MessagesState
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from mlflow.models import ModelConfig
 from langgraph_reflection import create_reflection_graph
-from retail_ai.nodes import (
-    router_node, 
-    general_node,
-    inventory_node,
-    product_node,
-    comparison_node,
-    orders_node,    
-    diy_node,
-    recommendation_node,
-    message_validation_node,
-    judge_node,
-)
+from mlflow.models import ModelConfig
+
+from retail_ai.nodes import (comparison_node, diy_node, general_node,
+                             inventory_node, judge_node,
+                             message_validation_node, orders_node,
+                             product_node, recommendation_node, router_node)
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.types import AgentCallable
 
 
 def with_judge(graph: CompiledStateGraph, judge: CompiledStateGraph) -> CompiledStateGraph:

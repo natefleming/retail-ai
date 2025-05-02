@@ -3,25 +3,20 @@ from typing import Callable, Optional, Sequence
 from databricks_ai_bridge.genie import GenieResponse
 from databricks_langchain import ChatDatabricks
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.prompts import PromptTemplate
 from langchain_core.tools.base import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
 from mlflow.models import ModelConfig
-from langchain_core.prompts import PromptTemplate
 
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import (
-    create_genie_tool, 
-    create_vector_search_tool,
-    create_sku_extraction_tool,
-    create_find_product_details_by_description_tool,
-    create_uc_tools,
-    create_product_classification_tool,
-    create_product_comparison_tool,
-    find_allowable_classifications,
+from retail_ai.tools import (create_find_product_details_by_description_tool,
+                             create_genie_tool,
+                             create_product_classification_tool,
+                             create_sku_extraction_tool, create_uc_tools,
+                             create_vector_search_tool)
 
-)
 
 def create_arma_agent(model_config: ModelConfig, config: AgentState) -> CompiledStateGraph:
     logger.debug(f"config: {config}")
