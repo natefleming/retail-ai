@@ -1,0 +1,269 @@
+# Databricks notebook source
+from typing import Sequence
+
+pip_requirements: Sequence[str] = (
+  "langgraph",
+  "langchain",
+  "databricks-langchain", 
+  "databricks-sdk",
+  "mlflow",
+  "python-dotenv",
+  "loguru",
+  "langgraph-reflection",
+  "openevals",
+  "rich"
+)
+
+pip_requirements: str = " ".join(pip_requirements)
+
+%pip install --quiet --upgrade {pip_requirements}
+%restart_python
+
+# COMMAND ----------
+
+from typing import Sequence
+from importlib.metadata import version
+
+pip_requirements: Sequence[str] = (
+  f"langgraph=={version('langgraph')}",
+  f"langchain=={version('langchain')}"
+  f"databricks-langchain=={version('databricks-langchain')}",
+  f"databricks-sdk=={version('databricks-sdk')}",
+  f"mlflow=={version('mlflow')}",
+  f"python-dotenv=={version('python-dotenv')}",
+  f"loguru=={version('loguru')}",
+  f"langgraph-reflection=={version('langgraph-reflection')}",
+  f"openevals=={version('openevals')}",
+)
+
+print("\n".join(pip_requirements))
+
+# COMMAND ----------
+
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Recommendation
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+
+input_example: dict[str, Any] = config.get("app").get("recommendation_example")
+pprint(input_example)
+
+response = process_messages(app=app, input=input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from retail_ai.models import process_messages_stream
+
+
+input_example: dict[str, Any] = config.get("app").get("recommendation_example")
+pprint(input_example)
+
+for event in process_messages_stream(app=app, input=input_example):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Inventory
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+
+input_example: dict[str, Any] = config.get("app").get("inventory_example")
+pprint(input_example)
+
+response = process_messages(app=app, input=input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from retail_ai.models import process_messages_stream
+
+
+input_example: dict[str, Any] = config.get("app").get("inventory_example")
+pprint(input_example)
+
+for event in process_messages_stream(app=app, input=input_example):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Comparison
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+
+input_example: dict[str, Any] = config.get("app").get("comparison_example")
+pprint(input_example)
+
+response = process_messages(app=app, input=input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from retail_ai.models import process_messages_stream
+
+
+input_example: dict[str, Any] = config.get("app").get("comparison_example")
+pprint(input_example)
+
+for event in process_messages_stream(app=app, input=input_example):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## General
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+
+input_example: dict[str, Any] = config.get("app").get("general_example")
+pprint(input_example)
+
+response = process_messages(app=app, input=input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from retail_ai.models import process_messages_stream
+
+
+input_example: dict[str, Any] = config.get("app").get("general_example")
+pprint(input_example)
+
+for event in process_messages_stream(app=app, input=input_example):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## DIY
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+
+input_example: dict[str, Any] = config.get("app").get("diy_example")
+pprint(input_example)
+
+response = process_messages(app=app, input=input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from retail_ai.models import process_messages_stream
+
+
+input_example: dict[str, Any] = config.get("app").get("diy_example")
+pprint(input_example)
+
+for event in process_messages_stream(app=app, input=input_example):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Orders
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+
+input_example: dict[str, Any] = config.get("app").get("orders_example")
+pprint(input_example)
+
+response = process_messages(app=app, input=input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from retail_ai.models import process_messages_stream
+
+
+input_example: dict[str, Any] = config.get("app").get("orders_example")
+pprint(input_example)
+
+for event in process_messages_stream(app=app, input=input_example):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Product
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+
+input_example: dict[str, Any] = config.get("app").get("product_example")
+pprint(input_example)
+
+response = process_messages(app=app, input=input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from agent_as_code import app, config
+from retail_ai.models import process_messages_stream
+
+
+input_example: dict[str, Any] = config.get("app").get("product_example")
+pprint(input_example)
+
+for event in process_messages_stream(app=app, input=input_example):
+  print(event.choices[0].delta.content, end="", flush=True)

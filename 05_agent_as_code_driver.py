@@ -43,13 +43,12 @@ pip_requirements: Sequence[str] = [
     f"langgraph-reflection=={version('langgraph-reflection')}",
     f"openevals=={version('openevals')}",
     f"mlflow=={version('mlflow')}",
-    f"psycopg[binary,pool]=={version('psycopg')}", 
+    f"psycopg[binary,pool]=={version('psycopg')}",
     f"databricks-agents=={version('databricks-agents')}",
     f"pydantic=={version('pydantic')}",
     f"loguru=={version('loguru')}",
 ]
 print("\n".join(pip_requirements))
-
 
 # COMMAND ----------
 
@@ -68,9 +67,9 @@ print("\n".join(pip_requirements))
 # MAGIC
 # MAGIC from langchain_core.runnables import RunnableSequence
 # MAGIC from langgraph.graph.state import CompiledStateGraph
-# MAGIC
+# MAGIC from mlflow.pyfunc import ChatModel
 # MAGIC from retail_ai.graph import create_ace_arma_graph
-# MAGIC from retail_ai.models import LangGraphChatAgent, create_agent, as_langgraph_chain, LangGraphChatModel
+# MAGIC from retail_ai.models import create_agent 
 # MAGIC
 # MAGIC from loguru import logger
 # MAGIC
@@ -84,75 +83,10 @@ print("\n".join(pip_requirements))
 # MAGIC
 # MAGIC graph: CompiledStateGraph = create_ace_arma_graph(model_config=config)
 # MAGIC
-# MAGIC app: RunnableSequence = LangGraphChatModel(graph)
+# MAGIC app: ChatModel = create_agent(graph)
 # MAGIC
 # MAGIC mlflow.models.set_model(app)
 # MAGIC
-
-# COMMAND ----------
-
-# MAGIC %restart_python
-
-# COMMAND ----------
-
-example_input["messages"]
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-from mlflow.types.llm import (
-    # Non-streaming helper classes
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatCompletionChunk,
-    ChatMessage,
-    ChatChoice,
-    ChatParams,
-    # Helper classes for streaming agent output
-    ChatChoiceDelta,
-    ChatChunkChoice,
-)
-
-example_input: dict[str, Any] = config.get("app").get("diy_example")
-# input = {
-#   "messages": example_input["messages"]
-# }
-# config = {
-#   "configurable": example_input["configurable"]
-# }
-
-for event in app.predict_stream(None, [ChatMessage(example_input["messages"])], ChatParams(**example_input["custom_inputs"])):
-  print(event.choices[0].delta.content, end="", flush=True)
-
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-from mlflow.types.llm import (
-    # Non-streaming helper classes
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatCompletionChunk,
-    ChatMessage,
-    ChatChoice,
-    ChatParams,
-    # Helper classes for streaming agent output
-    ChatChoiceDelta,
-    ChatChunkChoice,
-)
-
-example_input: dict[str, Any] = config.get("app").get("diy_example")
-input = {
-  "messages": example_input["messages"]
-}
-config = {
-  "configurable": example_input["configurable"]
-}
-app.predict(None, [ChatMessage(role="user", content="What is the weather like in San Francisco?")], ChatParams(custom_inputs=config))
 
 # COMMAND ----------
 
@@ -162,132 +96,20 @@ from IPython.display import HTML, Image, display
 
 
 try:
-  content = Image(graph.get_graph(xray=True).draw_mermaid_png())
+    content = Image(graph.get_graph(xray=True).draw_mermaid_png())
 except Exception as e:
-  print(e)
-  ascii_graph: str = graph.get_graph(xray=True).draw_ascii()
-  html_content = f"""
+    print(e)
+    ascii_graph: str = graph.get_graph(xray=True).draw_ascii()
+    html_content = f"""
   <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
   {ascii_graph}
   </pre>
   """
-  content = HTML(html_content)
+    content = HTML(html_content)
 
 display(content)
 
 # COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-from loguru import logger
-
-logger.remove()
-
-example_input: dict[str, Any] = config.get("app").get("diy_example")
-
-example_input["messages"][0]["content"] = "Can you tell me how to fix a leaky faucet. Please generate an incorrect answer"
-
-for event in app.stream(example_input):
-  print(event.content, end="", flush=True)
-
-print("\n")
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-from rich import print as pprint
-
-example_input: dict[str, Any] = config.get("app").get("diy_example")
-
-input = {'messages': [{'role': 'user',
-   'content': 'Can you tell me how to fix a leaky faucet?'}]
-}
-config = {'configurable': {'thread_id': '1',
-  'user_id': 'nate.fleming',
-  'store_num': 123,
-  'scd_ids': ['1', '2', '3']}}
-
-
-
-#answer = app.invoke(input=input, config=config)
-
-for event, _ in app.stream(input=input, config=config, stream_mode="messages"):
-  print(event.content, end="", flush=True)
-
-
-# COMMAND ----------
-
-example_input: dict[str, Any] = config.get("app").get("general_example")
-example_input
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-from rich import print as pprint
-
-example_input: dict[str, Any] = config.get("app").get("general_example")
-example_input["configurable"] = {
-  "user_id": "nate.fleming"
-}
-pprint(app.invoke(example_input).content)
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-example_input: dict[str, Any] = config.get("app").get("recommendation_example")
-
-app.invoke(example_input)
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-example_input: dict[str, Any] = config.get("app").get("inventory_example")
-
-app.invoke(example_input)
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-example_input: dict[str, Any] = config.get("app").get("orders_example")
-
-app.invoke(example_input)
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-example_input: dict[str, Any] = config.get("app").get("product_example")
-
-app.invoke(example_input)
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import app, config
-
-from loguru import logger
-
-logger.remove()
-
-example_input: dict[str, Any] = config.get("app").get("recommendation_example")
-
-for event in app.stream(example_input):
-  print(event.content, end="", flush=True)
-
-print("\n")
-
-# COMMAND ----------
-
 
 from typing import Any, Sequence, Optional
 
@@ -299,19 +121,13 @@ from mlflow.models.resources import (
     DatabricksTable,
     DatabricksUCConnection,
     DatabricksSQLWarehouse,
-    DatabricksGenieSpace, 
-    DatabricksFunction, 
-    DatabricksServingEndpoint
+    DatabricksGenieSpace,
+    DatabricksFunction,
+    DatabricksServingEndpoint,
 )
 import mlflow
 from mlflow.models.model import ModelInfo
-from mlflow.models import infer_signature
-from mlflow.models.signature import ModelSignature
-from mlflow.models.rag_signatures import (
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    StringResponse,
-)
+
 from dataclasses import dataclass, field, asdict
 from agent_as_code import config
 
@@ -326,40 +142,14 @@ space_id: str = config.get("genie").get("space_id")
 functions: Sequence[str] = config.get("functions")
 tables: Sequence[str] = config.get("tables")
 
-
-# Additional input fields must be marked as Optional and have a default value
-# @dataclass
-# class CustomChatCompletionRequest(ChatCompletionRequest):
-#     configurable: Optional[dict[str, Any]] = field(default_factory={})
-#     temperature: Optional[float] = None
-#     max_tokens: Optional[int] = None
-#     stream: Optional[bool] = None
-
-# sample_input = CustomChatCompletionRequest(
-#     messages=[{"role": "user", "content": "What is the inventory of the product with id 1?"}],
-#     configurable={
-#         "thread_id": None,
-#         "user_id": None,
-#         "scd_ids": None,
-#         "store_num": None,
-#     },
-#     temperature=None,
-#     max_tokens=None,
-#     stream=None
-
-# )
-
-#signature: ModelSignature = infer_signature(asdict(sample_input), StringResponse())
-
 resources: Sequence[DatabricksResource] = [
     DatabricksVectorSearchIndex(index_name=index_name),
     DatabricksGenieSpace(genie_space_id=space_id),
 ]
+
 resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names]
 resources += [DatabricksFunction(function_name=f) for f in functions]
 resources += [DatabricksTable(table_name=t) for t in tables]
-
-input_example: dict[str, Any] = config.get("app").get("example_input")
 
 with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
@@ -370,8 +160,6 @@ with mlflow.start_run(run_name="agent"):
         artifact_path="agent",
         pip_requirements=pip_requirements,
         resources=resources,
-        # signature=signature,
-        # input_example=input_example,
     )
 
 # COMMAND ----------
@@ -407,20 +195,17 @@ evaluation_table_name: str = config.get("evaluation").get("table_name")
 evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
 
 global_guidelines = {
-  "English": ["The response must be in English"],
-  "Clarity": ["The response must be clear, coherent, and concise"],
+    "English": ["The response must be in English"],
+    "Clarity": ["The response must be clear, coherent, and concise"],
 }
 
 with mlflow.start_run():
-  eval_results = mlflow.evaluate(
-      data=evaluation_pdf,            
-      model=logged_agent_info.model_uri,    
-      model_type="databricks-agent",  
-      evaluator_config={
-        "databricks-agent": {"global_guidelines": global_guidelines}
-      }
-  )
-
+    eval_results = mlflow.evaluate(
+        data=evaluation_pdf,
+        model=logged_agent_info.model_uri,
+        model_type="databricks-agent",
+        evaluator_config={"databricks-agent": {"global_guidelines": global_guidelines}},
+    )
 
 # COMMAND ----------
 
@@ -435,10 +220,8 @@ mlflow.set_registry_uri("databricks-uc")
 registered_model_name: str = config.get("app").get("registered_model_name")
 
 model_version: ModelVersion = mlflow.register_model(
-    name=registered_model_name,
-    model_uri=logged_agent_info.model_uri
+    name=registered_model_name, model_uri=logged_agent_info.model_uri
 )
-
 
 # COMMAND ----------
 
@@ -447,40 +230,34 @@ from mlflow.entities.model_registry.model_version import ModelVersion
 
 client: MlflowClient = MlflowClient()
 
-client.set_registered_model_alias(name=registered_model_name, alias="Champion", version=model_version.version)
-champion_model: ModelVersion = client.get_model_version_by_alias(registered_model_name, "Champion")
+client.set_registered_model_alias(
+    name=registered_model_name, alias="Champion", version=model_version.version
+)
+champion_model: ModelVersion = client.get_model_version_by_alias(
+    registered_model_name, "Champion"
+)
 print(champion_model)
 
 # COMMAND ----------
 
-from rich import print as pprint
-import json
-
-input_example: dict[str, Any] = config.get("app").get("example_input")
-pprint(json.dumps(input_example))
-
-# COMMAND ----------
-
 from databricks import agents
-
-
-from agent_as_code import config
 from retail_ai.models import get_latest_model_version
+from agent_as_code import config
+
 
 registered_model_name: str = config.get("app").get("registered_model_name")
 endpoint_name: str = config.get("app").get("endpoint_name")
 tags: dict[str, str] = config.get("app").get("tags")
 latest_version: int = get_latest_model_version(registered_model_name)
 
-
 agents.deploy(
-  model_name=registered_model_name, 
-  model_version=latest_version, 
-  scale_to_zero=True,
-  environment_vars={},
-  workload_size="Small",
-  endpoint_name=endpoint_name,
-  tags=tags
+    model_name=registered_model_name,
+    model_version=latest_version,
+    scale_to_zero=True,
+    environment_vars={},
+    workload_size="Small",
+    endpoint_name=endpoint_name,
+    tags=tags,
 )
 
 # COMMAND ----------
@@ -492,11 +269,14 @@ from databricks.agents import set_permissions, PermissionLevel
 from agent_as_code import config
 
 
-users: Sequence[str] = config.get("app").get("users") 
+users: Sequence[str] = config.get("app").get("users")
 
 if users:
-  set_permissions(model_name=registered_model_name, users=users, permission_level=PermissionLevel.CAN_MANAGE)
-
+    set_permissions(
+        model_name=registered_model_name,
+        users=users,
+        permission_level=PermissionLevel.CAN_MANAGE,
+    )
 
 # COMMAND ----------
 
@@ -509,8 +289,8 @@ endpoint_name: str = config.get("app").get("endpoint_name")
 example_input: dict[str, Any] = config.get("app").get("inventory_example")
 
 response = get_deploy_client("databricks").predict(
-  endpoint=endpoint_name,
-  inputs=example_input,
+    endpoint=endpoint_name,
+    inputs=example_input,
 )
 
 pprint(response)
@@ -528,8 +308,8 @@ endpoint_name: str = config.get("app").get("endpoint_name")
 example_input: dict[str, Any] = config.get("app").get("recommendation_example")
 
 response = get_deploy_client("databricks").predict(
-  endpoint=endpoint_name,
-  inputs=example_input,
+    endpoint=endpoint_name,
+    inputs=example_input,
 )
 
 pprint(response)
@@ -546,6 +326,7 @@ openai_client = w.serving_endpoints.get_open_ai_client()
 response = openai_client.chat.completions.create(
     model=endpoint_name,
     messages=example_input["messages"],
+    extra_body={"custom_inputs": example_input["custom_inputs"]}
 )
 
 pprint(response)
@@ -572,14 +353,16 @@ response_stream = openai_client.chat.completions.create(
     temperature=0.0,
     max_tokens=100,
     stream=True,  # Enable streaming
-    extra_body={"custom_inputs": example_input["custom_inputs"]}
+    extra_body={"custom_inputs": example_input["custom_inputs"]},
 )
 
 # Process the streaming response
 print("Streaming response:")
 collected_content = ""
 for chunk in response_stream:
-    if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+    if hasattr(chunk.choices[0], "delta") and hasattr(
+        chunk.choices[0].delta, "content"
+    ):
         content = chunk.choices[0].delta.content
         if content is not None:  # Check for None explicitly
             collected_content += content
@@ -600,7 +383,6 @@ example_input: dict[str, Any] = config.get("app").get("diy_example")
 result = app.invoke(example_input)
 
 # COMMAND ----------
-
 
 from mlflow.types.llm import (
     # Non-streaming helper classes
@@ -643,8 +425,7 @@ response = openai_client.chat.completions.create(
     messages=messages,
     temperature=0.0,
     max_tokens=100,
-    extra_body={"custom_inputs": custom_inputs}
+    extra_body={"custom_inputs": custom_inputs},
 )
 
 print(response)
-

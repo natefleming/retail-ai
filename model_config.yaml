@@ -17,18 +17,21 @@ app:
     streaming: true
     purpose: demo
     endpointSource: playground
+
   example_input:
     messages:
       - role: user
         content: Can you recommend a lamp to match my oak side tables?
-    configurable:
-      thread_id: "1"
-      user_id: nate.fleming
-      store_num: 123
-      scd_ids:
-        - "1"
-        - "2"
-        - "3"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming
+        store_num: 123
+        scd_ids:
+          - "1"
+          - "2"
+          - "3"
+
   recommendation_example:
     messages:
       - role: user
@@ -42,42 +45,49 @@ app:
           - "1"
           - "2"
           - "3"
+
   inventory_example:
     messages:
       - role: user
         content: How many oak tables do we have in stock?
-    configurable:
-      thread_id: "1"
-      user_id: nate.fleming
-      store_num: 123
-      scd_ids:
-        - "1"
-        - "2"
-        - "3"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming
+        store_num: 123
+        scd_ids:
+          - "1"
+          - "2"
+          - "3"
+
   comparison_example:
     messages:
       - role: user
         content: Can you compare items with product ids 14523 and 25163
-    configurable:
-      thread_id: "1"
-      user_id: nate.fleming
-      store_num: 123
-      scd_ids:
-        - "1"
-        - "2"
-        - "3"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming
+        store_num: 123
+        scd_ids:
+          - "1"
+          - "2"
+          - "3"
+
   general_example:
     messages:
       - role: user
         content: Can you answer this general question about your billing process?
-    configurable:
-      thread_id: "1"
-      user_id: nate.fleming
-      store_num: 123
-      scd_ids:
-        - "1"
-        - "2"
-        - "3"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming
+        store_num: 123
+        scd_ids:
+          - "1"
+          - "2"
+          - "3"
+
   diy_example:
     messages:
       - role: user
@@ -91,31 +101,34 @@ app:
           - "1"
           - "2"
           - "3"
+
   orders_example:
     messages:
       - role: user
         content: Can you give me an update on my order. The order number is 12345
-    configurable:
-      thread_id: "1"
-      user_id: nate.fleming
-      store_num: 123
-      scd_ids:
-        - "1"
-        - "2"
-        - "3"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming
+        store_num: 123
+        scd_ids:
+          - "1"
+          - "2"
+          - "3"
+
   product_example:
     messages:
       - role: user
         content: Can you give me information about the Big Green Egg grill?
-    configurable:
-      thread_id: "1"
-      user_id: nate.fleming
-      store_num: 123
-      scd_ids:
-        - "1"
-        - "2"
-        - "3"
-
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming
+        store_num: 123
+        scd_ids:
+          - "1"
+          - "2"
+          - "3"
 
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable

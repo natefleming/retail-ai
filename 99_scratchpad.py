@@ -38,12 +38,6 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
-from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
-set_uc_function_client()
-
-
-# COMMAND ----------
-
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
 
