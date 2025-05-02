@@ -15,12 +15,50 @@ The system uses Databricks Vector Search, Unity Catalog, and LLMs to provide acc
 
 ## Architecture
 
-The agent uses a routing architecture that directs user questions to specialized sub-agents:
+### Overview
 
-- **Code Agent**: Handles code-related queries with step-by-step explanations
-- **Vector Search Agent**: Processes product recommendation queries using vector search
-- **Genie Agent**: Answers inventory and product information questions using Databricks Genie
-- **General Agent**: Handles general questions
+The Retail AI system is built as a sophisticated agent-based architecture that routes queries to specialized agents based on the nature of the request. This approach enables domain-specific handling while maintaining a unified interface.
+
+### Core Components
+
+#### Message Routing and Processing
+
+- **Message Validation**: Validates incoming requests against required configuration parameters
+- **Router Agent**: Analyzes user queries and routes them to the appropriate specialized agent
+- **Factuality Check**: Ensures responses are factually accurate through iterative refinement
+
+#### Specialized Agents
+
+1. **General Agent**: Handles general inquiries about store policies and basic information
+2. **Product Agent**: Provides detailed product specifications, availability, and compatibility
+3. **Inventory Agent**: Offers real-time inventory checks and stock availability across locations
+4. **Recommendation Agent**: Suggests products based on user preferences and purchase history
+5. **Orders Agent**: Manages order status inquiries, tracking, and order history
+6. **Comparison Agent**: Compares different products to help customers make informed decisions
+7. **DIY Agent**: Offers project advice, tutorials, and step-by-step instructions for DIY projects
+
+### Guardrails and Quality Control
+
+- **Factuality Judge**: Evaluates responses for factual accuracy and triggers refinement when needed
+- **Configuration Validation**: Ensures all required parameters are provided before processing
+- **Retry Mechanism**: Implements intelligent retry logic when responses don't meet quality thresholds
+
+### Technical Implementation
+
+The system is implemented using:
+
+- **LangGraph**: For workflow orchestration and state management
+- **LangChain**: For LLM interactions and chain composition
+- **MLflow**: For model deployment and serving
+- **Databricks LLM APIs**: As the foundation models for natural language processing
+
+The architecture follows a graph-based state machine pattern:
+
+1. User messages enter through validation
+2. Messages are routed by the router agent
+3. Specialized agents process domain-specific requests
+4. Responses undergo factuality checking
+5. If needed, responses are refined until they meet quality thresholds
 
 ![Agent Architecture](docs/architecture.png)
 
