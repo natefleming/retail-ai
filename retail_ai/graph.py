@@ -1,13 +1,12 @@
 
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-
 from mlflow.models import ModelConfig
 
 from retail_ai.nodes import (comparison_node, diy_node, general_node,
-                             inventory_node,
-                             message_validation_node, orders_node,
-                             product_node, recommendation_node, router_node)
+                             inventory_node, message_validation_node,
+                             orders_node, product_node, recommendation_node,
+                             router_node)
 from retail_ai.state import AgentConfig, AgentState
 
 

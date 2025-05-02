@@ -4,8 +4,7 @@ import mlflow
 from databricks_langchain import ChatDatabricks
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import (AIMessage, BaseMessage, HumanMessage,
-                                     SystemMessage)
+from langchain_core.messages import (AIMessage, BaseMessage, SystemMessage)
 from langchain_core.runnables import RunnableSequence
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -13,15 +12,12 @@ from loguru import logger
 from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 
-from retail_ai.messages import (last_human_message)
+from retail_ai.guardrails import reflection_guardrail, with_guardrails
+from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
 
-from retail_ai.guardrails import with_guardrails, reflection_guardrail
 
-
-    
-    
 def message_validation_node(model_config: ModelConfig) -> AgentCallable:
 
     @mlflow.trace()
