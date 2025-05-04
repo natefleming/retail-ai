@@ -16,7 +16,7 @@ from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
-
+from retail_ai.tools import search_tool
 
 def message_validation_node(model_config: ModelConfig) -> AgentCallable:
 
@@ -272,7 +272,11 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         
         messages = [system_message] + messages
 
-        agent: CompiledStateGraph = create_react_agent(model=llm, prompt=system_prompt, tools=[])
+        tools = [
+       #     search_tool(model_config)
+        ]
+
+        agent: CompiledStateGraph = create_react_agent(model=llm, prompt=system_prompt, tools=tools)
 
 
         guardrail: CompiledStateGraph = reflection_guardrail(model_config=model_config)
@@ -284,12 +288,14 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
 
 def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
+    model: str = model_config.get("agents").get("recommendation").get("model_name")
+    prompt: str = model_config.get("agents").get("recommendation").get("prompt")
+
     @mlflow.trace()
     def recommendation(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        model: str = model_config.get("agents").get("recommendation").get("model_name")
+        
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("recommendation").get("prompt")
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
         configurable: dict[str, Any] = config.get("configurable", {})
         system_prompt: str = prompt_template.format(
@@ -306,5 +312,35 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         return agent
     
     return recommendation
+
+def process_images_node(model_config: ModelConfig) -> AgentCallable:
+
+    model: str = model_config.get("agents").get("process_image").get("model_name")
+    prompt: str = model_config.get("agents").get("process_image").get("prompt")
+
+    @mlflow.trace()
+    def  process_images(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
+        logger.debug("process_images")
+
+        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
+        
+
+        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
+        system_prompt: str = prompt_template.format()
+
+        system_message: SystemMessage = SystemMessage(content=system_prompt)
+        message: HumanMessage = last_human_message(state["messages"])
+        messages: Sequence[BaseMessage] = [system_message, message]
+
+        response: AIMessage = llm.invoke(input=messages)
+
+        image_summary: str = response.content
+        
+        logger.debug("image_summary: {image_summary}")
+
+        return {"image_summary": image_summary}
+    
+    return  process_images
+
 
 

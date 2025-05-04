@@ -11,7 +11,7 @@ pip_requirements: Sequence[str] = (
   "loguru",
   "langgraph-reflection",
   "openevals",
-  "langchain-anthropic"
+  "duckduckgo-search"
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -32,9 +32,59 @@ pip_requirements: Sequence[str] = (
   f"mlflow=={version('mlflow')}",
   f"python-dotenv=={version('python-dotenv')}",
   f"loguru=={version('loguru')}",
+  f"langgraph-reflection=={version('langgraph-reflection')}",
+  f"openevals=={version('openevals')}",
+  f"duckduckgo-search=={version('duckduckgo-search')}"
 )
 
 print("\n".join(pip_requirements))
+
+# COMMAND ----------
+
+from langchain_community.tools import DuckDuckGoSearchRun
+
+from langchain_core.messages import AIMessage, HumanMessage, ToolCall
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages.modifier import RemoveMessage
+from databricks_langchain import ChatDatabricks
+
+llm  = ChatDatabricks(model="databricks-meta-llama-3-3-70b-instruct")
+search_tool = DuckDuckGoSearchRun()
+
+
+def hook(state, config):
+
+  prompt = state["messages"][-1].content
+  response = AI(content=search_tool.invoke(input={"query": prompt}))
+  messages = [RemoveMessage(id=m.id) for m in state["messages"]]
+  messages += [response]
+  return  {"messages": messages}
+
+
+agent = create_react_agent(model=llm, pre_model_hook=hook, tools=[search_tool])
+
+# 2. Define tool metadata for the agent
+# tools = [
+#     Tool(
+#         name="DuckDuckGo Search",
+#         func=ddg_tool.run,
+#         description="Useful for when you need to answer questions about current events or general knowledge from the web."
+#     )
+# ]
+
+
+
+agent.invoke({
+  "messages": [HumanMessage(content="How do i fix a leaky faucet?")]
+})
+
+# COMMAND ----------
+
+search_tool.invoke(input={"query": "How do i fix a leaky faucet"})
+
+# COMMAND ----------
+
+DuckDuckGoSearchRun.__mro__
 
 # COMMAND ----------
 
@@ -533,3 +583,18 @@ result = reflection_app.invoke({"messages": example_query})
 
 from agent_as_code import app
 
+
+# COMMAND ----------
+
+from typing import Any
+from langchain_core.prompts import PromptTemplate
+
+config = {}
+
+prompt_template: PromptTemplate = PromptTemplate.from_template("You are an intelligent agent")
+configurable: dict[str, Any] = config.get("configurable", {"foo": "bar"})
+system_prompt: str = prompt_template.format(
+
+)
+
+system_prompt
