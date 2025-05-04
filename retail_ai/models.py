@@ -1,6 +1,6 @@
 from typing import Any, Generator, Iterator, Optional, Sequence
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, AIMessageChunk
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow import MlflowClient
@@ -8,6 +8,8 @@ from mlflow.pyfunc import ChatAgent, ChatModel
 from mlflow.types.llm import (  # Non-streaming helper classes; Helper classes for streaming agent output
     ChatChoice, ChatChoiceDelta, ChatChunkChoice, ChatCompletionChunk,
     ChatCompletionResponse, ChatMessage, ChatParams)
+
+from langgraph.pregel.io import AddableValuesDict
 
 from pathlib import Path
 from os import PathLike
@@ -136,7 +138,43 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
     return LanggraphChatModel(graph)
     
 
-def process_messages_stream(app: ChatModel, input: dict[str, Any]) -> Iterator[BaseMessage]:
+def _process_langchain_messages(
+    app: LanggraphChatModel, 
+    messages: Sequence[BaseMessage], 
+    config: Optional[dict[str, Any]] = None
+) -> AddableValuesDict:
+    return app.graph.invoke({"messages": messages}, config=config)
+
+
+def _process_langchain_messages_stream(
+    app: LanggraphChatModel, 
+    messages: Sequence[BaseMessage], 
+    config: Optional[dict[str, Any]] = None
+) -> Iterator[AIMessageChunk]:
+    for message, _ in app.graph.stream({"messages": messages}, config=config, stream_mode="messages"):
+        message: AIMessageChunk
+        yield message
+
+
+def _process_mlflow_messages(
+    app: ChatModel, 
+    messages: Sequence[ChatMessage], 
+    params: Optional[ChatParams] = None
+) -> ChatCompletionResponse:
+    return app.predict(None, messages, params)
+
+
+def _process_mlflow_messages_stream(
+    app: ChatModel, 
+    messages: Sequence[ChatMessage], 
+    params: Optional[ChatParams] = None
+) -> Iterator[ChatCompletionChunk]:
+    for event in app.predict_stream(None, messages, params):
+        event: ChatCompletionChunk
+        yield event
+
+
+def process_messages_stream(app: ChatModel, input: dict[str, Any]) -> Iterator[ChatCompletionChunk]:
     """
     Process messages through a ChatAgent in streaming mode.
     
@@ -151,15 +189,16 @@ def process_messages_stream(app: ChatModel, input: dict[str, Any]) -> Iterator[B
         Individual message chunks from the streaming response
     """
 
+
     messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in input["messages"]]
     params: ChatParams = ChatParams(**{"custom_inputs": input["custom_inputs"]})
 
-    for event in app.predict_stream(None, messages, params):
+    for event in _process_mlflow_messages_stream(app, messages, params):
         yield event
 
 
 
-def process_messages(app: ChatModel, input: dict[str, Any]) -> ChatCompletionResponse:
+def process_messages(app: ChatModel, input: dict[str, Any], config: Optional[dict[str, Any]] = None) -> ChatCompletionResponse:
     """
     Process messages through a ChatAgent in batch mode.
     
@@ -175,10 +214,11 @@ def process_messages(app: ChatModel, input: dict[str, Any]) -> ChatCompletionRes
     """
 
     logger.debug(f"input={input}")
+    
     messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in input["messages"]]
     params: ChatParams = ChatParams(**{"custom_inputs": input["custom_inputs"]})
 
-    return app.predict(None, messages, params)
+    return _process_mlflow_messages(app, messages, params)
 
 
 def display_graph(app: LanggraphChatModel) -> None:
