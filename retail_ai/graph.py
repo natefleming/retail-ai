@@ -8,6 +8,7 @@ from retail_ai.nodes import (comparison_node, diy_node, general_node,
                              orders_node, product_node, recommendation_node,
                              router_node, process_images_node)
 from retail_ai.state import AgentConfig, AgentState
+from retail_ai.messages import has_image
 
 
 def route_message_validation(state: AgentState) -> str:

@@ -27,7 +27,7 @@ def has_image(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
           return True
     return False
 
-  if isinstance(message, BaseMessage):
+  if isinstance(messages, BaseMessage):
     messages = [messages]
 
   return any(_has_image(m) for m in messages)
