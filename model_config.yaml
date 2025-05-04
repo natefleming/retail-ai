@@ -26,117 +26,124 @@ app:
       privileges:
         - CAN_MANAGE
 
-  example_input:
-    messages:
-      - role: user
-        content: Can you recommend a lamp to match my oak side tables?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+  examples:
 
-  recommendation_example:
-    messages:
-      - role: user
-        content: Can you recommend a lamp to match my oak side tables?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+    recommendation_example:
+      messages:
+        - role: user
+          content: Can you recommend a lamp to match my oak side tables?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
 
-  inventory_example:
-    messages:
-      - role: user
-        content: How many oak tables do we have in stock?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+    inventory_example:
+      messages:
+        - role: user
+          content: How many oak tables do we have in stock?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
 
-  comparison_example:
-    messages:
-      - role: user
-        content: Can you compare items with product ids 14523 and 25163
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+    comparison_example:
+      messages:
+        - role: user
+          content: Can you compare items with product ids 14523 and 25163
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
 
-  general_example:
-    messages:
-      - role: user
-        content: Can you answer this general question about your billing process?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+    general_example:
+      messages:
+        - role: user
+          content: Can you answer this general question about your billing process?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
 
-  diy_example:
-    messages:
-      - role: user
-        content: Can you tell me how to fix a leaky faucet?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+    diy_example:
+      messages:
+        - role: user
+          content: Can you tell me how to fix a leaky faucet?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
 
-  orders_example:
-    messages:
-      - role: user
-        content: Can you give me an update on my order. The order number is 12345
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+    orders_example:
+      messages:
+        - role: user
+          content: Can you give me an update on my order. The order number is 12345
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
 
-  product_example:
-    messages:
-      - role: user
-        content: Can you give me information about the Big Green Egg grill?
-    custom_inputs:
-      configurable:
-        thread_id: "1"
-        user_id: nate.fleming
-        store_num: 123
-        scd_ids:
-          - "1"
-          - "2"
-          - "3"
+    product_example:
+      messages:
+        - role: user
+          content: Can you give me information about the Big Green Egg grill?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
+
+    product_image_example:
+      messages:
+        - role: user
+          content: 
+            - type: text
+              text: Can you give me information about this item?
+            - type: image_url
+              image_url:
+                url: https://cdn.sanity.io/images/hdptt806/production/7ff02721909ac66133ae094c80f3e8ba2d5befc5-2270x3469.jpg?w=340&auto=format
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
 
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
