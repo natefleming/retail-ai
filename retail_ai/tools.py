@@ -3,6 +3,7 @@ from io import StringIO
 from typing import Any, Callable, Literal, Optional, Sequence
 
 import mlflow
+from mlflow.models import ModelConfig
 import pandas as pd
 from databricks.sdk import WorkspaceClient
 from databricks_ai_bridge.genie import GenieResponse
@@ -20,6 +21,10 @@ from loguru import logger
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import (FunctionExecutionResult,
                                        set_uc_function_client)
+
+from langchain_community.tools import DuckDuckGoSearchRun
+
+
 
 set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
 
@@ -494,4 +499,10 @@ def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieRe
         return response
 
     return genie_tool
+
+
+def search_tool(model_config: ModelConfig) -> BaseTool:
+    logger.debug("search_tool")
+    return DuckDuckGoSearchRun(output_format="list")
+
 
