@@ -1,5 +1,6 @@
 TOP_DIR := .
 SRC_DIR := $(TOP_DIR)/retail_ai
+TEST_DIR := $(TOP_DIR)/tests
 DIST_DIR := $(TOP_DIR)/dist
 LIB_NAME := retail_ai
 LIB_VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
@@ -35,20 +36,20 @@ depends:
 	$(UV_SYNC) 
 
 format: depends
-	$(RUFF_CHECK) $(SRC_DIR)
-	$(RUFF_FORMAT) $(SRC_DIR)
+	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR)
+	$(RUFF_FORMAT) $(SRC_DIR) $(TEST_DIR)
 
 
 clean: 
-	$(FIND) $(SRC_DIR) -name \*.pyc -exec rm -f {} \;
-	$(FIND) $(SRC_DIR) -name \*.pyo -exec rm -f {} \;
+	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyc -exec rm -f {} \;
+	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyo -exec rm -f {} \;
 
 
 distclean: clean
 	$(RM) $(DIST_DIR)
 	$(RM) $(SRC_DIR)/*.egg-info 
 	$(RM) $(TOP_DIR)/.mypy_cache
-	$(FIND) $(SRC_DIR) \( -name __pycache__ -a -type d \) -prune -exec rm -rf {} \;
+	$(FIND) $(SRC_DIR) $(TEST_DIR) \( -name __pycache__ -a -type d \) -prune -exec rm -rf {} \;
 
 test: 
 	$(PYTEST) $(TEST_DIR)
@@ -56,6 +57,7 @@ test:
 help:
 	$(info TOP_DIR: $(TOP_DIR))
 	$(info SRC_DIR: $(SRC_DIR))
+	$(info TEST_DIR: $(TEST_DIR))
 	$(info DIST_DIR: $(DIST_DIR))
 	$(info )
 	$(info $$> make [all|dist|install|clean|distclean|format|depends])
