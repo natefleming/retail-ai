@@ -4,13 +4,21 @@ from typing import Sequence
 pip_requirements: Sequence[str] = (
   "langgraph",
   "langchain",
-  "databricks-langchain", 
+  "databricks-langchain",
+  "unitycatalog-langchain[databricks]",
+  "langgraph-checkpoint-postgres",
+  "duckduckgo-search",
+  "databricks-agents",
+  "psycopg[binary,pool]", 
   "databricks-sdk",
-  "mlflow",
-  "python-dotenv",
-  "loguru",
   "langgraph-reflection",
   "openevals",
+  "mlflow",
+  "pydantic",
+  "python-dotenv",
+  "uv",
+  "grandalf",
+  "loguru",
   "rich"
 )
 
@@ -25,15 +33,20 @@ from typing import Sequence
 from importlib.metadata import version
 
 pip_requirements: Sequence[str] = (
-  f"langgraph=={version('langgraph')}",
-  f"langchain=={version('langchain')}"
-  f"databricks-langchain=={version('databricks-langchain')}",
-  f"databricks-sdk=={version('databricks-sdk')}",
-  f"mlflow=={version('mlflow')}",
-  f"python-dotenv=={version('python-dotenv')}",
-  f"loguru=={version('loguru')}",
-  f"langgraph-reflection=={version('langgraph-reflection')}",
-  f"openevals=={version('openevals')}",
+    f"langgraph=={version('langgraph')}",
+    f"langchain=={version('langchain')}",
+    f"databricks-langchain=={version('databricks-langchain')}",
+    f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
+    f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
+    f"duckduckgo-search=={version('duckduckgo-search')}",
+    f"databricks-sdk=={version('databricks-sdk')}",
+    f"langgraph-reflection=={version('langgraph-reflection')}",
+    f"openevals=={version('openevals')}",
+    f"mlflow=={version('mlflow')}",
+    f"psycopg[binary,pool]=={version('psycopg')}",
+    f"databricks-agents=={version('databricks-agents')}",
+    f"pydantic=={version('pydantic')}",
+    f"loguru=={version('loguru')}",
 )
 
 print("\n".join(pip_requirements))
@@ -176,6 +189,10 @@ for event in process_messages_stream(app=app, input=input_example):
 
 # MAGIC %md
 # MAGIC ## DIY
+
+# COMMAND ----------
+
+# MAGIC %restart_python
 
 # COMMAND ----------
 

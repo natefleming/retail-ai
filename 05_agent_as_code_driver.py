@@ -7,6 +7,7 @@ pip_requirements: Sequence[str] = (
   "databricks-langchain",
   "unitycatalog-langchain[databricks]",
   "langgraph-checkpoint-postgres",
+  "duckduckgo-search",
   "databricks-agents",
   "psycopg[binary,pool]", 
   "databricks-sdk",
@@ -39,6 +40,7 @@ pip_requirements: Sequence[str] = [
     f"databricks-langchain=={version('databricks-langchain')}",
     f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
     f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
+    f"duckduckgo-search=={version('duckduckgo-search')}",
     f"databricks-sdk=={version('databricks-sdk')}",
     f"langgraph-reflection=={version('langgraph-reflection')}",
     f"openevals=={version('openevals')}",
@@ -90,24 +92,24 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
-from agent_as_code import graph
+# MAGIC %restart_python
 
-from IPython.display import HTML, Image, display
+# COMMAND ----------
+
+from agent_as_code import app
+from retail_ai.models import display
+
+display(app)
 
 
-try:
-    content = Image(graph.get_graph(xray=True).draw_mermaid_png())
-except Exception as e:
-    print(e)
-    ascii_graph: str = graph.get_graph(xray=True).draw_ascii()
-    html_content = f"""
-  <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
-  {ascii_graph}
-  </pre>
-  """
-    content = HTML(html_content)
+# COMMAND ----------
 
-display(content)
+from pathlib import Path
+from agent_as_code import app
+from retail_ai.models import save_image
+
+path: Path = Path("docs") / "architecture.png"
+save_image(app, path)
 
 # COMMAND ----------
 
