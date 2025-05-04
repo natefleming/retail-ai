@@ -68,8 +68,8 @@ from rich import print as pprint
 from agent_as_code import app, config
 from retail_ai.models import process_messages
 
-
-input_example: dict[str, Any] = config.get("app").get("recommendation_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("recommendation_example")
 pprint(input_example)
 
 response = process_messages(app=app, input=input_example)
@@ -81,8 +81,8 @@ from typing import Any
 from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
-
-input_example: dict[str, Any] = config.get("app").get("recommendation_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("recommendation_example")
 pprint(input_example)
 
 for event in process_messages_stream(app=app, input=input_example):
@@ -101,8 +101,8 @@ from rich import print as pprint
 from agent_as_code import app, config
 from retail_ai.models import process_messages
 
-
-input_example: dict[str, Any] = config.get("app").get("inventory_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("inventory_example")
 pprint(input_example)
 
 response = process_messages(app=app, input=input_example)
@@ -114,8 +114,8 @@ from typing import Any
 from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
-
-input_example: dict[str, Any] = config.get("app").get("inventory_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("inventory_example")
 pprint(input_example)
 
 for event in process_messages_stream(app=app, input=input_example):
@@ -133,8 +133,8 @@ from rich import print as pprint
 from agent_as_code import app, config
 from retail_ai.models import process_messages
 
-
-input_example: dict[str, Any] = config.get("app").get("comparison_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("comparison_example")
 pprint(input_example)
 
 response = process_messages(app=app, input=input_example)
@@ -146,8 +146,8 @@ from typing import Any
 from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
-
-input_example: dict[str, Any] = config.get("app").get("comparison_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("comparison_example")
 pprint(input_example)
 
 for event in process_messages_stream(app=app, input=input_example):
@@ -165,8 +165,8 @@ from rich import print as pprint
 from agent_as_code import app, config
 from retail_ai.models import process_messages
 
-
-input_example: dict[str, Any] = config.get("app").get("general_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("general_example")
 pprint(input_example)
 
 response = process_messages(app=app, input=input_example)
@@ -178,8 +178,8 @@ from typing import Any
 from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
-
-input_example: dict[str, Any] = config.get("app").get("general_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("general_example")
 pprint(input_example)
 
 for event in process_messages_stream(app=app, input=input_example):
@@ -201,8 +201,8 @@ from rich import print as pprint
 from agent_as_code import app, config
 from retail_ai.models import process_messages
 
-
-input_example: dict[str, Any] = config.get("app").get("diy_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("diy_example")
 pprint(input_example)
 
 response = process_messages(app=app, input=input_example)
@@ -214,8 +214,8 @@ from typing import Any
 from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
-
-input_example: dict[str, Any] = config.get("app").get("diy_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("diy_example")
 pprint(input_example)
 
 for event in process_messages_stream(app=app, input=input_example):
@@ -233,8 +233,8 @@ from rich import print as pprint
 from agent_as_code import app, config
 from retail_ai.models import process_messages
 
-
-input_example: dict[str, Any] = config.get("app").get("orders_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("orders_example")
 pprint(input_example)
 
 response = process_messages(app=app, input=input_example)
@@ -246,8 +246,8 @@ from typing import Any
 from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
-
-input_example: dict[str, Any] = config.get("app").get("orders_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("orders_example")
 pprint(input_example)
 
 for event in process_messages_stream(app=app, input=input_example):
@@ -265,8 +265,8 @@ from rich import print as pprint
 from agent_as_code import app, config
 from retail_ai.models import process_messages
 
-
-input_example: dict[str, Any] = config.get("app").get("product_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("product_example")
 pprint(input_example)
 
 response = process_messages(app=app, input=input_example)
@@ -278,9 +278,38 @@ from typing import Any
 from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
-
-input_example: dict[str, Any] = config.get("app").get("product_example")
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("product_example")
 pprint(input_example)
 
 for event in process_messages_stream(app=app, input=input_example):
   print(event.choices[0].delta.content, end="", flush=True)
+
+# COMMAND ----------
+
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+from typing import Any, Sequence
+from rich import print as pprint
+
+from langchain_core.messages import HumanMessage
+from agent_as_code import app, config
+from retail_ai.models import _process_langchain_messages_stream
+
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("product_image_example")
+pprint(input_example)
+
+messages: Sequence[HumanMessage] = [
+  HumanMessage(content=m["content"]) for m in input_example["messages"]
+]
+config: dict[str, Any] = input_example["custom_inputs"]
+messages
+for event in _process_langchain_messages_stream(app=app, messages=messages, config=config):
+  print(event.content, end="", flush=True)
+
+# COMMAND ----------
+
+type(response)
