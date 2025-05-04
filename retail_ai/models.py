@@ -1,6 +1,6 @@
 from typing import Any, Generator, Iterator, Optional, Sequence
 
-from langchain_core.messages import (BaseMessage)
+from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow import MlflowClient
@@ -8,6 +8,9 @@ from mlflow.pyfunc import ChatAgent, ChatModel
 from mlflow.types.llm import (  # Non-streaming helper classes; Helper classes for streaming agent output
     ChatChoice, ChatChoiceDelta, ChatChunkChoice, ChatCompletionChunk,
     ChatCompletionResponse, ChatMessage, ChatParams)
+
+from pathlib import Path
+from os import PathLike
 
 from retail_ai.state import AgentConfig, AgentState
 
@@ -34,7 +37,8 @@ def get_latest_model_version(model_name: str) -> int:
             latest_version = version_int
     return latest_version
 
-class LangGraphChatModel(ChatModel):
+
+class LanggraphChatModel(ChatModel):
     """
     ChatModel that delegates requests to a LangGraph CompiledStateGraph.
     """
@@ -129,7 +133,7 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
     Returns:
         An MLflow-compatible ChatAgent instance
     """
-    return LangGraphChatModel(graph)
+    return LanggraphChatModel(graph)
     
 
 def process_messages_stream(app: ChatModel, input: dict[str, Any]) -> Iterator[BaseMessage]:
@@ -176,3 +180,27 @@ def process_messages(app: ChatModel, input: dict[str, Any]) -> ChatCompletionRes
 
     return app.predict(None, messages, params)
 
+
+def display(app: LanggraphChatModel) -> None:
+    from IPython.display import HTML, Image, display
+
+    try:
+        content = Image(app.graph.get_graph(xray=True).draw_mermaid_png())
+    except Exception as e:
+        print(e)
+        ascii_graph: str = app.graph.get_graph(xray=True).draw_ascii()
+        html_content = f"""
+    <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
+    {ascii_graph}
+    </pre>
+    """
+        content = HTML(html_content)
+
+    display(content)
+
+
+def save_image(app: LanggraphChatModel, path: PathLike) -> None:
+  path = Path(path)
+  content = app.graph.get_graph(xray=True).draw_mermaid_png()
+  path.parent.mkdir(parents=True, exist_ok=True)
+  path.write_bytes(content)

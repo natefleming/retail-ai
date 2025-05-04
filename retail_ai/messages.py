@@ -4,6 +4,35 @@ from langchain_core.messages import (AIMessage, BaseMessage, HumanMessage,
                                      ToolMessage)
 
 
+def has_image(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
+  """
+  Check if a message contains an image.
+
+  This function checks if the message content is a list of dictionaries
+  containing an "image" key, or if the message has a "type" attribute equal to "image".
+
+  Args:
+      message: A LangChain message object to check for image content
+
+  Returns:
+      True if the message contains an image, False otherwise
+  """
+  
+  def _has_image(message: BaseMessage) -> bool:
+    if isinstance(message.content, list):
+      for item in message.content:
+        if isinstance(item, dict) and item.get("type") == "image":
+          return True
+        if hasattr(item, "type") and item.type == "image":
+          return True
+    return False
+
+  if isinstance(messages, BaseMessage):
+    messages = [messages]
+
+  return any(_has_image(m) for m in messages)
+
+
 def last_message(
   messages: Sequence[BaseMessage], 
   predicate: Optional[Callable[[BaseMessage], bool]] = None
