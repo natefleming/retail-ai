@@ -1,6 +1,6 @@
 from typing import Any, Generator, Iterator, Optional, Sequence
 
-from langchain_core.messages import (BaseMessage)
+from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow import MlflowClient
@@ -188,7 +188,7 @@ def display(app: LanggraphChatModel) -> None:
         content = Image(app.graph.get_graph(xray=True).draw_mermaid_png())
     except Exception as e:
         print(e)
-        ascii_graph: str = graph.get_graph(xray=True).draw_ascii()
+        ascii_graph: str = app.graph.get_graph(xray=True).draw_ascii()
         html_content = f"""
     <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
     {ascii_graph}
