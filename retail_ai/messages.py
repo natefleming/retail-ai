@@ -21,9 +21,9 @@ def has_image(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
   def _has_image(message: BaseMessage) -> bool:
     if isinstance(message.content, list):
       for item in message.content:
-        if isinstance(item, dict) and item.get("type") == "image":
+        if isinstance(item, dict) and item.get("type") in ["image", "image_url"]:
           return True
-        if hasattr(item, "type") and item.type == "image":
+        if hasattr(item, "type") and item.type in ["image", "image_url"]:
           return True
     return False
 
