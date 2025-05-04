@@ -181,7 +181,7 @@ def process_messages(app: ChatModel, input: dict[str, Any]) -> ChatCompletionRes
     return app.predict(None, messages, params)
 
 
-def display(app: LanggraphChatModel) -> None:
+def display_graph(app: LanggraphChatModel) -> None:
     from IPython.display import HTML, Image, display
 
     try:
