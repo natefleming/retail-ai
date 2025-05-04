@@ -2,7 +2,10 @@
 catalog_name: nfleming
 database_name: retail_ai
 volume_name: retail_ai
-users: []
+permissions:
+  - principals: []
+    privileges:
+      - ALL_PRIVILEGES
 
 llms:
   model_name: databricks-meta-llama-3-3-70b-instruct
@@ -17,6 +20,11 @@ app:
     streaming: true
     purpose: demo
     endpointSource: playground
+
+  permissions:
+    - principals: []
+      privileges:
+        - CAN_MANAGE
 
   example_input:
     messages:
