@@ -89,16 +89,18 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
     Returns:
         An agent callable function that updates the state with the routing decision
     """
+
+    model: str = model_config.get("agents").get("router").get("model_name")
+    prompt: str = model_config.get("agents").get("router").get("prompt")
+    allowed_routes: Sequence[str] = model_config.get("agents").get("router").get("allowed_routes")
+    default_route = model_config.get("agents").get("router").get("default_route")
+
     @mlflow.trace()
     def router(state: AgentState, config: AgentConfig) -> dict[str, str]:
    
-        model: str = model_config.get("agents").get("router").get("model_name")
+        
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("router").get("prompt")
-        allowed_routes: Sequence[str] = model_config.get("agents").get("router").get("allowed_routes")
-        default_route = model_config.get("agents").get("router").get("default_route")
-
         class Router(BaseModel):
 
             route: Literal[tuple(allowed_routes)] = (
@@ -128,12 +130,15 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
   
 def general_node(model_config: ModelConfig) -> AgentCallable:
 
+    model: str = model_config.get("agents").get("general").get("model_name")
+    prompt: str = model_config.get("agents").get("general").get("prompt")
+
     @mlflow.trace()
     def general(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        model: str = model_config.get("agents").get("general").get("model_name")
+        
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("general").get("prompt")
+
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
         configurable: dict[str, Any] = config.get("configurable", {})
         system_prompt: str = prompt_template.format(
@@ -154,12 +159,15 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
 def product_node(model_config: ModelConfig) -> AgentCallable:
 
+    model: str = model_config.get("agents").get("product").get("model_name")
+    prompt: str = model_config.get("agents").get("product").get("prompt")
+
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        model: str = model_config.get("agents").get("product").get("model_name")
+       
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("product").get("prompt")
+
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
         configurable: dict[str, Any] = config.get("configurable", {})
         system_prompt: str = prompt_template.format(
@@ -179,12 +187,15 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
 def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
+    model: str = model_config.get("agents").get("inventory").get("model_name")
+    prompt: str = model_config.get("agents").get("inventory").get("prompt")
+
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        model: str = model_config.get("agents").get("inventory").get("model_name")
+    
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("inventory").get("prompt")
+
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
         configurable: dict[str, Any] = config.get("configurable", {})
         system_prompt: str = prompt_template.format(
@@ -203,13 +214,15 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     return inventory
 
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
+    model: str = model_config.get("agents").get("comparison").get("model_name")
+    prompt: str = model_config.get("agents").get("comparison").get("prompt")
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        model: str = model_config.get("agents").get("comparison").get("model_name")
+
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("comparison").get("prompt")
+
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
         configurable: dict[str, Any] = config.get("configurable", {})
         system_prompt: str = prompt_template.format(
@@ -229,12 +242,15 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
 def orders_node(model_config: ModelConfig) -> AgentCallable:
 
+    model: str = model_config.get("agents").get("orders").get("model_name")
+    prompt: str = model_config.get("agents").get("orders").get("prompt")
+
     @mlflow.trace()
     def orders(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        model: str = model_config.get("agents").get("orders").get("model_name")
+
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("orders").get("prompt")
+
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
         configurable: dict[str, Any] = config.get("configurable", {})
         system_prompt: str = prompt_template.format(
@@ -254,12 +270,15 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 
 def diy_node(model_config: ModelConfig) -> AgentCallable:
 
+    model: str = model_config.get("agents").get("diy").get("model_name")
+    prompt: str = model_config.get("agents").get("diy").get("prompt")
+
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
-        model: str = model_config.get("agents").get("diy").get("model_name")
+
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
         
-        prompt: str = model_config.get("agents").get("diy").get("prompt")
+
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
         configurable: dict[str, Any] = config.get("configurable", {})
         system_prompt: str = prompt_template.format(
@@ -273,7 +292,7 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         messages = [system_message] + messages
 
         tools = [
-       #     search_tool(model_config)
+            search_tool(model_config)
         ]
 
         agent: CompiledStateGraph = create_react_agent(model=llm, prompt=system_prompt, tools=tools)
