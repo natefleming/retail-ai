@@ -97,9 +97,9 @@ print("\n".join(pip_requirements))
 # COMMAND ----------
 
 from agent_as_code import app
-from retail_ai.models import display
+from retail_ai.models import display_graph
 
-display(app)
+display_graph(app)
 
 
 # COMMAND ----------
@@ -264,21 +264,26 @@ agents.deploy(
 
 # COMMAND ----------
 
-from typing import Sequence
+from typing import Any, Sequence
 
 from databricks.agents import set_permissions, PermissionLevel
 
 from agent_as_code import config
 
+registered_model_name: str = config.get("app").get("registered_model_name")
+grants: Sequence[dict[str, Any]] = config.get("app").get("permissions") 
 
-users: Sequence[str] = config.get("app").get("users")
+for grant in grants:
+    principals: Sequence[str] = grant.get("principals")
+    privileges: Sequence[str] = grant.get("privileges")
 
-if users:
-    set_permissions(
-        model_name=registered_model_name,
-        users=users,
-        permission_level=PermissionLevel.CAN_MANAGE,
-    )
+    for privilege in privileges:
+        set_permissions(
+            model_name=registered_model_name,
+            users=principals,
+            permission_level=PermissionLevel[privilege]
+        )
+
 
 # COMMAND ----------
 
