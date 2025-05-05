@@ -23,7 +23,7 @@ app:
 
   permissions:
     - principals: []
-      privileges:
+      entitlements:
         - CAN_MANAGE
 
   examples:
