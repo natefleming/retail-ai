@@ -1,4 +1,3 @@
-
 from databricks_langchain import ChatDatabricks
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -12,8 +11,12 @@ from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
 
 
-def with_guardrails(graph: CompiledStateGraph, guardrail: CompiledStateGraph) -> CompiledStateGraph:
-    return create_reflection_graph(graph, guardrail, state_schema=AgentState, config_schema=AgentConfig).compile()
+def with_guardrails(
+    graph: CompiledStateGraph, guardrail: CompiledStateGraph
+) -> CompiledStateGraph:
+    return create_reflection_graph(
+        graph, guardrail, state_schema=AgentState, config_schema=AgentConfig
+    ).compile()
 
 
 def judge_node(model_config: ModelConfig) -> AgentCallable:
@@ -57,10 +60,10 @@ def judge_node(model_config: ModelConfig) -> AgentCallable:
             # Otherwise, return the judge's critique as a new user message
             logger.warning("⚠️ Judge requested improvements")
             return {"messages": [HumanMessage(content=eval_result["comment"])]}
-      
+
     return judge
 
-  
+
 def reflection_guardrail(model_config: ModelConfig) -> CompiledStateGraph:
     judge: CompiledStateGraph = (
         StateGraph(AgentState, config_schema=AgentConfig)
