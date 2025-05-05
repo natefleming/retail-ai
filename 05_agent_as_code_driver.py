@@ -271,17 +271,17 @@ from databricks.agents import set_permissions, PermissionLevel
 from agent_as_code import config
 
 registered_model_name: str = config.get("app").get("registered_model_name")
-grants: Sequence[dict[str, Any]] = config.get("app").get("permissions") 
+permissions: Sequence[dict[str, Any]] = config.get("app").get("permissions") 
 
-for grant in grants:
-    principals: Sequence[str] = grant.get("principals")
-    privileges: Sequence[str] = grant.get("privileges")
+for permission in permissions:
+    principals: Sequence[str] = permission.get("principals")
+    entitlements: Sequence[str] = permission.get("entitlements")
 
-    for privilege in privileges:
+    for entitlement in entitlements:
         set_permissions(
             model_name=registered_model_name,
             users=principals,
-            permission_level=PermissionLevel[privilege]
+            permission_level=PermissionLevel[entitlement]
         )
 
 
