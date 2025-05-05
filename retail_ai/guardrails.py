@@ -21,7 +21,9 @@ def with_guardrails(
 
 def judge_node(model_config: ModelConfig) -> AgentCallable:
 
-    critique_prompt = """
+    model: str = model_config.get("agents").get("recommendation").get("model").get("model_name")
+
+    critique_prompt: str = """
     You are an expert judge evaluating AI responses. Your task is to critique the AI assistant's latest response in the conversation below.
 
     Evaluate the response based on these criteria:
@@ -44,7 +46,6 @@ def judge_node(model_config: ModelConfig) -> AgentCallable:
 
     def judge(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
 
-        model: str = model_config.get("agents").get("recommendation").get("model_name")
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         evaluator = create_llm_as_judge(

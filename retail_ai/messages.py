@@ -1,15 +1,18 @@
-from typing import Callable, Optional, Sequence
-from pathlib import Path
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-
-from mlflow.types.llm import ChatMessage
 import base64
 import os
+from pathlib import Path
+from typing import Any, Callable, Optional, Sequence
+
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
+from mlflow.types.llm import ChatMessage
 
 
-def message_with_images(
-    message: HumanMessage, image_paths: Sequence[os.PathLike]
-) -> BaseMessage:
+def message_with_images(message: HumanMessage, image_paths: Sequence[os.PathLike]) -> BaseMessage:
     """
     Add an image to a LangChain message object.
 
@@ -24,6 +27,10 @@ def message_with_images(
     Returns:
         A new LangChain message object with the image added
     """
+
+    if not image_paths:
+      return message
+    
     image_content: list[dict[str, Any]] = []
     for image_path in image_paths:
         image_path = Path(image_path)
@@ -46,6 +53,18 @@ def message_with_images(
 
     message_with_image: HumanMessage = HumanMessage(content=content)
     return message_with_image
+
+
+def convert_to_langchain_messages(messages: dict[str, Any]) -> Sequence[BaseMessage]:
+    langchain_messages: list[BaseMessage] = []
+    for m in messages:
+        image_paths: Sequence[str] = []
+        if "image_paths" in m:
+            image_paths = m.pop("image_paths")
+        message: HumanMessage = HumanMessage(**m)
+        message = message_with_images(message, image_paths)
+        langchain_messages.append(message)
+    return langchain_messages
 
 
 def has_langchain_messages(messages: BaseMessage | Sequence[BaseMessage]) -> bool:

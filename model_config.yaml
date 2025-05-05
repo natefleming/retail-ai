@@ -7,9 +7,32 @@ permissions:
     privileges:
       - ALL_PRIVILEGES
 
-llms:
-  model_name: databricks-meta-llama-3-3-70b-instruct
-  #model_name: databricks-claude-3-7-sonnet
+
+resources:
+  llms:
+    default_llm: &default_llm
+      model_name: databricks-meta-llama-3-3-70b-instruct
+      temperature: 0.1 
+      max_tokens: 8192
+
+    tool_calling_llm: &tool_calling_llm
+      model_name: databricks-meta-llama-3-3-70b-instruct
+      temperature: 0.1 
+      max_tokens: 8192
+
+    reasoning_llm: &reasoning_llm
+      model_name: databricks_claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192
+
+    judge_llm: &judge_llm
+      model_name: databricks-claude-3-7-sonnet
+      temperature: 0.5 
+      max_tokens: 8192
+
+    embedding_model: &embedding_model
+      model_name: databricks-gte-large-en
+      
 
 app:
   log_level: INFO
@@ -59,6 +82,23 @@ app:
       messages:
         - role: user
           content: Can you compare items with product ids 14523 and 25163
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+          scd_ids:
+            - "1"
+            - "2"
+            - "3"
+
+    comparison_image_example:
+      messages:
+        - role: user
+          content: Can you compare these items?
+          image_paths: 
+            - tests/images/doritos_upc.png
+            - tests/images/lays_upc.png
       custom_inputs:
         configurable:
           thread_id: "1"
@@ -129,6 +169,8 @@ app:
       messages:
         - role: user
           content:  Can you give me information about this item?
+          image_paths: 
+            - tests/images/doritos_upc.png
       custom_inputs:
         configurable:
           thread_id: "1"
@@ -138,8 +180,6 @@ app:
             - "1"
             - "2"
             - "3"
-      image_paths: 
-        - tests/images/doritos_upc.png
 
 
 checkpointer:
@@ -149,7 +189,7 @@ checkpointer:
     prepare_threshold: 0
 
 evaluation:
-  model_name: databricks-meta-llama-3-3-70b-instruct
+  model: *judge_llm
   table_name: nfleming.retail_ai.wands_evaluation
   num_evals: 10
 
@@ -188,7 +228,7 @@ retriever:
 agents:
 
   router:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     allowed_routes:
       - product
       - comparison
@@ -226,7 +266,7 @@ agents:
 
 
   general:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -239,7 +279,7 @@ agents:
       Always maintain a helpful and professional tone.
 
   orders:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -252,23 +292,45 @@ agents:
       Always guide customers to the appropriate next steps if their issue can't be fully resolved in this conversation.
 
   diy:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-      
-      You are an experienced DIY and home improvement expert. Provide helpful guidance on home improvement projects,
-      tool usage, DIY tutorials, and general how-to advice. Offer step-by-step instructions when appropriate, with
-      safety warnings where necessary. Recommend proper tools and materials for projects, and suggest alternatives
-      when possible. Consider both beginner and experienced DIYers in your responses, adjusting your explanations
-      accordingly. Include tips for common mistakes to avoid and best practices to follow.
 
-      Use the tools provide to give the most up to date response
+      You are an experienced DIY and home improvement expert with access to search tools. Your primary responsibility is to provide helpful, accurate, and up-to-date guidance on home improvement projects, tool usage, DIY tutorials, and general how-to advice.  
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
+      Before answering ANY question about DIY projects, tools, materials, or techniques:
+
+      - ALWAYS use your search tools to find the most current information
+      - Search for specific product recommendations, technical specifications, current best practices, and safety guidelines
+      - Search for multiple sources to verify information when possible
+      - Use the search results as the foundation for your response
+
+      #### After Searching
+      Once you have search results:
+
+      - Provide step-by-step instructions when appropriate, with safety warnings where necessary
+      - Recommend proper tools and materials for projects, and suggest alternatives when possible
+      - Consider both beginner and experienced DIYers, adjusting your explanations accordingly
+      - Include tips for common mistakes to avoid and best practices to follow
+      - Reference relevant search results that informed your advice
+      - If search results are insufficient, clearly state what information could not be verified
+
+      #### If Search Fails
+      If for any reason your search tools fail or return no results:
+
+      - Explain that you're unable to access current information
+      - Provide general advice based on your knowledge
+      - Clearly indicate which parts of your response are not backed by current search results
+      - Recommend the user verify critical information elsewhere
+
+      #### Remember: You MUST use search tools for EVERY DIY and home improvement question. This ensures your advice is accurate, up-to-date, and as helpful as possible to the user.
       
 
   product:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -282,7 +344,7 @@ agents:
       product information over salesmanship.
 
   inventory:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -296,7 +358,7 @@ agents:
       with general inventory policies and procedures.
 
   comparison:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -310,7 +372,7 @@ agents:
       to make differences clear at a glance.
 
   recommendation:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -324,12 +386,26 @@ agents:
       with budget constraints, and suggest alternatives when primary recommendations might not be ideal.
 
   process_image:
-    model_name: databricks-claude-3-7-sonnet
+    model: *reasoning_llm
     prompt: |
-      You are a visual product summarization assistant. Your task is to analyze an image and generate a structured summary based on the contents of the scene.
-      Your output must include the following:
-      A brief summary of the scene (what is visually present).
-      A list of all identifiable products in the image, including:
-      Product name
-      SKU number (if visible or extractable)
+      ### Task Description
+
+      Analyze the provided product image and extract the following specific information into a structured format:
+
+      - Summary: Provide a concise summary (1-3 sentences) describing what is shown in the image. Focus on describing the product(s), packaging, and any prominent visual elements.
+      - Product Names: Extract the exact product name(s) as they appear on the packaging. Include brand names and specific product variants if visible. List each distinct product separately.
+      - UPC Codes: Identify and extract any UPC (Universal Product Code) barcodes visible in the image. These typically appear as 12-digit numbers beneath a barcode. Provide the complete numeric sequence without dashes or spaces.
+
+      ### Important Guidelines
+
+      - Extract information ONLY if it is clearly visible in the image
+      - For product names, use the EXACT text as it appears on packaging
+      - For UPC codes, verify all digits are clearly legible before extraction
+      - If any requested information is not visible or legible in the image, omit it entirely rather than guessing
+      - Do not provide placeholder values, assumptions, or partial information
+      - Format all extracted information according to the specified output structure
+
+      ### Response Guidelines
+      If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
+
 

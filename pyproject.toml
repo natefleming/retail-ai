@@ -20,3 +20,48 @@ dependencies = [
     "pydantic>=2.11.3",
     "python-dotenv>=1.1.0",
 ]
+
+[tool.ruff]
+# Enable the Ruff formatter
+target-version = "py310"  # Specify your Python version
+line-length = 88  # Same as Black's default
+indent-width = 4
+
+# Add the formatter section
+[tool.ruff.format]
+quote-style = "double"  # Black uses double quotes
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# Set directories to include/exclude
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # You can add more linting rules here
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+# Exclude files/directories
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
