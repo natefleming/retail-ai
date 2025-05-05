@@ -129,6 +129,8 @@ app:
       messages:
         - role: user
           content:  Can you give me information about this item?
+          image_paths: 
+            - tests/images/doritos_upc.png
       custom_inputs:
         configurable:
           thread_id: "1"
@@ -138,8 +140,7 @@ app:
             - "1"
             - "2"
             - "3"
-      image_paths: 
-        - tests/images/doritos_upc.png
+
 
 
 checkpointer:

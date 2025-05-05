@@ -230,7 +230,7 @@ def process_messages_stream(
 def process_messages(
     app: LanggraphChatModel,
     messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
-    custom_inputs: Optional[dict[str, Any]] = None,
+    custom_inputs: Optional[dict[str, Any]] = None
 ) -> ChatCompletionResponse | AddableValuesDict:
     """
     Process messages through a ChatAgent in batch mode.
