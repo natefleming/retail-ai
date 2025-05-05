@@ -359,7 +359,7 @@ def process_images_node(model_config: ModelConfig) -> AgentCallable:
 
         image_summary: str = response.content
 
-        logger.debug("image_summary: {image_summary}")
+        logger.debug(f"image_summary: {image_summary}")
 
         return {"image_summary": image_summary}
 
