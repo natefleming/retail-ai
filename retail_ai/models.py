@@ -1,7 +1,10 @@
+from os import PathLike
+from pathlib import Path
 from typing import Any, Generator, Optional, Sequence
 
-from langchain_core.messages import BaseMessage, AIMessageChunk
+from langchain_core.messages import AIMessageChunk, BaseMessage
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.pregel.io import AddableValuesDict
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel
@@ -15,13 +18,8 @@ from mlflow.types.llm import (  # Non-streaming helper classes; Helper classes f
     ChatParams,
 )
 
-from langgraph.pregel.io import AddableValuesDict
-
-from pathlib import Path
-from os import PathLike
-
-from retail_ai.state import AgentConfig, AgentState
 from retail_ai.messages import has_langchain_messages, has_mlflow_messages
+from retail_ai.state import AgentConfig, AgentState
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -230,7 +228,7 @@ def process_messages_stream(
 def process_messages(
     app: LanggraphChatModel,
     messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
-    custom_inputs: Optional[dict[str, Any]] = None,
+    custom_inputs: Optional[dict[str, Any]] = None
 ) -> ChatCompletionResponse | AddableValuesDict:
     """
     Process messages through a ChatAgent in batch mode.

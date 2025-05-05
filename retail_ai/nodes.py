@@ -1,10 +1,11 @@
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Optional, Sequence
 
 import mlflow
 from databricks_langchain import ChatDatabricks
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableSequence
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -15,8 +16,8 @@ from pydantic import BaseModel, Field
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.types import AgentCallable
 from retail_ai.tools import search_tool
+from retail_ai.types import AgentCallable
 
 
 def message_validation_node(model_config: ModelConfig) -> AgentCallable:
@@ -94,7 +95,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
         An agent callable function that updates the state with the routing decision
     """
 
-    model: str = model_config.get("agents").get("router").get("model_name")
+    model: str = model_config.get("agents").get("router").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("router").get("prompt")
     allowed_routes: Sequence[str] = (
         model_config.get("agents").get("router").get("allowed_routes")
@@ -134,7 +135,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
 
 def general_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("general").get("model_name")
+    model: str = model_config.get("agents").get("general").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("general").get("prompt")
 
     @mlflow.trace()
@@ -162,7 +163,7 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
 def product_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("product").get("model_name")
+    model: str = model_config.get("agents").get("product").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("product").get("prompt")
 
     @mlflow.trace()
@@ -190,7 +191,7 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
 def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("inventory").get("model_name")
+    model: str = model_config.get("agents").get("inventory").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
 
     @mlflow.trace()
@@ -217,7 +218,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("comparison").get("model_name")
+    model: str = model_config.get("agents").get("comparison").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
 
     @mlflow.trace()
@@ -245,7 +246,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
 def orders_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("orders").get("model_name")
+    model: str = model_config.get("agents").get("orders").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("orders").get("prompt")
 
     @mlflow.trace()
@@ -273,7 +274,7 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 
 def diy_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("diy").get("model_name")
+    model: str = model_config.get("agents").get("diy").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("diy").get("prompt")
 
     @mlflow.trace()
@@ -307,7 +308,7 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
 
 def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("recommendation").get("model_name")
+    model: str = model_config.get("agents").get("recommendation").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("recommendation").get("prompt")
 
     @mlflow.trace()
@@ -337,7 +338,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
 def process_images_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("process_image").get("model_name")
+    model: str = model_config.get("agents").get("process_image").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("process_image").get("prompt")
 
     @mlflow.trace()
@@ -346,21 +347,34 @@ def process_images_node(model_config: ModelConfig) -> AgentCallable:
     ) -> dict[str, BaseMessage]:
         logger.debug("process_images")
 
+        class ImageDetails(BaseModel):
+            summary: str = Field(..., description="The summary of the image")
+            product_names: Optional[Sequence[str]] = Field(..., description="The name of the product", default_factory=list)
+            upcs: Optional[Sequence[str]] = Field(..., description="The UPC of the image", default_factory=list)
+
+        class ImageProcessor(BaseModel):
+            prompts: Sequence[str] = Field(..., description="The prompts to use to process the image", default_factory=list)
+            image_details: Sequence[ImageDetails] = Field(..., description="The details of the image", default_factory=list)
+ 
+        ImageProcessor.__doc__ = prompt
+
+
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        system_prompt: str = prompt_template.format()
+        last_message: HumanMessage = last_human_message(state["messages"])
+        messages: Sequence[BaseMessage] = [last_message]
 
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-        message: HumanMessage = last_human_message(state["messages"])
-        messages: Sequence[BaseMessage] = [system_message, message]
+        llm_with_schema: LanguageModelLike = llm.with_structured_output(ImageProcessor)
 
-        response: AIMessage = llm.invoke(input=messages)
+        image_processor: ImageProcessor = llm_with_schema.invoke(input=messages)
 
-        image_summary: str = response.content
+        logger.debug(f"image_processor: {image_processor}")
 
-        logger.debug(f"image_summary: {image_summary}")
+        response_messages: Sequence[BaseMessage] = [
+            RemoveMessage(last_message.id),
+            HumanMessage(content=image_processor.model_dump_json()),
+        ]
 
-        return {"image_summary": image_summary}
+        return {"messages": response_messages}
 
     return process_images

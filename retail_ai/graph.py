@@ -2,6 +2,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from mlflow.models import ModelConfig
 
+from retail_ai.messages import has_image
 from retail_ai.nodes import (
     comparison_node,
     diy_node,
@@ -9,13 +10,12 @@ from retail_ai.nodes import (
     inventory_node,
     message_validation_node,
     orders_node,
+    process_images_node,
     product_node,
     recommendation_node,
     router_node,
-    process_images_node,
 )
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.messages import has_image
 
 
 def route_message_validation(state: AgentState) -> str:
