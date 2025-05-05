@@ -293,10 +293,6 @@ image_path
 
 # COMMAND ----------
 
-# MAGIC %restart_python
-
-# COMMAND ----------
-
 from typing import Any, Sequence
 from rich import print as pprint
 
