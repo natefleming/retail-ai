@@ -3,7 +3,6 @@ from io import StringIO
 from typing import Any, Callable, Literal, Optional, Sequence
 
 import mlflow
-from mlflow.models import ModelConfig
 import pandas as pd
 from databricks.sdk import WorkspaceClient
 from databricks_ai_bridge.genie import GenieResponse
@@ -14,17 +13,16 @@ from databricks_langchain import (
 )
 from databricks_langchain.genie import Genie
 from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
+from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
+from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
-
-from langchain_community.tools import DuckDuckGoSearchRun
-
 
 set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
 

@@ -1,10 +1,10 @@
-from typing import Any, Literal, Sequence, Optional
+from typing import Any, Literal, Optional, Sequence
 
 import mlflow
 from databricks_langchain import ChatDatabricks
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableSequence
 from langgraph.graph.state import CompiledStateGraph
@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.types import AgentCallable
 from retail_ai.tools import search_tool
+from retail_ai.types import AgentCallable
 
 
 def message_validation_node(model_config: ModelConfig) -> AgentCallable:

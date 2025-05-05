@@ -1,12 +1,15 @@
-from typing import Any, Callable, Optional, Sequence
-from pathlib import Path
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage, convert_to_messages
-
-from mlflow.types.llm import ChatMessage
 import base64
 import os
+from pathlib import Path
+from typing import Any, Callable, Optional, Sequence
 
-
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
+from mlflow.types.llm import ChatMessage
 
 
 def message_with_images(message: HumanMessage, image_paths: Sequence[os.PathLike]) -> BaseMessage:
