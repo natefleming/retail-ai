@@ -95,7 +95,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
         An agent callable function that updates the state with the routing decision
     """
 
-    model: str = model_config.get("agents").get("router").get("model_name")
+    model: str = model_config.get("agents").get("router").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("router").get("prompt")
     allowed_routes: Sequence[str] = (
         model_config.get("agents").get("router").get("allowed_routes")
@@ -135,7 +135,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
 
 def general_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("general").get("model_name")
+    model: str = model_config.get("agents").get("general").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("general").get("prompt")
 
     @mlflow.trace()
@@ -163,7 +163,7 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
 def product_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("product").get("model_name")
+    model: str = model_config.get("agents").get("product").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("product").get("prompt")
 
     @mlflow.trace()
@@ -191,7 +191,7 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
 def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("inventory").get("model_name")
+    model: str = model_config.get("agents").get("inventory").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
 
     @mlflow.trace()
@@ -218,7 +218,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("comparison").get("model_name")
+    model: str = model_config.get("agents").get("comparison").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
 
     @mlflow.trace()
@@ -246,7 +246,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
 def orders_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("orders").get("model_name")
+    model: str = model_config.get("agents").get("orders").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("orders").get("prompt")
 
     @mlflow.trace()
@@ -274,7 +274,7 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 
 def diy_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("diy").get("model_name")
+    model: str = model_config.get("agents").get("diy").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("diy").get("prompt")
 
     @mlflow.trace()
@@ -308,7 +308,7 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
 
 def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("recommendation").get("model_name")
+    model: str = model_config.get("agents").get("recommendation").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("recommendation").get("prompt")
 
     @mlflow.trace()
@@ -338,7 +338,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
 def process_images_node(model_config: ModelConfig) -> AgentCallable:
 
-    model: str = model_config.get("agents").get("process_image").get("model_name")
+    model: str = model_config.get("agents").get("process_image").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("process_image").get("prompt")
 
     @mlflow.trace()
