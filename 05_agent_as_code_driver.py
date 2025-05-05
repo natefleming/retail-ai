@@ -275,13 +275,13 @@ permissions: Sequence[dict[str, Any]] = config.get("app").get("permissions")
 
 for permission in permissions:
     principals: Sequence[str] = permission.get("principals")
-    privileges: Sequence[str] = permission.get("entitlements")
+    entitlements: Sequence[str] = permission.get("entitlements")
 
-    for privilege in privileges:
+    for entitlement in entitlements:
         set_permissions(
             model_name=registered_model_name,
             users=principals,
-            permission_level=PermissionLevel[privilege]
+            permission_level=PermissionLevel[entitlement]
         )
 
 

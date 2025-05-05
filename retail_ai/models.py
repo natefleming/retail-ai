@@ -1,4 +1,4 @@
-from typing import Any, Generator, Iterator, Optional, Sequence
+from typing import Any, Generator, Optional, Sequence
 
 from langchain_core.messages import BaseMessage, AIMessageChunk
 from langgraph.graph.state import CompiledStateGraph
@@ -21,6 +21,7 @@ from pathlib import Path
 from os import PathLike
 
 from retail_ai.state import AgentConfig, AgentState
+from retail_ai.messages import has_langchain_messages, has_mlflow_messages
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -140,40 +141,67 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
 def _process_langchain_messages(
     app: LanggraphChatModel,
     messages: Sequence[BaseMessage],
-    config: Optional[dict[str, Any]] = None,
+    custom_inputs: Optional[dict[str, Any]] = None,
 ) -> AddableValuesDict:
-    return app.graph.invoke({"messages": messages}, config=config)
+    return app.graph.invoke({"messages": messages}, config=custom_inputs)
 
 
 def _process_langchain_messages_stream(
     app: LanggraphChatModel,
     messages: Sequence[BaseMessage],
-    config: Optional[dict[str, Any]] = None,
-) -> Iterator[AIMessageChunk]:
+    custom_inputs: Optional[dict[str, Any]] = None,
+) -> Generator[AIMessageChunk, None, None]:
     for message, _ in app.graph.stream(
-        {"messages": messages}, config=config, stream_mode="messages"
+        {"messages": messages}, config=custom_inputs, stream_mode="messages"
     ):
         message: AIMessageChunk
         yield message
 
 
 def _process_mlflow_messages(
-    app: ChatModel, messages: Sequence[ChatMessage], params: Optional[ChatParams] = None
+    app: ChatModel,
+    messages: Sequence[ChatMessage],
+    custom_inputs: Optional[ChatParams] = None,
 ) -> ChatCompletionResponse:
-    return app.predict(None, messages, params)
+    return app.predict(None, messages, custom_inputs)
 
 
 def _process_mlflow_messages_stream(
-    app: ChatModel, messages: Sequence[ChatMessage], params: Optional[ChatParams] = None
-) -> Iterator[ChatCompletionChunk]:
-    for event in app.predict_stream(None, messages, params):
+    app: ChatModel,
+    messages: Sequence[ChatMessage],
+    custom_inputs: Optional[ChatParams] = None,
+) -> Generator[ChatCompletionChunk, None, None]:
+    for event in app.predict_stream(None, messages, custom_inputs):
         event: ChatCompletionChunk
         yield event
 
 
+def _process_config_messages(
+    app: ChatModel,
+    messages: dict[str, Any],
+    custom_inputs: Optional[dict[str, Any]] = None,
+) -> ChatCompletionResponse:
+    messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
+    params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
+
+    return _process_mlflow_messages(app, messages, params)
+
+
+def _process_config_messages_stream(
+    app: ChatModel, messages: dict[str, Any], custom_inputs: dict[str, Any]
+) -> Generator[ChatCompletionChunk, None, None]:
+    messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
+    params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
+
+    for event in _process_mlflow_messages_stream(app, messages, custom_inputs=params):
+        yield event
+
+
 def process_messages_stream(
-    app: ChatModel, input: dict[str, Any]
-) -> Iterator[ChatCompletionChunk]:
+    app: LanggraphChatModel,
+    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
+    custom_inputs: dict[str, Any],
+) -> Generator[ChatCompletionChunk | AIMessageChunk, None, None]:
     """
     Process messages through a ChatAgent in streaming mode.
 
@@ -188,16 +216,22 @@ def process_messages_stream(
         Individual message chunks from the streaming response
     """
 
-    messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in input["messages"]]
-    params: ChatParams = ChatParams(**{"custom_inputs": input["custom_inputs"]})
-
-    for event in _process_mlflow_messages_stream(app, messages, params):
-        yield event
+    if has_mlflow_messages(messages):
+        for event in _process_mlflow_messages_stream(app, messages, custom_inputs):
+            yield event
+    elif has_langchain_messages(messages):
+        for event in _process_langchain_messages_stream(app, messages, custom_inputs):
+            yield event
+    else:
+        for event in _process_config_messages_stream(app, messages, custom_inputs):
+            yield event
 
 
 def process_messages(
-    app: ChatModel, input: dict[str, Any], config: Optional[dict[str, Any]] = None
-) -> ChatCompletionResponse:
+    app: LanggraphChatModel,
+    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
+    custom_inputs: Optional[dict[str, Any]] = None,
+) -> ChatCompletionResponse | AddableValuesDict:
     """
     Process messages through a ChatAgent in batch mode.
 
@@ -212,12 +246,12 @@ def process_messages(
         Complete response from the agent
     """
 
-    logger.debug(f"input={input}")
-
-    messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in input["messages"]]
-    params: ChatParams = ChatParams(**{"custom_inputs": input["custom_inputs"]})
-
-    return _process_mlflow_messages(app, messages, params)
+    if has_mlflow_messages(messages):
+        return event in _process_mlflow_messages(app, messages, custom_inputs)
+    elif has_langchain_messages(messages):
+        return _process_langchain_messages(app, messages, custom_inputs)
+    else:
+        return _process_config_messages(app, messages, custom_inputs)
 
 
 def display_graph(app: LanggraphChatModel) -> None:

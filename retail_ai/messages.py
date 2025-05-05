@@ -1,6 +1,63 @@
 from typing import Callable, Optional, Sequence
-
+from pathlib import Path
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+
+from mlflow.types.llm import ChatMessage
+import base64
+import os
+
+
+def message_with_images(
+    message: HumanMessage, image_paths: Sequence[os.PathLike]
+) -> BaseMessage:
+    """
+    Add an image to a LangChain message object.
+
+    This function takes a LangChain message object and a path to an image file
+    and returns a new message object with the image added. The image is added as a
+    dictionary with the key "image" and the value being the path to the image file.
+
+    Args:
+        message: A LangChain message object to add the image to
+        path: A Path object representing the path to the image file
+
+    Returns:
+        A new LangChain message object with the image added
+    """
+    image_content: list[dict[str, Any]] = []
+    for image_path in image_paths:
+        image_path = Path(image_path)
+        base64_image: str = base64.b64encode(Path(image_path).read_bytes()).decode(
+            "utf-8"
+        )
+        image_content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+            }
+        )
+
+    content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": message.content,
+        }
+    ] + image_content
+
+    message_with_image: HumanMessage = HumanMessage(content=content)
+    return message_with_image
+
+
+def has_langchain_messages(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
+    if isinstance(messages, BaseMessage):
+        messages = [messages]
+    return any(isinstance(m, BaseMessage) for m in messages)
+
+
+def has_mlflow_messages(messages: ChatMessage | Sequence[ChatMessage]) -> bool:
+    if isinstance(messages, ChatMessage):
+        messages = [messages]
+    return any(isinstance(m, ChatMessage) for m in messages)
 
 
 def has_image(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
