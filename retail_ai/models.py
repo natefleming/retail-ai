@@ -1,4 +1,4 @@
-from typing import Any, Generator, Iterator, Optional, Sequence
+from typing import Any, Generator, Optional, Sequence
 
 from langchain_core.messages import BaseMessage, AIMessageChunk
 from langgraph.graph.state import CompiledStateGraph
@@ -6,8 +6,14 @@ from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel
 from mlflow.types.llm import (  # Non-streaming helper classes; Helper classes for streaming agent output
-    ChatChoice, ChatChoiceDelta, ChatChunkChoice, ChatCompletionChunk,
-    ChatCompletionResponse, ChatMessage, ChatParams)
+    ChatChoice,
+    ChatChoiceDelta,
+    ChatChunkChoice,
+    ChatCompletionChunk,
+    ChatCompletionResponse,
+    ChatMessage,
+    ChatParams,
+)
 
 from langgraph.pregel.io import AddableValuesDict
 
@@ -17,17 +23,18 @@ from os import PathLike
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.messages import has_langchain_messages, has_mlflow_messages
 
+
 def get_latest_model_version(model_name: str) -> int:
     """
     Retrieve the latest version number of a registered MLflow model.
-    
+
     Queries the MLflow Model Registry to find the highest version number
     for a given model name, which is useful for ensuring we're using
     the most recent model version.
-    
+
     Args:
         model_name: The name of the registered model in MLflow
-        
+
     Returns:
         The latest version number as an integer
     """
@@ -56,25 +63,20 @@ class LanggraphChatModel(ChatModel):
             raise ValueError("Message list is empty.")
 
         request = {"messages": self._convert_messages_to_dict(messages)}
-        
+
         config: AgentState = self._convert_to_config(params)
 
         response = self.graph.invoke(request, config=config)
 
         last_message = response["messages"][-1]
 
-        response_message = ChatMessage(
-            role="assistant",
-            content=last_message.content
-        )
-        return ChatCompletionResponse(
-            choices=[ChatChoice(message=response_message)]
-        )
+        response_message = ChatMessage(role="assistant", content=last_message.content)
+        return ChatCompletionResponse(choices=[ChatChoice(message=response_message)])
 
     def _convert_to_config(self, params: Optional[ChatParams]) -> AgentConfig:
         if not params:
             return {}
-        
+
         input_data = params.to_dict()
         configurable: dict[str, Any] = {}
         if "configurable" in input_data:
@@ -83,10 +85,9 @@ class LanggraphChatModel(ChatModel):
             custom_inputs: dict[str, Any] = input_data.pop("custom_inputs")
             if "configurable" in custom_inputs:
                 configurable: dict[str, Any] = custom_inputs.pop("configurable")
-            
+
         agent_config: AgentConfig = AgentConfig(**{"configurable": configurable})
         return agent_config
-
 
     def predict_stream(
         self, context, messages: list[ChatMessage], params: ChatParams
@@ -97,10 +98,11 @@ class LanggraphChatModel(ChatModel):
 
         request = {"messages": self._convert_messages_to_dict(messages)}
 
-        config: AgentState = self._convert_to_config(params)    
+        config: AgentState = self._convert_to_config(params)
 
-
-        for message, _ in self.graph.stream(request, config=config, stream_mode="messages"):
+        for message, _ in self.graph.stream(
+            request, config=config, stream_mode="messages"
+        ):
             content = message.content
             if content:
                 yield self._create_chat_completion_chunk(content)
@@ -109,79 +111,85 @@ class LanggraphChatModel(ChatModel):
         return ChatCompletionChunk(
             choices=[
                 ChatChunkChoice(
-                    delta=ChatChoiceDelta(
-                        role="assistant",
-                        content=content
-                    )
+                    delta=ChatChoiceDelta(role="assistant", content=content)
                 )
             ]
         )
 
-    def _convert_messages_to_dict(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    def _convert_messages_to_dict(
+        self, messages: list[ChatMessage]
+    ) -> list[dict[str, Any]]:
         return [m.to_dict() for m in messages]
-    
 
 
 def create_agent(graph: CompiledStateGraph) -> ChatAgent:
     """
     Create an MLflow-compatible ChatAgent from a LangGraph state machine.
-    
+
     Factory function that wraps a compiled LangGraph in the LangGraphChatAgent
     class to make it deployable through MLflow.
-    
+
     Args:
         graph: A compiled LangGraph state machine
-        
+
     Returns:
         An MLflow-compatible ChatAgent instance
     """
     return LanggraphChatModel(graph)
-    
+
 
 def _process_langchain_messages(
-    app: LanggraphChatModel, 
-    messages: Sequence[BaseMessage], 
-    custom_inputs: Optional[dict[str, Any]] = None
+    app: LanggraphChatModel,
+    messages: Sequence[BaseMessage],
+    custom_inputs: Optional[dict[str, Any]] = None,
 ) -> AddableValuesDict:
     return app.graph.invoke({"messages": messages}, config=custom_inputs)
 
 
 def _process_langchain_messages_stream(
-    app: LanggraphChatModel, 
-    messages: Sequence[BaseMessage], 
-    custom_inputs: Optional[dict[str, Any]] = None
+    app: LanggraphChatModel,
+    messages: Sequence[BaseMessage],
+    custom_inputs: Optional[dict[str, Any]] = None,
 ) -> Generator[AIMessageChunk, None, None]:
-    for message, _ in app.graph.stream({"messages": messages}, config=custom_inputs, stream_mode="messages"):
+    for message, _ in app.graph.stream(
+        {"messages": messages}, config=custom_inputs, stream_mode="messages"
+    ):
         message: AIMessageChunk
         yield message
 
 
 def _process_mlflow_messages(
-    app: ChatModel, 
-    messages: Sequence[ChatMessage], 
-    custom_inputs: Optional[ChatParams] = None
+    app: ChatModel,
+    messages: Sequence[ChatMessage],
+    custom_inputs: Optional[ChatParams] = None,
 ) -> ChatCompletionResponse:
     return app.predict(None, messages, custom_inputs)
 
 
 def _process_mlflow_messages_stream(
-    app: ChatModel, 
-    messages: Sequence[ChatMessage], 
-    custom_inputs: Optional[ChatParams] = None
+    app: ChatModel,
+    messages: Sequence[ChatMessage],
+    custom_inputs: Optional[ChatParams] = None,
 ) -> Generator[ChatCompletionChunk, None, None]:
     for event in app.predict_stream(None, messages, custom_inputs):
         event: ChatCompletionChunk
         yield event
 
 
-def _process_config_messages(app: ChatModel, messages: dict[str, Any], custom_inputs: Optional[dict[str, Any]] = None) -> ChatCompletionResponse:    
+def _process_config_messages(
+    app: ChatModel,
+    messages: dict[str, Any],
+    custom_inputs: Optional[dict[str, Any]] = None,
+) -> ChatCompletionResponse:
     messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
     params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
 
     return _process_mlflow_messages(app, messages, params)
 
 
-def _process_config_messages_stream(app: ChatModel, messages: dict[str, Any], custom_inputs: dict[str, Any]) -> Generator[ChatCompletionChunk, None, None]:
+def _process_config_messages_stream(
+    app: ChatModel, messages: dict[str, Any], custom_inputs: dict[str, Any]
+) -> Generator[ChatCompletionChunk, None, None]:
     messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
     params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
 
@@ -190,20 +198,20 @@ def _process_config_messages_stream(app: ChatModel, messages: dict[str, Any], cu
 
 
 def process_messages_stream(
-    app: LanggraphChatModel, 
-    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any], 
-    custom_inputs: dict[str, Any]
+    app: LanggraphChatModel,
+    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
+    custom_inputs: dict[str, Any],
 ) -> Generator[ChatCompletionChunk | AIMessageChunk, None, None]:
     """
     Process messages through a ChatAgent in streaming mode.
-    
+
     Utility function that normalizes message input formats and
     streams the agent's responses as they're generated.
-    
+
     Args:
         app: The ChatAgent to process messages with
         messages: Messages in various formats (list or dict)
-        
+
     Yields:
         Individual message chunks from the streaming response
     """
@@ -219,22 +227,21 @@ def process_messages_stream(
             yield event
 
 
-
 def process_messages(
-    app: LanggraphChatModel, 
-    messages:Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
-    custom_inputs: Optional[dict[str, Any]] = None
+    app: LanggraphChatModel,
+    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
+    custom_inputs: Optional[dict[str, Any]] = None,
 ) -> ChatCompletionResponse | AddableValuesDict:
     """
     Process messages through a ChatAgent in batch mode.
-    
+
     Utility function that normalizes message input formats and
     returns the complete response from the agent.
-    
+
     Args:
         app: The ChatAgent to process messages with
         messages: Messages in various formats (list or dict)
-        
+
     Returns:
         Complete response from the agent
     """
@@ -245,7 +252,6 @@ def process_messages(
         return _process_langchain_messages(app, messages, custom_inputs)
     else:
         return _process_config_messages(app, messages, custom_inputs)
-      
 
 
 def display_graph(app: LanggraphChatModel) -> None:
@@ -267,7 +273,7 @@ def display_graph(app: LanggraphChatModel) -> None:
 
 
 def save_image(app: LanggraphChatModel, path: PathLike) -> None:
-  path = Path(path)
-  content = app.graph.get_graph(xray=True).draw_mermaid_png()
-  path.parent.mkdir(parents=True, exist_ok=True)
-  path.write_bytes(content)
+    path = Path(path)
+    content = app.graph.get_graph(xray=True).draw_mermaid_png()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)

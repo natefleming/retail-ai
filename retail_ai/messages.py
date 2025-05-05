@@ -7,7 +7,9 @@ import base64
 import os
 
 
-def message_with_images(message: HumanMessage, image_paths: Sequence[os.PathLike]) -> BaseMessage:
+def message_with_images(
+    message: HumanMessage, image_paths: Sequence[os.PathLike]
+) -> BaseMessage:
     """
     Add an image to a LangChain message object.
 
