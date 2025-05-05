@@ -155,6 +155,32 @@ for event in process_messages_stream(app=app, **input_example):
 
 # COMMAND ----------
 
+from typing import Any, Sequence
+from rich import print as pprint
+
+from pathlib import Path
+from langchain_core.messages import HumanMessage, convert_to_messages
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+from retail_ai.messages import convert_to_langchain_messages
+
+
+examples: dict[str, Any] = config.get("app").get("examples")
+input_example: dict[str, Any] = examples.get("comparison_image_example")
+pprint(input_example)
+
+messages: Sequence[HumanMessage] = convert_to_langchain_messages(input_example["messages"])
+custom_inputs = input_example["custom_inputs"]
+
+process_messages(
+  app=app, 
+  messages=messages, 
+  custom_inputs=custom_inputs
+)
+
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## General
 
