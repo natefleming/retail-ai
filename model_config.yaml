@@ -129,12 +129,7 @@ app:
     product_image_example:
       messages:
         - role: user
-          content: 
-            - type: text
-              text: Can you give me information about this item?
-            - type: image_url
-              image_url:
-                url: https://cdn.sanity.io/images/hdptt806/production/7ff02721909ac66133ae094c80f3e8ba2d5befc5-2270x3469.jpg?w=340&auto=format
+          content:  Can you give me information about this item?
       custom_inputs:
         configurable:
           thread_id: "1"
@@ -144,6 +139,9 @@ app:
             - "1"
             - "2"
             - "3"
+      image_paths: 
+        - tests/images/doritos_upc.png
+
 
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
