@@ -315,10 +315,6 @@ for event in process_messages_stream(app=app, **input_example):
 
 # COMMAND ----------
 
-# MAGIC %restart_python
-
-# COMMAND ----------
-
 from typing import Any, Sequence
 from rich import print as pprint
 

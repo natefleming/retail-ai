@@ -7,9 +7,32 @@ permissions:
     privileges:
       - ALL_PRIVILEGES
 
-llms:
-  model_name: databricks-meta-llama-3-3-70b-instruct
-  #model_name: databricks-claude-3-7-sonnet
+
+resources:
+  llms:
+    default_llm: &default_llm
+      model_name: databricks-meta-llama-3-3-70b-instruct
+      temperature: 0.1 
+      max_tokens: 8192
+
+    tool_calling_llm: &tool_calling_llm
+      model_name: databricks-meta-llama-3-3-70b-instruct
+      temperature: 0.1 
+      max_tokens: 8192
+
+    reasoning_llm: &reasoning_llm
+      model_name: databricks_claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192
+
+    judge_llm: &judge_llm
+      model_name: databricks-claude-3-7-sonnet
+      temperature: 0.5 
+      max_tokens: 8192
+
+    embedding_model: &embedding_model
+      model_name: databricks-gte-large-en
+      
 
 app:
   log_level: INFO
@@ -159,7 +182,6 @@ app:
             - "3"
 
 
-
 checkpointer:
   connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
   connection_kwargs:
@@ -167,7 +189,7 @@ checkpointer:
     prepare_threshold: 0
 
 evaluation:
-  model_name: databricks-meta-llama-3-3-70b-instruct
+  model: *judge_llm
   table_name: nfleming.retail_ai.wands_evaluation
   num_evals: 10
 
@@ -206,7 +228,7 @@ retriever:
 agents:
 
   router:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     allowed_routes:
       - product
       - comparison
@@ -244,7 +266,7 @@ agents:
 
 
   general:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -257,7 +279,7 @@ agents:
       Always maintain a helpful and professional tone.
 
   orders:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -270,7 +292,7 @@ agents:
       Always guide customers to the appropriate next steps if their issue can't be fully resolved in this conversation.
 
   diy:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -308,7 +330,7 @@ agents:
       
 
   product:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -322,7 +344,7 @@ agents:
       product information over salesmanship.
 
   inventory:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -336,7 +358,7 @@ agents:
       with general inventory policies and procedures.
 
   comparison:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -350,7 +372,7 @@ agents:
       to make differences clear at a glance.
 
   recommendation:
-    model_name: databricks-meta-llama-3-3-70b-instruct
+    model: *tool_calling_llm
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -364,7 +386,7 @@ agents:
       with budget constraints, and suggest alternatives when primary recommendations might not be ideal.
 
   process_image:
-    model_name: databricks-claude-3-7-sonnet
+    model: *reasoning_llm
     prompt: |
       ### Task Description
 
