@@ -409,3 +409,19 @@ agents:
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
 
 
+
+ datasets:
+   table_name: nfleming.retail_ai.wands_product
+   huggingface:
+     - repo_id: napsternxg/wands
+       primary_key: id
+       table_name: nfleming.retail_ai.wands
+     - url: https://raw.githubusercontent.com/wayfair/WANDS/refs/heads/main/dataset/product.csv
+       primary_key: product_id
+       table_name: nfleming.retail_ai.wands_product
+     - url: https://raw.githubusercontent.com/wayfair/WANDS/refs/heads/main/dataset/label.csv
+       primary_key: id
+       table_name: nfleming.retail_ai.wands_label  
+     - url: https://raw.githubusercontent.com/wayfair/WANDS/refs/heads/main/dataset/query.csv
+       primary_key: query_id
+       table_name: nfleming.retail_ai.wands_query
