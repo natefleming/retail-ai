@@ -24,7 +24,10 @@ from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
 
-set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
+try:
+    set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
+except Exception as e:
+    logger.warning(f"Failed to set UC function client: {e}")
 
 
 class ProductFeature(BaseModel):
