@@ -100,7 +100,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
     allowed_routes: Sequence[str] = (
         model_config.get("agents").get("router").get("allowed_routes")
     )
-    default_route = model_config.get("agents").get("router").get("default_route")
+    default_route: str = model_config.get("agents").get("router").get("default_route")
 
     @mlflow.trace()
     def router(state: AgentState, config: AgentConfig) -> dict[str, str]:
