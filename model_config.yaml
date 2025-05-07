@@ -42,6 +42,8 @@ resources:
 
   functions:
     - nfleming.retail_ai.find_product_by_sku
+
+  warehouses: []
     
 
 app:

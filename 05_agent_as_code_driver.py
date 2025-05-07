@@ -131,14 +131,14 @@ from agent_as_code import config
 
 
 model_names: set = set()
-for name, agent in config.get("agents").items():
-    model_names.add(agent["model_name"])
-model_names.add(config.get("llms").get("model_name"))
+for _, model  in config.get("resources").get("llms").items():
+    model_names.add(model["model_name"])
 
 index_name: str = config.get("retriever").get("index_name")
 space_id: str = config.get("resources").get("genie").get("space_id")
 functions: Sequence[str] = config.get("resources").get("functions")
 tables: Sequence[str] = config.get("resources").get("tables")
+warehouses: Sequence[str] = config.get("resources").get("warehouses")
 
 resources: Sequence[DatabricksResource] = [
     DatabricksVectorSearchIndex(index_name=index_name),
@@ -148,6 +148,7 @@ resources: Sequence[DatabricksResource] = [
 resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names]
 resources += [DatabricksFunction(function_name=f) for f in functions]
 resources += [DatabricksTable(table_name=t) for t in tables]
+resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouses]
 
 with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
