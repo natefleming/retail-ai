@@ -9,7 +9,14 @@ from langchain_core.messages import (
     HumanMessage,
     ToolMessage,
 )
+from langchain_core.messages.modifier import RemoveMessage
+
 from mlflow.types.llm import ChatMessage
+
+def remove_messages(messages: Sequence[BaseMessage], filter: Callable[[BaseMessage], bool] | None = None) -> Sequence[RemoveMessage]:
+    if filter:
+        messages = [m for m in messages if filter(m)]
+    return [RemoveMessage(m.id) for m in messages]
 
 
 def message_with_images(message: HumanMessage, image_paths: Sequence[os.PathLike]) -> BaseMessage:
