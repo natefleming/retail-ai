@@ -92,10 +92,6 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
-# MAGIC %restart_python
-
-# COMMAND ----------
-
 from agent_as_code import app
 from retail_ai.models import display_graph
 
@@ -140,9 +136,9 @@ for name, agent in config.get("agents").items():
 model_names.add(config.get("llms").get("model_name"))
 
 index_name: str = config.get("retriever").get("index_name")
-space_id: str = config.get("genie").get("space_id")
-functions: Sequence[str] = config.get("functions")
-tables: Sequence[str] = config.get("tables")
+space_id: str = config.get("resources").get("genie").get("space_id")
+functions: Sequence[str] = config.get("resources").get("functions")
+tables: Sequence[str] = config.get("resources").get("tables")
 
 resources: Sequence[DatabricksResource] = [
     DatabricksVectorSearchIndex(index_name=index_name),
