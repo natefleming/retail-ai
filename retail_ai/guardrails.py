@@ -50,7 +50,7 @@ def judge_node(guardrails: dict[str, Any]) -> AgentCallable:
             logger.warning("⚠️ Judge requested improvements")
             comment: str = eval_result["comment"]
             logger.warning(f"Judge's critique: {comment}")
-            content: str = "\n".join([human_message.content + comment])
+            content: str = "\n".join([human_message.content, comment])
             return {
                 "messages": [HumanMessage(content=content)]
             }
