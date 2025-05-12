@@ -10,8 +10,8 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.messages.modifier import RemoveMessage
-
 from mlflow.types.llm import ChatMessage
+
 
 def remove_messages(messages: Sequence[BaseMessage], filter: Callable[[BaseMessage], bool] | None = None) -> Sequence[RemoveMessage]:
     if filter:
