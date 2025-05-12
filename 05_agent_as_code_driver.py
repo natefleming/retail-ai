@@ -70,7 +70,7 @@ print("\n".join(pip_requirements))
 # MAGIC from langchain_core.runnables import RunnableSequence
 # MAGIC from langgraph.graph.state import CompiledStateGraph
 # MAGIC from mlflow.pyfunc import ChatModel
-# MAGIC from retail_ai.graph import create_ace_arma_graph
+# MAGIC from retail_ai.graph import create_retail_ai_graph
 # MAGIC from retail_ai.models import create_agent 
 # MAGIC
 # MAGIC from loguru import logger
@@ -83,7 +83,7 @@ print("\n".join(pip_requirements))
 # MAGIC
 # MAGIC logger.add(sys.stderr, level=log_level)
 # MAGIC
-# MAGIC graph: CompiledStateGraph = create_ace_arma_graph(model_config=config)
+# MAGIC graph: CompiledStateGraph = create_retail_ai_graph(model_config=config)
 # MAGIC
 # MAGIC app: ChatModel = create_agent(graph)
 # MAGIC
@@ -150,6 +150,8 @@ resources += [DatabricksFunction(function_name=f) for f in functions]
 resources += [DatabricksTable(table_name=t) for t in tables]
 resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouses]
 
+input_example: dict[str, Any] = config.get("app").get("diy_example")
+
 with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
     logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
@@ -159,6 +161,7 @@ with mlflow.start_run(run_name="agent"):
         artifact_path="agent",
         pip_requirements=pip_requirements,
         resources=resources,
+        input_example=input_example,
     )
 
 # COMMAND ----------
@@ -166,45 +169,13 @@ with mlflow.start_run(run_name="agent"):
 from typing import Any
 from agent_as_code import config
 
-example_input: dict[str, Any] = config.get("app").get("example_input")
+example_input: dict[str, Any] = config.get("app").get("diy_example")
 
 mlflow.models.predict(
     model_uri=logged_agent_info.model_uri,
     input_data=example_input,
     env_manager="uv",
 )
-
-# COMMAND ----------
-
-import mlflow
-from mlflow.models.model import ModelInfo
-from mlflow.entities.model_registry.model_version import ModelVersion
-from mlflow.models.evaluation import EvaluationResult
-
-import pandas as pd
-
-from agent_as_code import config
-
-
-model_info: mlflow.models.model.ModelInfo
-evaluation_result: EvaluationResult
-
-evaluation_table_name: str = config.get("evaluation").get("table_name")
-
-evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
-
-global_guidelines = {
-    "English": ["The response must be in English"],
-    "Clarity": ["The response must be clear, coherent, and concise"],
-}
-
-with mlflow.start_run():
-    eval_results = mlflow.evaluate(
-        data=evaluation_pdf,
-        model=logged_agent_info.model_uri,
-        model_type="databricks-agent",
-        evaluator_config={"databricks-agent": {"global_guidelines": global_guidelines}},
-    )
 
 # COMMAND ----------
 
@@ -236,6 +207,40 @@ champion_model: ModelVersion = client.get_model_version_by_alias(
     registered_model_name, "Champion"
 )
 print(champion_model)
+
+# COMMAND ----------
+
+import mlflow
+from mlflow.models.model import ModelInfo
+from mlflow.entities.model_registry.model_version import ModelVersion
+from mlflow.models.evaluation import EvaluationResult
+
+import pandas as pd
+
+from agent_as_code import config
+
+
+model_info: mlflow.models.model.ModelInfo
+evaluation_result: EvaluationResult
+
+evaluation_table_name: str = config.get("evaluation").get("table_name")
+
+evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
+
+global_guidelines = {
+    "English": ["The response must be in English"],
+    "Clarity": ["The response must be clear, coherent, and concise"],
+}
+
+model_uri: str = f"models:/{registered_model_name}@Champion"
+
+with mlflow.start_run():
+    eval_results = mlflow.evaluate(
+        data=evaluation_pdf,
+        model=model_uri,
+        model_type="databricks-agent",
+        evaluator_config={"databricks-agent": {"global_guidelines": global_guidelines}},
+    )
 
 # COMMAND ----------
 

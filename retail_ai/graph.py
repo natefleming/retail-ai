@@ -26,7 +26,7 @@ def route_message_validation(state: AgentState) -> str:
     return "router"
 
 
-def create_ace_arma_graph(model_config: ModelConfig) -> CompiledStateGraph:
+def create_retail_ai_graph(model_config: ModelConfig) -> CompiledStateGraph:
 
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 

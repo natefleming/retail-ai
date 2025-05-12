@@ -29,53 +29,22 @@ def message_validation_node(model_config: ModelConfig) -> AgentCallable:
         configurable: dict[str, Any] = config.get("configurable", {})
         validation_errors: list[str] = []
 
-        # Check user_id
-        if "user_id" not in configurable:
-            validation_errors.append(
-                "Missing required configuration: user_id (Customer identifier)"
-            )
-        elif not configurable["user_id"]:
-            validation_errors.append("User ID cannot be empty")
-        elif not isinstance(configurable["user_id"], (str, int)):
-            validation_errors.append("User ID must be a string or integer")
+        user_id: Optional[str] = configurable.get("user_id", "")
+        if not user_id:
+            validation_errors.append("user_id is required")
 
-        # Check store_num
-        if "store_num" not in configurable:
-            validation_errors.append(
-                "Missing required configuration: store_num (Store location identifier)"
-            )
-        elif configurable["store_num"] is None or configurable["store_num"] == "":
-            validation_errors.append("Store number cannot be empty")
-        elif not isinstance(configurable["store_num"], (str, int)):
-            validation_errors.append("Store number must be a string or integer")
+        store_num: Optional[str] = configurable.get("store_num", "")
+        if not store_num:
+            validation_errors.append("store_num is required")
 
-        # Check scd_ids
-        if "scd_ids" not in configurable:
-            validation_errors.append(
-                "Missing required configuration: scd_ids (Product identifiers)"
-            )
-        elif not configurable["scd_ids"]:
-            validation_errors.append("Product identifiers list cannot be empty")
-        elif not isinstance(configurable["scd_ids"], (list, tuple, set)):
-            validation_errors.append(
-                "Product identifiers must be a list, tuple, or set"
-            )
-
-        # If validation errors exist, return helpful message
         if validation_errors:
-            content: str = "## Configuration Validation Failed\n\n" + "\n".join(
-                [f"- {error}" for error in validation_errors]
-            )
-            content += "\n\nPlease provide all required configuration values to proceed with your request."
-            content += "\n\n### Example of a valid configuration payload:\n"
-            content += '```json\n{\n    "configurable": {\n        "user_id": "customer_12345",\n        "store_num": 789,\n        "scd_ids": ["SKU123", "SKU456", "SKU789"]\n    }\n}\n```'
-            content += "\n\nIf you have any questions, please contact support."
-            message: AIMessage = AIMessage(content=content)
-            logger.error(f"Validation failed: {content}")
-            return {"messages": [message], "is_valid_config": False}
+            logger.warning(f"Validation errors: {validation_errors}")
 
-        # All validations passed
-        return {"is_valid_config": True}
+        return {
+            "user_id": user_id,
+            "store_num": store_num,
+            "is_valid_config": True
+        }
 
     return message_validation
 
@@ -137,6 +106,7 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
     model: str = model_config.get("agents").get("general").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("general").get("prompt")
+    guardrails: Sequence[dict[str, Any]] = model_config.get("agents").get("general").get("guardrails") or []
 
     @mlflow.trace()
     def general(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -144,18 +114,24 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = config.get("configurable", {})
+        configurable: dict[str, Any] = {
+            "user_id": state["user_id"],
+            "store_num": state["store_num"],
+        }
         system_prompt: str = prompt_template.format(**configurable)
 
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        messages = [system_message] + messages
+        tools = []
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, prompt=system_prompt, tools=[]
+            model=llm, 
+            prompt=system_prompt, 
+            tools=tools, 
         )
+
+        for guardrail_definition in guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            agent = with_guardrails(agent, guardrail)
+
         return agent
 
     return general
@@ -165,6 +141,7 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
     model: str = model_config.get("agents").get("product").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("product").get("prompt")
+    guardrails: dict[str, Any] = model_config.get("agents").get("product").get("guardrails") or []
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -172,18 +149,24 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = config.get("configurable", {})
+        configurable: dict[str, Any] = {
+            "user_id": state["user_id"],
+            "store_num": state["store_num"],
+        }
         system_prompt: str = prompt_template.format(**configurable)
 
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        messages = [system_message] + messages
+        tools = []
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, prompt=system_prompt, tools=[]
+            model=llm, 
+            prompt=system_prompt, 
+            tools=tools, 
         )
+
+        for guardrail_definition in guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            agent = with_guardrails(agent, guardrail)
+
         return agent
 
     return product
@@ -193,6 +176,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
     model: str = model_config.get("agents").get("inventory").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
+    guardrails: dict[str, Any] = model_config.get("agents").get("inventory").get("guardrails") or []
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -200,18 +184,24 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = config.get("configurable", {})
+        configurable: dict[str, Any] = {
+            "user_id": state["user_id"],
+            "store_num": state["store_num"],
+        }
         system_prompt: str = prompt_template.format(**configurable)
 
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        messages = [system_message] + messages
+        tools = []
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, prompt=system_prompt, tools=[]
+            model=llm, 
+            prompt=system_prompt, 
+            tools=tools, 
         )
+
+        for guardrail_definition in guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            agent = with_guardrails(agent, guardrail)
+
         return agent
 
     return inventory
@@ -220,6 +210,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
     model: str = model_config.get("agents").get("comparison").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
+    guardrails: dict[str, Any] = model_config.get("agents").get("comparison").get("guardrails") or []
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -227,18 +218,24 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = config.get("configurable", {})
+        configurable: dict[str, Any] = {
+            "user_id": state["user_id"],
+            "store_num": state["store_num"],
+        }
         system_prompt: str = prompt_template.format(**configurable)
 
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        messages = [system_message] + messages
+        tools = [] 
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, prompt=system_prompt, tools=[]
+            model=llm, 
+            prompt=system_prompt, 
+            tools=tools, 
         )
+
+        for guardrail_definition in guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            agent = with_guardrails(agent, guardrail)
+
         return agent
 
     return comparison
@@ -248,6 +245,7 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 
     model: str = model_config.get("agents").get("orders").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("orders").get("prompt")
+    guardrails: dict[str, Any] = model_config.get("agents").get("orders").get("guardrails")
 
     @mlflow.trace()
     def orders(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -255,18 +253,24 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = config.get("configurable", {})
+        configurable: dict[str, Any] = {
+            "user_id": state["user_id"],
+            "store_num": state["store_num"],
+        }
         system_prompt: str = prompt_template.format(**configurable)
 
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        messages = [system_message] + messages
-
+        tools = [] 
+        
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, prompt=system_prompt, tools=[]
+            model=llm, 
+            prompt=system_prompt, 
+            tools=tools, 
         )
+
+        for guardrail_definition in guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            agent = with_guardrails(agent, guardrail)
+
         return agent
 
     return orders
@@ -276,6 +280,7 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
 
     model: str = model_config.get("agents").get("diy").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("diy").get("prompt")
+    guardrails: dict[str, Any] = model_config.get("agents").get("diy").get("guardrails") or []
 
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
@@ -283,26 +288,26 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = config.get("configurable", {})
+        configurable: dict[str, Any] = {
+            "user_id": state["user_id"],
+            "store_num": state["store_num"],
+        }
         system_prompt: str = prompt_template.format(**configurable)
-
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        messages = [system_message] + messages
 
         tools = [search_tool(model_config)]
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, prompt=system_prompt, tools=tools
+            model=llm, 
+            prompt=system_prompt, 
+            tools=tools, 
         )
 
-        guardrail: CompiledStateGraph = reflection_guardrail(model_config=model_config)
-        agent_with_guard_rail: CompiledStateGraph = with_guardrails(agent, guardrail)
+        for guardrail_definition in guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            agent = with_guardrails(agent, guardrail)
 
-        return agent_with_guard_rail
-
+        return agent
+    
     return diy
 
 
@@ -310,6 +315,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
     model: str = model_config.get("agents").get("recommendation").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("recommendation").get("prompt")
+    guardrails: dict[str, Any] = model_config.get("agents").get("recommendation").get("guardrails") or []
 
     @mlflow.trace()
     def recommendation(
@@ -319,18 +325,24 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = config.get("configurable", {})
+        configurable: dict[str, Any] = {
+            "user_id": state["user_id"],
+            "store_num": state["store_num"],
+        }
         system_prompt: str = prompt_template.format(**configurable)
 
-        system_message: SystemMessage = SystemMessage(content=system_prompt)
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        messages = [system_message] + messages
+        tools = [] 
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, prompt=system_prompt, tools=[]
+            model=llm, 
+            prompt=system_prompt, 
+            tools=tools, 
         )
+
+        for guardrail_definition in guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            agent = with_guardrails(agent, guardrail)
+
         return agent
 
     return recommendation

@@ -63,6 +63,10 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+# MAGIC %restart_python
+
+# COMMAND ----------
+
 from typing import Any
 from rich import print as pprint
 from agent_as_code import app, config
@@ -74,6 +78,10 @@ pprint(input_example)
 
 response = process_messages(app=app, **input_example)
 pprint(response)
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
