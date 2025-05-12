@@ -71,11 +71,14 @@ class LanggraphChatModel(ChatModel):
         response_message = ChatMessage(role="assistant", content=last_message.content)
         return ChatCompletionResponse(choices=[ChatChoice(message=response_message)])
 
-    def _convert_to_config(self, params: Optional[ChatParams]) -> AgentConfig:
+    def _convert_to_config(self, params: Optional[ChatParams | dict[str, Any]]) -> AgentConfig:
         if not params:
             return {}
 
-        input_data = params.to_dict()
+        input_data = params
+        if isinstance(params, ChatParams):
+            input_data = params.to_dict()
+            
         configurable: dict[str, Any] = {}
         if "configurable" in input_data:
             configurable: dict[str, Any] = input_data.pop("configurable")
@@ -101,8 +104,8 @@ class LanggraphChatModel(ChatModel):
         for message, _ in self.graph.stream(
             request, config=config, stream_mode="messages"
         ):
-            content = message.content
-            if content:
+            if isinstance(message, AIMessageChunk) and message.content:
+                content = message.content
                 yield self._create_chat_completion_chunk(content)
 
     def _create_chat_completion_chunk(self, content: str) -> ChatCompletionChunk:
