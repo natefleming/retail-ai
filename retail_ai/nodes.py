@@ -4,7 +4,7 @@ import mlflow
 from databricks_langchain import ChatDatabricks
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableSequence
 from langgraph.graph.state import CompiledStateGraph

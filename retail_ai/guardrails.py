@@ -1,17 +1,16 @@
 from typing import Any
+
 from databricks_langchain import ChatDatabricks
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.graph.state import END, START, CompiledStateGraph, StateGraph
 from langgraph_reflection import create_reflection_graph
 from loguru import logger
-from mlflow.models import ModelConfig
 from openevals.llm import create_llm_as_judge
-from openevals.prompts import HALLUCINATION_PROMPT
 
+from retail_ai.messages import last_ai_message, last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
-from retail_ai.messages import last_ai_message, last_human_message
 
 
 def with_guardrails(
