@@ -123,6 +123,11 @@ from mlflow.models.resources import (
     DatabricksFunction,
     DatabricksServingEndpoint,
 )
+from mlflow.models.auth_policy import (
+    SystemAuthPolicy, 
+    UserAuthPolicy, 
+    AuthPolicy
+)
 import mlflow
 from mlflow.models.model import ModelInfo
 
@@ -152,6 +157,27 @@ resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouses]
 
 input_example: dict[str, Any] = config.get("app").get("diy_example")
 
+system_auth_policy: SystemAuthPolicy = SystemAuthPolicy(resources=resources)
+
+# Api Scopes
+# Vector Search:            serving.serving-endpoints, vectorsearch.vector-search-endpoints, vectorsearch.vector-search-indexes
+# Model Serving Endpoints:  serving.serving-endpoints
+# SQL Wareshouse:           sql.statement-execution, sql.warehouses
+# UC Connections:           catalog.connections
+# Genie:                    dashboards.genie
+
+user_auth_policy: UserAuthPolicy = UserAuthPolicy(
+    api_scopes=[
+        "serving.serving-endpoints",
+        "vectorsearch.vector-search-endpoints",
+        "vectorsearch.vector-search-indexes",
+    ]
+)
+auth_policy: AuthPolicy = AuthPolicy(
+    system_auth_policy=system_auth_policy,
+    user_auth_policy=user_auth_policy
+)
+
 with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
     logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
@@ -160,8 +186,8 @@ with mlflow.start_run(run_name="agent"):
         model_config=config.to_dict(),
         artifact_path="agent",
         pip_requirements=pip_requirements,
-        resources=resources,
-        input_example=input_example,
+        #resources=resources,
+        auth_policy=auth_policy,
     )
 
 # COMMAND ----------
