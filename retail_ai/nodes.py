@@ -16,9 +16,9 @@ from pydantic import BaseModel, Field
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import search_tool, create_uc_tools
+from retail_ai.tools import search_tool, create_uc_tools, find_product_details_by_description_tool
 from retail_ai.types import AgentCallable
-from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
+
 
 
 def message_validation_node(model_config: ModelConfig) -> AgentCallable:
@@ -149,6 +149,8 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
     guardrails: dict[str, Any] = model_config.get("agents").get("product").get("guardrails") or []
 
     index_name: str = model_config.get("retriever").get("index_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -168,9 +170,12 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         ])
         
         tools += [
-        #    VectorSearchRetrieverTool(index_name=index_name)
+            find_product_details_by_description_tool(
+                endpoint_name=endpoint_name,
+                index_name=index_name,
+                columns=columns,
+            ),
         ]
-
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm, 
@@ -194,6 +199,8 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     guardrails: dict[str, Any] = model_config.get("agents").get("inventory").get("guardrails") or []
 
     index_name: str = model_config.get("retriever").get("index_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -213,7 +220,11 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         ])
         
         tools += [
-          #  VectorSearchRetrieverTool(index_name=index_name)
+            find_product_details_by_description_tool(
+                endpoint_name=endpoint_name,
+                index_name=index_name,
+                columns=columns,
+            ),
         ]
 
         agent: CompiledStateGraph = create_react_agent(
@@ -237,6 +248,8 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
     guardrails: dict[str, Any] = model_config.get("agents").get("comparison").get("guardrails") or []
 
     index_name: str = model_config.get("retriever").get("index_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -256,7 +269,11 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         ])
     
         tools += [
-         #   VectorSearchRetrieverTool(index_name=index_name)
+            find_product_details_by_description_tool(
+                endpoint_name=endpoint_name,
+                index_name=index_name,
+                columns=columns,
+            ),
         ]
 
         agent: CompiledStateGraph = create_react_agent(
@@ -281,6 +298,8 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
     guardrails: dict[str, Any] = model_config.get("agents").get("orders").get("guardrails")
 
     index_name: str = model_config.get("retriever").get("index_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
 
     @mlflow.trace()
     def orders(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -318,6 +337,8 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
     guardrails: dict[str, Any] = model_config.get("agents").get("diy").get("guardrails") or []
 
     index_name: str = model_config.get("retriever").get("index_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
 
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
@@ -334,7 +355,11 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         tools = [search_tool(model_config)]
 
         tools += [
-           #VectorSearchRetrieverTool(index_name=index_name)
+            find_product_details_by_description_tool(
+                endpoint_name=endpoint_name,
+                index_name=index_name,
+                columns=columns,
+            ),
         ]
 
         agent: CompiledStateGraph = create_react_agent(
@@ -359,6 +384,8 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
     guardrails: dict[str, Any] = model_config.get("agents").get("recommendation").get("guardrails") or []
 
     index_name: str = model_config.get("retriever").get("index_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
 
     @mlflow.trace()
     def recommendation(
@@ -374,8 +401,12 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = [
-         #   VectorSearchRetrieverTool(index_name=index_name)
+        tools += [
+            find_product_details_by_description_tool(
+                endpoint_name=endpoint_name,
+                index_name=index_name,
+                columns=columns,
+            ),
         ]
 
         agent: CompiledStateGraph = create_react_agent(
