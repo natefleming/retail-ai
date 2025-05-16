@@ -16,13 +16,15 @@ from pydantic import BaseModel, Field
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import search_tool, create_uc_tools, find_product_details_by_description_tool
+from retail_ai.tools import (
+    create_uc_tools,
+    find_product_details_by_description_tool,
+    search_tool,
+)
 from retail_ai.types import AgentCallable
 
 
-
 def message_validation_node(model_config: ModelConfig) -> AgentCallable:
-
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug(f"state: {state}")
@@ -41,11 +43,7 @@ def message_validation_node(model_config: ModelConfig) -> AgentCallable:
         if validation_errors:
             logger.warning(f"Validation errors: {validation_errors}")
 
-        return {
-            "user_id": user_id,
-            "store_num": store_num,
-            "is_valid_config": True
-        }
+        return {"user_id": user_id, "store_num": store_num, "is_valid_config": True}
 
     return message_validation
 
@@ -74,11 +72,9 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
 
     @mlflow.trace()
     def router(state: AgentState, config: AgentConfig) -> dict[str, str]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         class Router(BaseModel):
-
             route: Literal[tuple(allowed_routes)] = Field(
                 default=default_route,
                 description=f"The route to take. Must be one of {allowed_routes}",
@@ -104,16 +100,20 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def general_node(model_config: ModelConfig) -> AgentCallable:
-
-    model: str = model_config.get("agents").get("general").get("model").get("model_name")
+    model: str = (
+        model_config.get("agents").get("general").get("model").get("model_name")
+    )
     prompt: str = model_config.get("agents").get("general").get("prompt")
-    guardrails: Sequence[dict[str, Any]] = model_config.get("agents").get("general").get("guardrails") or []
+    guardrails: Sequence[dict[str, Any]] = (
+        model_config.get("agents").get("general").get("guardrails") or []
+    )
 
     index_name: str = model_config.get("retriever").get("index_name")
+    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
+    columns: Sequence[str] = model_config.get("retriever").get("columns")
 
     @mlflow.trace()
     def general(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
@@ -124,13 +124,17 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
         system_prompt: str = prompt_template.format(**configurable)
 
         tools = [
-           # VectorSearchRetrieverTool(index_name=index_name)
+            find_product_details_by_description_tool(
+                endpoint_name=endpoint_name,
+                index_name=index_name,
+                columns=columns,
+            ),
         ]
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, 
-            prompt=system_prompt, 
-            tools=tools, 
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
         )
 
         for guardrail_definition in guardrails:
@@ -143,10 +147,13 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def product_node(model_config: ModelConfig) -> AgentCallable:
-
-    model: str = model_config.get("agents").get("product").get("model").get("model_name")
+    model: str = (
+        model_config.get("agents").get("product").get("model").get("model_name")
+    )
     prompt: str = model_config.get("agents").get("product").get("prompt")
-    guardrails: dict[str, Any] = model_config.get("agents").get("product").get("guardrails") or []
+    guardrails: dict[str, Any] = (
+        model_config.get("agents").get("product").get("guardrails") or []
+    )
 
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
@@ -154,7 +161,6 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
@@ -164,11 +170,13 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools([
-            "nfleming.retail_ai.find_product_by_sku",
-            "nfleming.retail_ai.find_product_by_upc",
-        ])
-        
+        tools = create_uc_tools(
+            [
+                "nfleming.retail_ai.find_product_by_sku",
+                "nfleming.retail_ai.find_product_by_upc",
+            ]
+        )
+
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
@@ -178,9 +186,9 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         ]
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, 
-            prompt=system_prompt, 
-            tools=tools, 
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
         )
 
         for guardrail_definition in guardrails:
@@ -193,10 +201,13 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def inventory_node(model_config: ModelConfig) -> AgentCallable:
-
-    model: str = model_config.get("agents").get("inventory").get("model").get("model_name")
+    model: str = (
+        model_config.get("agents").get("inventory").get("model").get("model_name")
+    )
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
-    guardrails: dict[str, Any] = model_config.get("agents").get("inventory").get("guardrails") or []
+    guardrails: dict[str, Any] = (
+        model_config.get("agents").get("inventory").get("guardrails") or []
+    )
 
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
@@ -204,7 +215,6 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
@@ -214,11 +224,13 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools([
-            "nfleming.retail_ai.find_inventory_by_sku",
-            "nfleming.retail_ai.find_inventory_by_upc",
-        ])
-        
+        tools = create_uc_tools(
+            [
+                "nfleming.retail_ai.find_inventory_by_sku",
+                "nfleming.retail_ai.find_inventory_by_upc",
+            ]
+        )
+
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
@@ -228,9 +240,9 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         ]
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, 
-            prompt=system_prompt, 
-            tools=tools, 
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
         )
 
         for guardrail_definition in guardrails:
@@ -243,9 +255,13 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("comparison").get("model").get("model_name")
+    model: str = (
+        model_config.get("agents").get("comparison").get("model").get("model_name")
+    )
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
-    guardrails: dict[str, Any] = model_config.get("agents").get("comparison").get("guardrails") or []
+    guardrails: dict[str, Any] = (
+        model_config.get("agents").get("comparison").get("guardrails") or []
+    )
 
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
@@ -253,7 +269,6 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
@@ -263,11 +278,13 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools([
-            "nfleming.retail_ai.find_product_by_sku",
-            "nfleming.retail_ai.find_product_by_upc",
-        ])
-    
+        tools = create_uc_tools(
+            [
+                "nfleming.retail_ai.find_product_by_sku",
+                "nfleming.retail_ai.find_product_by_upc",
+            ]
+        )
+
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
@@ -277,9 +294,9 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         ]
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, 
-            prompt=system_prompt, 
-            tools=tools, 
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
         )
 
         for guardrail_definition in guardrails:
@@ -292,18 +309,14 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def orders_node(model_config: ModelConfig) -> AgentCallable:
-
     model: str = model_config.get("agents").get("orders").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("orders").get("prompt")
-    guardrails: dict[str, Any] = model_config.get("agents").get("orders").get("guardrails")
-
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    guardrails: dict[str, Any] = (
+        model_config.get("agents").get("orders").get("guardrails")
+    )
 
     @mlflow.trace()
     def orders(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
@@ -313,12 +326,12 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = [] 
-        
+        tools = []
+
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, 
-            prompt=system_prompt, 
-            tools=tools, 
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
         )
 
         for guardrail_definition in guardrails:
@@ -331,10 +344,11 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def diy_node(model_config: ModelConfig) -> AgentCallable:
-
     model: str = model_config.get("agents").get("diy").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("diy").get("prompt")
-    guardrails: dict[str, Any] = model_config.get("agents").get("diy").get("guardrails") or []
+    guardrails: dict[str, Any] = (
+        model_config.get("agents").get("diy").get("guardrails") or []
+    )
 
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
@@ -342,7 +356,6 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
 
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
@@ -363,9 +376,9 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         ]
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, 
-            prompt=system_prompt, 
-            tools=tools, 
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
         )
 
         for guardrail_definition in guardrails:
@@ -373,15 +386,18 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
             agent = with_guardrails(agent, guardrail)
 
         return agent
-    
+
     return diy
 
 
 def recommendation_node(model_config: ModelConfig) -> AgentCallable:
-
-    model: str = model_config.get("agents").get("recommendation").get("model").get("model_name")
+    model: str = (
+        model_config.get("agents").get("recommendation").get("model").get("model_name")
+    )
     prompt: str = model_config.get("agents").get("recommendation").get("prompt")
-    guardrails: dict[str, Any] = model_config.get("agents").get("recommendation").get("guardrails") or []
+    guardrails: dict[str, Any] = (
+        model_config.get("agents").get("recommendation").get("guardrails") or []
+    )
 
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
@@ -391,7 +407,6 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
     def recommendation(
         state: AgentState, config: AgentConfig
     ) -> dict[str, BaseMessage]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
@@ -401,7 +416,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools += [
+        tools = [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
                 index_name=index_name,
@@ -410,9 +425,9 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         ]
 
         agent: CompiledStateGraph = create_react_agent(
-            model=llm, 
-            prompt=system_prompt, 
-            tools=tools, 
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
         )
 
         for guardrail_definition in guardrails:
@@ -425,8 +440,9 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def process_images_node(model_config: ModelConfig) -> AgentCallable:
-
-    model: str = model_config.get("agents").get("process_image").get("model").get("model_name")
+    model: str = (
+        model_config.get("agents").get("process_image").get("model").get("model_name")
+    )
     prompt: str = model_config.get("agents").get("process_image").get("prompt")
 
     @mlflow.trace()
@@ -437,15 +453,24 @@ def process_images_node(model_config: ModelConfig) -> AgentCallable:
 
         class ImageDetails(BaseModel):
             summary: str = Field(..., description="The summary of the image")
-            product_names: Optional[Sequence[str]] = Field(..., description="The name of the product", default_factory=list)
-            upcs: Optional[Sequence[str]] = Field(..., description="The UPC of the image", default_factory=list)
+            product_names: Optional[Sequence[str]] = Field(
+                ..., description="The name of the product", default_factory=list
+            )
+            upcs: Optional[Sequence[str]] = Field(
+                ..., description="The UPC of the image", default_factory=list
+            )
 
         class ImageProcessor(BaseModel):
-            prompts: Sequence[str] = Field(..., description="The prompts to use to process the image", default_factory=list)
-            image_details: Sequence[ImageDetails] = Field(..., description="The details of the image", default_factory=list)
- 
-        ImageProcessor.__doc__ = prompt
+            prompts: Sequence[str] = Field(
+                ...,
+                description="The prompts to use to process the image",
+                default_factory=list,
+            )
+            image_details: Sequence[ImageDetails] = Field(
+                ..., description="The details of the image", default_factory=list
+            )
 
+        ImageProcessor.__doc__ = prompt
 
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 

@@ -183,7 +183,7 @@ def create_product_comparison_tool(
         # Generate the comparison using the LLM
         formatted_prompt = prompt.format(products=products_str)
         llm_with_tools = llm.with_structured_output(ComparisonResult)
-        comparison_result: ComparisonResult = llm.invoke(formatted_prompt)
+        comparison_result: ComparisonResult = llm_with_tools.invoke(formatted_prompt)
 
         logger.debug(f"comparison_result: {comparison_result}")
         return comparison_result
@@ -380,9 +380,7 @@ def find_product_details_by_description_tool(
 
     @tool
     @mlflow.trace(span_type="RETRIEVER", name="vector_search")
-    def find_product_details_by_description(
-        content: str
-    ) -> Sequence[Document]:
+    def find_product_details_by_description(content: str) -> Sequence[Document]:
         """
         Find products matching a description.
 

@@ -13,13 +13,17 @@ from langchain_core.messages.modifier import RemoveMessage
 from mlflow.types.llm import ChatMessage
 
 
-def remove_messages(messages: Sequence[BaseMessage], filter: Callable[[BaseMessage], bool] | None = None) -> Sequence[RemoveMessage]:
+def remove_messages(
+    messages: Sequence[BaseMessage], filter: Callable[[BaseMessage], bool] | None = None
+) -> Sequence[RemoveMessage]:
     if filter:
         messages = [m for m in messages if filter(m)]
     return [RemoveMessage(m.id) for m in messages]
 
 
-def message_with_images(message: HumanMessage, image_paths: Sequence[os.PathLike]) -> BaseMessage:
+def message_with_images(
+    message: HumanMessage, image_paths: Sequence[os.PathLike]
+) -> BaseMessage:
     """
     Add an image to a LangChain message object.
 
@@ -36,8 +40,8 @@ def message_with_images(message: HumanMessage, image_paths: Sequence[os.PathLike
     """
 
     if not image_paths:
-      return message
-    
+        return message
+
     image_content: list[dict[str, Any]] = []
     for image_path in image_paths:
         image_path = Path(image_path)
