@@ -37,13 +37,20 @@ resources:
     space_id: 01f01c91f1f414d59daaefd2b7ec82ea
 
   tables:
-    - nfleming.retail_ai.wands
-    - nfleming.retail_ai.wands_product
+    - nfleming.retail_ai.products
+    - nfleming.retail_ai.inventory
 
   functions:
     - nfleming.retail_ai.find_product_by_sku
+    - nfleming.retail_ai.find_product_by_upc
+    - nfleming.retail_ai.find_inventory_by_sku
+    - nfleming.retail_ai.find_inventory_by_upc
+    - nfleming.retail_ai.find_store_inventory_by_upc
+    - nfleming.retail_ai.find_store_inventory_by_sku
 
-  warehouses: []
+
+  warehouses: 
+    - 148ccb90800933a1
     
     
 guardrails:
@@ -192,31 +199,33 @@ checkpointer:
 
 evaluation:
   model: *judge_llm
-  table_name: nfleming.retail_ai.wands_evaluation
-  num_evals: 10
+  table_name: nfleming.retail_ai.evaluation
+  num_evals: 25
 
 
 retriever:
   embedding_model_endpoint_name: databricks-gte-large-en
   endpoint_name: one-env-shared-endpoint-12
   endpoint_type: STANDARD
-  index_name: nfleming.retail_ai.wands_index
+  index_name: nfleming.retail_ai.products_index
+  source_table_name: nfleming.retail_ai.products
   primary_key: product_id
-  doc_uri: doc_uri
-  embedding_source_column: content
+  doc_uri: ~
+  embedding_source_column: description
   columns:
     - product_id
+    - sku
+    - upc
+    - brand_name
     - product_name
-    - product_class
-    - category_hierarchy
-    - rating_count
-    - average_rating
-    - review_count
-    - doc_uri
+    - merchandise_class
+    - class_cd
+    - description
   search_parameters:
     num_results: 10
     filter: {}
     query_type: ANN
+
 
 agents:
 
@@ -421,17 +430,11 @@ agents:
 
 
 datasets:
-  table_name: nfleming.retail_ai.wands_product
-  huggingface:
-    - repo_id: napsternxg/wands
-      primary_key: id
-      table_name: nfleming.retail_ai.wands
-    - url: https://raw.githubusercontent.com/wayfair/WANDS/refs/heads/main/dataset/product.csv
-      primary_key: product_id
-      table_name: nfleming.retail_ai.wands_product
-    - url: https://raw.githubusercontent.com/wayfair/WANDS/refs/heads/main/dataset/label.csv
-      primary_key: id
-      table_name: nfleming.retail_ai.wands_label  
-    - url: https://raw.githubusercontent.com/wayfair/WANDS/refs/heads/main/dataset/query.csv
-      primary_key: query_id
-      table_name: nfleming.retail_ai.wands_query
+  - table: products
+    ddl: ./data/retail/products.sql
+    data: ./data/retail/products.snappy.parquet
+    format: parquet
+  - table: inventory
+    ddl: ./data/retail/inventory.sql
+    data: ./data/retail/inventory.snappy.parquet
+    format: parquet

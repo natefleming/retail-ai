@@ -11,7 +11,8 @@ pip_requirements: Sequence[str] = (
   "loguru",
   "langgraph-reflection",
   "openevals",
-  "duckduckgo-search"
+  "duckduckgo-search",
+  "faker",
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -34,7 +35,8 @@ pip_requirements: Sequence[str] = (
   f"loguru=={version('loguru')}",
   f"langgraph-reflection=={version('langgraph-reflection')}",
   f"openevals=={version('openevals')}",
-  f"duckduckgo-search=={version('duckduckgo-search')}"
+  f"duckduckgo-search=={version('duckduckgo-search')}",
+  f"faker=={version('faker')}",
 )
 
 print("\n".join(pip_requirements))
@@ -598,3 +600,130 @@ system_prompt: str = prompt_template.format(
 )
 
 system_prompt
+
+# COMMAND ----------
+
+from faker import Faker
+
+Faker.seed("1234")
+faker: Faker = Faker()
+faker.numerify("#####")
+
+faker.seed
+
+
+# COMMAND ----------
+
+from pyspark.sql import DataFrame, Row, Window
+import pyspark.sql.functions as F
+import pyspark.sql.types as T
+from faker import Faker
+
+def fake_upc(upc: str) -> str:
+  seed_val = hash(str(upc)) % 2**32
+  faker: Faker = Faker()
+  faker.seed_instance(seed_val)
+  return faker.ean13()
+
+fake_upc_udf = F.udf(fake_upc, T.StringType())
+
+def fake_sku(upc: str) -> str:
+  seed_val = hash(str(upc)) % 2**32
+  faker: Faker = Faker()
+  faker.seed_instance(seed_val)
+  return faker.ean8()
+
+fake_sku_udf = F.udf(fake_sku, T.StringType())
+
+def fake_store_num(store_num: str) -> int:
+  seed_val = hash(str(store_num)) % 2**32
+  faker: Faker = Faker()
+  faker.seed_instance(seed_val)
+  return faker.numerify("#####")
+
+fake_store_num_udf = F.udf(fake_store_num, T.StringType())
+
+def fake_warehouse_num(warehouse_cd: str) -> str:
+  seed_val = hash(str(warehouse_cd)) % 2**32
+  faker: Faker = Faker()
+  faker.seed_instance(seed_val)
+  return faker.numerify("##")
+
+fake_warehouse_num_udf = F.udf(fake_warehouse_num, T.StringType())
+
+
+df: DataFrame = spark.read.format("parquet").load("/Volumes/nfleming/retail_ai/data/products.snappy.parquet")
+
+
+df = (
+  df.withColumn("upc_num", fake_upc_udf(F.col("sku")))
+  .withColumn("sku", fake_sku_udf(F.col("sku")))
+  .withColumn("store_num", fake_store_num_udf(F.col("store_num")))
+  .withColumn("warehouse_cd", fake_warehouse_num_udf(F.col("warehouse_cd")))
+  .withColumnRenamed("upc_num", "upc")
+  .withColumnRenamed("warehouse_cd", "warehouse")
+  .withColumnRenamed("store_num", "store")
+  .withColumnRenamed("popularity_cd", "popularity_rating")
+  .withColumnRenamed("available_qty", "store_quantity")
+  .withColumnRenamed("warehouse_qty", "warehouse_quantity")
+  .withColumnRenamed("retail_amt", "retail_amount")
+  .withColumnRenamed("aisle_loc", "aisle_location")
+  .withColumnRenamed("dept_num", "department")
+  .withColumnRenamed("closeout_flag", "is_closeout")
+  .withColumn("is_closeout", F.when(F.col("is_closeout") == "Y", True).otherwise(False))
+  .withColumn("warehouse_quantity", F.col("warehouse_quantity").cast("int"))
+  .withColumn("retail_amount", F.round(F.col("retail_amount").cast("decimal(10,2)"), 2))
+)
+
+product_window_spec = Window.partitionBy("sku").orderBy("last_updated_dt")
+
+product_df = df.withColumn("row_num", F.row_number().over(product_window_spec)).filter(F.col("row_num") == 1).drop("row_num").select("sku", "upc", "brand_name", "product_name", "merchandise_class", "class_cd", "description")
+
+product_df = product_df.select(F.monotonically_increasing_id().alias("product_id"), "*")
+
+inventory_window_spec = Window.partitionBy("sku", "store").orderBy("last_updated_dt")
+
+inventory_df = df.withColumn("row_num", F.row_number().over(inventory_window_spec)).filter(F.col("row_num") == 1).drop("row_num").select("sku", "store", "store_quantity", "warehouse", "warehouse_quantity", "retail_amount", "popularity_rating", "department", "aisle_location", "is_closeout")
+
+
+inventory_df = inventory_df.join(product_df.select("sku", "product_id"), on="sku", how="inner").select("product_id", "store", "store_quantity", "warehouse", "warehouse_quantity", "retail_amount", "popularity_rating", "department", "aisle_location", "is_closeout")
+
+inventory_df = inventory_df.select(F.monotonically_increasing_id().alias("inventory_id"), "*")
+
+df.cache()
+inventory_df.cache()
+product_df.cache()
+
+# COMMAND ----------
+
+product_df.count()
+
+# COMMAND ----------
+
+inventory_df
+
+# COMMAND ----------
+
+product_df.repartition(1).write.mode("overwrite").format("parquet").save("/Volumes/nfleming/retail_ai/data/products")
+inventory_df.repartition(1).write.mode("overwrite").format("parquet").save("/Volumes/nfleming/retail_ai/data/inventory")
+
+
+# COMMAND ----------
+
+display(df.select("store").distinct().count())
+
+# COMMAND ----------
+
+display(inventory_df.join(product_df, on="product_id", how="left").count())
+
+# COMMAND ----------
+
+display(inventory_df.select(F.min("inventory_id")))
+
+# COMMAND ----------
+
+display(product_df)
+
+# COMMAND ----------
+
+display(inventory_df.join(product_df, on="product_id").where(F.col("product_id") == "93185165"))
