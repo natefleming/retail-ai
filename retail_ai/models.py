@@ -71,14 +71,16 @@ class LanggraphChatModel(ChatModel):
         response_message = ChatMessage(role="assistant", content=last_message.content)
         return ChatCompletionResponse(choices=[ChatChoice(message=response_message)])
 
-    def _convert_to_config(self, params: Optional[ChatParams | dict[str, Any]]) -> AgentConfig:
+    def _convert_to_config(
+        self, params: Optional[ChatParams | dict[str, Any]]
+    ) -> AgentConfig:
         if not params:
             return {}
 
         input_data = params
         if isinstance(params, ChatParams):
             input_data = params.to_dict()
-            
+
         configurable: dict[str, Any] = {}
         if "configurable" in input_data:
             configurable: dict[str, Any] = input_data.pop("configurable")
@@ -231,7 +233,7 @@ def process_messages_stream(
 def process_messages(
     app: LanggraphChatModel,
     messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
-    custom_inputs: Optional[dict[str, Any]] = None
+    custom_inputs: Optional[dict[str, Any]] = None,
 ) -> ChatCompletionResponse | AddableValuesDict:
     """
     Process messages through a ChatAgent in batch mode.
@@ -248,7 +250,7 @@ def process_messages(
     """
 
     if has_mlflow_messages(messages):
-        return event in _process_mlflow_messages(app, messages, custom_inputs)
+        return _process_mlflow_messages(app, messages, custom_inputs)
     elif has_langchain_messages(messages):
         return _process_langchain_messages(app, messages, custom_inputs)
     else:

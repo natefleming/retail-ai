@@ -27,7 +27,6 @@ def route_message_validation(state: AgentState) -> str:
 
 
 def create_retail_ai_graph(model_config: ModelConfig) -> CompiledStateGraph:
-
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node(

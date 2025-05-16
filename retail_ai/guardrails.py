@@ -22,24 +22,24 @@ def with_guardrails(
 
 
 def judge_node(guardrails: dict[str, Any]) -> AgentCallable:
-
     model: str = guardrails.get("model").get("model_name")
     critique_prompt: str = guardrails.get("prompt")
 
     def judge(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
 
         evaluator = create_llm_as_judge(
             prompt=critique_prompt,
             judge=llm,
         )
-        
+
         ai_message: AIMessage = last_ai_message(state["messages"])
         human_message: HumanMessage = last_human_message(state["messages"])
-     
+
         logger.debug(f"Evaluating response: {ai_message.content}")
-        eval_result = evaluator(inputs=human_message.content, outputs=ai_message.content)
+        eval_result = evaluator(
+            inputs=human_message.content, outputs=ai_message.content
+        )
 
         if eval_result["score"]:
             logger.debug("✅ Response approved by judge")
@@ -50,9 +50,7 @@ def judge_node(guardrails: dict[str, Any]) -> AgentCallable:
             comment: str = eval_result["comment"]
             logger.warning(f"Judge's critique: {comment}")
             content: str = "\n".join([human_message.content, comment])
-            return {
-                "messages": [HumanMessage(content=content)]
-            }
+            return {"messages": [HumanMessage(content=content)]}
 
     return judge
 
