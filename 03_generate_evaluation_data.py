@@ -41,27 +41,39 @@ from mlflow.models import ModelConfig
 
 
 model_config_file: str = "model_config.yaml"
-model_config: ModelConfig = ModelConfig(development_config=model_config_file)
+config: ModelConfig = ModelConfig(development_config=model_config_file)
+
+retreiver_config: dict[str, Any] = config.get("retriever")
+source_table_name: str = retreiver_config.get("source_table_name")
+primary_key: str = retreiver_config.get("primary_key")
+embedding_source_column: str = retreiver_config.get("embedding_source_column")
+doc_uri: str = retreiver_config.get("doc_uri")
 
 evaluation_config: Dict[str, Any] = model_config.get("evaluation")
-datasets_config: Dict[str, Any] = model_config.get("datasets")
-huggingface_config: Dict[str, Any] = datasets_config.get("huggingface")
 
 evaluation_table_name: str = evaluation_config.get("table_name")
 num_evals: int = evaluation_config.get("num_evals")
-source_table_name: str = datasets_config.get("table_name")
 
 print(f"evaluation_table_name: {evaluation_table_name}")
 print(f"source_table_name: {source_table_name}")
+print(f"primary_key: {primary_key}")
+print(f"embedding_source_column: {embedding_source_column}")
+print(f"doc_uri: {doc_uri}")
 print(f"num_evals: {num_evals}")
 
 # COMMAND ----------
 
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, Column
 import pyspark.sql.functions as F
 import pandas as pd
 
-parsed_docs_df: DataFrame = spark.table(source_table_name).withColumn("id", F.col("product_id"))
+doc_uri: Column = F.col(doc_uri) if doc_uri else F.lit("source")
+parsed_docs_df: DataFrame = (
+  spark.table(source_table_name)
+  .withColumn("id", F.col(primary_key))
+  .withColumn("content", F.col(embedding_source_column))
+  .withColumn("doc_uri", F.lit("source"))
+)
 parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
 
 display(parsed_docs_pdf)
@@ -75,16 +87,16 @@ from databricks.agents.evals import generate_evals_df
 
 # "Ghost text" for agent description and question guidelines - feel free to modify as you see fit.
 agent_description = f"""
-The agent is a RAG chatbot that answers questions retail furniture and gives recommendations for purchases. 
+The agent is a RAG chatbot that answers questions about retail hardware and gives recommendations for purchases. 
 """
 question_guidelines = f"""
 # User personas
-- An employee or client asking about furniture
+- An employee or client asking about products and inventory
 
 
 # Example questions
-- Do you have any purple leather sofas in stock?
-- Can you recommend a lamp to match my walnut side tables?
+- What grills do you have in stock?
+- Can you recommend a accessories for my Toro lawn mower?
 
 # Additional Guidelines
 - Questions should be succinct, and human-like

@@ -79,27 +79,31 @@ client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_sku(
-  sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value'
+  sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
-  id INT COMMENT 'Unique identifier for the wand product',
-  product_name STRING COMMENT 'Name of the magic wand product',
-  product_class STRING COMMENT 'Classification category of the wand (e.g., Beginner, Expert, Professional)',
-  product_description STRING COMMENT 'Detailed description of the wand including materials, properties, and special features',
-  average_rating FLOAT COMMENT 'Average customer rating of the product on a scale of 1.0 to 5.0',
-  rating_count INT COMMENT 'Total number of customer ratings submitted for this product'
+  product_id BIGINT COMMENT 'Unique identifier for each product in the catalog' 
+  ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
+  ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
+  ,brand_name STRING COMMENT 'Name of the manufacturer or brand that produces the product'
+  ,product_name STRING COMMENT 'Display name of the product as shown to customers'
+  ,merchandise_class STRING COMMENT 'Broad category classification of the product (e.g., Electronics, Apparel, Grocery)'
+  ,class_cd STRING COMMENT 'Alphanumeric code representing the specific product subcategory'
+  ,description STRING COMMENT 'Detailed text description of the product including key features and attributes'
 )
 READS SQL DATA
-COMMENT 'Retrieves detailed information about a specific magic wand product by its ID. This function is designed for product information retrieval in retail applications and can be used for product display pages, comparison tools, and recommendation systems.'
+COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
 RETURN 
 SELECT 
-  id,
-  product_name,
-  product_class,
-  product_description,
-  average_rating,
-  rating_count
-FROM {catalog_name}.{database_name}.wands 
+  product_id
+  ,sku
+  ,upc
+  ,brand_name
+  ,product_name
+  ,merchandise_class
+  ,class_cd
+  ,description
+FROM {catalog_name}.{database_name}.products 
 WHERE sku = find_product_by_sku.sku;
   """
 )
@@ -113,8 +117,8 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_wands_product_by_id",
-    parameters={"product_id": 13771 }
+    function_name=f"{catalog_name}.{database_name}.find_product_by_sku",
+    parameters={"sku": "00176279" }
 )
 
 if result.error:
@@ -126,26 +130,37 @@ display(pdf)
 
 # COMMAND ----------
 
-
-column_name: str = "product_class"
-table_name: str = f"{catalog_name}.{database_name}.wands_product"
-
 client.create_function(
   sql_function_body=f"""
-  CREATE OR REPLACE FUNCTION  {catalog_name}.{database_name}.find_allowable_product_classifications()
-  RETURNS TABLE(
-    classification STRING
-  )
-  READS SQL DATA
-  COMMENT 'Returns a unique list of allowable product classifications'
-  RETURN
-    SELECT DISTINCT {column_name}
-    FROM {table_name}
-  """
+CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_upc(
+  upc STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
+)
+RETURNS TABLE(
+  product_id BIGINT COMMENT 'Unique identifier for each product in the catalog' 
+  ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
+  ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
+  ,brand_name STRING COMMENT 'Name of the manufacturer or brand that produces the product'
+  ,product_name STRING COMMENT 'Display name of the product as shown to customers'
+  ,merchandise_class STRING COMMENT 'Broad category classification of the product (e.g., Electronics, Apparel, Grocery)'
+  ,class_cd STRING COMMENT 'Alphanumeric code representing the specific product subcategory'
+  ,description STRING COMMENT 'Detailed text description of the product including key features and attributes'
 )
 
-
-
+COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+RETURN 
+SELECT 
+  product_id
+  ,sku
+  ,upc
+  ,brand_name
+  ,product_name
+  ,merchandise_class
+  ,class_cd
+  ,description
+FROM {catalog_name}.{database_name}.products 
+WHERE upc = find_product_by_upc.upc;
+  """
+)
 
 # COMMAND ----------
 
@@ -156,8 +171,74 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_allowable_product_classifications",
-    parameters={}
+    function_name=f"{catalog_name}.{database_name}.find_product_by_upc",
+    parameters={"upc": "0017627748017" }
+)
+
+if result.error:
+  raise Exception(result.error)
+
+pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
+display(pdf)
+
+
+# COMMAND ----------
+
+client.create_function(
+  sql_function_body=f"""
+CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_inventory_by_sku(
+  sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
+)
+RETURNS TABLE(
+  inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
+  ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
+  ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
+  ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
+  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
+  ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
+  ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
+  ,retail_amount DECIMAL(11, 2) COMMENT 'Current retail price of the product'
+  ,popularity_rating STRING COMMENT 'Rating indicating how popular/frequently purchased the product is (e.g., high, medium, low)'
+  ,department STRING COMMENT 'Department within the store where the product is categorized'
+  ,aisle_location STRING COMMENT 'Physical aisle location identifier where the product can be found in store'
+  ,is_closeout BOOLEAN COMMENT 'Flag indicating whether the product is marked for closeout/clearance'
+)
+READS SQL DATA
+COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+RETURN 
+SELECT 
+  inventory_id
+  ,sku
+  ,upc
+  ,inventory.product_id
+  ,store
+  ,store_quantity
+  ,warehouse
+  ,warehouse_quantity
+  ,retail_amount
+  ,popularity_rating
+  ,department
+  ,aisle_location
+  ,is_closeout
+FROM {catalog_name}.{database_name}.inventory inventory
+JOIN {catalog_name}.{database_name}.products products
+ON inventory.product_id = products.product_id
+WHERE products.sku = find_inventory_by_sku.sku;
+  """
+)
+
+# COMMAND ----------
+
+import pandas as pd
+from io import StringIO
+
+from unitycatalog.ai.core.base import FunctionExecutionResult
+
+
+result: FunctionExecutionResult = client.execute_function(
+    function_name=f"{catalog_name}.{database_name}.find_inventory_by_sku",
+    parameters={"sku": "00176279" }
 )
 
 if result.error:
@@ -169,4 +250,200 @@ display(pdf)
 
 # COMMAND ----------
 
-pdf['classification'].tolist()
+client.create_function(
+  sql_function_body=f"""
+CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_inventory_by_upc(
+  upc STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
+)
+RETURNS TABLE(
+  inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
+  ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
+  ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
+  ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
+  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
+  ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
+  ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
+  ,retail_amount DECIMAL(11, 2) COMMENT 'Current retail price of the product'
+  ,popularity_rating STRING COMMENT 'Rating indicating how popular/frequently purchased the product is (e.g., high, medium, low)'
+  ,department STRING COMMENT 'Department within the store where the product is categorized'
+  ,aisle_location STRING COMMENT 'Physical aisle location identifier where the product can be found in store'
+  ,is_closeout BOOLEAN COMMENT 'Flag indicating whether the product is marked for closeout/clearance'
+)
+READS SQL DATA
+COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+RETURN 
+SELECT 
+  inventory_id
+  ,sku
+  ,upc
+  ,inventory.product_id
+  ,store
+  ,store_quantity
+  ,warehouse
+  ,warehouse_quantity
+  ,retail_amount
+  ,popularity_rating
+  ,department
+  ,aisle_location
+  ,is_closeout
+FROM {catalog_name}.{database_name}.inventory inventory
+JOIN {catalog_name}.{database_name}.products products
+ON inventory.product_id = products.product_id
+WHERE products.upc = find_inventory_by_upc.upc;
+  """
+)
+
+# COMMAND ----------
+
+import pandas as pd
+from io import StringIO
+
+from unitycatalog.ai.core.base import FunctionExecutionResult
+
+
+result: FunctionExecutionResult = client.execute_function(
+    function_name=f"{catalog_name}.{database_name}.find_inventory_by_upc",
+    parameters={"upc": "0017627748017" }
+)
+
+if result.error:
+  raise Exception(result.error)
+
+pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
+
+display(pdf)
+
+# COMMAND ----------
+
+client.create_function(
+  sql_function_body=f"""
+CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_sku(
+  store STRING COMMENT 'The store identifier to retrieve inventory for'
+  ,sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
+)
+RETURNS TABLE(
+  inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
+  ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
+  ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
+  ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
+  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
+  ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
+  ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
+  ,retail_amount DECIMAL(11, 2) COMMENT 'Current retail price of the product'
+  ,popularity_rating STRING COMMENT 'Rating indicating how popular/frequently purchased the product is (e.g., high, medium, low)'
+  ,department STRING COMMENT 'Department within the store where the product is categorized'
+  ,aisle_location STRING COMMENT 'Physical aisle location identifier where the product can be found in store'
+  ,is_closeout BOOLEAN COMMENT 'Flag indicating whether the product is marked for closeout/clearance'
+)
+READS SQL DATA
+COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+RETURN 
+SELECT 
+  inventory_id
+  ,sku
+  ,upc
+  ,inventory.product_id
+  ,store
+  ,store_quantity
+  ,warehouse
+  ,warehouse_quantity
+  ,retail_amount
+  ,popularity_rating
+  ,department
+  ,aisle_location
+  ,is_closeout
+FROM {catalog_name}.{database_name}.inventory inventory
+JOIN {catalog_name}.{database_name}.products products
+ON inventory.product_id = products.product_id
+WHERE products.sku = find_store_inventory_by_sku.sku AND inventory.store = find_store_inventory_by_sku.store;
+  """
+)
+
+# COMMAND ----------
+
+import pandas as pd
+from io import StringIO
+
+from unitycatalog.ai.core.base import FunctionExecutionResult
+
+
+result: FunctionExecutionResult = client.execute_function(
+    function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_sku",
+    parameters={"store": "35048", "sku": "00176279" }
+)
+
+if result.error:
+  raise Exception(result.error)
+
+pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
+
+display(pdf)
+
+# COMMAND ----------
+
+client.create_function(
+  sql_function_body=f"""
+CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_upc(
+  store STRING COMMENT 'The store identifier to retrieve inventory for'
+  ,upc STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
+)
+RETURNS TABLE(
+  inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
+  ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
+  ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
+  ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
+  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
+  ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
+  ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
+  ,retail_amount DECIMAL(11, 2) COMMENT 'Current retail price of the product'
+  ,popularity_rating STRING COMMENT 'Rating indicating how popular/frequently purchased the product is (e.g., high, medium, low)'
+  ,department STRING COMMENT 'Department within the store where the product is categorized'
+  ,aisle_location STRING COMMENT 'Physical aisle location identifier where the product can be found in store'
+  ,is_closeout BOOLEAN COMMENT 'Flag indicating whether the product is marked for closeout/clearance'
+)
+READS SQL DATA
+COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+RETURN 
+SELECT 
+  inventory_id
+  ,sku
+  ,upc
+  ,inventory.product_id
+  ,store
+  ,store_quantity
+  ,warehouse
+  ,warehouse_quantity
+  ,retail_amount
+  ,popularity_rating
+  ,department
+  ,aisle_location
+  ,is_closeout
+FROM {catalog_name}.{database_name}.inventory inventory
+JOIN {catalog_name}.{database_name}.products products
+ON inventory.product_id = products.product_id
+WHERE products.upc = find_store_inventory_by_upc.upc AND inventory.store = find_store_inventory_by_upc.store;
+  """
+)
+
+# COMMAND ----------
+
+import pandas as pd
+from io import StringIO
+
+from unitycatalog.ai.core.base import FunctionExecutionResult
+
+
+result: FunctionExecutionResult = client.execute_function(
+    function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_upc",
+    parameters={"store": "35048", "upc": "0017627748017" }
+)
+
+if result.error:
+  raise Exception(result.error)
+
+pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
+
+display(pdf)

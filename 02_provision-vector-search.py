@@ -54,25 +54,24 @@ embedding_model_endpoint_name: str = retreiver_config.get("embedding_model_endpo
 endpoint_name: str = retreiver_config.get("endpoint_name")
 endpoint_type: str = retreiver_config.get("endpoint_type")
 index_name: str = retreiver_config.get("index_name")
+source_table_name: str = retreiver_config.get("source_table_name")
 primary_key: str = retreiver_config.get("primary_key")
 embedding_source_column: str = retreiver_config.get("embedding_source_column")
 columns: Sequence[str] = retreiver_config.get("columns", [])
 search_parameters: dict[str, Any] = retreiver_config.get("search_parameters", {})
 
-datasets_config: dict[str, Any] = config.get("datasets")
-huggingface_config: dict[str, Any] = datasets_config.get("huggingface")
-source_table_name: str = datasets_config.get("table_name")
+
+print(f"embedding_model_endpoint_name: {embedding_model_endpoint_name}")
+print(f"endpoint_name: {endpoint_name}")
+print(f"endpoint_type: {endpoint_type}")
+print(f"index_name: {index_name}")
+print(f"source_table_name: {source_table_name}")
+print(f"primary_key: {primary_key}")
+print(f"embedding_source_column: {embedding_source_column}")
+print(f"columns: {columns}")
+print(f"search_parameters: {search_parameters}")
 
 
-assert embedding_model_endpoint_name is not None
-assert endpoint_name is not None
-assert endpoint_type is not None
-assert index_name is not None
-assert primary_key is not None
-assert embedding_source_column is not None
-assert source_table_name is not None
-assert columns is not None
-assert search_parameters is not None
 
 
 # COMMAND ----------
@@ -103,8 +102,8 @@ if not index_exists(vsc, endpoint_name, index_name):
     source_table_name=source_table_name,
     pipeline_type="TRIGGERED",
     primary_key=primary_key,
-    embedding_source_column=embedding_source_column, #The column containing our text
-    embedding_model_endpoint_name=embedding_model_endpoint_name #The embedding endpoint used to create the embeddings
+    embedding_source_column=embedding_source_column, 
+    embedding_model_endpoint_name=embedding_model_endpoint_name 
   )
 else:
   vsc.get_index(endpoint_name, index_name).sync()
@@ -119,9 +118,8 @@ import mlflow.deployments
 from databricks.vector_search.index import VectorSearchIndex
 from mlflow.deployments.databricks import DatabricksDeploymentClient
 
-deploy_client: DatabricksDeploymentClient = mlflow.deployments.get_deploy_client("databricks")
 
-question = "What is Databricks?"
+question: str = "What what is the best hammer for drywall?"
 
 index: VectorSearchIndex = vsc.get_index(endpoint_name, index_name)
 k: int = search_parameters.get("k", 3)
