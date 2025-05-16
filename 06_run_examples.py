@@ -58,12 +58,68 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Recommendation
+# MAGIC %restart_python
 
 # COMMAND ----------
 
-# MAGIC %restart_python
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+# store num
+input_example: dict[str, Any] = {
+  'messages': [
+    {
+      'role': 'user',
+      'content': 'Can you tell me about 0017627748017?'
+    }
+  ],
+  'custom_inputs': {
+      'configurable': {
+        'thread_id': '1',
+        'user_id': 'nate.fleming',
+        'store_num': 123
+      }
+    }
+  }
+pprint(input_example)
+
+response = process_messages(app=app, **input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+# store num
+input_example: dict[str, Any] = {
+  'messages': [
+    {
+      'role': 'user',
+      'content': 'Can you tell me about sku 00176279?'
+    }
+  ],
+  'custom_inputs': {
+      'configurable': {
+        'thread_id': '1',
+        'user_id': 'nate.fleming',
+        'store_num': 123
+      }
+    }
+  }
+pprint(input_example)
+
+response = process_messages(app=app, **input_example)
+pprint(response)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Recommendation
 
 # COMMAND ----------
 
