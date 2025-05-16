@@ -111,8 +111,6 @@ save_image(app, path)
 
 from typing import Any, Sequence, Optional
 
-from databricks_langchain import VectorSearchRetrieverTool
-
 from mlflow.models.resources import (
     DatabricksResource,
     DatabricksVectorSearchIndex,
@@ -192,19 +190,6 @@ with mlflow.start_run(run_name="agent"):
 
 # COMMAND ----------
 
-from typing import Any
-from agent_as_code import config
-
-example_input: dict[str, Any] = config.get("app").get("diy_example")
-
-mlflow.models.predict(
-    model_uri=logged_agent_info.model_uri,
-    input_data=example_input,
-    env_manager="uv",
-)
-
-# COMMAND ----------
-
 import mlflow
 from mlflow.entities.model_registry.model_version import ModelVersion
 
@@ -236,6 +221,28 @@ print(champion_model)
 
 # COMMAND ----------
 
+from databricks import agents
+from retail_ai.models import get_latest_model_version
+from agent_as_code import config
+
+
+registered_model_name: str = config.get("app").get("registered_model_name")
+endpoint_name: str = config.get("app").get("endpoint_name")
+tags: dict[str, str] = config.get("app").get("tags")
+latest_version: int = get_latest_model_version(registered_model_name)
+
+agents.deploy(
+    model_name=registered_model_name,
+    model_version=latest_version,
+    scale_to_zero=True,
+    environment_vars={},
+    workload_size="Small",
+    endpoint_name=endpoint_name,
+    tags=tags,
+)
+
+# COMMAND ----------
+
 import mlflow
 from mlflow.models.model import ModelInfo
 from mlflow.entities.model_registry.model_version import ModelVersion
@@ -261,6 +268,7 @@ global_guidelines = {
 model_uri: str = f"models:/{registered_model_name}@Champion"
 
 with mlflow.start_run():
+    mlflow.set_tag("type", "evaluation")
     eval_results = mlflow.evaluate(
         data=evaluation_pdf,
         model=model_uri,
@@ -270,24 +278,15 @@ with mlflow.start_run():
 
 # COMMAND ----------
 
-from databricks import agents
-from retail_ai.models import get_latest_model_version
+from typing import Any
 from agent_as_code import config
 
+example_input: dict[str, Any] = config.get("app").get("diy_example")
 
-registered_model_name: str = config.get("app").get("registered_model_name")
-endpoint_name: str = config.get("app").get("endpoint_name")
-tags: dict[str, str] = config.get("app").get("tags")
-latest_version: int = get_latest_model_version(registered_model_name)
-
-agents.deploy(
-    model_name=registered_model_name,
-    model_version=latest_version,
-    scale_to_zero=True,
-    environment_vars={},
-    workload_size="Small",
-    endpoint_name=endpoint_name,
-    tags=tags,
+mlflow.models.predict(
+    model_uri=logged_agent_info.model_uri,
+    input_data=example_input,
+    env_manager="uv",
 )
 
 # COMMAND ----------

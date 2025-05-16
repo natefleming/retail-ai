@@ -16,8 +16,9 @@ from pydantic import BaseModel, Field
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import search_tool
+from retail_ai.tools import search_tool, create_uc_tools
 from retail_ai.types import AgentCallable
+from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
 
 
 def message_validation_node(model_config: ModelConfig) -> AgentCallable:
@@ -108,6 +109,8 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
     prompt: str = model_config.get("agents").get("general").get("prompt")
     guardrails: Sequence[dict[str, Any]] = model_config.get("agents").get("general").get("guardrails") or []
 
+    index_name: str = model_config.get("retriever").get("index_name")
+
     @mlflow.trace()
     def general(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
 
@@ -120,7 +123,9 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = []
+        tools = [
+           # VectorSearchRetrieverTool(index_name=index_name)
+        ]
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm, 
@@ -143,6 +148,8 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
     prompt: str = model_config.get("agents").get("product").get("prompt")
     guardrails: dict[str, Any] = model_config.get("agents").get("product").get("guardrails") or []
 
+    index_name: str = model_config.get("retriever").get("index_name")
+
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
 
@@ -155,7 +162,15 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = []
+        tools = create_uc_tools([
+            "nfleming.retail_ai.find_product_by_sku",
+            "nfleming.retail_ai.find_product_by_upc",
+        ])
+        
+        tools += [
+        #    VectorSearchRetrieverTool(index_name=index_name)
+        ]
+
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm, 
@@ -178,6 +193,8 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
     guardrails: dict[str, Any] = model_config.get("agents").get("inventory").get("guardrails") or []
 
+    index_name: str = model_config.get("retriever").get("index_name")
+
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
 
@@ -190,7 +207,14 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = []
+        tools = create_uc_tools([
+            "nfleming.retail_ai.find_inventory_by_sku",
+            "nfleming.retail_ai.find_inventory_by_upc",
+        ])
+        
+        tools += [
+          #  VectorSearchRetrieverTool(index_name=index_name)
+        ]
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm, 
@@ -212,6 +236,8 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
     guardrails: dict[str, Any] = model_config.get("agents").get("comparison").get("guardrails") or []
 
+    index_name: str = model_config.get("retriever").get("index_name")
+
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
 
@@ -224,7 +250,14 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = [] 
+        tools = create_uc_tools([
+            "nfleming.retail_ai.find_product_by_sku",
+            "nfleming.retail_ai.find_product_by_upc",
+        ])
+    
+        tools += [
+         #   VectorSearchRetrieverTool(index_name=index_name)
+        ]
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm, 
@@ -246,6 +279,8 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
     model: str = model_config.get("agents").get("orders").get("model").get("model_name")
     prompt: str = model_config.get("agents").get("orders").get("prompt")
     guardrails: dict[str, Any] = model_config.get("agents").get("orders").get("guardrails")
+
+    index_name: str = model_config.get("retriever").get("index_name")
 
     @mlflow.trace()
     def orders(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -282,6 +317,8 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
     prompt: str = model_config.get("agents").get("diy").get("prompt")
     guardrails: dict[str, Any] = model_config.get("agents").get("diy").get("guardrails") or []
 
+    index_name: str = model_config.get("retriever").get("index_name")
+
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
 
@@ -295,6 +332,10 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         system_prompt: str = prompt_template.format(**configurable)
 
         tools = [search_tool(model_config)]
+
+        tools += [
+           #VectorSearchRetrieverTool(index_name=index_name)
+        ]
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm, 
@@ -317,6 +358,8 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
     prompt: str = model_config.get("agents").get("recommendation").get("prompt")
     guardrails: dict[str, Any] = model_config.get("agents").get("recommendation").get("guardrails") or []
 
+    index_name: str = model_config.get("retriever").get("index_name")
+
     @mlflow.trace()
     def recommendation(
         state: AgentState, config: AgentConfig
@@ -331,7 +374,9 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = [] 
+        tools = [
+         #   VectorSearchRetrieverTool(index_name=index_name)
+        ]
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm, 

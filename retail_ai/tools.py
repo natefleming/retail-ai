@@ -381,20 +381,16 @@ def create_find_product_details_by_description_tool(
 
     @tool
     def find_product_details_by_description(
-        content: str, product_classifications: list[str]
+        content: str
     ) -> Sequence[Document]:
         """
-        Find products matching a description, filtered by product classifications.
+        Find products matching a description.
 
         This tool performs semantic search over product data to find items that match
-        the given description text, while limiting results to products belonging to the
-        specified classification categories. It enables more targeted product lookups
-        compared to pure text-based search.
+        the given description text
 
         Args:
           content (str): Natural language description of the product(s) to find
-          product_classifications (list[str]): List of product classifications to filter by,
-                            typically obtained from the `product_classification` tool
 
         Returns:
           Sequence[Document]: A list of matching product documents with relevant metadata
@@ -412,15 +408,8 @@ def create_find_product_details_by_description_tool(
             client_args={},
         )
 
-        # Execute vector similarity search with classification-based filtering
-        # to narrow results to specific product categories
-
-        product_filter = None
-        if filter_column and product_classifications:
-            product_filter = {filter_column: product_classifications}
-
         documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, k=k, filter=product_filter
+            query=content, k=k, filter={}
         )
 
         logger.debug(f"found {len(documents)} documents")

@@ -103,7 +103,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
     inventory_example:
       messages:
@@ -113,7 +113,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
     comparison_example:
       messages:
@@ -123,7 +123,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
     comparison_image_example:
       messages:
@@ -136,7 +136,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
     general_example:
       messages:
@@ -146,7 +146,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
     diy_example:
       messages:
@@ -166,7 +166,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
     product_example:
       messages:
@@ -176,7 +176,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
     product_image_example:
       messages:
@@ -188,7 +188,7 @@ app:
         configurable:
           thread_id: "1"
           user_id: nate.fleming
-          store_num: 123
+          store_num: 87887
 
 
 checkpointer:
@@ -269,8 +269,8 @@ agents:
 
   general:
     model: *tool_calling_llm
-    guardrails: 
-      - *llm_judge_guardrail
+    guardrails: ~
+      #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -285,8 +285,8 @@ agents:
 
   orders:
     model: *tool_calling_llm
-    guardrails: 
-      - *llm_judge_guardrail
+    guardrails: ~
+      #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -300,8 +300,8 @@ agents:
 
   diy:
     model: *tool_calling_llm
-    guardrails: 
-      - *llm_judge_guardrail
+    guardrails: ~
+      #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -340,8 +340,8 @@ agents:
 
   product:
     model: *tool_calling_llm
-    guardrails: 
-      - *llm_judge_guardrail
+    guardrails: ~
+      #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -356,8 +356,8 @@ agents:
 
   inventory:
     model: *tool_calling_llm
-    guardrails: 
-      - *llm_judge_guardrail
+    guardrails: ~
+      #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -372,8 +372,8 @@ agents:
 
   comparison:
     model: *tool_calling_llm
-    guardrails: 
-      - *llm_judge_guardrail
+    guardrails: ~
+      #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -388,8 +388,8 @@ agents:
 
   recommendation:
     model: *tool_calling_llm
-    guardrails: 
-      - *llm_judge_guardrail
+    guardrails: ~
+      #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -404,8 +404,7 @@ agents:
 
   process_image:
     model: *reasoning_llm
-    guardrails: 
-      - *llm_judge_guardrail
+
     prompt: |
       ### Task Description
 
