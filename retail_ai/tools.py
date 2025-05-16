@@ -353,11 +353,10 @@ def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
     return sku_extraction
 
 
-def create_find_product_details_by_description_tool(
+def find_product_details_by_description_tool(
     endpoint_name: str,
     index_name: str,
     columns: Sequence[str],
-    filter_column: str,
     k: int = 10,
 ) -> Callable[[str, str], Sequence[Document]]:
     """
@@ -380,6 +379,7 @@ def create_find_product_details_by_description_tool(
     """
 
     @tool
+    @mlflow.trace(span_type="RETRIEVER", name="vector_search")
     def find_product_details_by_description(
         content: str
     ) -> Sequence[Document]:
@@ -395,10 +395,6 @@ def create_find_product_details_by_description_tool(
         Returns:
           Sequence[Document]: A list of matching product documents with relevant metadata
         """
-
-        logger.debug(
-            f"content={content}, product_classifications={product_classifications}"
-        )
 
         # Initialize the Vector Search client with endpoint and index configuration
         vector_search: VectorStore = DatabricksVectorSearch(

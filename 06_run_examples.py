@@ -72,6 +72,62 @@ input_example: dict[str, Any] = {
   'messages': [
     {
       'role': 'user',
+      'content': 'How many of grills do you have in stock?'
+    }
+  ],
+  'custom_inputs': {
+      'configurable': {
+        'thread_id': '1',
+        'user_id': 'nate.fleming',
+        'store_num': 35048
+      }
+    }
+  }
+pprint(input_example)
+
+response = process_messages(app=app, **input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+# store num
+input_example: dict[str, Any] = {
+  'messages': [
+    {
+      'role': 'user',
+      'content': 'How many of 0017627748017 do you have in stock in my store?'
+    }
+  ],
+  'custom_inputs': {
+      'configurable': {
+        'thread_id': '1',
+        'user_id': 'nate.fleming',
+        'store_num': 35048
+      }
+    }
+  }
+pprint(input_example)
+
+response = process_messages(app=app, **input_example)
+pprint(response)
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from agent_as_code import app, config
+from retail_ai.models import process_messages
+
+# store num
+input_example: dict[str, Any] = {
+  'messages': [
+    {
+      'role': 'user',
       'content': 'Can you tell me about 0017627748017?'
     }
   ],
@@ -347,6 +403,10 @@ for event in process_messages_stream(app=app, **input_example):
 
 # MAGIC %md
 # MAGIC ## Product
+
+# COMMAND ----------
+
+# MAGIC %restart_python
 
 # COMMAND ----------
 

@@ -79,7 +79,7 @@ client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_sku(
-  sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
+  sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
   product_id BIGINT COMMENT 'Unique identifier for each product in the catalog' 
@@ -104,8 +104,8 @@ SELECT
   ,class_cd
   ,description
 FROM {catalog_name}.{database_name}.products 
-WHERE sku = find_product_by_sku.sku;
-  """
+WHERE ARRAY_CONTAINS(find_product_by_sku.sku, sku)
+"""
 )
 
 # COMMAND ----------
@@ -118,7 +118,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_product_by_sku",
-    parameters={"sku": "00176279" }
+    parameters={"sku": ["00176279"] }
 )
 
 if result.error:
@@ -133,7 +133,7 @@ display(pdf)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_upc(
-  upc STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
+  upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
 RETURNS TABLE(
   product_id BIGINT COMMENT 'Unique identifier for each product in the catalog' 
@@ -158,7 +158,7 @@ SELECT
   ,class_cd
   ,description
 FROM {catalog_name}.{database_name}.products 
-WHERE upc = find_product_by_upc.upc;
+WHERE ARRAY_CONTAINS(find_product_by_upc.upc, upc);
   """
 )
 
@@ -172,7 +172,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_product_by_upc",
-    parameters={"upc": "0017627748017" }
+    parameters={"upc": ["0017627748017"] }
 )
 
 if result.error:
@@ -187,7 +187,7 @@ display(pdf)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_inventory_by_sku(
-  sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
+  sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -224,7 +224,7 @@ SELECT
 FROM {catalog_name}.{database_name}.inventory inventory
 JOIN {catalog_name}.{database_name}.products products
 ON inventory.product_id = products.product_id
-WHERE products.sku = find_inventory_by_sku.sku;
+WHERE ARRAY_CONTAINS(find_inventory_by_sku.sku, products.sku);
   """
 )
 
@@ -238,7 +238,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_inventory_by_sku",
-    parameters={"sku": "00176279" }
+    parameters={"sku": ["00176279"] }
 )
 
 if result.error:
@@ -253,7 +253,7 @@ display(pdf)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_inventory_by_upc(
-  upc STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
+  upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -290,7 +290,7 @@ SELECT
 FROM {catalog_name}.{database_name}.inventory inventory
 JOIN {catalog_name}.{database_name}.products products
 ON inventory.product_id = products.product_id
-WHERE products.upc = find_inventory_by_upc.upc;
+WHERE ARRAY_CONTAINS( find_inventory_by_upc.upc, products.upc)
   """
 )
 
@@ -304,7 +304,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_inventory_by_upc",
-    parameters={"upc": "0017627748017" }
+    parameters={"upc": ["0017627748017"] }
 )
 
 if result.error:
@@ -320,7 +320,7 @@ client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_sku(
   store STRING COMMENT 'The store identifier to retrieve inventory for'
-  ,sku STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
+  ,sku ARRAY<STRING> COMMENT 'One or more unique identifiers to retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -338,7 +338,7 @@ RETURNS TABLE(
   ,is_closeout BOOLEAN COMMENT 'Flag indicating whether the product is marked for closeout/clearance'
 )
 READS SQL DATA
-COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+COMMENT 'Retrieves detailed information about a specific product by its SKU for a specific store. This function is designed for store inventory retrieval in retail applications and can be used for product information, comparison, and recommendation.'
 RETURN 
 SELECT 
   inventory_id
@@ -357,7 +357,7 @@ SELECT
 FROM {catalog_name}.{database_name}.inventory inventory
 JOIN {catalog_name}.{database_name}.products products
 ON inventory.product_id = products.product_id
-WHERE products.sku = find_store_inventory_by_sku.sku AND inventory.store = find_store_inventory_by_sku.store;
+WHERE ARRAY_CONTAINS(find_store_inventory_by_sku.sku, products.sku) AND inventory.store = find_store_inventory_by_sku.store;
   """
 )
 
@@ -371,7 +371,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_sku",
-    parameters={"store": "35048", "sku": "00176279" }
+    parameters={"store": "35048", "sku": ["00176279"] }
 )
 
 if result.error:
@@ -387,7 +387,7 @@ client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_upc(
   store STRING COMMENT 'The store identifier to retrieve inventory for'
-  ,upc STRING COMMENT 'Unique identifier for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
+  ,upc ARRAY<STRING> COMMENT 'One or more unique identifiers to retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -405,7 +405,7 @@ RETURNS TABLE(
   ,is_closeout BOOLEAN COMMENT 'Flag indicating whether the product is marked for closeout/clearance'
 )
 READS SQL DATA
-COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+COMMENT 'Retrieves detailed information about a specific product by its UPC for a specific store. This function is designed for store inventory retrieval in retail applications and can be used for product information, comparison, and recommendation.'
 RETURN 
 SELECT 
   inventory_id
@@ -424,7 +424,7 @@ SELECT
 FROM {catalog_name}.{database_name}.inventory inventory
 JOIN {catalog_name}.{database_name}.products products
 ON inventory.product_id = products.product_id
-WHERE products.upc = find_store_inventory_by_upc.upc AND inventory.store = find_store_inventory_by_upc.store;
+WHERE ARRAY_CONTAINS(find_store_inventory_by_upc.upc, products.upc) AND inventory.store = find_store_inventory_by_upc.store;
   """
 )
 
@@ -438,7 +438,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_upc",
-    parameters={"store": "35048", "upc": "0017627748017" }
+    parameters={"store": "35048", "upc": ["0017627748017"] }
 )
 
 if result.error:
