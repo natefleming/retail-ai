@@ -6,6 +6,7 @@ pip_requirements: Sequence[str] = (
   "langchain",
   "databricks-langchain",
   "unitycatalog-langchain[databricks]",
+  "unitycatalog-ai[databricks]",
   "langgraph-checkpoint-postgres",
   "duckduckgo-search",
   "databricks-agents",
@@ -39,6 +40,7 @@ pip_requirements: Sequence[str] = [
     f"langchain=={version('langchain')}",
     f"databricks-langchain=={version('databricks-langchain')}",
     f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
+    f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
     f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
     f"duckduckgo-search=={version('duckduckgo-search')}",
     f"databricks-sdk=={version('databricks-sdk')}",
@@ -184,8 +186,8 @@ with mlflow.start_run(run_name="agent"):
         model_config=config.to_dict(),
         artifact_path="agent",
         pip_requirements=pip_requirements,
-        #resources=resources,
-        auth_policy=auth_policy,
+        resources=resources,
+        #auth_policy=auth_policy,
     )
 
 # COMMAND ----------
@@ -201,7 +203,8 @@ mlflow.set_registry_uri("databricks-uc")
 registered_model_name: str = config.get("app").get("registered_model_name")
 
 model_version: ModelVersion = mlflow.register_model(
-    name=registered_model_name, model_uri=logged_agent_info.model_uri
+    name=registered_model_name, 
+    model_uri=logged_agent_info.model_uri
 )
 
 # COMMAND ----------
@@ -261,8 +264,7 @@ evaluation_table_name: str = config.get("evaluation").get("table_name")
 evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
 
 global_guidelines = {
-    "English": ["The response must be in English"],
-    "Clarity": ["The response must be clear, coherent, and concise"],
+
 }
 
 model_uri: str = f"models:/{registered_model_name}@Champion"
