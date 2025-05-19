@@ -3,6 +3,7 @@ from typing import Sequence
 
 pip_requirements: Sequence[str] = (
   "databricks-sdk",
+  "python-dotenv"
 )
 
 pip_requirements: str = " ".join(pip_requirements)
