@@ -33,7 +33,6 @@ resources:
     embedding_model: &embedding_model
       name: databricks-gte-large-en
 
-
   genie_rooms:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"
@@ -242,7 +241,7 @@ retriever:
     - class_cd
     - description
   search_parameters:
-    num_results: 10
+    num_results: 20
     filter: {}
     query_type: ANN
 

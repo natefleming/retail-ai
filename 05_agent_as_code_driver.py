@@ -193,6 +193,10 @@ user_auth_policy: UserAuthPolicy = UserAuthPolicy(
         "serving.serving-endpoints",
         "vectorsearch.vector-search-endpoints",
         "vectorsearch.vector-search-indexes",
+        "sql.statement-execution", 
+        "sql.warehouses",
+        "catalog.connections",
+        "dashboards.genie",
     ]
 )
 auth_policy: AuthPolicy = AuthPolicy(
