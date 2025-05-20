@@ -49,7 +49,7 @@ primary_key: str = retreiver_config.get("primary_key")
 embedding_source_column: str = retreiver_config.get("embedding_source_column")
 doc_uri: str = retreiver_config.get("doc_uri")
 
-evaluation_config: Dict[str, Any] = model_config.get("evaluation")
+evaluation_config: Dict[str, Any] = config.get("evaluation")
 
 evaluation_table_name: str = evaluation_config.get("table_name")
 num_evals: int = evaluation_config.get("num_evals")

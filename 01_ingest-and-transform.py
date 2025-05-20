@@ -3,7 +3,8 @@ from typing import Sequence
 
 pip_requirements: Sequence[str] = (
   "databricks-sdk",
-  "python-dotenv"
+  "python-dotenv",
+  "mlflow"
 )
 
 pip_requirements: str = " ".join(pip_requirements)
@@ -18,6 +19,8 @@ from importlib.metadata import version
 
 pip_requirements: Sequence[str] = (
   f"databricks-sdk=={version('databricks-sdk')}",
+  f"python-dotenv=={version('python-dotenv')}",
+  f"mlflow=={version('mlflow')}",
 )
 
 print("\n".join(pip_requirements))
