@@ -5,6 +5,10 @@ from typing import Any, Callable, Literal, Optional, Sequence
 import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.sql import (
+    StatementResponse,
+    StatementState,
+)
 from databricks_ai_bridge.genie import GenieResponse
 from databricks_langchain import (
     DatabricksFunctionClient,
@@ -22,7 +26,7 @@ from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
-from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
+from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 class ProductFeature(BaseModel):
@@ -423,13 +427,15 @@ def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
-    #set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
+    # set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
     if isinstance(function_names, str):
         function_names = [function_names]
-    toolkit: UCFunctionToolkit = UCFunctionToolkit(function_names=function_names, client=client)
+    toolkit: UCFunctionToolkit = UCFunctionToolkit(
+        function_names=function_names, client=client
+    )
 
     return toolkit.tools
 
@@ -530,3 +536,206 @@ def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieRe
 def search_tool(model_config: ModelConfig) -> BaseTool:
     logger.debug("search_tool")
     return DuckDuckGoSearchRun(output_format="list")
+
+
+def create_find_product_by_sku_tool(warehouse_id: str) -> None:
+    @tool
+    def find_product_by_sku(sku: str) -> tuple:
+        """
+        Find product details by SKU.
+        This tool retrieves detailed information about a product based on its SKU.
+
+        Args: sku (str): The SKU of the product to find. SKUs can follow several patterns:
+            - 5 digits (e.g., "89042")
+            - 7 digits (e.g., "2029546")
+            - 5 digits + 'D' for dropship items (e.g., "23238D")
+            - 7 digits + 'D' for dropship items (e.g., "3004574D")
+            - Alphanumeric codes (e.g., "WHDEOSMC01")
+            - Product names (e.g., "Proud Veteran Garden Applique Flag")
+            - Price-prefixed codes (e.g., "NK5.99")
+
+        Examples:
+            - "89042" (5-digit SKU)
+            - "2029546" (7-digit SKU)
+            - "23238D" (5-digit dropship SKU)
+            - "3004574D" (7-digit dropship SKU)
+            - "WHDEOSMC01" (alphanumeric SKU)
+            - "NK5.99" (price-prefixed SKU)
+
+        Returns: (tuple): A tuple containing (upc_num STRING, sku STRING, description STRING)
+        """
+        logger.debug(f"find_product_by_sku: sku={sku}")
+
+        w: WorkspaceClient = WorkspaceClient()
+
+        statement: str = f"""
+            SELECT * FROM nfleming.retail_ai.find_product_by_sku('{sku}')
+        """
+        logger.debug(statement)
+        statement_response: StatementResponse = w.statement_execution.execute_statement(
+            statement=statement, warehouse_id=warehouse_id
+        )
+        while statement_response.status.state in [
+            StatementState.PENDING,
+            StatementState.RUNNING,
+        ]:
+            statement_response = w.statement_execution.get_statement(
+                statement_response.statement_id
+            )
+
+        result_set: tuple = (
+            statement_response.result.data_array if statement_response.result else None
+        )
+
+        logger.debug(f"find_product_by_sku: result_set={result_set}")
+
+        return result_set
+
+    return find_product_by_sku
+
+
+def create_find_products_by_sku_tool(warehouse_id: str) -> None:
+    @tool
+    def find_products_by_sku(store_number: int, skus: list[str]) -> tuple:
+        """
+        Find product details for one or more products by SKU.
+        This tool retrieves detailed information about a product based on its SKU.
+
+        Args:
+            store_number (int): The store number to filter results by
+
+            skus (list[str]): The list of SKUs of the product to find. SKUs can follow several patterns:
+            - 5 digits (e.g., "89042")
+            - 7 digits (e.g., "2029546")
+            - 5 digits + 'D' for dropship items (e.g., "23238D")
+            - 7 digits + 'D' for dropship items (e.g., "3004574D")
+            - Alphanumeric codes (e.g., "WHDEOSMC01")
+            - Price-prefixed codes (e.g., "NK5.99")
+
+        Examples:
+            - "89042" (5-digit SKU)
+            - "2029546" (7-digit SKU)
+            - "23238D" (5-digit dropship SKU)
+            - "3004574D" (7-digit dropship SKU)
+            - "WHDEOSMC01" (alphanumeric SKU)
+            - "NK5.99" (price-prefixed SKU)
+
+        Returns: (tuple) - A tuple containing the product details (store_num STRING, sku STRING, acestock_num STRING, dropshipacestock_num STRING, available_qty INT, qoo INT, upc_num STRING, retail_amt STRING, closeout_flag STRING, aisle_loc STRING, popularity_cd STRING, rsc_cd STRING, rsc_available_qty STRING, om_num STRING, rsc_ru_qty STRING, dept_num STRING, class_cd STRING, fineline_cd STRING, merchandise_class STRING, brand_nm STRING, product_name STRING, description STRING)
+        """
+        logger.debug(f"find_products_by_sku: store_number={store_number}, skus={skus}")
+
+        w: WorkspaceClient = WorkspaceClient()
+
+        skus = ",".join([f"'{sku}'" for sku in skus])
+        statement: str = f"""
+        SELECT * FROM nfleming.retail_ai.get_products_by_sku(array({skus}), '{store_number}')
+        """
+        logger.debug(statement)
+        statement_response: StatementResponse = w.statement_execution.execute_statement(
+            statement=statement, warehouse_id=warehouse_id
+        )
+        while statement_response.status.state in [
+            StatementState.PENDING,
+            StatementState.RUNNING,
+        ]:
+            statement_response = w.statement_execution.get_statement(
+                statement_response.statement_id
+            )
+
+        result_set: tuple = (
+            statement_response.result.data_array if statement_response.result else None
+        )
+
+        logger.debug(f"statement_response={statement_response}")
+        logger.debug(f"find_products_by_sku: result_set={result_set}")
+
+        return result_set
+
+    return find_products_by_sku
+
+
+def create_find_product_by_upc_tool(warehouse_id: str) -> None:
+    @tool
+    def find_product_by_upc(upc: str) -> tuple:
+        """
+        Find product details by UPC.
+        This tool retrieves detailed information about a product based on its UPC.
+
+        Args: upc (str) - The UPC of the product to find. UPCs have 10-14 characters
+
+        Returns: (tuple) - A tuple containing the product details (upc_num STRING, sku STRING, description STRING)
+        """
+        logger.debug(f"find_product_by_upc: upc={upc}")
+
+        w: WorkspaceClient = WorkspaceClient()
+
+        statement: str = f"""
+            SELECT * FROM nfleming.retail_ai.find_product_by_upc('{upc}')
+        """
+        logger.debug(statement)
+        statement_response: StatementResponse = w.statement_execution.execute_statement(
+            statement=statement, warehouse_id=warehouse_id
+        )
+        while statement_response.status.state in [
+            StatementState.PENDING,
+            StatementState.RUNNING,
+        ]:
+            statement_response = w.statement_execution.get_statement(
+                statement_response.statement_id
+            )
+
+        result_set: tuple = (
+            statement_response.result.data_array if statement_response.result else None
+        )
+
+        logger.debug(f"find_product_by_upc: result_set={result_set}")
+
+        return result_set
+
+    return find_product_by_upc
+
+
+def create_find_products_by_upc_tool(warehouse_id: str) -> None:
+    @tool
+    def find_products_by_upc(store_number: int, upcs: list[str]) -> tuple:
+        """
+        Find product details by UPC.
+        This tool retrieves detailed information about one or more products based on its UPCs.
+        Use this tool when you are provided a store number and one or more UPCs and require product details
+
+        Args:
+            store_number (int) - The store number to filter results by
+            upcs (list[str]) - The list of product UPCs. UPCs have 10-14 characters
+
+        Returns: (tuple) - A tuple containing the product details (store_num STRING, sku STRING, acestock_num STRING, dropshipacestock_num STRING, available_qty INT, qoo INT, upc_num STRING, retail_amt STRING, closeout_flag STRING, aisle_loc STRING, popularity_cd STRING, rsc_cd STRING, rsc_available_qty STRING, om_num STRING, rsc_ru_qty STRING, dept_num STRING, class_cd STRING, fineline_cd STRING, merchandise_class STRING, brand_nm STRING, product_name STRING, description STRING)
+        """
+        logger.debug(f"find_products_by_upc: store_number={store_number}, upcs={upcs}")
+
+        w: WorkspaceClient = WorkspaceClient()
+
+        upcs = ",".join([f"'{upc}'" for upc in upcs])
+        statement: str = f"""
+            SELECT * FROM nfleming.retail_ai.get_products_by_upc(array({upcs}), '{store_number}')
+        """
+        logger.debug(statement)
+        statement_response: StatementResponse = w.statement_execution.execute_statement(
+            statement=statement, warehouse_id=warehouse_id
+        )
+        while statement_response.status.state in [
+            StatementState.PENDING,
+            StatementState.RUNNING,
+        ]:
+            statement_response = w.statement_execution.get_statement(
+                statement_response.statement_id
+            )
+
+        logger.debug(f"statement_response={statement_response}")
+        result_set: tuple = (
+            statement_response.result.data_array if statement_response.result else None
+        )
+
+        logger.debug(f"find_products_by_upc: result_set={result_set}")
+
+        return result_set
+
+    return find_products_by_upc
