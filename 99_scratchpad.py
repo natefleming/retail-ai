@@ -82,6 +82,11 @@ agent.invoke({
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC SELECT * FROM nfleming.retail_ai.find_store_inventory_by_upc('35048', ARRAY('0017627748017'))
+
+# COMMAND ----------
+
 search_tool.invoke(input={"query": "How do i fix a leaky faucet"})
 
 # COMMAND ----------
