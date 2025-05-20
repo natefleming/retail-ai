@@ -116,6 +116,8 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
+    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
     def general(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -133,6 +135,7 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
         ]
 
@@ -163,6 +166,8 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
+    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
@@ -190,6 +195,7 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
             create_find_product_by_sku_tool(warehouse_id=warehouse_id),
             create_find_product_by_upc_tool(warehouse_id=warehouse_id),
@@ -222,6 +228,8 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
+    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
@@ -249,6 +257,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
             create_find_inventory_by_sku_tool(warehouse_id=warehouse_id),
             create_find_inventory_by_upc_tool(warehouse_id=warehouse_id),
@@ -283,6 +292,8 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
+    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
@@ -310,6 +321,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results
             ),
             create_find_product_by_sku_tool(warehouse_id=warehouse_id),
             create_find_product_by_upc_tool(warehouse_id=warehouse_id),
@@ -375,6 +387,8 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
+    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
@@ -394,6 +408,7 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
         ]
 
@@ -424,6 +439,8 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
+    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
     def recommendation(
@@ -443,6 +460,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
         ]
 
