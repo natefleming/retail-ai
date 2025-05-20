@@ -135,27 +135,47 @@ from agent_as_code import config
 
 
 model_names: set = set()
-for _, model  in config.get("resources").get("llms").items():
-    model_names.add(model["model_name"])
+for _, model  in config.get("resources").get("llms", {}).items():
+    model_name: str = model["name"]
+    model_names.add(model_name)
 
-index_name: str = config.get("retriever").get("index_name")
-space_id: str = config.get("resources").get("genie").get("space_id")
-functions: Sequence[str] = config.get("resources").get("functions")
-tables: Sequence[str] = config.get("resources").get("tables")
-warehouses: Sequence[str] = config.get("resources").get("warehouses")
+warehouse_ids: set = set()
+for _, warehouse  in config.get("resources").get("warehouses", {}).items():
+    warehouse_id: str = warehouse["warehouse_id"]
+    warehouse_ids.add(warehouse_id)
+
+space_ids: set = set()
+for _, genie_room  in config.get("resources").get("genie_rooms", {}).items():
+    space_id: str = genie_room["space_id"]
+    space_ids.add(space_id)
+
+tables_names: set = set()
+for _, table  in config.get("resources").get("tables", {}).items():
+    tables_name: str = table["name"]
+    tables_names.add(tables_name)
+
+function_names: set = set()
+for _, function  in config.get("resources").get("functions", {}).items():
+    function_name: str = function["name"]
+    function_names.add(function_name)
+
+connection_names: set = set()
+for _, connection  in config.get("resources").get("connections", {}).items():
+    connection_name: str = connection["name"]
+    connection_names.add(connection_name)
 
 resources: list[DatabricksResource] = []
 
-if space_id:
-    resources += [DatabricksGenieSpace(genie_space_id=space_id)]
-
+index_name: str = config.get("retriever").get("index_name")
 if index_name:
     resources += [DatabricksVectorSearchIndex(index_name=index_name)]
 
 resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names if m]
-resources += [DatabricksFunction(function_name=f) for f in functions if f]
-resources += [DatabricksTable(table_name=t) for t in tables if t]
-resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouses if w]
+resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouse_ids if w]
+resources += [DatabricksGenieSpace(genie_space_id=s) for s in space_ids if s]
+resources += [DatabricksFunction(function_name=f) for f in function_names if f]
+resources += [DatabricksTable(table_name=t) for t in tables_names if t]
+resources += [DatabricksUCConnection(connection_name=c) for c in connection_names if c]
 
 input_example: dict[str, Any] = config.get("app").get("diy_example")
 
