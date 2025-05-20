@@ -2398,6 +2398,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "python-dotenv" },
+    { name = "unitycatalog-ai", extra = ["databricks"] },
 ]
 
 [package.metadata]
@@ -2416,6 +2417,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.6" },
     { name = "pydantic", specifier = ">=2.11.3" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
+    { name = "unitycatalog-ai", extras = ["databricks"], specifier = ">=0.3.0" },
 ]
 
 [[package]]
