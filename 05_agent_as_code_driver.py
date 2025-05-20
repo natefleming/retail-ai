@@ -29,11 +29,10 @@ pip_requirements: str = " ".join(pip_requirements)
 
 # COMMAND ----------
 
-from importlib.metadata import version
-
 from typing import Sequence
-
 from importlib.metadata import version
+from pkg_resources import get_distribution
+
 
 pip_requirements: Sequence[str] = [
     f"langgraph=={version('langgraph')}",
@@ -51,6 +50,7 @@ pip_requirements: Sequence[str] = [
     f"databricks-agents=={version('databricks-agents')}",
     f"pydantic=={version('pydantic')}",
     f"loguru=={version('loguru')}",
+    f"databricks-connect=={get_distribution('databricks-connect').version}"
 ]
 print("\n".join(pip_requirements))
 
@@ -102,12 +102,12 @@ display_graph(app)
 
 # COMMAND ----------
 
-from pathlib import Path
-from agent_as_code import app
-from retail_ai.models import save_image
+# from pathlib import Path
+# from agent_as_code import app
+# from retail_ai.models import save_image
 
-path: Path = Path("docs") / "architecture.png"
-save_image(app, path)
+# path: Path = Path("docs") / "architecture.png"
+# save_image(app, path)
 
 # COMMAND ----------
 
@@ -131,7 +131,6 @@ from mlflow.models.auth_policy import (
 import mlflow
 from mlflow.models.model import ModelInfo
 
-from dataclasses import dataclass, field, asdict
 from agent_as_code import config
 
 
@@ -145,15 +144,18 @@ functions: Sequence[str] = config.get("resources").get("functions")
 tables: Sequence[str] = config.get("resources").get("tables")
 warehouses: Sequence[str] = config.get("resources").get("warehouses")
 
-resources: Sequence[DatabricksResource] = [
-    DatabricksVectorSearchIndex(index_name=index_name),
-    DatabricksGenieSpace(genie_space_id=space_id),
-]
+resources: list[DatabricksResource] = []
 
-resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names]
-resources += [DatabricksFunction(function_name=f) for f in functions]
-resources += [DatabricksTable(table_name=t) for t in tables]
-resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouses]
+if space_id:
+    resources += [DatabricksGenieSpace(genie_space_id=space_id)]
+
+if index_name:
+    resources += [DatabricksVectorSearchIndex(index_name=index_name)]
+
+resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names if m]
+resources += [DatabricksFunction(function_name=f) for f in functions if f]
+resources += [DatabricksTable(table_name=t) for t in tables if t]
+resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouses if w]
 
 input_example: dict[str, Any] = config.get("app").get("diy_example")
 
@@ -185,7 +187,8 @@ with mlflow.start_run(run_name="agent"):
         code_paths=["retail_ai"],
         model_config=config.to_dict(),
         artifact_path="agent",
-        pip_requirements=pip_requirements,
+        extra_pip_requirements=[f"databricks-connect=={get_distribution('databricks-connect').version}"],
+        #pip_requirements=pip_requirements,
         resources=resources,
         #auth_policy=auth_policy,
     )
