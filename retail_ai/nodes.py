@@ -68,7 +68,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
         An agent callable function that updates the state with the routing decision
     """
 
-    model: str = model_config.get("agents").get("router").get("model").get("model_name")
+    model: str = model_config.get("agents").get("router").get("model").get("name")
     prompt: str = model_config.get("agents").get("router").get("prompt")
     allowed_routes: Sequence[str] = (
         model_config.get("agents").get("router").get("allowed_routes")
@@ -106,7 +106,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
 
 def general_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("general").get("model").get("model_name")
+        model_config.get("agents").get("general").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("general").get("prompt")
     guardrails: Sequence[dict[str, Any]] = (
@@ -153,7 +153,7 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
 def product_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("product").get("model").get("model_name")
+        model_config.get("agents").get("product").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("product").get("prompt")
     guardrails: dict[str, Any] = (
@@ -164,9 +164,7 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
 
-    warehouse_id: str = next(
-        iter(model_config.get("resources").get("warehouses", [])), None
-    )
+    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -214,7 +212,7 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
 def inventory_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("inventory").get("model").get("model_name")
+        model_config.get("agents").get("inventory").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
     guardrails: dict[str, Any] = (
@@ -225,9 +223,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
 
-    warehouse_id: str = next(
-        iter(model_config.get("resources").get("warehouses", [])), None
-    )
+    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -277,7 +273,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("comparison").get("model").get("model_name")
+        model_config.get("agents").get("comparison").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
     guardrails: dict[str, Any] = (
@@ -288,9 +284,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
 
-    warehouse_id: str = next(
-        iter(model_config.get("resources").get("warehouses", [])), None
-    )
+    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -337,7 +331,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def orders_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("orders").get("model").get("model_name")
+    model: str = model_config.get("agents").get("orders").get("model").get("name")
     prompt: str = model_config.get("agents").get("orders").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("orders").get("guardrails")
@@ -372,7 +366,7 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def diy_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("diy").get("model").get("model_name")
+    model: str = model_config.get("agents").get("diy").get("model").get("name")
     prompt: str = model_config.get("agents").get("diy").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("diy").get("guardrails") or []
@@ -420,7 +414,7 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
 
 def recommendation_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("recommendation").get("model").get("model_name")
+        model_config.get("agents").get("recommendation").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("recommendation").get("prompt")
     guardrails: dict[str, Any] = (
@@ -469,7 +463,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
 def process_images_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("process_image").get("model").get("model_name")
+        model_config.get("agents").get("process_image").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("process_image").get("prompt")
 

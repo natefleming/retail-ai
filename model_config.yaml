@@ -11,46 +11,68 @@ permissions:
 resources:
   llms:
     default_llm: &default_llm
-      model_name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-meta-llama-3-3-70b-instruct
       temperature: 0.1 
       max_tokens: 8192
 
     tool_calling_llm: &tool_calling_llm
-      model_name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-meta-llama-3-3-70b-instruct
       temperature: 0.1 
       max_tokens: 8192
 
     reasoning_llm: &reasoning_llm
-      model_name: databricks-claude-3-7-sonnet
+      name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 8192
 
     judge_llm: &judge_llm
-      model_name: databricks-claude-3-7-sonnet
+      name: databricks-claude-3-7-sonnet
       temperature: 0.5 
       max_tokens: 8192
 
     embedding_model: &embedding_model
-      model_name: databricks-gte-large-en
+      name: databricks-gte-large-en
 
-  genie:
-    space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+
+  genie_rooms:
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"
+      description: "A room for Genie agents to interact"
+      space_id: 01f01c91f1f414d59daaefd2b7ec82ea
 
   tables:
-    - nfleming.retail_ai.products
-    - nfleming.retail_ai.inventory
+    product_table: &product_table
+      name: nfleming.retail_ai.products
+    inventory_table: &inventory_table
+      name: nfleming.retail_ai.inventory
 
   functions:
-    - nfleming.retail_ai.find_product_by_sku
-    - nfleming.retail_ai.find_product_by_upc
-    - nfleming.retail_ai.find_inventory_by_sku
-    - nfleming.retail_ai.find_inventory_by_upc
-    - nfleming.retail_ai.find_store_inventory_by_upc
-    - nfleming.retail_ai.find_store_inventory_by_sku
+    find_product_by_sku: &find_product_by_sku
+      name: nfleming.retail_ai.find_product_by_sku
+    find_product_by_upc: &find_product_by_upc
+      name: nfleming.retail_ai.find_product_by_upc
+    find_inventory_by_sku: &find_inventory_by_sku  
+      name: nfleming.retail_ai.find_inventory_by_sku
+    find_inventory_by_upc: &find_inventory_by_upc  
+      name: nfleming.retail_ai.find_inventory_by_upc
+    find_store_inventory_by_upc: &find_store_inventory_by_upc  
+      name: nfleming.retail_ai.find_store_inventory_by_upc
+    find_store_inventory_by_sku: &find_store_inventory_by_sku  
+      name: nfleming.retail_ai.find_store_inventory_by_sku
 
+  warehouses:
+    shared_endpoint_warehouse: &shared_endpoint_warehouse
+      name: "Shared Endpoint Warehouse"
+      description: "A warehouse for shared endpoints"
+      warehouse_id: 148ccb90800933a1
 
-  warehouses: 
-    - 148ccb90800933a1
+  databases:
+    retail_database: &retail_database
+      name: "Retail Database"
+      connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
+      connection_kwargs:
+      autocommit: True
+      prepare_threshold: 0
     
     
 guardrails:
@@ -191,11 +213,9 @@ app:
           store_num: 87887
 
 
-checkpointer:
-  connection_url: postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
-  connection_kwargs:
-    autocommit: True
-    prepare_threshold: 0
+checkpointer: &checkpointer
+    type: postgres
+    database: *retail_database
 
 evaluation:
   model: *judge_llm
