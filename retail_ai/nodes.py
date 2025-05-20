@@ -17,14 +17,13 @@ from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import (
-    create_uc_tools,
-    find_product_details_by_description_tool,
-    create_find_product_by_sku_tool,
-    create_find_product_by_upc_tool,
     create_find_inventory_by_sku_tool,
     create_find_inventory_by_upc_tool,
+    create_find_product_by_sku_tool,
+    create_find_product_by_upc_tool,
     create_find_store_inventory_by_sku_tool,
     create_find_store_inventory_by_upc_tool,
+    find_product_details_by_description_tool,
     search_tool,
 )
 from retail_ai.types import AgentCallable
@@ -165,7 +164,9 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
 
-    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
+    )
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -224,7 +225,9 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
 
-    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
+    )
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -254,7 +257,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
             create_find_inventory_by_sku_tool(warehouse_id=warehouse_id),
             create_find_inventory_by_upc_tool(warehouse_id=warehouse_id),
             create_find_store_inventory_by_sku_tool(warehouse_id=warehouse_id),
-            create_find_store_inventory_by_upc_tool(warehouse_id=warehouse_id)
+            create_find_store_inventory_by_upc_tool(warehouse_id=warehouse_id),
         ]
 
         agent: CompiledStateGraph = create_react_agent(
@@ -284,6 +287,10 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
     index_name: str = model_config.get("retriever").get("index_name")
     endpoint_name: str = model_config.get("retriever").get("endpoint_name")
     columns: Sequence[str] = model_config.get("retriever").get("columns")
+
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
+    )
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
