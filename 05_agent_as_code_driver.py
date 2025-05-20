@@ -187,8 +187,7 @@ with mlflow.start_run(run_name="agent"):
         code_paths=["retail_ai"],
         model_config=config.to_dict(),
         artifact_path="agent",
-        extra_pip_requirements=[f"databricks-connect=={get_distribution('databricks-connect').version}"],
-        #pip_requirements=pip_requirements,
+        pip_requirements=pip_requirements,
         resources=resources,
         #auth_policy=auth_policy,
     )
