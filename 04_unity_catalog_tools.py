@@ -57,11 +57,10 @@ model_config: ModelConfig = ModelConfig(development_config=model_config_file)
 
 catalog_name: str = model_config.get("catalog_name")
 database_name: str = model_config.get("database_name")
-index_name: str = model_config.get("retriever").get("index_name")
+
 
 print(f"catalog_name: {catalog_name}")
 print(f"database_name: {database_name}")
-print(f"index_name: {index_name}")
 
 # COMMAND ----------
 

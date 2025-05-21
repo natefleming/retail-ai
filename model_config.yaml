@@ -33,6 +33,26 @@ resources:
     embedding_model: &embedding_model
       name: databricks-gte-large-en
 
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model_endpoint_name: databricks-gte-large-en
+      endpoint_name: one-env-shared-endpoint-12
+      endpoint_type: STANDARD
+      index_name: nfleming.retail_ai.products_index
+      source_table_name: nfleming.retail_ai.products
+      primary_key: product_id
+      doc_uri: ~
+      embedding_source_column: description
+      columns:
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
+
   genie_rooms:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"
@@ -222,32 +242,25 @@ evaluation:
   num_evals: 25
 
 
-retriever:
-  embedding_model_endpoint_name: databricks-gte-large-en
-  endpoint_name: one-env-shared-endpoint-12
-  endpoint_type: STANDARD
-  index_name: nfleming.retail_ai.products_index
-  source_table_name: nfleming.retail_ai.products
-  primary_key: product_id
-  doc_uri: ~
-  embedding_source_column: description
-  columns:
-    - product_id
-    - sku
-    - upc
-    - brand_name
-    - product_name
-    - merchandise_class
-    - class_cd
-    - description
-  search_parameters:
-    num_results: 20
-    filter: {}
-    query_type: ANN
+retrievers:
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:
+      num_results: 20
+      filter: {}
+      query_type: ANN
 
 
 agents:
-
   router:
     model: *tool_calling_llm
     allowed_routes:

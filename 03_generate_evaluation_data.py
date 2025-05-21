@@ -43,11 +43,13 @@ from mlflow.models import ModelConfig
 model_config_file: str = "model_config.yaml"
 config: ModelConfig = ModelConfig(development_config=model_config_file)
 
-retreiver_config: dict[str, Any] = config.get("retriever")
-source_table_name: str = retreiver_config.get("source_table_name")
-primary_key: str = retreiver_config.get("primary_key")
-embedding_source_column: str = retreiver_config.get("embedding_source_column")
-doc_uri: str = retreiver_config.get("doc_uri")
+
+vector_store_config: dict[str, Any] = config.get("resources").get("vector_stores").get("product_vector_store")
+
+source_table_name: str = vector_store_config.get("source_table_name")
+primary_key: str = vector_store_config.get("primary_key")
+embedding_source_column: str = vector_store_config.get("embedding_source_column")
+doc_uri: str = vector_store_config.get("doc_uri")
 
 evaluation_config: Dict[str, Any] = config.get("evaluation")
 
