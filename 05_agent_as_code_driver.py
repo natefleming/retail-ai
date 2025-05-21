@@ -139,6 +139,11 @@ for _, model  in config.get("resources").get("llms", {}).items():
     model_name: str = model["name"]
     model_names.add(model_name)
 
+vector_indexes: set = set()
+for _, vector_store  in config.get("resources").get("vector_stores", {}).items():
+    index_name: str = vector_store["index_name"]
+    vector_indexes.add(index_name)
+
 warehouse_ids: set = set()
 for _, warehouse  in config.get("resources").get("warehouses", {}).items():
     warehouse_id: str = warehouse["warehouse_id"]
@@ -164,13 +169,11 @@ for _, connection  in config.get("resources").get("connections", {}).items():
     connection_name: str = connection["name"]
     connection_names.add(connection_name)
 
+
 resources: list[DatabricksResource] = []
 
-index_name: str = config.get("retriever").get("index_name")
-if index_name:
-    resources += [DatabricksVectorSearchIndex(index_name=index_name)]
-
 resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names if m]
+resources += [DatabricksVectorSearchIndex(index_name=v) for v in vector_indexes if v]
 resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouse_ids if w]
 resources += [DatabricksGenieSpace(genie_space_id=s) for s in space_ids if s]
 resources += [DatabricksFunction(function_name=f) for f in function_names if f]

@@ -48,17 +48,17 @@ from mlflow.models import ModelConfig
 model_config_file: str = "model_config.yaml"
 config: ModelConfig = ModelConfig(development_config=model_config_file)
 
-retreiver_config: dict[str, Any] = config.get("retriever")
+vector_store_config: dict[str, Any] = config.get("resources").get("vector_stores").get("products_vector_store")
 
-embedding_model_endpoint_name: str = retreiver_config.get("embedding_model_endpoint_name")
-endpoint_name: str = retreiver_config.get("endpoint_name")
-endpoint_type: str = retreiver_config.get("endpoint_type")
-index_name: str = retreiver_config.get("index_name")
-source_table_name: str = retreiver_config.get("source_table_name")
-primary_key: str = retreiver_config.get("primary_key")
-embedding_source_column: str = retreiver_config.get("embedding_source_column")
-columns: Sequence[str] = retreiver_config.get("columns", [])
-search_parameters: dict[str, Any] = retreiver_config.get("search_parameters", {})
+embedding_model_endpoint_name: str = vector_store_config.get("embedding_model_endpoint_name")
+endpoint_name: str = vector_store_config.get("endpoint_name")
+endpoint_type: str = vector_store_config.get("endpoint_type")
+index_name: str = vector_store_config.get("index_name")
+source_table_name: str = vector_store_config.get("source_table_name")
+primary_key: str = vector_store_config.get("primary_key")
+embedding_source_column: str = vector_store_config.get("embedding_source_column")
+columns: Sequence[str] = vector_store_config.get("columns", [])
+
 
 
 print(f"embedding_model_endpoint_name: {embedding_model_endpoint_name}")
@@ -69,8 +69,6 @@ print(f"source_table_name: {source_table_name}")
 print(f"primary_key: {primary_key}")
 print(f"embedding_source_column: {embedding_source_column}")
 print(f"columns: {columns}")
-print(f"search_parameters: {search_parameters}")
-
 
 
 
@@ -122,7 +120,7 @@ from mlflow.deployments.databricks import DatabricksDeploymentClient
 question: str = "What what is the best hammer for drywall?"
 
 index: VectorSearchIndex = vsc.get_index(endpoint_name, index_name)
-k: int = search_parameters.get("k", 3)
+k: int = 3
 
 search_results: Dict[str, Any] = index.similarity_search(
   query_text=question,

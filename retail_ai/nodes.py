@@ -113,10 +113,11 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("general").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
-    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
@@ -163,10 +164,11 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("product").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
-    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
 
     warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
@@ -225,10 +227,11 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("inventory").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
-    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
 
     warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
@@ -289,12 +292,12 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("comparison").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
-    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
-
     warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
@@ -384,10 +387,11 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("diy").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
-    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
@@ -436,10 +440,11 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("recommendation").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
-    search_parameters: dict[str, Any] = model_config.get("retriever").get("search_parameters", {})
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
