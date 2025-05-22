@@ -1,4 +1,3 @@
-
 catalog_name: nfleming
 database_name: retail_ai
 volume_name: retail_ai
@@ -7,17 +6,16 @@ permissions:
     privileges:
       - ALL_PRIVILEGES
 
-
 resources:
   llms:
     default_llm: &default_llm
       name: databricks-meta-llama-3-3-70b-instruct
-      temperature: 0.1 
+      temperature: 0.1
       max_tokens: 8192
 
     tool_calling_llm: &tool_calling_llm
       name: databricks-meta-llama-3-3-70b-instruct
-      temperature: 0.1 
+      temperature: 0.1
       max_tokens: 8192
 
     reasoning_llm: &reasoning_llm
@@ -27,7 +25,7 @@ resources:
 
     judge_llm: &judge_llm
       name: databricks-claude-3-7-sonnet
-      temperature: 0.5 
+      temperature: 0.5
       max_tokens: 8192
 
     embedding_model: &embedding_model
@@ -70,13 +68,13 @@ resources:
       name: nfleming.retail_ai.find_product_by_sku
     find_product_by_upc: &find_product_by_upc
       name: nfleming.retail_ai.find_product_by_upc
-    find_inventory_by_sku: &find_inventory_by_sku  
+    find_inventory_by_sku: &find_inventory_by_sku
       name: nfleming.retail_ai.find_inventory_by_sku
-    find_inventory_by_upc: &find_inventory_by_upc  
+    find_inventory_by_upc: &find_inventory_by_upc
       name: nfleming.retail_ai.find_inventory_by_upc
-    find_store_inventory_by_upc: &find_store_inventory_by_upc  
+    find_store_inventory_by_upc: &find_store_inventory_by_upc
       name: nfleming.retail_ai.find_store_inventory_by_upc
-    find_store_inventory_by_sku: &find_store_inventory_by_sku  
+    find_store_inventory_by_sku: &find_store_inventory_by_sku
       name: nfleming.retail_ai.find_store_inventory_by_sku
 
   warehouses:
@@ -92,8 +90,89 @@ resources:
       connection_kwargs:
       autocommit: True
       prepare_threshold: 0
-    
-    
+
+
+tools:
+
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: find_product_details_by_description
+    function:
+      type: factory
+      name: retail_ai.tools.find_product_details_by_description_tool
+      args:
+        retriever: *products_retriever
+        
+  find_product_by_sku_uc_tool: &find_product_by_sku_uc_tool
+    name: find_product_by_sku
+    function:
+      type: unity_catalog
+      <<: *find_product_by_sku
+
+  find_product_by_upc_uc_tool: &find_product_by_upc_uc_tool
+    name: find_product_by_upc
+    function:
+      type: unity_catalog
+      <<: *find_product_by_upc
+
+  find_inventory_by_sku_uc_tool: &find_inventory_by_sku_uc_tool
+    name: find_inventory_by_sku
+    function:
+      type: unity_catalog
+      <<: *find_inventory_by_sku
+
+  find_inventory_by_upc_uc_tool: &find_inventory_by_upc_uc_tool
+    name: find_inventory_by_upc
+    function:
+      type: unity_catalog
+      <<: *find_inventory_by_upc
+  
+  find_store_inventory_by_sku_uc_tool: &find_store_inventory_by_sku_uc_tool
+    name: find_store_inventory_by_sku
+    function:
+      type: unity_catalog
+      <<: *find_store_inventory_by_sku
+
+  find_store_inventory_by_upc_uc_tool: &find_store_inventory_by_upc_uc_tool
+    name: find_store_inventory_by_upc
+    function:
+      type: unity_catalog
+      <<: *find_store_inventory_by_upc
+
+  find_product_by_sku_tool: &find_product_by_sku_tool
+    name: find_product_by_sku
+    function:
+      type: factory
+      name: retail_ai.tools.create_find_product_by_sku_tool
+      args:
+        warehouse: *shared_endpoint_warehouse
+
+  find_product_by_upc_tool: &find_product_by_upc_tool
+    name: find_product_by_upc
+    function:
+      type: factory
+      name: retail_ai.tools.create_find_product_by_upc_tool
+      args:
+        warehouse: *shared_endpoint_warehouse
+
+  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
+    name: find_inventory_by_sku
+    function:
+      type: factory
+      name: retail_ai.tools.create_find_inventory_by_sku_tool
+      args:
+        warehouse: *shared_endpoint_warehouse
+
+  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
+    name: find_inventory_by_upc
+    function:
+      type: factory
+      name: retail_ai.tools.create_find_inventory_by_upc_tool
+      args:
+        warehouse: *shared_endpoint_warehouse
+
+
+
+
 guardrails:
   llm_judge_guardrail: &llm_judge_guardrail
     model: *judge_llm
@@ -119,10 +198,9 @@ guardrails:
       ### Response:
       {outputs}
 
-
 app:
   log_level: INFO
-  registered_model_name: nfleming.retail_ai.retail_ai_agent    
+  registered_model_name: nfleming.retail_ai.retail_ai_agent
   endpoint_name: retail_ai_agent
   tags:
     business: retail
@@ -170,7 +248,7 @@ app:
       messages:
         - role: user
           content: Can you compare these items?
-          image_paths: 
+          image_paths:
             - tests/images/doritos_upc.png
             - tests/images/lays_upc.png
       custom_inputs:
@@ -222,8 +300,8 @@ app:
     product_image_example:
       messages:
         - role: user
-          content:  Can you give me information about this item?
-          image_paths: 
+          content: Can you give me information about this item?
+          image_paths:
             - tests/images/doritos_upc.png
       custom_inputs:
         configurable:
@@ -231,16 +309,14 @@ app:
           user_id: nate.fleming
           store_num: 87887
 
-
 checkpointer: &checkpointer
-    type: postgres
-    database: *retail_database
+  type: postgres
+  database: *retail_database
 
 evaluation:
   model: *judge_llm
   table_name: nfleming.retail_ai.evaluation
   num_evals: 25
-
 
 retrievers:
   products_retriever: &products_retriever
@@ -259,7 +335,6 @@ retrievers:
       filter: {}
       query_type: ANN
 
-
 agents:
   router:
     model: *tool_calling_llm
@@ -274,56 +349,56 @@ agents:
     default_route: general
     prompt: |
       Analyze the user question and select ONE specific route from the allowed options:
-      
+
       - Route to 'product': Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
         Example: "Tell me about the Craftsman cordless drill" or "What are the specs of the Dewalt table saw?"
-      
+
       - Route to 'comparison': Questions explicitly comparing TWO OR MORE specific products or asking to compare options
         Example: "Compare the Milwaukee and Ryobi power drills" or "What's better for deck building: pressure-treated or cedar?"
-      
+
       - Route to 'recommendation': Questions asking for product suggestions, recommendations, or "best" products for specific needs
         Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
-      
+
       - Route to 'inventory': Questions about stock levels, availability, restocking, or store inventory
         Example: "Do you have the Black+Decker sander in stock?" or "When will you get more Makita batteries?"
-      
+
       - Route to 'diy': Questions about how-to instructions, DIY projects, tutorials, or home improvement advice
         Example: "How do I install crown molding?" or "What's the best way to paint kitchen cabinets?"
-      
+
       - Route to 'orders': Questions about tracking orders, delivery status, scheduling deliveries or services
         Example: "When will my order arrive?" or "Can I schedule delivery for my new refrigerator?"
 
       - Route to 'general': ANY other questions that don't fit the above categories, including store policies, hours, etc.
         Example: "What are your store hours?" or "Do you offer free delivery?"
-      
-      Choose exactly ONE route that BEST matches the user's primary intent.
 
+      Choose exactly ONE route that BEST matches the user's primary intent.
 
   general:
     model: *tool_calling_llm
-    guardrails: ~
+    guardrails:
+      ~
       #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-      
+
       You are a helpful retail store assistant providing general information about our home improvement and hardware store.
       Answer questions about store policies, business hours, return policies, gift cards, services offered, loyalty programs,
       and other general inquiries. Be friendly, concise, and informative. If you don't know specific details about
       the store's policies, provide general retail best practices while noting that the customer should verify with store staff.
       Always maintain a helpful and professional tone.
 
-
   orders:
     model: *tool_calling_llm
-    guardrails: ~
+    guardrails:
+      ~
       #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-      
+
       You are a retail order management specialist. Help customers with questions about tracking orders, delivery status,
       scheduling deliveries or installation services, order modifications, cancellations, and returns. Explain order 
       processes clearly and professionally. When responding to specific order inquiries, ask for order numbers 
@@ -332,7 +407,8 @@ agents:
 
   diy:
     model: *tool_calling_llm
-    guardrails: ~
+    guardrails:
+      ~
       #- *llm_judge_guardrail
     prompt: |
       ### User Information
@@ -368,17 +444,17 @@ agents:
       - Recommend the user verify critical information elsewhere
 
       #### Remember: You MUST use search tools for EVERY DIY and home improvement question. This ensures your advice is accurate, up-to-date, and as helpful as possible to the user.
-      
 
   product:
     model: *tool_calling_llm
-    guardrails: ~
+    guardrails:
+      ~
       #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-      
+
       You are a knowledgeable product specialist at a home improvement retailer. Provide detailed information about
       specific products, including features, specifications, dimensions, materials, warranty information, and intended uses.
       Focus on being accurate and thorough when describing product capabilities and limitations. When appropriate,
@@ -388,13 +464,14 @@ agents:
 
   inventory:
     model: *tool_calling_llm
-    guardrails: ~
+    guardrails:
+      ~
       #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-      
+
       You are an inventory management specialist for a retail store. Answer questions about product availability,
       stock levels, restocking timelines, and store inventory. Explain options for checking inventory across different
       store locations, online availability, special orders, and rain checks. When specific inventory information isn't
@@ -404,13 +481,14 @@ agents:
 
   comparison:
     model: *tool_calling_llm
-    guardrails: ~
+    guardrails:
+      ~
       #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-      
+
       You are a product comparison specialist. Help customers compare different products by highlighting key differences
       in features, specifications, price points, quality, durability, warranty, and best use cases. Present comparisons
       in an organized, easy-to-understand format with clear differentiators. Remain neutral and objective when comparing
@@ -420,13 +498,14 @@ agents:
 
   recommendation:
     model: *tool_calling_llm
-    guardrails: ~
+    guardrails:
+      ~
       #- *llm_judge_guardrail
     prompt: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-      
+
       You are a retail product recommendation specialist. Provide thoughtful product suggestions based on customer needs,
       preferences, budget constraints, and intended uses. Consider factors like skill level, project requirements,
       compatibility with existing items, and long-term value. Make recommendations across different price points when
@@ -457,8 +536,6 @@ agents:
 
       ### Response Guidelines
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
-
-
 
 datasets:
   - table: products
