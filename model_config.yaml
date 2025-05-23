@@ -94,6 +94,13 @@ resources:
 
 tools:
 
+  search_tool: &search_tool
+    name: search_tool
+    function:
+      type: factory
+      name: retail_ai.tools.search_tool
+      args: ~
+
   find_product_details_by_description_tool: &find_product_details_by_description_tool
     name: find_product_details_by_description
     function:
@@ -101,7 +108,7 @@ tools:
       name: retail_ai.tools.find_product_details_by_description_tool
       args:
         retriever: *products_retriever
-        
+
   find_product_by_sku_uc_tool: &find_product_by_sku_uc_tool
     name: find_product_by_sku
     function:
@@ -375,9 +382,11 @@ agents:
 
   general:
     model: *tool_calling_llm
-    guardrails:
-      ~
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
       #- *llm_judge_guardrail
+    checkpointer: *checkpointer
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -389,11 +398,14 @@ agents:
       the store's policies, provide general retail best practices while noting that the customer should verify with store staff.
       Always maintain a helpful and professional tone.
 
+
+
   orders:
     model: *tool_calling_llm
-    guardrails:
-      ~
+    tools: []
+    guardrails: []
       #- *llm_judge_guardrail
+    checkpointer: *checkpointer
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -407,9 +419,11 @@ agents:
 
   diy:
     model: *tool_calling_llm
-    guardrails:
-      ~
-      #- *llm_judge_guardrail
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
+      # - *llm_judge_guardrail
+    checkpointer: *checkpointer
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -447,9 +461,13 @@ agents:
 
   product:
     model: *tool_calling_llm
-    guardrails:
-      ~
+    tools:
+      - *find_product_by_sku_tool
+      - *find_product_by_upc_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
       #- *llm_judge_guardrail
+    checkpointer: *checkpointer
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -464,9 +482,15 @@ agents:
 
   inventory:
     model: *tool_calling_llm
-    guardrails:
-      ~
+    tools:
+      - *find_inventory_by_sku_tool
+      - *find_inventory_by_upc_tool
+      - *find_store_inventory_by_sku_tool
+      - *find_store_inventory_by_upc_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
       #- *llm_judge_guardrail
+    checkpointer: *checkpointer 
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -481,9 +505,12 @@ agents:
 
   comparison:
     model: *tool_calling_llm
-    guardrails:
-      ~
+    tools:
+      - *find_product_details_by_description_tool
+      - *find_product_by_sku_tool
+    guardrails: []
       #- *llm_judge_guardrail
+    checkpointer: *checkpointer
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -498,9 +525,11 @@ agents:
 
   recommendation:
     model: *tool_calling_llm
-    guardrails:
-      ~
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
       #- *llm_judge_guardrail
+    checkpointer: *checkpointer
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -515,7 +544,7 @@ agents:
 
   process_image:
     model: *reasoning_llm
-
+    tools: []
     prompt: |
       ### Task Description
 

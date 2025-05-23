@@ -7,6 +7,7 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableSequence
+from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
@@ -23,8 +24,8 @@ from retail_ai.tools import (
     create_find_product_by_upc_tool,
     create_find_store_inventory_by_sku_tool,
     create_find_store_inventory_by_upc_tool,
+    create_tools,
     find_product_details_by_description_tool,
-    search_tool,
 )
 from retail_ai.types import AgentCallable
 
@@ -398,18 +399,13 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 def diy_node(model_config: ModelConfig) -> AgentCallable:
     model: str = model_config.get("agents").get("diy").get("model").get("name")
     prompt: str = model_config.get("agents").get("diy").get("prompt")
-    guardrails: dict[str, Any] = (
+    guardrails: Sequence[dict[str, Any]] = (
         model_config.get("agents").get("diy").get("guardrails") or []
     )
 
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
-        "products_retriever"
+    tool_definitions: Sequence[dict[str, Any]] = (
+        model_config.get("agents").get("diy").get("tools") or []
     )
-    index_name: str = retriever_config.get("vector_store").get("index_name")
-    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
-    columns: Sequence[str] = retriever_config.get("columns")
-    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
-    num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
@@ -422,16 +418,18 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = [search_tool(model_config)]
+        tools: Sequence[BaseTool] = create_tools(tool_definitions)
 
-        tools += [
-            find_product_details_by_description_tool(
-                endpoint_name=endpoint_name,
-                index_name=index_name,
-                columns=columns,
-                k=num_results,
-            ),
-        ]
+        # tools = [search_tool(model_config)]
+
+        # tools += [
+        #     find_product_details_by_description_tool(
+        #         endpoint_name=endpoint_name,
+        #         index_name=index_name,
+        #         columns=columns,
+        #         k=num_results,
+        #     ),
+        # ]
 
         agent: CompiledStateGraph = create_react_agent(
             model=llm,
