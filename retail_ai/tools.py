@@ -28,6 +28,8 @@ from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
+from retail_ai.utils import callable_from_function_name
+
 
 class ProductFeature(BaseModel):
     """A specific feature or attribute of a product for comparison."""
@@ -409,6 +411,59 @@ def find_product_details_by_description_tool(
         return documents
 
     return find_product_details_by_description
+
+
+tool_registry: dict[str, BaseTool] = {}
+
+
+def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
+    """
+    Create a list of tools based on the provided configuration.
+
+    This factory function generates a list of tools based on the specified configurations.
+    Each tool is created according to its type and parameters defined in the configuration.
+
+    Args:
+        tool_configs: A sequence of dictionaries containing tool configurations
+
+    Returns:
+        A sequence of BaseTool objects created from the provided configurations
+    """
+
+    logger.debug("create_tools")
+
+    tools: list[BaseTool] = []
+
+    for config in tool_configs:
+        name: str = config.get("name")
+        tool: BaseTool = tool_registry.get(name)
+        if tool is None:
+            logger.debug(f"Creating tool: {name}...")
+            function: dict[str, Any] = config.get("function")
+            function_name: str = function.get("name")
+            function_type: str = function.get("type")
+            function_args: dict[str, Any] = function.get("args", {})
+
+            match function_type:
+                case "unity_catalog":
+                    tool = create_uc_tools(function_name=function_name)
+                case "factory":
+                    factory: Callable = callable_from_function_name(
+                        function_name=function_name
+                    )
+                    tool = factory(**function_args)
+                case "python":
+                    tool = callable_from_function_name(function_name=function_name)
+                case _:
+                    raise ValueError(f"Unknown tool type: {function_type}")
+
+            tool_registry[name] = tool
+        else:
+            logger.debug(f"Tool {name} already exists, reusing it.")
+
+        tools.append(tool)
+
+    return tools
 
 
 def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
