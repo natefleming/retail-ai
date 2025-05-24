@@ -2,6 +2,7 @@ TOP_DIR := .
 SRC_DIR := $(TOP_DIR)/retail_ai
 TEST_DIR := $(TOP_DIR)/tests
 DIST_DIR := $(TOP_DIR)/dist
+REQUIREMENTS_FILE := $(TOP_DIR)/requirements.txt
 LIB_NAME := retail_ai
 LIB_VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
 LIB := $(LIB_NAME)-$(LIB_VERSION)-py3-none-any.whl
@@ -13,9 +14,13 @@ else
     PYTHON := python3
 endif
 
+
+
+
 UV := uv
 UV_SYNC := $(UV) sync 
 UV_BUILD := $(UV) build 
+UV_EXPORT := $(UV) export --no-hashes --format requirements-txt 
 RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 
 RUFF_FORMAT := $(UV) run ruff format 
 FIND := $(shell which find)
@@ -34,6 +39,7 @@ dist: install
 
 depends: 
 	$(UV_SYNC) 
+	$(UV_EXPORT) > $(REQUIREMENTS_FILE)
 
 format: depends
 	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR)
