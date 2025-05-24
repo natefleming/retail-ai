@@ -178,7 +178,7 @@ def create_product_comparison_tool(
 
         # Format the products for the prompt
         products_str = "\n\n".join(
-            [f"Product {i+1}: {str(product)}" for i, product in enumerate(products)]
+            [f"Product {i + 1}: {str(product)}" for i, product in enumerate(products)]
         )
 
         # Generate the comparison using the LLM
@@ -593,7 +593,13 @@ def search_tool(model_config: ModelConfig) -> BaseTool:
     return DuckDuckGoSearchRun(output_format="list")
 
 
-def create_find_product_by_sku_tool(warehouse_id: str) -> None:
+def create_find_product_by_sku_tool(
+    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    catalog_name: str = catalog_description["catalog_name"]
+    database_name: str = catalog_description["database_name"]
+    warehouse_id: str = warehouse_description["warehouse_id"]
+
     @tool
     def find_product_by_sku(skus: list[str]) -> tuple:
         """
@@ -634,7 +640,7 @@ def create_find_product_by_sku_tool(warehouse_id: str) -> None:
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_product_by_sku(ARRAY({skus}))
+            SELECT * FROM {catalog_name}.{database_name}.find_product_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -659,7 +665,13 @@ def create_find_product_by_sku_tool(warehouse_id: str) -> None:
     return find_product_by_sku
 
 
-def create_find_product_by_upc_tool(warehouse_id: str) -> None:
+def create_find_product_by_upc_tool(
+    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    catalog_name: str = catalog_description["catalog_name"]
+    database_name: str = catalog_description["database_name"]
+    warehouse_id: str = warehouse_description["warehouse_id"]
+
     @tool
     def find_product_by_upc(upcs: list[str]) -> tuple:
         """
@@ -685,7 +697,7 @@ def create_find_product_by_upc_tool(warehouse_id: str) -> None:
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_product_by_upc(ARRAY({upcs}))
+            SELECT * FROM {catalog_name}.{database_name}.find_product_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -710,7 +722,13 @@ def create_find_product_by_upc_tool(warehouse_id: str) -> None:
     return find_product_by_upc
 
 
-def create_find_inventory_by_sku_tool(warehouse_id: str) -> None:
+def create_find_inventory_by_sku_tool(
+    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    catalog_name: str = catalog_description["catalog_name"]
+    database_name: str = catalog_description["database_name"]
+    warehouse_id: str = warehouse_description["warehouse_id"]
+
     @tool
     def find_inventory_by_sku(skus: list[str]) -> tuple:
         """
@@ -756,7 +774,7 @@ def create_find_inventory_by_sku_tool(warehouse_id: str) -> None:
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_inventory_by_sku(ARRAY({skus}))
+            SELECT * FROM {catalog_name}.{database_name}.find_inventory_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -781,7 +799,13 @@ def create_find_inventory_by_sku_tool(warehouse_id: str) -> None:
     return find_inventory_by_sku
 
 
-def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
+def create_find_inventory_by_upc_tool(
+    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    catalog_name: str = catalog_description["catalog_name"]
+    database_name: str = catalog_description["database_name"]
+    warehouse_id: str = warehouse_description["warehouse_id"]
+
     @tool
     def find_inventory_by_upc(upcs: list[str]) -> tuple:
         """
@@ -812,7 +836,7 @@ def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_inventory_by_upc(ARRAY({upcs}))
+            SELECT * FROM {catalog_name}.{database_name}.find_inventory_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -837,7 +861,13 @@ def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
     return find_inventory_by_upc
 
 
-def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
+def create_find_store_inventory_by_sku_tool(
+    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+) -> Callable[[str, list[str]], tuple]:
+    catalog_name: str = catalog_description["catalog_name"]
+    database_name: str = catalog_description["database_name"]
+    warehouse_id: str = warehouse_description["warehouse_id"]
+
     @tool
     def find_store_inventory_by_sku(store: str, skus: list[str]) -> tuple:
         """
@@ -886,7 +916,7 @@ def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_store_inventory_by_sku('{store}', ARRAY({skus}))
+            SELECT * FROM {catalog_name}.{database_name}.find_store_inventory_by_sku('{store}', ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -911,7 +941,13 @@ def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
     return find_store_inventory_by_sku
 
 
-def create_find_store_inventory_by_upc_tool(warehouse_id: str) -> None:
+def create_find_store_inventory_by_upc_tool(
+    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+) -> Callable[[str, list[str]], tuple]:
+    catalog_name: str = catalog_description["catalog_name"]
+    database_name: str = catalog_description["database_name"]
+    warehouse_id: str = warehouse_description["warehouse_id"]
+
     @tool
     def find_store_inventory_by_upc(store: str, upcs: list[str]) -> tuple:
         """
@@ -945,7 +981,7 @@ def create_find_store_inventory_by_upc_tool(warehouse_id: str) -> None:
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
+            SELECT * FROM {catalog_name}.{database_name}.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(

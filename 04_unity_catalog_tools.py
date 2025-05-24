@@ -55,8 +55,9 @@ from mlflow.models import ModelConfig
 model_config_file: str = "model_config.yaml"
 model_config: ModelConfig = ModelConfig(development_config=model_config_file)
 
-catalog_name: str = model_config.get("catalog_name")
-database_name: str = model_config.get("database_name")
+catalog_description: Dict[str, Any] = model_config.get("catalogs").get("retail_ai_catalog")
+catalog_name: str = catalog_description.get("catalog_name")
+database_name: str = catalog_description.get("database_name")
 
 
 print(f"catalog_name: {catalog_name}")

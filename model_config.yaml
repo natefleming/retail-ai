@@ -1,10 +1,12 @@
-catalog_name: nfleming
-database_name: retail_ai
-volume_name: retail_ai
-permissions:
-  - principals: []
-    privileges:
-      - ALL_PRIVILEGES
+catalogs:
+  retail_ai_catalog: &retail_ai_catalog
+    catalog_name: nfleming
+    database_name: retail_ai
+    volume_name: retail_ai
+    permissions:
+      - principals: []
+        privileges:
+          - ALL_PRIVILEGES
 
 resources:
   llms:
@@ -92,8 +94,24 @@ resources:
       prepare_threshold: 0
 
 
-tools:
+retrievers:
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:
+      num_results: 20
+      filter: {}
+      query_type: ANN
 
+tools:
   search_tool: &search_tool
     name: search_tool
     function:
@@ -151,6 +169,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_product_by_sku_tool
       args:
+        catalog: *retail_ai_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_product_by_upc_tool: &find_product_by_upc_tool
@@ -159,6 +178,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_product_by_upc_tool
       args:
+        catalog: *retail_ai_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_inventory_by_sku_tool: &find_inventory_by_sku_tool
@@ -167,6 +187,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_inventory_by_sku_tool
       args:
+        catalog: *retail_ai_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_inventory_by_upc_tool: &find_inventory_by_upc_tool
@@ -175,10 +196,26 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_inventory_by_upc_tool
       args:
+        catalog: *retail_ai_catalog
         warehouse: *shared_endpoint_warehouse
 
+  find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
+    name: find_store_inventory_by_sku
+    function:
+      type: factory
+      name: retail_ai.tools.create_find_store_inventory_by_sku_tool
+      args:
+        catalog: *retail_ai_catalog
+        warehouse: *shared_endpoint_warehouse
 
-
+  find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
+    name: find_store_inventory_by_upc
+    function:
+      type: factory
+      name: retail_ai.tools.create_find_store_inventory_by_upc_tool
+      args:
+        catalog: *retail_ai_catalog
+        warehouse: *shared_endpoint_warehouse
 
 guardrails:
   llm_judge_guardrail: &llm_judge_guardrail
@@ -205,142 +242,9 @@ guardrails:
       ### Response:
       {outputs}
 
-app:
-  log_level: INFO
-  registered_model_name: nfleming.retail_ai.retail_ai_agent
-  endpoint_name: retail_ai_agent
-  tags:
-    business: retail
-    streaming: true
-    purpose: demo
-    endpointSource: playground
-
-  permissions:
-    - principals: []
-      entitlements:
-        - CAN_MANAGE
-
-  examples:
-    recommendation_example:
-      messages:
-        - role: user
-          content: Can you recommend a lamp to match my oak side tables?
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
-    inventory_example:
-      messages:
-        - role: user
-          content: How many oak tables do we have in stock?
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
-    comparison_example:
-      messages:
-        - role: user
-          content: Can you compare items with product ids 14523 and 25163
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
-    comparison_image_example:
-      messages:
-        - role: user
-          content: Can you compare these items?
-          image_paths:
-            - tests/images/doritos_upc.png
-            - tests/images/lays_upc.png
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
-    general_example:
-      messages:
-        - role: user
-          content: Can you answer this general question about your billing process?
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
-    diy_example:
-      messages:
-        - role: user
-          content: Can you tell me how to fix a leaky faucet?
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 123
-
-    orders_example:
-      messages:
-        - role: user
-          content: Can you give me an update on my order. The order number is 12345
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
-    product_example:
-      messages:
-        - role: user
-          content: Can you give me information about the Big Green Egg grill?
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
-    product_image_example:
-      messages:
-        - role: user
-          content: Can you give me information about this item?
-          image_paths:
-            - tests/images/doritos_upc.png
-      custom_inputs:
-        configurable:
-          thread_id: "1"
-          user_id: nate.fleming
-          store_num: 87887
-
 checkpointer: &checkpointer
   type: postgres
   database: *retail_database
-
-evaluation:
-  model: *judge_llm
-  table_name: nfleming.retail_ai.evaluation
-  num_evals: 25
-
-retrievers:
-  products_retriever: &products_retriever
-    vector_store: *products_vector_store
-    columns:
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - class_cd
-      - description
-    search_parameters:
-      num_results: 20
-      filter: {}
-      query_type: ANN
 
 agents:
   router:
@@ -565,6 +469,26 @@ agents:
 
       ### Response Guidelines
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
+
+
+app:
+  log_level: INFO
+  registered_model_name: nfleming.retail_ai.retail_ai_agent
+  endpoint_name: retail_ai_agent
+  tags:
+    business: rcg
+    streaming: true
+
+
+  permissions:
+    - principals: []
+      entitlements:
+        - CAN_MANAGE
+
+evaluation:
+  model: *judge_llm
+  table_name: nfleming.retail_ai.evaluation
+  num_evals: 25
 
 datasets:
   - table: products

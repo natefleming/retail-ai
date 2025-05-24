@@ -1,0 +1,95 @@
+ examples:
+    recommendation_example:
+      messages:
+        - role: user
+          content: Can you recommend a lamp to match my oak side tables?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
+
+    inventory_example:
+      messages:
+        - role: user
+          content: How many oak tables do we have in stock?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
+
+    comparison_example:
+      messages:
+        - role: user
+          content: Can you compare items with product ids 14523 and 25163
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
+
+    comparison_image_example:
+      messages:
+        - role: user
+          content: Can you compare these items?
+          image_paths:
+            - tests/images/doritos_upc.png
+            - tests/images/lays_upc.png
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
+
+    general_example:
+      messages:
+        - role: user
+          content: Can you answer this general question about your billing process?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
+
+    diy_example:
+      messages:
+        - role: user
+          content: Can you tell me how to fix a leaky faucet?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 123
+
+    orders_example:
+      messages:
+        - role: user
+          content: Can you give me an update on my order. The order number is 12345
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
+
+    product_example:
+      messages:
+        - role: user
+          content: Can you give me information about the Big Green Egg grill?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
+
+    product_image_example:
+      messages:
+        - role: user
+          content: Can you give me information about this item?
+          image_paths:
+            - tests/images/doritos_upc.png
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: nate.fleming
+          store_num: 87887
