@@ -79,7 +79,7 @@ client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_sku(
-  sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
+  sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 8-12 alpha numeric characters'
 )
 RETURNS TABLE(
   product_id BIGINT COMMENT 'Unique identifier for each product in the catalog' 
@@ -87,9 +87,15 @@ RETURNS TABLE(
   ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
   ,brand_name STRING COMMENT 'Name of the manufacturer or brand that produces the product'
   ,product_name STRING COMMENT 'Display name of the product as shown to customers'
-  ,merchandise_class STRING COMMENT 'Broad category classification of the product (e.g., Electronics, Apparel, Grocery)'
+  ,short_description STRING COMMENT 'Brief description of the product'
+  ,long_description STRING COMMENT 'Detailed text description of the product including key features and attributes'
+  ,merchandise_class STRING COMMENT 'Broad category classification of the product (e.g., Beverages)'
   ,class_cd STRING COMMENT 'Alphanumeric code representing the specific product subcategory'
-  ,description STRING COMMENT 'Detailed text description of the product including key features and attributes'
+  ,department_name STRING COMMENT 'Name of the department the product belongs to'
+  ,category_name STRING COMMENT 'Name of the category the product belongs to'
+  ,subcategory_name STRING COMMENT 'Name of the subcategory the product belongs to'
+  ,base_price DECIMAL(10,2) COMMENT 'Base price of the product'
+  ,msrp DECIMAL(10,2) COMMENT 'MSRP (Manufacturer Suggested Retail Price)'
 )
 READS SQL DATA
 COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
@@ -100,9 +106,15 @@ SELECT
   ,upc
   ,brand_name
   ,product_name
+  ,short_description
+  ,long_description
   ,merchandise_class
   ,class_cd
-  ,description
+  ,department_name
+  ,category_name
+  ,subcategory_name
+  ,base_price
+  ,msrp
 FROM {catalog_name}.{database_name}.products 
 WHERE ARRAY_CONTAINS(find_product_by_sku.sku, sku)
 """
@@ -118,7 +130,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_product_by_sku",
-    parameters={"sku": ["00176279"] }
+    parameters={"sku": ["STB-KCP-001"] }
 )
 
 if result.error:
@@ -133,20 +145,26 @@ display(pdf)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_upc(
-  upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
+  upc ARRAY<STRING> COMMENT 'One or more unique identifiers to retrieve. UPC values are between 10-16 alphanumeric characters'
 )
 RETURNS TABLE(
-  product_id BIGINT COMMENT 'Unique identifier for each product in the catalog' 
+  product_id BIGINT COMMENT 'Unique identifier for each product in the catalog'
   ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
   ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
   ,brand_name STRING COMMENT 'Name of the manufacturer or brand that produces the product'
   ,product_name STRING COMMENT 'Display name of the product as shown to customers'
+  ,short_description STRING COMMENT 'Brief product description for quick reference'
+  ,long_description STRING COMMENT 'Detailed text description of the product including key features and attributes'
   ,merchandise_class STRING COMMENT 'Broad category classification of the product (e.g., Electronics, Apparel, Grocery)'
   ,class_cd STRING COMMENT 'Alphanumeric code representing the specific product subcategory'
-  ,description STRING COMMENT 'Detailed text description of the product including key features and attributes'
+  ,department_name STRING COMMENT 'Name of the department where product is typically located'
+  ,category_name STRING COMMENT 'Name of the product category'
+  ,subcategory_name STRING COMMENT 'Name of the product subcategory'
+  ,base_price DECIMAL(11,2) COMMENT 'Standard retail price before any discounts'
+  ,msrp DECIMAL(11,2) COMMENT 'MSRP (Manufacturer Suggested Retail Price)'
 )
-
-COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
+READS SQL DATA
+COMMENT 'Retrieves detailed information about specific products by their UPC. This function is designed for product information retrieval in retail applications and can be used for product information, comparison, and recommendation.'
 RETURN 
 SELECT 
   product_id
@@ -154,9 +172,15 @@ SELECT
   ,upc
   ,brand_name
   ,product_name
+  ,short_description
+  ,long_description
   ,merchandise_class
   ,class_cd
-  ,description
+  ,department_name
+  ,category_name
+  ,subcategory_name
+  ,base_price
+  ,msrp
 FROM {catalog_name}.{database_name}.products 
 WHERE ARRAY_CONTAINS(find_product_by_upc.upc, upc);
   """
@@ -172,7 +196,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_product_by_upc",
-    parameters={"upc": ["0017627748017"] }
+    parameters={"upc": ["012345678901"] }
 )
 
 if result.error:
@@ -194,7 +218,7 @@ RETURNS TABLE(
   ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
   ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
   ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
-  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_id INT COMMENT 'Store identifier where inventory is located'
   ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
   ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
   ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
@@ -212,7 +236,7 @@ SELECT
   ,sku
   ,upc
   ,inventory.product_id
-  ,store
+  ,store_id
   ,store_quantity
   ,warehouse
   ,warehouse_quantity
@@ -238,7 +262,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_inventory_by_sku",
-    parameters={"sku": ["00176279"] }
+    parameters={"sku": ["PET-KCP-001"] }
 )
 
 if result.error:
@@ -260,7 +284,7 @@ RETURNS TABLE(
   ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
   ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
   ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
-  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_id INT COMMENT 'Store identifier where inventory is located'
   ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
   ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
   ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
@@ -278,7 +302,7 @@ SELECT
   ,sku
   ,upc
   ,inventory.product_id
-  ,store
+  ,store_id
   ,store_quantity
   ,warehouse
   ,warehouse_quantity
@@ -304,7 +328,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_inventory_by_upc",
-    parameters={"upc": ["0017627748017"] }
+    parameters={"upc": ["123456789012"] }
 )
 
 if result.error:
@@ -319,7 +343,7 @@ display(pdf)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_sku(
-  store STRING COMMENT 'The store identifier to retrieve inventory for'
+  store_id INT COMMENT 'The store identifier to retrieve inventory for'
   ,sku ARRAY<STRING> COMMENT 'One or more unique identifiers to retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -327,7 +351,7 @@ RETURNS TABLE(
   ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
   ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
   ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
-  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_id INT COMMENT 'Store identifier where inventory is located'
   ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
   ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
   ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
@@ -345,7 +369,7 @@ SELECT
   ,sku
   ,upc
   ,inventory.product_id
-  ,store
+  ,store_id
   ,store_quantity
   ,warehouse
   ,warehouse_quantity
@@ -357,7 +381,7 @@ SELECT
 FROM {catalog_name}.{database_name}.inventory inventory
 JOIN {catalog_name}.{database_name}.products products
 ON inventory.product_id = products.product_id
-WHERE ARRAY_CONTAINS(find_store_inventory_by_sku.sku, products.sku) AND inventory.store = find_store_inventory_by_sku.store;
+WHERE ARRAY_CONTAINS(find_store_inventory_by_sku.sku, products.sku) AND inventory.store_id = find_store_inventory_by_sku.store_id;
   """
 )
 
@@ -371,7 +395,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_sku",
-    parameters={"store": "35048", "sku": ["00176279"] }
+    parameters={"store_id": 101, "sku": ["DUN-KCP-001"] }
 )
 
 if result.error:
@@ -386,7 +410,7 @@ display(pdf)
 client.create_function(
   sql_function_body=f"""
 CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_upc(
-  store STRING COMMENT 'The store identifier to retrieve inventory for'
+  store_id INT COMMENT 'The store identifier to retrieve inventory for'
   ,upc ARRAY<STRING> COMMENT 'One or more unique identifiers to retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -394,7 +418,7 @@ RETURNS TABLE(
   ,sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code'
   ,upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification'
   ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product'  
-  ,store STRING COMMENT 'Store identifier where inventory is located'
+  ,store_id INT COMMENT 'Store identifier where inventory is located'
   ,store_quantity INT COMMENT 'Current available quantity of product in the specified store'
   ,warehouse STRING COMMENT 'Warehouse identifier where backup inventory is stored'
   ,warehouse_quantity INT COMMENT 'Current available quantity of product in the specified warehouse'
@@ -412,7 +436,7 @@ SELECT
   ,sku
   ,upc
   ,inventory.product_id
-  ,store
+  ,store_id
   ,store_quantity
   ,warehouse
   ,warehouse_quantity
@@ -424,7 +448,7 @@ SELECT
 FROM {catalog_name}.{database_name}.inventory inventory
 JOIN {catalog_name}.{database_name}.products products
 ON inventory.product_id = products.product_id
-WHERE ARRAY_CONTAINS(find_store_inventory_by_upc.upc, products.upc) AND inventory.store = find_store_inventory_by_upc.store;
+WHERE ARRAY_CONTAINS(find_store_inventory_by_upc.upc, products.upc) AND inventory.store_id = find_store_inventory_by_upc.store_id;
   """
 )
 
@@ -438,7 +462,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 result: FunctionExecutionResult = client.execute_function(
     function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_upc",
-    parameters={"store": "35048", "upc": ["0017627748017"] }
+    parameters={"store_id": 101, "upc": ["234567890123"] }
 )
 
 if result.error:

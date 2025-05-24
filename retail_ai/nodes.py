@@ -172,8 +172,8 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
         tools = create_uc_tools(
             [
-                "nfleming.retail_ai.find_product_by_sku",
-                "nfleming.retail_ai.find_product_by_upc",
+                function for function in model_config.get("resources").get("functions")
+                if "find_product_by" in function
             ]
         )
 
@@ -226,8 +226,8 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
         tools = create_uc_tools(
             [
-                "nfleming.retail_ai.find_inventory_by_sku",
-                "nfleming.retail_ai.find_inventory_by_upc",
+                function for function in model_config.get("resources").get("functions")
+                if "find_inventory_by" in function
             ]
         )
 
@@ -280,8 +280,8 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
         tools = create_uc_tools(
             [
-                "nfleming.retail_ai.find_product_by_sku",
-                "nfleming.retail_ai.find_product_by_upc",
+                function for function in model_config.get("resources").get("functions")
+                if "find_product_by" in function  
             ]
         )
 

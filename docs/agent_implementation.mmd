@@ -1,0 +1,77 @@
+%% Retail AI Agent - Implementation Details
+graph TD
+    %% Common Components for All Agents
+    subgraph Common[Common Agent Components]
+        LLM[Databricks LLM] --> Prompt[Prompt Template]
+        Config[Agent Config] --> Prompt
+        Prompt --> AgentState[Agent State]
+        AgentState --> Tools[Agent Tools]
+        Tools --> Response[Response Generation]
+        Response --> Guardrail[Guardrail Check]
+        Guardrail -->|Pass| FinalResp[Final Response]
+        Guardrail -->|Refine| Prompt
+    end
+
+    %% Product Agent Implementation
+    subgraph ProductAgent[Product Agent Implementation]
+        ProductTools[Product Tools] --> |Find by SKU| UC1[Unity Catalog]
+        ProductTools --> |Find by UPC| UC2[Unity Catalog]
+        ProductTools --> |Semantic Search| VS1[Vector Search]
+        ProductState[Product State] --> |Product Details| ProductTools
+        ProductPrompt[Product Prompt] --> |"Context: Product specs,\nCompatibility, Details"| ProductState
+    end
+
+    %% Inventory Agent Implementation
+    subgraph InventoryAgent[Inventory Agent Implementation]
+        InventoryTools[Inventory Tools] --> |Check Stock| UC3[Unity Catalog]
+        InventoryTools --> |Find Alternatives| VS2[Vector Search]
+        InventoryState[Inventory State] --> |Stock Levels| InventoryTools
+        InventoryPrompt[Inventory Prompt] --> |"Context: Availability,\nLocation, Restocking"| InventoryState
+    end
+
+    %% Recommendation Agent Implementation
+    subgraph RecommendAgent[Recommendation Agent Implementation]
+        RecommendTools[Recommendation Tools] --> |Similar Products| VS3[Vector Search]
+        RecommendTools --> |Customer History| UC4[Unity Catalog]
+        RecommendState[Recommend State] --> |Preferences| RecommendTools
+        RecommendPrompt[Recommend Prompt] --> |"Context: Preferences,\nHistory, Similarities"| RecommendState
+    end
+
+    %% DIY Agent Implementation
+    subgraph DIYAgent[DIY Agent Implementation]
+        DIYTools[DIY Tools] --> |Project Search| VS4[Vector Search]
+        DIYTools --> |Product Lookup| UC5[Unity Catalog]
+        DIYState[DIY State] --> |Project Context| DIYTools
+        DIYPrompt[DIY Prompt] --> |"Context: Instructions,\nMaterials, Steps"| DIYState
+    end
+
+    %% Comparison Agent Implementation
+    subgraph CompareAgent[Comparison Agent Implementation]
+        CompareTools[Compare Tools] --> |Product Details| UC6[Unity Catalog]
+        CompareTools --> |Similar Items| VS5[Vector Search]
+        CompareState[Compare State] --> |Comparison Criteria| CompareTools
+        ComparePrompt[Compare Prompt] --> |"Context: Features,\nPricing, Specs"| CompareState
+    end
+
+    %% General Agent Implementation
+    subgraph GeneralAgent[General Agent Implementation]
+        GeneralTools[General Tools] --> |Policy Search| VS6[Vector Search]
+        GeneralTools --> |Store Info| UC7[Unity Catalog]
+        GeneralState[General State] --> |Query Context| GeneralTools
+        GeneralPrompt[General Prompt] --> |"Context: Policies,\nProcedures, FAQs"| GeneralState
+    end
+
+    %% Styling
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px
+    classDef common fill:#e3fafc,stroke:#15aabf,stroke-width:2px
+    classDef tool fill:#e1f3d8,stroke:#82c91e,stroke-width:2px
+    classDef state fill:#fff9db,stroke:#fcc419,stroke-width:2px
+    classDef data fill:#f3d9fa,stroke:#ae3ec9,stroke-width:2px
+    classDef prompt fill:#ffe3e3,stroke:#ff6b6b,stroke-width:2px
+
+    %% Apply Styles
+    class LLM,Config,AgentState,Tools,Response,Guardrail,FinalResp common
+    class ProductTools,InventoryTools,RecommendTools,DIYTools,CompareTools,GeneralTools tool
+    class ProductState,InventoryState,RecommendState,DIYState,CompareState,GeneralState state
+    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,VS1,VS2,VS3,VS4,VS5,VS6 data
+    class Prompt,ProductPrompt,InventoryPrompt,RecommendPrompt,DIYPrompt,ComparePrompt,GeneralPrompt prompt

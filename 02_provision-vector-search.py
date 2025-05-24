@@ -1,37 +1,4 @@
 # Databricks notebook source
-from typing import Sequence
-
-pip_requirements: Sequence[str] = (
-  "databricks-sdk",
-  "databricks-vectorsearch",
-  "mlflow",
-  "python-dotenv"
-)
-
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
-%restart_python
-
-# COMMAND ----------
-
-from typing import Sequence
-
-from importlib.metadata import version
-
-
-pip_requirements: Sequence[str] = (
-  f"databricks-sdk=={version('databricks-sdk')}",
-  f"databricks-vectorsearch=={version('databricks-vectorsearch')}",
-  f"mlflow=={version('mlflow')}",
-)
-print("\n".join(pip_requirements))
-
-# COMMAND ----------
-
-# MAGIC %load_ext autoreload
-# MAGIC %autoreload 2
-
 # COMMAND ----------
 
 from dotenv import find_dotenv, load_dotenv
@@ -39,10 +6,14 @@ from dotenv import find_dotenv, load_dotenv
 _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
+from dotenv import find_dotenv, load_dotenv
+
+_ = load_dotenv(find_dotenv())
 
 from typing import Any, Sequence
 
 from mlflow.models import ModelConfig
+_ = load_dotenv(find_dotenv())
 
 
 model_config_file: str = "model_config.yaml"
@@ -103,7 +74,8 @@ if not index_exists(vsc, endpoint_name, index_name):
     pipeline_type="TRIGGERED",
     primary_key=primary_key,
     embedding_source_column=embedding_source_column, 
-    embedding_model_endpoint_name=embedding_model_endpoint_name 
+    embedding_model_endpoint_name=embedding_model_endpoint_name,
+    columns=columns
   )
 else:
   vsc.get_index(endpoint_name, index_name).sync()

@@ -1,0 +1,122 @@
+%% Retail AI Agent - Databricks Integration Architecture
+graph TD
+    %% User Entry Point
+    subgraph Client[Client Layer]
+        User([User]) --> Endpoint[Model Serving Endpoint]
+    end
+
+    %% Data Sources
+    subgraph Sources[Data Sources]
+        ERP[ERP Systems]
+        POS[POS Systems]
+        CRM[CRM Data]
+        Web[Web Analytics]
+        Social[Social Media]
+        IoT[IoT Sensors]
+        HRMS[HR Management System]
+        Wiki[Internal Wiki]
+        Docs[Document Management]
+        Train[Training Platform]
+    end
+
+    %% Databricks Platform Integration
+    subgraph DatabricksStack[Databricks Platform]
+        %% MLflow Model
+        subgraph MLflow[MLflow Model]
+            %% Agent Network
+            subgraph AgentNet[LangGraph Agent Network]
+                Router[Router Agent]
+                %% Specialized Agents
+                subgraph Agents[Specialized Agents]
+                    GeneralA[General Agent]
+                    ProductA[Product Agent]
+                    InventoryA[Inventory Agent]
+                    RecommendA[Recommendation Agent]
+                    DIYA[DIY Agent]
+                    CompareA[Comparison Agent]
+                    EmployeeA[Employee Support Agent]
+                end
+                
+                Router --> GeneralA
+                Router --> ProductA
+                Router --> InventoryA
+                Router --> RecommendA
+                Router --> DIYA
+                Router --> CompareA
+                Router --> EmployeeA
+            end
+        end
+
+        %% Model Serving Connection
+        Endpoint --> MLflow
+
+        %% Foundation Models
+        subgraph Models[Foundation Models]
+            LLM[Databricks LLM] --> Router
+            LLM --> GeneralA
+            LLM --> ProductA
+            LLM --> InventoryA
+            LLM --> RecommendA
+            LLM --> DIYA
+            LLM --> CompareA
+            LLM --> EmployeeA
+        end
+
+        %% Unity Catalog and Data Services
+        subgraph UnityContainer[Unity Catalog]
+            %% Vector Search
+            VSearch[(Vector Search)]
+            
+            %% Lakehouse Data
+            subgraph Tables[Tables]
+                Bronze[(Bronze Tables)]
+                Silver[(Silver Tables)]
+                Gold[(Gold Tables)]
+                Bronze --> Silver
+                Silver --> Gold
+            end
+            
+            %% Volumes
+            Volumes[(Volumes)]
+            
+            %% Data Flow
+            Gold --> VSearch
+            VSearch --> ProductA
+            VSearch --> RecommendA
+            VSearch --> InventoryA
+            VSearch --> EmployeeA
+        end
+
+        %% Data Ingestion Flow
+        ERP --> |Structured Data| Bronze
+        POS --> |Transaction Data| Bronze
+        CRM --> |Customer Data| Bronze
+        Web --> |Analytics Data| Bronze
+        Social --> |Unstructured Text| Volumes
+        IoT --> |Sensor Data| Bronze
+        HRMS --> |Employee Data| Bronze
+        Wiki --> |Policy Documents| Volumes
+        Docs --> |Process Documentation| Volumes
+        Train --> |Training Materials| Volumes
+    end
+
+    %% Styling
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px
+    classDef client fill:#dbe4ff,stroke:#4c6ef5,stroke-width:2px
+    classDef agent fill:#e1f3d8,stroke:#82c91e,stroke-width:2px
+    classDef model fill:#fff9db,stroke:#fcc419,stroke-width:2px
+    classDef mlflow fill:#fff3bf,stroke:#fab005,stroke-width:2px
+    classDef data fill:#f3d9fa,stroke:#ae3ec9,stroke-width:2px
+    classDef lake fill:#d0ebff,stroke:#1971c2,stroke-width:2px
+    classDef unity fill:#ffe3e3,stroke:#fa5252,stroke-width:2px
+    classDef source fill:#e7f5ff,stroke:#1c7ed6,stroke-width:2px
+    
+    %% Apply Styles
+    class User,Endpoint client
+    class GeneralA,ProductA,InventoryA,RecommendA,DIYA,CompareA,EmployeeA,Router agent
+    class LLM model
+    class MLflow mlflow
+    class VSearch,Volumes data
+    class Bronze,Silver,Gold lake
+    class UnityContainer unity
+    class ERP,POS,CRM,Web,Social,IoT,HRMS,Wiki,Docs,Train source

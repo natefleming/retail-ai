@@ -1,26 +1,29 @@
 # Databricks notebook source
 from typing import Sequence
+import tomli
+from pathlib import Path
 
-pip_requirements: Sequence[str] = (
-  "databricks-sdk",
-)
+# Read dependencies from pyproject.toml
+with open("pyproject.toml", "rb") as f:
+    pyproject = tomli.load(f)
+    
+pip_requirements = pyproject["project"]["dependencies"]
+pip_requirements_str = " ".join(pip_requirements)
 
-pip_requirements: str = " ".join(pip_requirements)
+# COMMAND ----------
 
-%pip install --quiet --upgrade {pip_requirements}
-%restart_python
+# MAGIC %pip install --quiet --upgrade {pip_requirements_str}
+# MAGIC %restart_python
 
 # COMMAND ----------
 
 from typing import Sequence
 from importlib.metadata import version
 
-pip_requirements: Sequence[str] = (
-  f"databricks-sdk=={version('databricks-sdk')}",
-)
-
-print("\n".join(pip_requirements))
-
+# Print installed versions for verification
+for req in pip_requirements:
+    pkg_name = req.split("[")[0].split(">=")[0].split("==")[0].strip('"')
+    print(f"{pkg_name}=={version(pkg_name)}")
 
 # COMMAND ----------
 
@@ -63,7 +66,6 @@ from retail_ai.catalog import (
   get_or_create_volume
 )
 
-
 w: WorkspaceClient = WorkspaceClient()
 
 catalog: CatalogInfo = get_or_create_catalog(name=catalog_name, w=w)
@@ -81,29 +83,37 @@ from typing import Any, Sequence
 import re
 from pathlib import Path
 
-
 datasets: Sequence[dict[str, str]] = config.get("datasets")
 
 context = dbutils.entry_point.getDbutils().notebook().getContext()
 current_dir = "file:///Workspace" / Path(context.notebookPath().get()).relative_to("/").parent
 
 for dataset in datasets:
-  table: str = dataset.get("table")
-  ddl_path: Path = Path(dataset.get("ddl"))
-  data_path: Path = current_dir / Path(dataset.get("data"))
-  format: str = dataset.get("format")
+    table: str = dataset.get("table")
+    ddl_path: Path = Path(dataset.get("ddl"))
+    data_path: Path = current_dir / Path(dataset.get("data"))
+    format: str = dataset.get("format")
 
-  statements: Sequence[str] = [s for s in re.split(r"\s*;\s*",  ddl_path.read_text()) if s]
-  for statement in statements:
-    print(statement)
-    spark.sql(statement, args={"database": database.full_name})
-    spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
+    # Execute DDL statements
+    statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s]
+    for statement in statements:
+        print(statement)
+        spark.sql(statement, args={"database": database.full_name})
 
-
+    # Load data based on format
+    if format == "sql":
+        # For SQL data files, execute the SQL statements
+        data_statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", Path(dataset.get("data")).read_text()) if s]
+        for statement in data_statements:
+            print(statement)
+            spark.sql(statement, args={"database": database.full_name})
+    else:
+        # For other formats (parquet, csv, etc.), use spark.read
+        spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
 
 # COMMAND ----------
 
 spark.sql(f"USE {database.full_name}")
 for dataset in datasets:
-  table: str = dataset.get("table")
-  display(spark.table(table))
+    table: str = dataset.get("table")
+    display(spark.table(table))

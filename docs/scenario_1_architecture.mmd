@@ -1,0 +1,102 @@
+graph TB
+    %% Client Layer
+    subgraph Client["Client Layer"]
+        MA[Mobile App Interface]
+        style MA fill:#f9f,stroke:#333,stroke-width:2px
+    end
+
+    %% Agent Layer
+    subgraph Agents["Agent Orchestration Layer"]
+        RA[Router Agent]
+        style RA fill:#bbf,stroke:#333,stroke-width:4px
+        
+        subgraph SpecializedAgents["Specialized Agents"]
+            IA[Inventory Agent]
+            PA[Product Agent]
+            SA[Store Locator Agent]
+            CSA[Customer Service Agent]
+            style IA fill:#dfd,stroke:#333,stroke-width:2px
+            style PA fill:#dfd,stroke:#333,stroke-width:2px
+            style SA fill:#dfd,stroke:#333,stroke-width:2px
+            style CSA fill:#dfd,stroke:#333,stroke-width:2px
+        end
+    end
+
+    %% Databricks Platform Layer
+    subgraph Databricks["Databricks Lakehouse Platform"]
+        subgraph DataServices["Data Services"]
+            DLT[Delta Live Tables]
+            UC[Unity Catalog]
+            VS[Vector Search]
+            style DLT fill:#fdd,stroke:#333,stroke-width:2px
+            style UC fill:#fdd,stroke:#333,stroke-width:2px
+            style VS fill:#fdd,stroke:#333,stroke-width:2px
+        end
+
+        subgraph MLServices["ML Services"]
+            MLflow[MLflow Model Registry]
+            MS[Model Serving]
+            style MLflow fill:#ddf,stroke:#333,stroke-width:2px
+            style MS fill:#ddf,stroke:#333,stroke-width:2px
+        end
+
+        subgraph Storage["Data Storage"]
+            Products[(Product Catalog)]
+            Inventory[(Inventory Data)]
+            Stores[(Store Information)]
+            style Products fill:#ddd,stroke:#333,stroke-width:2px
+            style Inventory fill:#ddd,stroke:#333,stroke-width:2px
+            style Stores fill:#ddd,stroke:#333,stroke-width:2px
+        end
+    end
+
+    %% Connections
+    MA --> RA
+    RA --> IA & PA & SA & CSA
+
+    %% Inventory Agent Connections
+    IA --> DLT
+    IA --> UC
+    DLT --> Inventory
+
+    %% Product Agent Connections
+    PA --> VS
+    PA --> MLflow
+    VS --> Products
+
+    %% Store Locator Agent Connections
+    SA --> UC
+    SA --> Stores
+    SA --> Inventory
+
+    %% Customer Service Agent Connections
+    CSA --> UC
+    CSA --> DLT
+    CSA --> MS
+
+    %% Data Service Connections
+    UC --> Storage
+    MLflow --> MS
+
+    %% Styling
+    classDef default fill:#fff,stroke:#333,stroke-width:1px
+    classDef highlight fill:#f96,stroke:#333,stroke-width:4px
+    
+    %% Labels
+    linkStyle default stroke:#666,stroke-width:2px
+    
+    %% Notes
+    subgraph Legend
+        direction LR
+        Client_Component[Client Component]
+        Agent_Component[Agent Component]
+        Data_Service[Data Service]
+        ML_Service[ML Service]
+        Storage_Component[Storage]
+        
+        style Client_Component fill:#f9f,stroke:#333,stroke-width:2px
+        style Agent_Component fill:#dfd,stroke:#333,stroke-width:2px
+        style Data_Service fill:#fdd,stroke:#333,stroke-width:2px
+        style ML_Service fill:#ddf,stroke:#333,stroke-width:2px
+        style Storage_Component fill:#ddd,stroke:#333,stroke-width:2px
+    end 
