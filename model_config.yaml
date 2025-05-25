@@ -503,15 +503,15 @@ app:
       entitlements:
         - CAN_MANAGE
   agents:
-    - *router
-    - *general
-    - *orders
-    - *diy
-    - *product
-    - *inventory
-    - *comparison
-    - *recommendation
-    - *process_image
+    router: *router
+    general: *general
+    orders: *orders
+    diy: *diy
+    product: *product
+    inventory: *inventory
+    comparison: *comparison
+    recommendation: *recommendation
+    process_image: *process_image
 
 evaluation:
   model: *judge_llm
