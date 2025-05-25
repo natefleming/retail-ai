@@ -1,9 +1,8 @@
-catalogs:
-  retail_catalog: &retail_catalog
+schemas:
+  retail_schema: &retail_schema
     catalog_name: nfleming
     schema_name: retail_ai
     full_name: nfleming.retail_ai
-    volume_name: retail_ai
     permissions:
       - principals: []
         privileges:
@@ -40,10 +39,10 @@ resources:
       endpoint_name: one-env-shared-endpoint-12
       endpoint_type: STANDARD
       index:
-        catalog: *retail_catalog
+        schema: *retail_schema
         name: products_index
       source_table:
-        catalog: *retail_catalog
+        schema: *retail_schema
         name: products
       primary_key: product_id
       doc_uri: ~
@@ -66,30 +65,35 @@ resources:
 
   tables:
     product_table: &product_table
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: products
     inventory_table: &inventory_table
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: inventory
+
+  volumes:
+    retail_volume: &retail_volume
+      schema: *retail_schema
+      name: retail_ai
 
   functions:
     find_product_by_sku: &find_product_by_sku
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: find_product_by_sku
     find_product_by_upc: &find_product_by_upc
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: find_product_by_upc
     find_inventory_by_sku: &find_inventory_by_sku
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: find_inventory_by_sku
     find_inventory_by_upc: &find_inventory_by_upc
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: find_inventory_by_upc
     find_store_inventory_by_upc: &find_store_inventory_by_upc
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: find_store_inventory_by_upc
     find_store_inventory_by_sku: &find_store_inventory_by_sku
-      catalog: *retail_catalog
+      schema: *retail_schema
       name: find_store_inventory_by_sku
 
   warehouses:
@@ -182,7 +186,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_product_by_sku_tool
       args:
-        catalog: *retail_catalog
+        schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
   find_product_by_upc_tool: &find_product_by_upc_tool
@@ -191,7 +195,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_product_by_upc_tool
       args:
-        catalog: *retail_catalog
+        schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
   find_inventory_by_sku_tool: &find_inventory_by_sku_tool
@@ -200,7 +204,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_inventory_by_sku_tool
       args:
-        catalog: *retail_catalog
+        schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
   find_inventory_by_upc_tool: &find_inventory_by_upc_tool
@@ -209,7 +213,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_inventory_by_upc_tool
       args:
-        catalog: *retail_catalog
+        schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
   find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
@@ -218,7 +222,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_store_inventory_by_sku_tool
       args:
-        catalog: *retail_catalog
+        schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
   find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
@@ -227,7 +231,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_store_inventory_by_upc_tool
       args:
-        catalog: *retail_catalog
+        schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
 guardrails:
@@ -305,6 +309,7 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
+    is_default: True
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -315,6 +320,9 @@ agents:
       and other general inquiries. Be friendly, concise, and informative. If you don't know specific details about
       the store's policies, provide general retail best practices while noting that the customer should verify with store staff.
       Always maintain a helpful and professional tone.
+    handoff_prompt: |
+      ANY other questions that don't fit the above categories, including store policies, hours, etc.
+      Example: "What are your store hours?" or "Do you offer free delivery?"
 
   orders: &orders
     model: *tool_calling_llm
@@ -323,6 +331,7 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
+    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -333,6 +342,9 @@ agents:
       processes clearly and professionally. When responding to specific order inquiries, ask for order numbers 
       if not provided. Emphasize customer satisfaction while being realistic about what information is available to you.
       Always guide customers to the appropriate next steps if their issue can't be fully resolved in this conversation.
+    handoff_prompt: |
+      Questions about tracking orders, delivery status, scheduling deliveries or services
+      Example: "When will my order arrive?" or "Can I schedule delivery for my new refrigerator?"
 
   diy: &diy
     model: *tool_calling_llm
@@ -342,6 +354,7 @@ agents:
       []
       # - *llm_judge_guardrail
     checkpointer: *checkpointer
+    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -376,6 +389,9 @@ agents:
       - Recommend the user verify critical information elsewhere
 
       #### Remember: You MUST use search tools for EVERY DIY and home improvement question. This ensures your advice is accurate, up-to-date, and as helpful as possible to the user.
+    handoff_prompt: |
+      Questions about how-to instructions, DIY projects, tutorials, or home improvement advice
+      Example: "How do I install crown molding?" or "What's the best way to paint kitchen cabinets?"
 
   product: &product
     model: *tool_calling_llm
@@ -387,6 +403,7 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
+    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -398,6 +415,9 @@ agents:
       mention related accessories or complementary items. If asked about product quality, provide balanced information
       about pros and cons based on typical customer feedback and industry standards. Always prioritize accurate 
       product information over salesmanship.
+    handoff_prompt: |
+      Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
+      Example: "Tell me about the Craftsman cordless drill" or "What are the specs of the Dewalt table saw?"
 
   inventory: &inventory
     model: *tool_calling_llm
@@ -411,6 +431,7 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
+    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -422,6 +443,9 @@ agents:
       available to you, guide customers on how they can check current inventory through official channels.
       Be transparent about limitations in your ability to check real-time stock levels while remaining helpful
       with general inventory policies and procedures.
+    handoff_prompt: |
+      Questions about stock levels, availability, restocking, or store inventory
+      Example: "Do you have the Black+Decker sander in stock?" or "When will you get more Makita batteries?"
 
   comparison: &comparison
     model: *tool_calling_llm
@@ -432,6 +456,7 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
+    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -443,6 +468,9 @@ agents:
       products, focusing on facts rather than opinions. Consider various customer needs and scenarios when explaining
       which product might be better for specific applications. When appropriate, create comparison tables or lists
       to make differences clear at a glance.
+    handoff_prompt: |
+      Questions explicitly comparing TWO OR MORE specific products or asking to compare options
+      Example: "Compare the Milwaukee and Ryobi power drills" or "What's better for deck building: pressure-treated or cedar?"
 
   recommendation: &recommendation
     model: *tool_calling_llm
@@ -452,6 +480,7 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
+    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -463,6 +492,9 @@ agents:
       appropriate. Explain the reasoning behind your recommendations to help customers make informed decisions.
       Ask clarifying questions when necessary to provide better tailored suggestions. Balance quality considerations
       with budget constraints, and suggest alternatives when primary recommendations might not be ideal.
+    handoff_prompt: |
+      Questions asking for product suggestions, recommendations, or "best" products for specific needs
+      Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
 
   process_image: &process_image
     model: *reasoning_llm
@@ -492,7 +524,7 @@ app:
   log_level: INFO
   orchestration_strategy: supervisor
   registered_model:
-    catalog: *retail_catalog
+    schema: *retail_schema
     name: retail_ai_agent
   endpoint_name: retail_ai_agent
   tags:
@@ -516,17 +548,17 @@ app:
 evaluation:
   model: *judge_llm
   table:
-    catalog: *retail_catalog
+    schema: *retail_schema
     name: evaluation
   num_evals: 25
 
 datasets:
-  - catalog: *retail_catalog
+  - schema: *retail_schema
     table: products
     ddl: ./data/retail/products.sql
     data: ./data/retail/products.snappy.parquet
     format: parquet
-  - catalog: *retail_catalog
+  - schema: *retail_schema
     table: inventory
     ddl: ./data/retail/inventory.sql
     data: ./data/retail/inventory.snappy.parquet

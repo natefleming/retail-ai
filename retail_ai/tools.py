@@ -193,7 +193,7 @@ def create_product_comparison_tool(
 
 
 def find_allowable_classifications(
-    catalog_name: str, database_name: str, w: Optional[WorkspaceClient] = None
+    catalog_name: str, schema_name: str, w: Optional[WorkspaceClient] = None
 ) -> Sequence[str]:
     """
     Retrieve the list of allowable product classifications from a Unity Catalog function.
@@ -205,7 +205,7 @@ def find_allowable_classifications(
     Args:
         w: Databricks WorkspaceClient instance for API access
         catalog_name: Name of the Unity Catalog containing the function
-        database_name: Name of the database/schema containing the function
+        schema_name: Name of the database/schema containing the function
 
     Returns:
         A sequence of strings representing valid product classifications
@@ -214,7 +214,7 @@ def find_allowable_classifications(
         Exception: If the Unity Catalog function execution fails
     """
 
-    logger.debug(f"catalog_name={catalog_name}, database_name={database_name}")
+    logger.debug(f"catalog_name={catalog_name}, schema_name={schema_name}")
 
     if w is None:
         w = WorkspaceClient()
@@ -223,7 +223,7 @@ def find_allowable_classifications(
 
     # Execute the Unity Catalog function to retrieve classifications
     result: FunctionExecutionResult = client.execute_function(
-        function_name=f"{catalog_name}.{database_name}.find_allowable_product_classifications",
+        function_name=f"{catalog_name}.{schema_name}.find_allowable_product_classifications",
         parameters={},
     )
 
@@ -594,10 +594,10 @@ def search_tool(model_config: ModelConfig) -> BaseTool:
 
 
 def create_find_product_by_sku_tool(
-    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = catalog_description["catalog_name"]
-    database_name: str = catalog_description["database_name"]
+    catalog_name: str = schema_definition["catalog_name"]
+    schema_name: str = schema_definition["schema_name"]
     warehouse_id: str = warehouse_description["warehouse_id"]
 
     @tool
@@ -640,7 +640,7 @@ def create_find_product_by_sku_tool(
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{database_name}.find_product_by_sku(ARRAY({skus}))
+            SELECT * FROM {catalog_name}.{schema_name}.find_product_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -666,10 +666,10 @@ def create_find_product_by_sku_tool(
 
 
 def create_find_product_by_upc_tool(
-    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = catalog_description["catalog_name"]
-    database_name: str = catalog_description["database_name"]
+    catalog_name: str = schema_definition["catalog_name"]
+    schema_name: str = schema_definition["schema_name"]
     warehouse_id: str = warehouse_description["warehouse_id"]
 
     @tool
@@ -697,7 +697,7 @@ def create_find_product_by_upc_tool(
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{database_name}.find_product_by_upc(ARRAY({upcs}))
+            SELECT * FROM {catalog_name}.{schema_name}.find_product_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -723,10 +723,10 @@ def create_find_product_by_upc_tool(
 
 
 def create_find_inventory_by_sku_tool(
-    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = catalog_description["catalog_name"]
-    database_name: str = catalog_description["database_name"]
+    catalog_name: str = schema_definition["catalog_name"]
+    schema_name: str = schema_definition["schema_name"]
     warehouse_id: str = warehouse_description["warehouse_id"]
 
     @tool
@@ -774,7 +774,7 @@ def create_find_inventory_by_sku_tool(
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{database_name}.find_inventory_by_sku(ARRAY({skus}))
+            SELECT * FROM {catalog_name}.{schema_name}.find_inventory_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -800,10 +800,10 @@ def create_find_inventory_by_sku_tool(
 
 
 def create_find_inventory_by_upc_tool(
-    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = catalog_description["catalog_name"]
-    database_name: str = catalog_description["database_name"]
+    catalog_name: str = schema_definition["catalog_name"]
+    schema_name: str = schema_definition["schema_name"]
     warehouse_id: str = warehouse_description["warehouse_id"]
 
     @tool
@@ -836,7 +836,7 @@ def create_find_inventory_by_upc_tool(
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{database_name}.find_inventory_by_upc(ARRAY({upcs}))
+            SELECT * FROM {catalog_name}.{schema_name}.find_inventory_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -862,10 +862,10 @@ def create_find_inventory_by_upc_tool(
 
 
 def create_find_store_inventory_by_sku_tool(
-    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
 ) -> Callable[[str, list[str]], tuple]:
-    catalog_name: str = catalog_description["catalog_name"]
-    database_name: str = catalog_description["database_name"]
+    catalog_name: str = schema_definition["catalog_name"]
+    schema_name: str = schema_definition["schema_name"]
     warehouse_id: str = warehouse_description["warehouse_id"]
 
     @tool
@@ -916,7 +916,7 @@ def create_find_store_inventory_by_sku_tool(
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{database_name}.find_store_inventory_by_sku('{store}', ARRAY({skus}))
+            SELECT * FROM {catalog_name}.{schema_name}.find_store_inventory_by_sku('{store}', ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
@@ -942,10 +942,10 @@ def create_find_store_inventory_by_sku_tool(
 
 
 def create_find_store_inventory_by_upc_tool(
-    catalog_description: dict[str, Any], warehouse_description: dict[str, Any]
+    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
 ) -> Callable[[str, list[str]], tuple]:
-    catalog_name: str = catalog_description["catalog_name"]
-    database_name: str = catalog_description["database_name"]
+    catalog_name: str = schema_definition["catalog_name"]
+    schema_name: str = schema_definition["schema_name"]
     warehouse_id: str = warehouse_description["warehouse_id"]
 
     @tool
@@ -981,7 +981,7 @@ def create_find_store_inventory_by_upc_tool(
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{database_name}.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
+            SELECT * FROM {catalog_name}.{schema_name}.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
