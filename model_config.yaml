@@ -35,7 +35,7 @@ resources:
 
   vector_stores:
     products_vector_store: &products_vector_store
-      embedding_model_endpoint_name: databricks-gte-large-en
+      embedding_model: *embedding_model
       endpoint_name: one-env-shared-endpoint-12
       endpoint_type: STANDARD
       index:
@@ -309,7 +309,6 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
-    is_default: True
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -331,7 +330,6 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
-    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -354,7 +352,6 @@ agents:
       []
       # - *llm_judge_guardrail
     checkpointer: *checkpointer
-    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -403,7 +400,6 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
-    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -431,7 +427,6 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
-    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -456,7 +451,6 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
-    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -480,7 +474,6 @@ agents:
       []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
-    is_default: False
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -522,7 +515,6 @@ agents:
 
 app:
   log_level: INFO
-  orchestration_strategy: supervisor
   registered_model:
     schema: *retail_schema
     name: retail_ai_agent
@@ -534,6 +526,7 @@ app:
     - principals: []
       entitlements:
         - CAN_MANAGE
+
   agents:
     router: *router
     general: *general
@@ -544,6 +537,10 @@ app:
     comparison: *comparison
     recommendation: *recommendation
     process_image: *process_image
+
+  supervisor:
+    model: *tool_calling_llm
+    default_agent: *general
 
 evaluation:
   model: *judge_llm

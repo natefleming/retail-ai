@@ -1,4 +1,3 @@
-
 import sys
 from pathlib import Path
 
@@ -12,9 +11,11 @@ test_dir: Path = root_dir / "tests"
 sys.path.insert(0, str(test_dir.resolve()))
 sys.path.insert(0, str(src_dir.resolve()))
 
+
 @pytest.fixture
 def development_config() -> Path:
     return root_dir / "model_config.yaml"
+
 
 @pytest.fixture
 def model_config(development_config: Path) -> ModelConfig:

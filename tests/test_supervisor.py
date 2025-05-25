@@ -10,6 +10,7 @@ from retail_ai.supervisor import Supervisor
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
+
 @pytest.fixture
 def supervisor(model_config: ModelConfig) -> Supervisor:
     supervisor = Supervisor()
@@ -26,6 +27,7 @@ def test_supervisor_initialization() -> None:
     supervisor = Supervisor()
     assert supervisor.agents == {}
 
+
 def test_supervisor_register_agent(model_config: ModelConfig) -> None:
     """
     Test that Supervisor can register an agent and update the agents dictionary.
@@ -35,16 +37,18 @@ def test_supervisor_register_agent(model_config: ModelConfig) -> None:
     for name, agent in agents.items():
         supervisor.register(name, agent)
 
-    assert(len(supervisor.agents) == len(agents))
+    assert len(supervisor.agents) == len(agents)
 
 
-def test_supervisor_default_agent(supervisor: Supervisor, model_config: ModelConfig) -> None:
+def test_supervisor_default_agent(
+    supervisor: Supervisor, model_config: ModelConfig
+) -> None:
     agents = model_config.get("app").get("agents")
     allowed_routes: Sequence[str] = sorted(list(agents.keys()))
-    assert(supervisor.allowed_routes == allowed_routes)
+    assert supervisor.allowed_routes == allowed_routes
 
 
 def test_supervisor_prompt(supervisor: Supervisor) -> None:
     prompt: str = supervisor.prompt
     logger.info(prompt)
-    assert(prompt is not None)
+    assert prompt is not None
