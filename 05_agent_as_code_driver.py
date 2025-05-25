@@ -173,6 +173,11 @@ for _, connection  in config.get("resources").get("connections", {}).items():
 resources: list[DatabricksResource] = []
 
 resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names if m]
+resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouse_ids if w]
+resources += [DatabricksGenieSpace(genie_space_id=s) for s in space_ids if s]
+resources += [DatabricksFunction(function_name=f) for f in function_names if f]
+resources += [DatabricksTable(table_name=t) for t in tables_names if t]
+resources += [DatabricksUCConnection(connection_name=c) for c in connection_names if c]
 resources += [DatabricksVectorSearchIndex(index_name=v) for v in vector_indexes if v]
 resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouse_ids if w]
 resources += [DatabricksGenieSpace(genie_space_id=s) for s in space_ids if s]

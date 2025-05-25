@@ -22,7 +22,7 @@ def with_guardrails(
 
 
 def judge_node(guardrails: dict[str, Any]) -> AgentCallable:
-    model: str = guardrails.get("model").get("model_name")
+    model: str = guardrails.get("model").get("name")
     critique_prompt: str = guardrails.get("prompt")
 
     def judge(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
