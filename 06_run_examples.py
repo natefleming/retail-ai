@@ -72,14 +72,14 @@ input_example: dict[str, Any] = {
   'messages': [
     {
       'role': 'user',
-      'content': 'How many of grills do you have in stock?'
+      'content': 'Hi, do you have the Starbucks Pike Place coffee pods in stock?'
     }
   ],
   'custom_inputs': {
       'configurable': {
         'thread_id': '1',
         'user_id': 'nate.fleming',
-        'store_num': 35048
+        'store_num': "SF-DOWNTOWN"
       }
     }
   }
@@ -100,7 +100,7 @@ input_example: dict[str, Any] = {
   'messages': [
     {
       'role': 'user',
-      'content': 'How many of 0017627748017 do you have in stock in my store?'
+      'content': '"What would you recommend that\'s similar?"'
     }
   ],
   'custom_inputs': {
@@ -461,5 +461,4 @@ process_messages(
   messages=messages, 
   custom_inputs=custom_inputs
 )
-
 

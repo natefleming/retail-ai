@@ -385,7 +385,12 @@ agents:
       - Accurate demand predictions
       
       Be precise with inventory information while maintaining a helpful attitude. Use our real-time 
-      inventory tracking to give customers the most up-to-date and accurate information possible.
+      inventory tracking to give customers the most up-to-date and accurate information possible. 
+
+      Use the find_product_details_by_description to find the UPC and SKU numbers
+      Use as many tools as you need to find the inventory 
+
+      Only use find_store_inventory_by_upc when you know the store number 
 
   comparison:
     model: *tool_calling_llm

@@ -17,14 +17,13 @@ from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import (
-    create_uc_tools,
-    find_product_details_by_description_tool,
-    create_find_product_by_sku_tool,
-    create_find_product_by_upc_tool,
     create_find_inventory_by_sku_tool,
     create_find_inventory_by_upc_tool,
+    create_find_product_by_sku_tool,
+    create_find_product_by_upc_tool,
     create_find_store_inventory_by_sku_tool,
     create_find_store_inventory_by_upc_tool,
+    find_product_details_by_description_tool,
     search_tool,
 )
 from retail_ai.types import AgentCallable
@@ -69,7 +68,7 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
         An agent callable function that updates the state with the routing decision
     """
 
-    model: str = model_config.get("agents").get("router").get("model").get("model_name")
+    model: str = model_config.get("agents").get("router").get("model").get("name")
     prompt: str = model_config.get("agents").get("router").get("prompt")
     allowed_routes: Sequence[str] = (
         model_config.get("agents").get("router").get("allowed_routes")
@@ -106,17 +105,20 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def general_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = (
-        model_config.get("agents").get("general").get("model").get("model_name")
-    )
+    model: str = model_config.get("agents").get("general").get("model").get("name")
     prompt: str = model_config.get("agents").get("general").get("prompt")
     guardrails: Sequence[dict[str, Any]] = (
         model_config.get("agents").get("general").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
+        "products_retriever"
+    )
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
     def general(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -134,6 +136,7 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
         ]
 
@@ -153,19 +156,27 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def product_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = (
-        model_config.get("agents").get("product").get("model").get("model_name")
-    )
+    model: str = model_config.get("agents").get("product").get("model").get("name")
     prompt: str = model_config.get("agents").get("product").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("product").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
+        "products_retriever"
+    )
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
-    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+    warehouse_id: str = (
+        model_config.get("resources")
+        .get("warehouses")
+        .get("shared_endpoint_warehouse")
+        .get("warehouse_id")
+    )
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -178,28 +189,19 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-<<<<<<< HEAD
         tools = create_uc_tools(
             [
-                function for function in model_config.get("resources").get("functions")
-                if "find_product_by" in function
+                "nfleming.retail_ai.find_product_by_sku",
+                "nfleming.retail_ai.find_product_by_upc",
             ]
         )
-=======
-        tools = []
-        # tools = create_uc_tools(
-        #     [
-        #         "nfleming.retail_ai.find_product_by_sku",
-        #         "nfleming.retail_ai.find_product_by_upc",
-        #     ]
-        # )
->>>>>>> a1b01e6 (implement functions as tools)
 
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
             create_find_product_by_sku_tool(warehouse_id=warehouse_id),
             create_find_product_by_upc_tool(warehouse_id=warehouse_id),
@@ -221,19 +223,27 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def inventory_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = (
-        model_config.get("agents").get("inventory").get("model").get("model_name")
-    )
+    model: str = model_config.get("agents").get("inventory").get("model").get("name")
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("inventory").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
+        "products_retriever"
+    )
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
-    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+    warehouse_id: str = (
+        model_config.get("resources")
+        .get("warehouses")
+        .get("shared_endpoint_warehouse")
+        .get("warehouse_id")
+    )
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -246,33 +256,24 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-<<<<<<< HEAD
         tools = create_uc_tools(
             [
-                function for function in model_config.get("resources").get("functions")
-                if "find_inventory_by" in function
+                "nfleming.retail_ai.find_inventory_by_sku",
+                "nfleming.retail_ai.find_inventory_by_upc",
             ]
         )
-=======
-        tools = []
-        # tools = create_uc_tools(
-        #     [
-        #         "nfleming.retail_ai.find_inventory_by_sku",
-        #         "nfleming.retail_ai.find_inventory_by_upc",
-        #     ]
-        # )
->>>>>>> a1b01e6 (implement functions as tools)
 
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
             create_find_inventory_by_sku_tool(warehouse_id=warehouse_id),
             create_find_inventory_by_upc_tool(warehouse_id=warehouse_id),
             create_find_store_inventory_by_sku_tool(warehouse_id=warehouse_id),
-            create_find_store_inventory_by_upc_tool(warehouse_id=warehouse_id)
+            create_find_store_inventory_by_upc_tool(warehouse_id=warehouse_id),
         ]
 
         agent: CompiledStateGraph = create_react_agent(
@@ -291,17 +292,26 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = (
-        model_config.get("agents").get("comparison").get("model").get("model_name")
-    )
+    model: str = model_config.get("agents").get("comparison").get("model").get("name")
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("comparison").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
+        "products_retriever"
+    )
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
+    warehouse_id: str = (
+        model_config.get("resources")
+        .get("warehouses")
+        .get("shared_endpoint_warehouse")
+        .get("warehouse_id")
+    )
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -314,28 +324,19 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-<<<<<<< HEAD
         tools = create_uc_tools(
             [
-                function for function in model_config.get("resources").get("functions")
-                if "find_product_by" in function  
+                "nfleming.retail_ai.find_product_by_sku",
+                "nfleming.retail_ai.find_product_by_upc",
             ]
         )
-=======
-        tools = []
-        # tools = create_uc_tools(
-        #     [
-        #         "nfleming.retail_ai.find_product_by_sku",
-        #         "nfleming.retail_ai.find_product_by_upc",
-        #     ]
-        # )
->>>>>>> a1b01e6 (implement functions as tools)
 
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
             create_find_product_by_sku_tool(warehouse_id=warehouse_id),
             create_find_product_by_upc_tool(warehouse_id=warehouse_id),
@@ -357,7 +358,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def orders_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("orders").get("model").get("model_name")
+    model: str = model_config.get("agents").get("orders").get("model").get("name")
     prompt: str = model_config.get("agents").get("orders").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("orders").get("guardrails")
@@ -392,15 +393,20 @@ def orders_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def diy_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("diy").get("model").get("model_name")
+    model: str = model_config.get("agents").get("diy").get("model").get("name")
     prompt: str = model_config.get("agents").get("diy").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("diy").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
+        "products_retriever"
+    )
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
     def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
@@ -420,6 +426,7 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
         ]
 
@@ -440,16 +447,21 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
 
 def recommendation_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("recommendation").get("model").get("model_name")
+        model_config.get("agents").get("recommendation").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("recommendation").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("recommendation").get("guardrails") or []
     )
 
-    index_name: str = model_config.get("retriever").get("index_name")
-    endpoint_name: str = model_config.get("retriever").get("endpoint_name")
-    columns: Sequence[str] = model_config.get("retriever").get("columns")
+    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
+        "products_retriever"
+    )
+    index_name: str = retriever_config.get("vector_store").get("index_name")
+    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
+    columns: Sequence[str] = retriever_config.get("columns")
+    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
+    num_results: int = search_parameters.get("num_results", 10)
 
     @mlflow.trace()
     def recommendation(
@@ -469,6 +481,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
                 endpoint_name=endpoint_name,
                 index_name=index_name,
                 columns=columns,
+                k=num_results,
             ),
         ]
 
@@ -489,7 +502,7 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
 
 def process_images_node(model_config: ModelConfig) -> AgentCallable:
     model: str = (
-        model_config.get("agents").get("process_image").get("model").get("model_name")
+        model_config.get("agents").get("process_image").get("model").get("name")
     )
     prompt: str = model_config.get("agents").get("process_image").get("prompt")
 
