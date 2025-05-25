@@ -171,11 +171,16 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
     search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
 
+<<<<<<< HEAD
     warehouse_id: str = (
         model_config.get("resources")
         .get("warehouses")
         .get("shared_endpoint_warehouse")
         .get("warehouse_id")
+=======
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
+>>>>>>> 290e147 (added missing warehouse_id)
     )
 
     @mlflow.trace()
@@ -238,12 +243,9 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
 
-    warehouse_id: str = (
-        model_config.get("resources")
-        .get("warehouses")
-        .get("shared_endpoint_warehouse")
-        .get("warehouse_id")
-    )
+
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None)
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -311,6 +313,10 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         .get("warehouses")
         .get("shared_endpoint_warehouse")
         .get("warehouse_id")
+    )
+
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
     )
 
     @mlflow.trace()
