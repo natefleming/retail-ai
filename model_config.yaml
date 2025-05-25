@@ -1,7 +1,8 @@
 catalogs:
-  retail_ai_catalog: &retail_ai_catalog
+  retail_catalog: &retail_catalog
     catalog_name: nfleming
-    database_name: retail_ai
+    schema_name: retail_ai
+    full_name: nfleming.retail_ai
     volume_name: retail_ai
     permissions:
       - principals: []
@@ -38,8 +39,12 @@ resources:
       embedding_model_endpoint_name: databricks-gte-large-en
       endpoint_name: one-env-shared-endpoint-12
       endpoint_type: STANDARD
-      index_name: nfleming.retail_ai.products_index
-      source_table_name: nfleming.retail_ai.products
+      index:
+        catalog: *retail_catalog
+        name: products_index
+      source_table:
+        catalog: *retail_catalog
+        name: products
       primary_key: product_id
       doc_uri: ~
       embedding_source_column: description
@@ -61,23 +66,31 @@ resources:
 
   tables:
     product_table: &product_table
-      name: nfleming.retail_ai.products
+      catalog: *retail_catalog
+      name: products
     inventory_table: &inventory_table
-      name: nfleming.retail_ai.inventory
+      catalog: *retail_catalog
+      name: inventory
 
   functions:
     find_product_by_sku: &find_product_by_sku
-      name: nfleming.retail_ai.find_product_by_sku
+      catalog: *retail_catalog
+      name: find_product_by_sku
     find_product_by_upc: &find_product_by_upc
-      name: nfleming.retail_ai.find_product_by_upc
+      catalog: *retail_catalog
+      name: find_product_by_upc
     find_inventory_by_sku: &find_inventory_by_sku
-      name: nfleming.retail_ai.find_inventory_by_sku
+      catalog: *retail_catalog
+      name: find_inventory_by_sku
     find_inventory_by_upc: &find_inventory_by_upc
-      name: nfleming.retail_ai.find_inventory_by_upc
+      catalog: *retail_catalog
+      name: find_inventory_by_upc
     find_store_inventory_by_upc: &find_store_inventory_by_upc
-      name: nfleming.retail_ai.find_store_inventory_by_upc
+      catalog: *retail_catalog
+      name: find_store_inventory_by_upc
     find_store_inventory_by_sku: &find_store_inventory_by_sku
-      name: nfleming.retail_ai.find_store_inventory_by_sku
+      catalog: *retail_catalog
+      name: find_store_inventory_by_sku
 
   warehouses:
     shared_endpoint_warehouse: &shared_endpoint_warehouse
@@ -92,7 +105,6 @@ resources:
       connection_kwargs:
       autocommit: True
       prepare_threshold: 0
-
 
 retrievers:
   products_retriever: &products_retriever
@@ -119,7 +131,8 @@ tools:
       name: retail_ai.tools.search_tool
       args: ~
 
-  find_product_details_by_description_tool: &find_product_details_by_description_tool
+  find_product_details_by_description_tool:
+    &find_product_details_by_description_tool
     name: find_product_details_by_description
     function:
       type: factory
@@ -150,7 +163,7 @@ tools:
     function:
       type: unity_catalog
       <<: *find_inventory_by_upc
-  
+
   find_store_inventory_by_sku_uc_tool: &find_store_inventory_by_sku_uc_tool
     name: find_store_inventory_by_sku
     function:
@@ -169,7 +182,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_product_by_sku_tool
       args:
-        catalog: *retail_ai_catalog
+        catalog: *retail_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_product_by_upc_tool: &find_product_by_upc_tool
@@ -178,7 +191,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_product_by_upc_tool
       args:
-        catalog: *retail_ai_catalog
+        catalog: *retail_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_inventory_by_sku_tool: &find_inventory_by_sku_tool
@@ -187,7 +200,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_inventory_by_sku_tool
       args:
-        catalog: *retail_ai_catalog
+        catalog: *retail_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_inventory_by_upc_tool: &find_inventory_by_upc_tool
@@ -196,7 +209,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_inventory_by_upc_tool
       args:
-        catalog: *retail_ai_catalog
+        catalog: *retail_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
@@ -205,7 +218,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_store_inventory_by_sku_tool
       args:
-        catalog: *retail_ai_catalog
+        catalog: *retail_catalog
         warehouse: *shared_endpoint_warehouse
 
   find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
@@ -214,7 +227,7 @@ tools:
       type: factory
       name: retail_ai.tools.create_find_store_inventory_by_upc_tool
       args:
-        catalog: *retail_ai_catalog
+        catalog: *retail_catalog
         warehouse: *shared_endpoint_warehouse
 
 guardrails:
@@ -247,7 +260,7 @@ checkpointer: &checkpointer
   database: *retail_database
 
 agents:
-  router:
+  router: &router
     model: *tool_calling_llm
     allowed_routes:
       - product
@@ -284,11 +297,12 @@ agents:
 
       Choose exactly ONE route that BEST matches the user's primary intent.
 
-  general:
+  general: &general
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
-    guardrails: []
+    guardrails:
+      []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
     prompt: |
@@ -302,12 +316,11 @@ agents:
       the store's policies, provide general retail best practices while noting that the customer should verify with store staff.
       Always maintain a helpful and professional tone.
 
-
-
-  orders:
+  orders: &orders
     model: *tool_calling_llm
     tools: []
-    guardrails: []
+    guardrails:
+      []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
     prompt: |
@@ -321,11 +334,12 @@ agents:
       if not provided. Emphasize customer satisfaction while being realistic about what information is available to you.
       Always guide customers to the appropriate next steps if their issue can't be fully resolved in this conversation.
 
-  diy:
+  diy: &diy
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
-    guardrails: []
+    guardrails:
+      []
       # - *llm_judge_guardrail
     checkpointer: *checkpointer
     prompt: |
@@ -363,13 +377,14 @@ agents:
 
       #### Remember: You MUST use search tools for EVERY DIY and home improvement question. This ensures your advice is accurate, up-to-date, and as helpful as possible to the user.
 
-  product:
+  product: &product
     model: *tool_calling_llm
     tools:
       - *find_product_by_sku_tool
       - *find_product_by_upc_tool
       - *find_product_details_by_description_tool
-    guardrails: []
+    guardrails:
+      []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
     prompt: |
@@ -384,7 +399,7 @@ agents:
       about pros and cons based on typical customer feedback and industry standards. Always prioritize accurate 
       product information over salesmanship.
 
-  inventory:
+  inventory: &inventory
     model: *tool_calling_llm
     tools:
       - *find_inventory_by_sku_tool
@@ -392,9 +407,10 @@ agents:
       - *find_store_inventory_by_sku_tool
       - *find_store_inventory_by_upc_tool
       - *find_product_details_by_description_tool
-    guardrails: []
+    guardrails:
+      []
       #- *llm_judge_guardrail
-    checkpointer: *checkpointer 
+    checkpointer: *checkpointer
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -407,12 +423,13 @@ agents:
       Be transparent about limitations in your ability to check real-time stock levels while remaining helpful
       with general inventory policies and procedures.
 
-  comparison:
+  comparison: &comparison
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
       - *find_product_by_sku_tool
-    guardrails: []
+    guardrails:
+      []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
     prompt: |
@@ -427,11 +444,12 @@ agents:
       which product might be better for specific applications. When appropriate, create comparison tables or lists
       to make differences clear at a glance.
 
-  recommendation:
+  recommendation: &recommendation
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
-    guardrails: []
+    guardrails:
+      []
       #- *llm_judge_guardrail
     checkpointer: *checkpointer
     prompt: |
@@ -446,7 +464,7 @@ agents:
       Ask clarifying questions when necessary to provide better tailored suggestions. Balance quality considerations
       with budget constraints, and suggest alternatives when primary recommendations might not be ideal.
 
-  process_image:
+  process_image: &process_image
     model: *reasoning_llm
     tools: []
     prompt: |
@@ -470,32 +488,46 @@ agents:
       ### Response Guidelines
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
 
-
 app:
   log_level: INFO
-  registered_model_name: nfleming.retail_ai.retail_ai_agent
+  orchestration_strategy: supervisor
+  registered_model:
+    catalog: *retail_catalog
+    name: retail_ai_agent
   endpoint_name: retail_ai_agent
   tags:
     business: rcg
     streaming: true
-
-
   permissions:
     - principals: []
       entitlements:
         - CAN_MANAGE
+  agents:
+    - *router
+    - *general
+    - *orders
+    - *diy
+    - *product
+    - *inventory
+    - *comparison
+    - *recommendation
+    - *process_image
 
 evaluation:
   model: *judge_llm
-  table_name: nfleming.retail_ai.evaluation
+  table:
+    catalog: *retail_catalog
+    name: evaluation
   num_evals: 25
 
 datasets:
-  - table: products
+  - catalog: *retail_catalog
+    table: products
     ddl: ./data/retail/products.sql
     data: ./data/retail/products.snappy.parquet
     format: parquet
-  - table: inventory
+  - catalog: *retail_catalog
+    table: inventory
     ddl: ./data/retail/inventory.sql
     data: ./data/retail/inventory.snappy.parquet
     format: parquet
