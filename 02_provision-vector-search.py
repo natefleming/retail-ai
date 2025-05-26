@@ -50,7 +50,7 @@ config: ModelConfig = ModelConfig(development_config=model_config_file)
 
 vector_store_config: dict[str, Any] = config.get("resources").get("vector_stores").get("products_vector_store")
 
-embedding_model_endpoint_name: str = vector_store_config.get("embedding_model_endpoint_name")
+embedding_model_endpoint_name: str = vector_store_config.get("embedding_model").get("name")
 endpoint_name: str = vector_store_config.get("endpoint_name")
 endpoint_type: str = vector_store_config.get("endpoint_type")
 index_name: str = vector_store_config.get("index_name")

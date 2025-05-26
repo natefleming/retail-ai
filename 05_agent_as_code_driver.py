@@ -130,7 +130,7 @@ from mlflow.models.auth_policy import (
 )
 import mlflow
 from mlflow.models.model import ModelInfo
-
+from retail_ai.catalog import full_name
 from agent_as_code import config
 
 
@@ -141,7 +141,7 @@ for _, model  in config.get("resources").get("llms", {}).items():
 
 vector_indexes: set = set()
 for _, vector_store  in config.get("resources").get("vector_stores", {}).items():
-    index_name: str = vector_store["index_name"]
+    index_name: str = full_name(vector_store["index"])
     vector_indexes.add(index_name)
 
 warehouse_ids: set = set()
@@ -156,17 +156,17 @@ for _, genie_room  in config.get("resources").get("genie_rooms", {}).items():
 
 tables_names: set = set()
 for _, table  in config.get("resources").get("tables", {}).items():
-    tables_name: str = table["name"]
+    tables_name: str = full_name(table)
     tables_names.add(tables_name)
 
 function_names: set = set()
 for _, function  in config.get("resources").get("functions", {}).items():
-    function_name: str = function["name"]
+    function_name: str = full_name(function)
     function_names.add(function_name)
 
 connection_names: set = set()
 for _, connection  in config.get("resources").get("connections", {}).items():
-    connection_name: str = connection["name"]
+    connection_name: str = full_name(connection)
     connection_names.add(connection_name)
 
 
@@ -223,13 +223,13 @@ with mlflow.start_run(run_name="agent"):
 
 import mlflow
 from mlflow.entities.model_registry.model_version import ModelVersion
-
+from retail_ai.catalog import full_name
 from agent_as_code import config
 
 
 mlflow.set_registry_uri("databricks-uc")
 
-registered_model_name: str = config.get("app").get("registered_model_name")
+registered_model_name: str = full_name(config.get("app").get("registered_model"))
 
 model_version: ModelVersion = mlflow.register_model(
     name=registered_model_name, 
@@ -255,10 +255,11 @@ print(champion_model)
 
 from databricks import agents
 from retail_ai.models import get_latest_model_version
+from retail_ai.catalog import full_name
 from agent_as_code import config
 
 
-registered_model_name: str = config.get("app").get("registered_model_name")
+registered_model_name: str = full_name(config.get("app").get("registered_model"))
 endpoint_name: str = config.get("app").get("endpoint_name")
 tags: dict[str, str] = config.get("app").get("tags")
 latest_version: int = get_latest_model_version(registered_model_name)
@@ -279,7 +280,7 @@ import mlflow
 from mlflow.models.model import ModelInfo
 from mlflow.entities.model_registry.model_version import ModelVersion
 from mlflow.models.evaluation import EvaluationResult
-
+from retail_ai.catalog import full_name
 import pandas as pd
 
 from agent_as_code import config
@@ -288,7 +289,7 @@ from agent_as_code import config
 model_info: mlflow.models.model.ModelInfo
 evaluation_result: EvaluationResult
 
-evaluation_table_name: str = config.get("evaluation").get("table_name")
+evaluation_table_name: str = full_name(config.get("evaluation").get("table"))
 
 evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
 
@@ -323,12 +324,12 @@ mlflow.models.predict(
 # COMMAND ----------
 
 from typing import Any, Sequence
-
+from retail_ai.catalog import full_name
 from databricks.agents import set_permissions, PermissionLevel
 
 from agent_as_code import config
 
-registered_model_name: str = config.get("app").get("registered_model_name")
+registered_model_name: str = full_name(config.get("app").get("registered_model"))
 permissions: Sequence[dict[str, Any]] = config.get("app").get("permissions") 
 
 for permission in permissions:

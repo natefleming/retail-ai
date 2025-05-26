@@ -32,26 +32,26 @@ def _volume_as_path(self: VolumeInfo) -> Path:
 VolumeInfo.as_path = _volume_as_path
 
 
-def full_name(entity: str, catalog: dict[str, Any]) -> str:
+def full_name(entity: dict[str, Any]) -> str:
     """
-    Generate the full name of an entity in the format `catalog.schema.entity`.
+    Generate a fully qualified name for a Databricks entity.
+
+    This function constructs a fully qualified name for entities like catalogs,
+    schemas, and volumes by combining their names with the catalog and schema
+    names as appropriate.
 
     Args:
-        entity: The name of the entity (e.g., table, view).
-        catalog: A dictionary containing catalog information with keys:
-            - "catalog_name": Name of the catalog.
-            - "schema_name": Name of the schema.
+        entity: A dictionary containing the entity's name, catalog_name, and schema_name
 
     Returns:
-        A string representing the full name of the entity.
+        A string representing the fully qualified name of the entity
     """
-    if catalog:
-        if "full_name" in catalog:
-            return f"{catalog['full_name']}.{entity}"
-        if "catalog_name" in catalog and "schema_name" in catalog:
-            return f"{catalog['catalog_name']}.{catalog['schema_name']}.{entity}"
+    if "catalog_name" in entity and "schema_name" in entity:
+        return f"{entity['catalog_name']}.{entity['schema_name']}.{entity['name']}"
+    elif "full_name" in entity:
+        return f"{entity['full_name']}.{entity['name']}"
     else:
-        return entity
+        return entity["name"]
 
 
 def get_or_create_catalog(name: str, w: WorkspaceClient | None = None) -> CatalogInfo:

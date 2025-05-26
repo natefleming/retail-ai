@@ -43,10 +43,10 @@ import mlflow
 from mlflow.models import ModelConfig
 
 config: ModelConfig = ModelConfig(development_config="model_config.yaml")
-catalog_description: dict[str, Any] = config.get("catalogs").get("retail_ai_catalog")
-catalog_name: str = catalog_description.get("catalog_name")
-database_name: str = catalog_description.get("database_name")
-volume_name: str = catalog_description.get("volume_name")
+
+catalog_name: str = config.get("catalog_name")
+database_name: str = config.get("database_name")
+volume_name: str = config.get("volume_name")
 
 print(f"catalog_name: {catalog_name}")
 print(f"database_name: {database_name}")

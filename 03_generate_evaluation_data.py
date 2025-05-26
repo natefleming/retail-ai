@@ -38,7 +38,7 @@ _ = load_dotenv(find_dotenv())
 from typing import Any, Dict, Optional, List
 
 from mlflow.models import ModelConfig
-
+from retail_ai.catalog import full_name
 
 model_config_file: str = "model_config.yaml"
 config: ModelConfig = ModelConfig(development_config=model_config_file)
@@ -46,14 +46,14 @@ config: ModelConfig = ModelConfig(development_config=model_config_file)
 
 vector_store_config: dict[str, Any] = config.get("resources").get("vector_stores").get("product_vector_store")
 
-source_table_name: str = vector_store_config.get("source_table_name")
+source_table_name: str = full_name(vector_store_config.get("source_table"))
 primary_key: str = vector_store_config.get("primary_key")
 embedding_source_column: str = vector_store_config.get("embedding_source_column")
 doc_uri: str = vector_store_config.get("doc_uri")
 
 evaluation_config: Dict[str, Any] = config.get("evaluation")
 
-evaluation_table_name: str = evaluation_config.get("table_name")
+evaluation_table_name: str = full_name(evaluation_config.get("table"))
 num_evals: int = evaluation_config.get("num_evals")
 
 print(f"evaluation_table_name: {evaluation_table_name}")

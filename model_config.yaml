@@ -264,43 +264,7 @@ checkpointer: &checkpointer
   database: *retail_database
 
 agents:
-  router: &router
-    model: *tool_calling_llm
-    allowed_routes:
-      - product
-      - comparison
-      - recommendation
-      - inventory
-      - diy
-      - orders
-      - general
-    default_route: general
-    prompt: |
-      Analyze the user question and select ONE specific route from the allowed options:
-
-      - Route to 'product': Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
-        Example: "Tell me about the Craftsman cordless drill" or "What are the specs of the Dewalt table saw?"
-
-      - Route to 'comparison': Questions explicitly comparing TWO OR MORE specific products or asking to compare options
-        Example: "Compare the Milwaukee and Ryobi power drills" or "What's better for deck building: pressure-treated or cedar?"
-
-      - Route to 'recommendation': Questions asking for product suggestions, recommendations, or "best" products for specific needs
-        Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
-
-      - Route to 'inventory': Questions about stock levels, availability, restocking, or store inventory
-        Example: "Do you have the Black+Decker sander in stock?" or "When will you get more Makita batteries?"
-
-      - Route to 'diy': Questions about how-to instructions, DIY projects, tutorials, or home improvement advice
-        Example: "How do I install crown molding?" or "What's the best way to paint kitchen cabinets?"
-
-      - Route to 'orders': Questions about tracking orders, delivery status, scheduling deliveries or services
-        Example: "When will my order arrive?" or "Can I schedule delivery for my new refrigerator?"
-
-      - Route to 'general': ANY other questions that don't fit the above categories, including store policies, hours, etc.
-        Example: "What are your store hours?" or "Do you offer free delivery?"
-
-      Choose exactly ONE route that BEST matches the user's primary intent.
-
+  
   general: &general
     model: *tool_calling_llm
     tools:
@@ -528,7 +492,6 @@ app:
         - CAN_MANAGE
 
   agents:
-    router: *router
     general: *general
     orders: *orders
     diy: *diy
@@ -538,9 +501,10 @@ app:
     recommendation: *recommendation
     process_image: *process_image
 
-  supervisor:
-    model: *tool_calling_llm
-    default_agent: *general
+  orchestration:
+    supervisor:
+      model: *tool_calling_llm
+      default_agent: general
 
 evaluation:
   model: *judge_llm

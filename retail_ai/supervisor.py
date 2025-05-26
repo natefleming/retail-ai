@@ -10,13 +10,6 @@ class Supervisor:
         return self
 
     @property
-    def default_route(self) -> str | None:
-        for name, agent in self.agents.items():
-            if agent.get("is_default", False):
-                return name
-        return None
-
-    @property
     def allowed_routes(self) -> Sequence[str]:
         agent_names: list[str] = list(self.agents.keys())
         return sorted(agent_names)
