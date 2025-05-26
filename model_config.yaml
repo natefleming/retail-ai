@@ -133,7 +133,7 @@ tools:
     function:
       type: factory
       name: retail_ai.tools.search_tool
-      args: ~
+      args: {}
 
   find_product_details_by_description_tool:
     &find_product_details_by_description_tool

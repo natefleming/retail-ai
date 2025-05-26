@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
 from retail_ai.utils import callable_from_function_name
-
+from retail_ai.catalog import full_name
 
 class ProductFeature(BaseModel):
     """A specific feature or attribute of a product for comparison."""
@@ -355,10 +355,7 @@ def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
 
 
 def find_product_details_by_description_tool(
-    endpoint_name: str,
-    index_name: str,
-    columns: Sequence[str],
-    k: int = 10,
+    retriever: dict[str, Any],
 ) -> Callable[[str, str], Sequence[Document]]:
     """
     Create a tool for finding product details using vector search with classification filtering.
@@ -367,18 +364,24 @@ def find_product_details_by_description_tool(
     with categorical filtering to improve product discovery in retail applications. It enables
     natural language product lookups with classification-based narrowing of results.
 
-    Args:
-      endpoint_name: Name of the Databricks Vector Search endpoint to query
-      index_name: Name of the specific vector index containing product information
-      columns: List of columns to retrieve from the product database
-      filter_column: Database column name that contains product classification values
-      k: Maximum number of search results to return (default: 10)
-
+    Args: 
+        retriever: Configuration details for the vector search retriever, including:
+            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
+            - columns: List of columns to retrieve from the vector store
+            - search_parameters: Additional parameters for customizing the search behavior
     Returns:
-      A callable tool function that performs filtered vector search using both
-      product descriptions and classification categories
+        A callable tool function that performs vector search for product details
+        based on natural language descriptions and classification filters
     """
 
+    vector_store: dict[str, Any] = retriever.get("vector_store", {})
+
+    endpoint_name: str = vector_store.get("endpoint_name")
+    index_name: str = full_name(vector_store.get("index"))
+    columns: Sequence[str] = retriever.get("columns", [])
+    search_parameters: dict[str, Any] = retriever.get("search_parameters", {})
+
+    
     @tool
     @mlflow.trace(span_type="RETRIEVER", name="vector_search")
     def find_product_details_by_description(content: str) -> Sequence[Document]:
@@ -404,7 +407,7 @@ def find_product_details_by_description_tool(
         )
 
         documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, k=k, filter={}
+            query=content, **search_parameters
         )
 
         logger.debug(f"found {len(documents)} documents")
@@ -434,14 +437,14 @@ def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
 
     tools: list[BaseTool] = []
 
-    for config in tool_configs:
+    for _, config in tool_configs.items():
         name: str = config.get("name")
         tool: BaseTool = tool_registry.get(name)
         if tool is None:
             logger.debug(f"Creating tool: {name}...")
             function: dict[str, Any] = config.get("function")
-            function_name: str = function.get("name")
-            function_type: str = function.get("type")
+            function_name: str = full_name(function)
+            function_type: str = function.get("type", "factory")
             function_args: dict[str, Any] = function.get("args", {})
 
             match function_type:
@@ -588,7 +591,7 @@ def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieRe
     return genie_tool
 
 
-def search_tool(model_config: ModelConfig) -> BaseTool:
+def search_tool() -> BaseTool:
     logger.debug("search_tool")
     return DuckDuckGoSearchRun(output_format="list")
 

@@ -156,7 +156,7 @@ def supervisor_node(model_config: ModelConfig) -> AgentCallable:
     allowed_routes: Sequence[str] = supervisor.allowed_routes
     model: str = supervisor_config.get("model").get("name")
     temperature: float = supervisor_config.get("temperature", 0.1)
-    default_route: str = supervisor_config.get("default_aent", None)
+    default_route: str = supervisor_config.get("default_agent", None)
 
     logger.debug(
         f"Creating supervisor node with model={model}, temperature={temperature}, "
