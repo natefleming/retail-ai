@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, Any
+from abc import ABC, abstractmethod
 from enum import Enum
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PrivilegeEnum(str, Enum):
@@ -27,26 +29,25 @@ class PrivilegeEnum(str, Enum):
     WRITE_FILES = "WRITE_FILES"
 
 
-
-class Permission(BaseModel):
+class PermissionModel(BaseModel):
     principals: list[str] = Field(default_factory=list)
     privileges: list[PrivilegeEnum]
 
 
-class Schema(BaseModel):
+class SchemaModel(BaseModel):
     catalog_name: str
     schema_name: str
     full_name: str
-    permissions: list[Permission]
+    permissions: list[PermissionModel]
 
 
-class LLM(BaseModel):
+class LLMModel(BaseModel):
     name: str
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
 
 
-class EmbeddingModel(BaseModel):
+class EmbeddingModelModel(BaseModel):
     name: str
 
 
@@ -54,71 +55,108 @@ class EndpointType(str, Enum):
     STANDARD = "STANDARD"
 
 
-class Index(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+class HasFullName(ABC):
+    @property
+    @abstractmethod
+    def full_name(self) -> str:
+        pass
+
+
+class IndexModel(BaseModel, HasFullName):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
 
-class SourceTable(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+
+class SourceTableModel(BaseModel, HasFullName):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
 
-class VectorStore(BaseModel):
-    embedding_model: LLM
+
+class VectorStoreModel(BaseModel):
+    embedding_model: LLMModel
     endpoint_name: str
     endpoint_type: EndpointType
-    index: Index
-    source_table: SourceTable
+    index: IndexModel
+    source_table: SourceTableModel
     primary_key: str
     doc_uri: Optional[str] = None
     embedding_source_column: str
     columns: list[str]
 
 
-class GenieRoom(BaseModel):
+class GenieRoomModel(BaseModel):
     name: str
     description: str
     space_id: str
 
 
-class Table(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+class TableModel(BaseModel, HasFullName):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
 
-class Volume(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+
+class VolumeModel(BaseModel, HasFullName):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
 
-class Function(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+
+class FunctionModel(BaseModel, HasFullName):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
 
-class Warehouse(BaseModel):
+
+class WarehouseModel(BaseModel):
     name: str
     description: str
     warehouse_id: str
 
 
-class Database(BaseModel):
+class DatabaseModel(BaseModel):
     name: str
     connection_url: str
     connection_kwargs: dict[str, Any]
 
 
-class SearchParameters(BaseModel):
+class SearchParametersModel(BaseModel):
     num_results: Optional[int] = 10
     filter: Optional[dict[str, Any]] = Field(default_factory=dict)
     query_type: Optional[str] = "ANN"
 
 
-class Retriever(BaseModel):
-    vector_store: VectorStore
+class RetrieverModel(BaseModel):
+    vector_store: VectorStoreModel
     columns: list[str]
-    search_parameters: SearchParameters
+    search_parameters: SearchParametersModel
 
 
 class FunctionType(str, Enum):
@@ -127,66 +165,87 @@ class FunctionType(str, Enum):
     UNITY_CATALOG = "unity_catalog"
 
 
-class PythonFunction(BaseModel):
+class BaseFunctionModel(BaseModel):
     type: FunctionType
-    schema_model: Schema = Field(alias="schema")
     name: str
 
 
-class FactoryFunction(BaseModel):
-    type: FunctionType
-    name: str
+class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
+
+
+class FactoryFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
+    @property
+    def full_name(self) -> str:
+        return self.name
 
-class UnityCatalogFunction(BaseModel):
-    type: FunctionType
-    schema_model: Schema = Field(alias="schema")
+
+class UnityCatalogFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
+
+
+class ToolModel(BaseModel):
     name: str
+    function: PythonFunctionModel | FactoryFunctionModel | UnityCatalogFunctionModel
 
 
-class Tool(BaseModel):
-    name: str
-    function: PythonFunction | FactoryFunction | UnityCatalogFunction
-
-
-class Guardrail(BaseModel):
-    model: LLM
+class GuardrailModel(BaseModel):
+    model: LLMModel
     prompt: str
 
 
-class CheckpointerType(str, Enum):
+class CheckpointerTypeModel(str, Enum):
     POSTGRES = "postgres"
 
 
-class Checkpointer(BaseModel):
-    type: CheckpointerType
-    database: Database
+class CheckpointerModel(BaseModel):
+    type: CheckpointerTypeModel
+    database: DatabaseModel
 
 
-class Agent(BaseModel):
+class AgentModel(BaseModel):
     name: str
     description: str
-    model: LLM
-    tools: list[Tool] = Field(default_factory=list)
-    guardrails: list[Guardrail] = Field(default_factory=list)
-    checkpointer: Optional[Checkpointer] = None
+    model: LLMModel
+    tools: list[ToolModel] = Field(default_factory=list)
+    guardrails: list[GuardrailModel] = Field(default_factory=list)
+    checkpointer: Optional[CheckpointerModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
 
 
-class Supervisor(BaseModel):
-    model: LLM
-    default_agent: Agent | str
+class SupervisorModel(BaseModel):
+    model: LLMModel
+    default_agent: AgentModel | str
 
 
-class Orchestration(BaseModel):
-    supervisor: Supervisor
+class OrchestrationModel(BaseModel):
+    supervisor: SupervisorModel
 
 
-class RegisteredModel(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+class RegisteredModelModel(BaseModel, HasFullName):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
 
 
 class EntitlementEnum(str, Enum):
@@ -195,29 +254,29 @@ class EntitlementEnum(str, Enum):
     CAN_VIEW = "CAN_VIEW"
 
 
-class AppPermission(BaseModel):
+class AppPermissionModel(BaseModel):
     principals: list[str] = Field(default_factory=list)
     entitlements: list[EntitlementEnum]
 
 
-class App(BaseModel):
+class AppModel(BaseModel):
     log_level: str
-    registered_model: RegisteredModel
+    registered_model: RegisteredModelModel
     endpoint_name: str
     tags: dict[str, Any]
-    permissions: list[AppPermission]
-    agents: list[Agent] = Field(default_factory=list)
-    orchestration: Orchestration
+    permissions: list[AppPermissionModel]
+    agents: list[AgentModel] = Field(default_factory=list)
+    orchestration: OrchestrationModel
 
 
-class EvaluationTable(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+class EvaluationTableModel(BaseModel):
+    schema_model: SchemaModel = Field(alias="schema")
     name: str
 
 
-class Evaluation(BaseModel):
-    model: LLM
-    table: EvaluationTable
+class EvaluationModel(BaseModel):
+    model: LLMModel
+    table: EvaluationTableModel
     num_evals: int
 
 
@@ -225,37 +284,35 @@ class DatasetFormat(str, Enum):
     PARQUET = "parquet"
 
 
-class Dataset(BaseModel):
-    schema_model: Schema = Field(alias="schema")
+class DatasetModel(BaseModel):
+    schema_model: SchemaModel = Field(alias="schema")
     table: str
     ddl: str
     data: str
     format: DatasetFormat
 
 
-class Resources(BaseModel):
-    llms: dict[str, LLM] = Field(default_factory=dict)
-    vector_stores: dict[str, VectorStore] = Field(default_factory=dict)
-    genie_rooms: dict[str, GenieRoom] = Field(default_factory=dict)
-    tables: dict[str, Table] = Field(default_factory=dict)
-    volumes: dict[str, Volume] = Field(default_factory=dict)
-    functions: dict[str, Function] = Field(default_factory=dict)
-    warehouses: dict[str, Warehouse] = Field(default_factory=dict)
-    databases: dict[str, Database] = Field(default_factory=dict)
+class ResourcesModel(BaseModel):
+    llms: dict[str, LLMModel] = Field(default_factory=dict)
+    vector_stores: dict[str, VectorStoreModel] = Field(default_factory=dict)
+    genie_rooms: dict[str, GenieRoomModel] = Field(default_factory=dict)
+    tables: dict[str, TableModel] = Field(default_factory=dict)
+    volumes: dict[str, VolumeModel] = Field(default_factory=dict)
+    functions: dict[str, FunctionModel] = Field(default_factory=dict)
+    warehouses: dict[str, WarehouseModel] = Field(default_factory=dict)
+    databases: dict[str, DatabaseModel] = Field(default_factory=dict)
 
 
 class AppConfig(BaseModel):
-    schemas: dict[str, Schema]
-    resources: Resources
-    retrievers: dict[str, Retriever] = Field(default_factory=dict)
-    tools: dict[str, Tool] = Field(default_factory=dict)
-    guardrails: dict[str, Guardrail] = Field(default_factory=dict)
-    checkpointer: Optional[Checkpointer] = None
-    agents: dict[str, Agent] = Field(default_factory=dict) 
-    app: App  
-    evaluation: Optional[Evaluation] = None
-    datasets: Optional[list[Dataset]] = Field(default_factory=list)
+    schemas: dict[str, SchemaModel]
+    resources: ResourcesModel
+    retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
+    tools: dict[str, ToolModel] = Field(default_factory=dict)
+    guardrails: dict[str, GuardrailModel] = Field(default_factory=dict)
+    checkpointer: Optional[CheckpointerModel] = None
+    agents: dict[str, AgentModel] = Field(default_factory=dict)
+    app: AppModel
+    evaluation: Optional[EvaluationModel] = None
+    datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="allow", use_enum_values=True)
-
-

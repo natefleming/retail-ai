@@ -8,6 +8,7 @@ from langgraph_reflection import create_reflection_graph
 from loguru import logger
 from openevals.llm import create_llm_as_judge
 
+from retail_ai.config import GuardrailModel
 from retail_ai.messages import last_ai_message, last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
@@ -21,15 +22,15 @@ def with_guardrails(
     ).compile()
 
 
-def judge_node(guardrails: dict[str, Any]) -> AgentCallable:
-    model: str = guardrails.get("model").get("name")
-    critique_prompt: str = guardrails.get("prompt")
-
+def judge_node(guardrails: GuardrailModel) -> AgentCallable:
     def judge(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
+        llm: LanguageModelLike = ChatDatabricks(
+            model=guardrails.model.name,
+            temperature=guardrails.model.temperature,
+        )
 
         evaluator = create_llm_as_judge(
-            prompt=critique_prompt,
+            prompt=guardrails.prompt,
             judge=llm,
         )
 

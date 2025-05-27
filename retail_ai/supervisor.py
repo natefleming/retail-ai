@@ -1,19 +1,20 @@
-from typing import Any, Self, Sequence
+from typing import Self, Sequence
+
+from retail_ai.config import AgentModel
 
 
 class Supervisor:
-    def __init__(self, agents: Sequence[dict[str, Any]] = []) -> None:
-        self.agents: dict[str, dict[str, Any]] = {}
+    def __init__(self, agents: Sequence[AgentModel] = []) -> None:
+        self.agent_registry: dict[str, AgentModel] = {}
         for agent in agents:
-            self.register(agent["name"], agent)
+            self.register(agent)
 
-    def register(self, name: str, agent: dict[str, Any]) -> Self:
-        self.agents[name] = agent
-        return self
+    def register(self, agent: AgentModel) -> Self:
+        self.agent_registry[agent.name] = agent
 
     @property
     def allowed_routes(self) -> Sequence[str]:
-        agent_names: list[str] = list(self.agents.keys())
+        agent_names: list[str] = list(self.agent_registry.keys())
         return sorted(agent_names)
 
     @property
@@ -22,7 +23,7 @@ class Supervisor:
 
         for route in self.allowed_routes:
             route: str
-            handoff_prompt: str = self.agents[route].get("handoff_prompt", "")
+            handoff_prompt: str = self.agent_registry[route].handoff_prompt
             prompt_result += f"  - Route to '{route}': {handoff_prompt}\n"
 
         prompt_result += (

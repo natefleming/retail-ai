@@ -3,8 +3,8 @@ from typing import Any, Sequence
 
 import pytest
 from loguru import logger
-from mlflow.models import ModelConfig
 
+from retail_ai.config import AgentModel, AppConfig
 from retail_ai.supervisor import Supervisor
 
 logger.remove()
@@ -12,12 +12,9 @@ logger.add(sys.stderr, level="INFO")
 
 
 @pytest.fixture
-def supervisor(model_config: ModelConfig) -> Supervisor:
-    supervisor = Supervisor()
-    agents: dict[str, Any] = model_config.get("app").get("agents")
-    for agent in agents:
-        name: str = agent["name"]
-        supervisor.register(name, agent)
+def supervisor(config: AppConfig) -> Supervisor:
+    agents: dict[str, Any] = config.app.agents
+    supervisor = Supervisor(agents=agents)
     return supervisor
 
 
@@ -26,27 +23,25 @@ def test_supervisor_initialization() -> None:
     Test that Supervisor initializes with an empty agents dictionary.
     """
     supervisor = Supervisor()
-    assert supervisor.agents == {}
+    assert supervisor.agent_registry == {}
 
 
-def test_supervisor_register_agent(model_config: ModelConfig) -> None:
+def test_supervisor_register_agent(config: AppConfig) -> None:
     """
     Test that Supervisor can register an agent and update the agents dictionary.
     """
+
     supervisor = Supervisor()
-    agents: dict[str, Any] = model_config.get("app").get("agents")
+    agents: Sequence[AgentModel] = config.app.agents
     for agent in agents:
-        name = agent["name"]
-        supervisor.register(name, agent)
+        supervisor.register(agent)
 
-    assert len(supervisor.agents) == len(agents)
+    assert len(supervisor.agent_registry) == len(agents)
 
 
-def test_supervisor_default_agent(
-    supervisor: Supervisor, model_config: ModelConfig
-) -> None:
-    agents = model_config.get("app").get("agents")
-    allowed_routes: Sequence[str] = sorted([agent["name"] for agent in agents])
+def test_supervisor_allowed_routes(supervisor: Supervisor, config: AppConfig) -> None:
+    agents = config.app.agents
+    allowed_routes: Sequence[str] = sorted(agent.name for agent in agents)
     assert supervisor.allowed_routes == allowed_routes
 
 

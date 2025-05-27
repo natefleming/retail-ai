@@ -1,6 +1,6 @@
 {
   "$defs": {
-    "Agent": {
+    "AgentModel": {
       "properties": {
         "name": {
           "title": "Name",
@@ -11,18 +11,18 @@
           "type": "string"
         },
         "model": {
-          "$ref": "#/$defs/LLM"
+          "$ref": "#/$defs/LLMModel"
         },
         "tools": {
           "items": {
-            "$ref": "#/$defs/Tool"
+            "$ref": "#/$defs/ToolModel"
           },
           "title": "Tools",
           "type": "array"
         },
         "guardrails": {
           "items": {
-            "$ref": "#/$defs/Guardrail"
+            "$ref": "#/$defs/GuardrailModel"
           },
           "title": "Guardrails",
           "type": "array"
@@ -30,7 +30,7 @@
         "checkpointer": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Checkpointer"
+              "$ref": "#/$defs/CheckpointerModel"
             },
             {
               "type": "null"
@@ -61,17 +61,17 @@
         "model",
         "prompt"
       ],
-      "title": "Agent",
+      "title": "AgentModel",
       "type": "object"
     },
-    "App": {
+    "AppModel": {
       "properties": {
         "log_level": {
           "title": "Log Level",
           "type": "string"
         },
         "registered_model": {
-          "$ref": "#/$defs/RegisteredModel"
+          "$ref": "#/$defs/RegisteredModelModel"
         },
         "endpoint_name": {
           "title": "Endpoint Name",
@@ -84,20 +84,20 @@
         },
         "permissions": {
           "items": {
-            "$ref": "#/$defs/AppPermission"
+            "$ref": "#/$defs/AppPermissionModel"
           },
           "title": "Permissions",
           "type": "array"
         },
         "agents": {
           "items": {
-            "$ref": "#/$defs/Agent"
+            "$ref": "#/$defs/AgentModel"
           },
           "title": "Agents",
           "type": "array"
         },
         "orchestration": {
-          "$ref": "#/$defs/Orchestration"
+          "$ref": "#/$defs/OrchestrationModel"
         }
       },
       "required": [
@@ -108,10 +108,10 @@
         "permissions",
         "orchestration"
       ],
-      "title": "App",
+      "title": "AppModel",
       "type": "object"
     },
-    "AppPermission": {
+    "AppPermissionModel": {
       "properties": {
         "principals": {
           "items": {
@@ -131,33 +131,33 @@
       "required": [
         "entitlements"
       ],
-      "title": "AppPermission",
+      "title": "AppPermissionModel",
       "type": "object"
     },
-    "Checkpointer": {
+    "CheckpointerModel": {
       "properties": {
         "type": {
-          "$ref": "#/$defs/CheckpointerType"
+          "$ref": "#/$defs/CheckpointerTypeModel"
         },
         "database": {
-          "$ref": "#/$defs/Database"
+          "$ref": "#/$defs/DatabaseModel"
         }
       },
       "required": [
         "type",
         "database"
       ],
-      "title": "Checkpointer",
+      "title": "CheckpointerModel",
       "type": "object"
     },
-    "CheckpointerType": {
+    "CheckpointerTypeModel": {
       "enum": [
         "postgres"
       ],
-      "title": "CheckpointerType",
+      "title": "CheckpointerTypeModel",
       "type": "string"
     },
-    "Database": {
+    "DatabaseModel": {
       "properties": {
         "name": {
           "title": "Name",
@@ -178,13 +178,20 @@
         "connection_url",
         "connection_kwargs"
       ],
-      "title": "Database",
+      "title": "DatabaseModel",
       "type": "object"
     },
-    "Dataset": {
+    "DatasetFormat": {
+      "enum": [
+        "parquet"
+      ],
+      "title": "DatasetFormat",
+      "type": "string"
+    },
+    "DatasetModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "$ref": "#/$defs/SchemaModel"
         },
         "table": {
           "title": "Table",
@@ -209,15 +216,8 @@
         "data",
         "format"
       ],
-      "title": "Dataset",
+      "title": "DatasetModel",
       "type": "object"
-    },
-    "DatasetFormat": {
-      "enum": [
-        "parquet"
-      ],
-      "title": "DatasetFormat",
-      "type": "string"
     },
     "EndpointType": {
       "enum": [
@@ -235,13 +235,13 @@
       "title": "EntitlementEnum",
       "type": "string"
     },
-    "Evaluation": {
+    "EvaluationModel": {
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLM"
+          "$ref": "#/$defs/LLMModel"
         },
         "table": {
-          "$ref": "#/$defs/EvaluationTable"
+          "$ref": "#/$defs/EvaluationTableModel"
         },
         "num_evals": {
           "title": "Num Evals",
@@ -253,13 +253,13 @@
         "table",
         "num_evals"
       ],
-      "title": "Evaluation",
+      "title": "EvaluationModel",
       "type": "object"
     },
-    "EvaluationTable": {
+    "EvaluationTableModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "$ref": "#/$defs/SchemaModel"
         },
         "name": {
           "title": "Name",
@@ -270,10 +270,10 @@
         "schema",
         "name"
       ],
-      "title": "EvaluationTable",
+      "title": "EvaluationTableModel",
       "type": "object"
     },
-    "FactoryFunction": {
+    "FactoryFunctionModel": {
       "properties": {
         "type": {
           "$ref": "#/$defs/FunctionType"
@@ -292,13 +292,21 @@
         "type",
         "name"
       ],
-      "title": "FactoryFunction",
+      "title": "FactoryFunctionModel",
       "type": "object"
     },
-    "Function": {
+    "FunctionModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "title": "Name",
@@ -306,10 +314,9 @@
         }
       },
       "required": [
-        "schema",
         "name"
       ],
-      "title": "Function",
+      "title": "FunctionModel",
       "type": "object"
     },
     "FunctionType": {
@@ -321,7 +328,7 @@
       "title": "FunctionType",
       "type": "string"
     },
-    "GenieRoom": {
+    "GenieRoomModel": {
       "properties": {
         "name": {
           "title": "Name",
@@ -341,13 +348,13 @@
         "description",
         "space_id"
       ],
-      "title": "GenieRoom",
+      "title": "GenieRoomModel",
       "type": "object"
     },
-    "Guardrail": {
+    "GuardrailModel": {
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLM"
+          "$ref": "#/$defs/LLMModel"
         },
         "prompt": {
           "title": "Prompt",
@@ -358,13 +365,21 @@
         "model",
         "prompt"
       ],
-      "title": "Guardrail",
+      "title": "GuardrailModel",
       "type": "object"
     },
-    "Index": {
+    "IndexModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "title": "Name",
@@ -372,13 +387,12 @@
         }
       },
       "required": [
-        "schema",
         "name"
       ],
-      "title": "Index",
+      "title": "IndexModel",
       "type": "object"
     },
-    "LLM": {
+    "LLMModel": {
       "properties": {
         "name": {
           "title": "Name",
@@ -412,22 +426,22 @@
       "required": [
         "name"
       ],
-      "title": "LLM",
+      "title": "LLMModel",
       "type": "object"
     },
-    "Orchestration": {
+    "OrchestrationModel": {
       "properties": {
         "supervisor": {
-          "$ref": "#/$defs/Supervisor"
+          "$ref": "#/$defs/SupervisorModel"
         }
       },
       "required": [
         "supervisor"
       ],
-      "title": "Orchestration",
+      "title": "OrchestrationModel",
       "type": "object"
     },
-    "Permission": {
+    "PermissionModel": {
       "properties": {
         "principals": {
           "items": {
@@ -447,7 +461,7 @@
       "required": [
         "privileges"
       ],
-      "title": "Permission",
+      "title": "PermissionModel",
       "type": "object"
     },
     "PrivilegeEnum": {
@@ -477,31 +491,46 @@
       "title": "PrivilegeEnum",
       "type": "string"
     },
-    "PythonFunction": {
+    "PythonFunctionModel": {
       "properties": {
         "type": {
           "$ref": "#/$defs/FunctionType"
         },
-        "schema": {
-          "$ref": "#/$defs/Schema"
-        },
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
         "type",
-        "schema",
         "name"
       ],
-      "title": "PythonFunction",
+      "title": "PythonFunctionModel",
       "type": "object"
     },
-    "RegisteredModel": {
+    "RegisteredModelModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "title": "Name",
@@ -509,78 +538,77 @@
         }
       },
       "required": [
-        "schema",
         "name"
       ],
-      "title": "RegisteredModel",
+      "title": "RegisteredModelModel",
       "type": "object"
     },
-    "Resources": {
+    "ResourcesModel": {
       "properties": {
         "llms": {
           "additionalProperties": {
-            "$ref": "#/$defs/LLM"
+            "$ref": "#/$defs/LLMModel"
           },
           "title": "Llms",
           "type": "object"
         },
         "vector_stores": {
           "additionalProperties": {
-            "$ref": "#/$defs/VectorStore"
+            "$ref": "#/$defs/VectorStoreModel"
           },
           "title": "Vector Stores",
           "type": "object"
         },
         "genie_rooms": {
           "additionalProperties": {
-            "$ref": "#/$defs/GenieRoom"
+            "$ref": "#/$defs/GenieRoomModel"
           },
           "title": "Genie Rooms",
           "type": "object"
         },
         "tables": {
           "additionalProperties": {
-            "$ref": "#/$defs/Table"
+            "$ref": "#/$defs/TableModel"
           },
           "title": "Tables",
           "type": "object"
         },
         "volumes": {
           "additionalProperties": {
-            "$ref": "#/$defs/Volume"
+            "$ref": "#/$defs/VolumeModel"
           },
           "title": "Volumes",
           "type": "object"
         },
         "functions": {
           "additionalProperties": {
-            "$ref": "#/$defs/Function"
+            "$ref": "#/$defs/FunctionModel"
           },
           "title": "Functions",
           "type": "object"
         },
         "warehouses": {
           "additionalProperties": {
-            "$ref": "#/$defs/Warehouse"
+            "$ref": "#/$defs/WarehouseModel"
           },
           "title": "Warehouses",
           "type": "object"
         },
         "databases": {
           "additionalProperties": {
-            "$ref": "#/$defs/Database"
+            "$ref": "#/$defs/DatabaseModel"
           },
           "title": "Databases",
           "type": "object"
         }
       },
-      "title": "Resources",
+      "title": "ResourcesModel",
       "type": "object"
     },
-    "Retriever": {
+    "RetrieverModel": {
       "properties": {
         "vector_store": {
-          "$ref": "#/$defs/VectorStore"
+          "$ref": "#/$defs/VectorStoreModel"
         },
         "columns": {
           "items": {
@@ -590,7 +618,7 @@
           "type": "array"
         },
         "search_parameters": {
-          "$ref": "#/$defs/SearchParameters"
+          "$ref": "#/$defs/SearchParametersModel"
         }
       },
       "required": [
@@ -598,10 +626,10 @@
         "columns",
         "search_parameters"
       ],
-      "title": "Retriever",
+      "title": "RetrieverModel",
       "type": "object"
     },
-    "Schema": {
+    "SchemaModel": {
       "properties": {
         "catalog_name": {
           "title": "Catalog Name",
@@ -617,7 +645,7 @@
         },
         "permissions": {
           "items": {
-            "$ref": "#/$defs/Permission"
+            "$ref": "#/$defs/PermissionModel"
           },
           "title": "Permissions",
           "type": "array"
@@ -629,10 +657,10 @@
         "full_name",
         "permissions"
       ],
-      "title": "Schema",
+      "title": "SchemaModel",
       "type": "object"
     },
-    "SearchParameters": {
+    "SearchParametersModel": {
       "properties": {
         "num_results": {
           "anyOf": [
@@ -671,13 +699,21 @@
           "title": "Query Type"
         }
       },
-      "title": "SearchParameters",
+      "title": "SearchParametersModel",
       "type": "object"
     },
-    "SourceTable": {
+    "SourceTableModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "title": "Name",
@@ -685,21 +721,20 @@
         }
       },
       "required": [
-        "schema",
         "name"
       ],
-      "title": "SourceTable",
+      "title": "SourceTableModel",
       "type": "object"
     },
-    "Supervisor": {
+    "SupervisorModel": {
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLM"
+          "$ref": "#/$defs/LLMModel"
         },
         "default_agent": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Agent"
+              "$ref": "#/$defs/AgentModel"
             },
             {
               "type": "string"
@@ -712,13 +747,21 @@
         "model",
         "default_agent"
       ],
-      "title": "Supervisor",
+      "title": "SupervisorModel",
       "type": "object"
     },
-    "Table": {
+    "TableModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "title": "Name",
@@ -726,13 +769,12 @@
         }
       },
       "required": [
-        "schema",
         "name"
       ],
-      "title": "Table",
+      "title": "TableModel",
       "type": "object"
     },
-    "Tool": {
+    "ToolModel": {
       "properties": {
         "name": {
           "title": "Name",
@@ -741,13 +783,13 @@
         "function": {
           "anyOf": [
             {
-              "$ref": "#/$defs/PythonFunction"
+              "$ref": "#/$defs/PythonFunctionModel"
             },
             {
-              "$ref": "#/$defs/FactoryFunction"
+              "$ref": "#/$defs/FactoryFunctionModel"
             },
             {
-              "$ref": "#/$defs/UnityCatalogFunction"
+              "$ref": "#/$defs/UnityCatalogFunctionModel"
             }
           ],
           "title": "Function"
@@ -757,34 +799,41 @@
         "name",
         "function"
       ],
-      "title": "Tool",
+      "title": "ToolModel",
       "type": "object"
     },
-    "UnityCatalogFunction": {
+    "UnityCatalogFunctionModel": {
       "properties": {
         "type": {
           "$ref": "#/$defs/FunctionType"
         },
-        "schema": {
-          "$ref": "#/$defs/Schema"
-        },
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
         "type",
-        "schema",
         "name"
       ],
-      "title": "UnityCatalogFunction",
+      "title": "UnityCatalogFunctionModel",
       "type": "object"
     },
-    "VectorStore": {
+    "VectorStoreModel": {
       "properties": {
         "embedding_model": {
-          "$ref": "#/$defs/LLM"
+          "$ref": "#/$defs/LLMModel"
         },
         "endpoint_name": {
           "title": "Endpoint Name",
@@ -794,10 +843,10 @@
           "$ref": "#/$defs/EndpointType"
         },
         "index": {
-          "$ref": "#/$defs/Index"
+          "$ref": "#/$defs/IndexModel"
         },
         "source_table": {
-          "$ref": "#/$defs/SourceTable"
+          "$ref": "#/$defs/SourceTableModel"
         },
         "primary_key": {
           "title": "Primary Key",
@@ -837,13 +886,21 @@
         "embedding_source_column",
         "columns"
       ],
-      "title": "VectorStore",
+      "title": "VectorStoreModel",
       "type": "object"
     },
-    "Volume": {
+    "VolumeModel": {
       "properties": {
         "schema": {
-          "$ref": "#/$defs/Schema"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "title": "Name",
@@ -851,13 +908,12 @@
         }
       },
       "required": [
-        "schema",
         "name"
       ],
-      "title": "Volume",
+      "title": "VolumeModel",
       "type": "object"
     },
-    "Warehouse": {
+    "WarehouseModel": {
       "properties": {
         "name": {
           "title": "Name",
@@ -877,7 +933,7 @@
         "description",
         "warehouse_id"
       ],
-      "title": "Warehouse",
+      "title": "WarehouseModel",
       "type": "object"
     }
   },
@@ -885,31 +941,31 @@
   "properties": {
     "schemas": {
       "additionalProperties": {
-        "$ref": "#/$defs/Schema"
+        "$ref": "#/$defs/SchemaModel"
       },
       "title": "Schemas",
       "type": "object"
     },
     "resources": {
-      "$ref": "#/$defs/Resources"
+      "$ref": "#/$defs/ResourcesModel"
     },
     "retrievers": {
       "additionalProperties": {
-        "$ref": "#/$defs/Retriever"
+        "$ref": "#/$defs/RetrieverModel"
       },
       "title": "Retrievers",
       "type": "object"
     },
     "tools": {
       "additionalProperties": {
-        "$ref": "#/$defs/Tool"
+        "$ref": "#/$defs/ToolModel"
       },
       "title": "Tools",
       "type": "object"
     },
     "guardrails": {
       "additionalProperties": {
-        "$ref": "#/$defs/Guardrail"
+        "$ref": "#/$defs/GuardrailModel"
       },
       "title": "Guardrails",
       "type": "object"
@@ -917,7 +973,7 @@
     "checkpointer": {
       "anyOf": [
         {
-          "$ref": "#/$defs/Checkpointer"
+          "$ref": "#/$defs/CheckpointerModel"
         },
         {
           "type": "null"
@@ -927,18 +983,18 @@
     },
     "agents": {
       "additionalProperties": {
-        "$ref": "#/$defs/Agent"
+        "$ref": "#/$defs/AgentModel"
       },
       "title": "Agents",
       "type": "object"
     },
     "app": {
-      "$ref": "#/$defs/App"
+      "$ref": "#/$defs/AppModel"
     },
     "evaluation": {
       "anyOf": [
         {
-          "$ref": "#/$defs/Evaluation"
+          "$ref": "#/$defs/EvaluationModel"
         },
         {
           "type": "null"
@@ -950,7 +1006,7 @@
       "anyOf": [
         {
           "items": {
-            "$ref": "#/$defs/Dataset"
+            "$ref": "#/$defs/DatasetModel"
           },
           "type": "array"
         },

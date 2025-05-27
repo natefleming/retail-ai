@@ -1,6 +1,6 @@
 import os
 from io import StringIO
-from typing import Any, Callable, Literal, Optional, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 import mlflow
 import pandas as pd
@@ -20,7 +20,6 @@ from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrie
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
@@ -28,173 +27,19 @@ from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
 from retail_ai.catalog import full_name
+from retail_ai.config import (
+    BaseFunctionModel,
+    FunctionType,
+    GenieRoomModel,
+    RetrieverModel,
+    SchemaModel,
+    ToolModel,
+    WarehouseModel,
+)
 from retail_ai.utils import load_function
 
 
-class ProductFeature(BaseModel):
-    """A specific feature or attribute of a product for comparison."""
-
-    name: str = Field(description="Name of the feature being compared")
-    description: str = Field(
-        description="Brief description of what this feature represents"
-    )
-    importance: int = Field(
-        description="Importance rating from 1-10, where 10 is most important"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
-
-
-class ProductAttribute(BaseModel):
-    """A specific attribute and its value for a product."""
-
-    feature: str = Field(description="Name of the feature/attribute")
-    value: str = Field(
-        description="The value or description of this attribute for this product"
-    )
-    rating: Optional[int] = Field(
-        None, description="Optional numerical rating (1-10) if applicable"
-    )
-    pros: list[str] = Field(
-        default_factory=list, description="Positive aspects of this attribute"
-    )
-    cons: list[str] = Field(
-        default_factory=list, description="Negative aspects of this attribute"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
-
-
-class ProductInfo(BaseModel):
-    """Information about a specific product."""
-
-    product_id: str = Field(description="Unique identifier for the product")
-    product_name: str = Field(description="Name of the product")
-    attributes: list[ProductAttribute] = Field(
-        description="List of attributes for this product"
-    )
-    overall_rating: int = Field(description="Overall rating of the product from 1-10")
-    price_value_ratio: int = Field(
-        description="Rating of price-to-value ratio from 1-10"
-    )
-    summary: str = Field(
-        description="Brief summary of this product's strengths and weaknesses"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
-
-
-class ComparisonResult(BaseModel):
-    """The final comparison between multiple products."""
-
-    products: list[ProductInfo] = Field(description="List of products being compared")
-    key_features: list[ProductFeature] = Field(
-        description="Key features that were compared"
-    )
-    winner: Optional[str] = Field(
-        None, description="Product ID of the overall winner, if there is one"
-    )
-    best_value: Optional[str] = Field(
-        None, description="Product ID with the best value for money"
-    )
-    comparison_summary: str = Field(
-        description="Overall summary of the comparison results"
-    )
-    recommendations: list[str, str] = Field(
-        description="Recommendations for different user needs/scenarios"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
-
-
-def create_product_comparison_tool(
-    llm: LanguageModelLike,
-) -> Callable[[str], list[str]]:
-    """
-    Creates a product comparison tool that can compare multiple products.
-
-    Args:
-        llm: The language model to use for comparison analysis
-
-    Returns:
-        A callable tool that performs product comparisons
-    """
-
-    logger.debug("create_product_comparison_tool")
-
-    # Create the prompt template for product comparison
-    comparison_template = """
-    You are a retail product comparison expert. Analyze the following products and provide a detailed comparison.
-    
-    Products to compare:
-    {products}
-    
-    Based on the information provided, compare these products across their features, specifications, price points, 
-    and overall value. Identify strengths and weaknesses of each product.
-    
-    Your analysis should be thorough and objective. Consider various use cases and customer needs.
-    
-    """
-
-    prompt = PromptTemplate(
-        template=comparison_template,
-        input_variables=["products"],
-    )
-
-    @tool
-    def product_comparison(products: list[dict[str, Any]]) -> ComparisonResult:
-        """
-        Compare multiple products and provide structured analysis of their features,
-        specifications, pros, cons, and recommendations for different user needs.
-
-        Args:
-            products: List of product dictionaries to compare. Each product should include
-                     at minimum: product_id, product_name, price, and relevant specifications.
-
-        Returns:
-            A ComparisonResult object with detailed comparison analysis
-        """
-        logger.debug(f"product_comparison: {len(products)} products")
-
-        # Format the products for the prompt
-        products_str = "\n\n".join(
-            [f"Product {i + 1}: {str(product)}" for i, product in enumerate(products)]
-        )
-
-        # Generate the comparison using the LLM
-        formatted_prompt = prompt.format(products=products_str)
-        llm_with_tools = llm.with_structured_output(ComparisonResult)
-        comparison_result: ComparisonResult = llm_with_tools.invoke(formatted_prompt)
-
-        logger.debug(f"comparison_result: {comparison_result}")
-        return comparison_result
-
-    return product_comparison
-
-
-def find_allowable_classifications(
-    schema: dict[str, Any],
-) -> Sequence[str]:
+def find_allowable_classifications(schema: SchemaModel) -> Sequence[str]:
     """
     Retrieve the list of allowable product classifications from a Unity Catalog function.
 
@@ -214,10 +59,9 @@ def find_allowable_classifications(
         Exception: If the Unity Catalog function execution fails
     """
 
-    catalog_name: str = schema["catalog_name"]
-    schema_name: str = schema["schema_name"]
-
-    logger.debug(f"catalog_name={catalog_name}, schema_name={schema_name}")
+    logger.debug(
+        f"catalog_name={schema.catalog_name}, schema_name={schema.schema_name}"
+    )
 
     w: WorkspaceClient = WorkspaceClient()
 
@@ -225,7 +69,7 @@ def find_allowable_classifications(
 
     # Execute the Unity Catalog function to retrieve classifications
     result: FunctionExecutionResult = client.execute_function(
-        function_name=f"{catalog_name}.{schema_name}.find_allowable_product_classifications",
+        function_name=f"{schema.full_name}.find_allowable_product_classifications",
         parameters={},
     )
 
@@ -302,62 +146,8 @@ def create_product_classification_tool(
     return product_classification
 
 
-def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
-    """
-    Create a tool that leverages an LLM to extract SKU identifiers from natural language text.
-
-    In GenAI applications, this tool enables automated extraction of product SKUs from
-    customer queries, support tickets, reviews, or conversational inputs without requiring
-    explicit structured input. This facilitates product lookups, inventory checks, and
-    personalized recommendations in conversational AI systems.
-
-    Args:
-      llm: Language model to use for SKU extraction from unstructured text
-
-    Returns:
-      A callable tool function that extracts a list of SKUs from input text
-    """
-    logger.debug("create_sku_extraction_tool")
-
-    # Define a Pydantic model to enforce structured output from the LLM
-    class SkuIdentifier(BaseModel):
-        skus: list[str] = Field(
-            ...,
-            description="The SKU of the product. Typically 8-12 characters",
-            default_factory=list,
-        )
-
-    @tool
-    def sku_extraction(input: str) -> list[str]:
-        """
-        Extract product SKUs from natural language text for product identification.
-
-        This tool parses unstructured text to identify and extract product SKUs,
-        enabling downstream tools to perform inventory checks, price lookups,
-        or detailed product information retrieval. It handles various text formats
-        including customer queries, product descriptions, and conversation history.
-
-        Args:
-          input (str): Natural language text that may contain product SKU references
-                 (e.g., "I'm looking for information about SKU ABC123")
-
-        Returns:
-          list[str]: A list of extracted SKU identifiers (empty list if none found)
-        """
-        logger.debug(f"sku_extraction: input={input}")
-        # Configure the LLM to output in the structured SkuIdentifier format
-        llm_with_tools: LanguageModelLike = llm.with_structured_output(SkuIdentifier)
-        # Invoke the LLM to extract SKUs from the input text
-        skus: Sequence[str] = llm_with_tools.invoke(input=input).skus
-
-        logger.debug(f"sku_extraction: extracted skus={skus}")
-        return skus
-
-    return sku_extraction
-
-
 def find_product_details_by_description_tool(
-    retriever: dict[str, Any],
+    retriever: RetrieverModel,
 ) -> Callable[[str, str], Sequence[Document]]:
     """
     Create a tool for finding product details using vector search with classification filtering.
@@ -376,12 +166,7 @@ def find_product_details_by_description_tool(
         based on natural language descriptions and classification filters
     """
 
-    vector_store: dict[str, Any] = retriever.get("vector_store", {})
-
-    endpoint_name: str = vector_store.get("endpoint_name")
-    index_name: str = full_name(**vector_store.get("index"))
-    columns: Sequence[str] = retriever.get("columns", [])
-    search_parameters: dict[str, Any] = retriever.get("search_parameters", {})
+    logger.debug("find_product_details_by_description_tool")
 
     @tool
     @mlflow.trace(span_type="RETRIEVER", name="vector_search")
@@ -401,14 +186,14 @@ def find_product_details_by_description_tool(
 
         # Initialize the Vector Search client with endpoint and index configuration
         vector_search: VectorStore = DatabricksVectorSearch(
-            endpoint=endpoint_name,
-            index_name=index_name,
-            columns=columns,
+            endpoint=retriever.vector_store.endpoint_name,
+            index_name=retriever.vector_store.index.full_name,
+            columns=retriever.columns,
             client_args={},
         )
 
         documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, **search_parameters
+            query=content, **retriever.search_parameters
         )
 
         logger.debug(f"found {len(documents)} documents")
@@ -420,7 +205,7 @@ def find_product_details_by_description_tool(
 tool_registry: dict[str, BaseTool] = {}
 
 
-def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
+def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
     """
     Create a list of tools based on the provided configuration.
 
@@ -438,25 +223,23 @@ def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
 
     tools: list[BaseTool] = []
 
-    for _, config in tool_configs.items():
-        name: str = config.get("name")
+    for tool_config in tool_models:
+        name: str = tool_config.name
         tool: BaseTool = tool_registry.get(name)
         if tool is None:
             logger.debug(f"Creating tool: {name}...")
-            function: dict[str, Any] = config.get("function")
-            function_name: str = full_name(**function)
-            function_type: str = function.get("type", "factory")
-            function_args: dict[str, Any] = function.get("args", {})
+            function: BaseFunctionModel = tool_config.function
+            function_type: FunctionType = function.type
 
             match function_type:
-                case "unity_catalog":
-                    tools = create_uc_tools(function_name=function_name)
+                case FunctionType.UNITY_CATALOG:
+                    tools = create_uc_tools(function_name=function.full_name)
                     tool = next(iter(tools or []), None)
-                case "factory":
-                    factory: Callable = load_function(function_name=function_name)
-                    tool = factory(**function_args)
-                case "python":
-                    tool = load_function(function_name=function_name)
+                case FunctionType.FACTORY:
+                    factory: Callable = load_function(function_name=function.name)
+                    tool = factory(**function.args)
+                case FunctionType.PYTHON:
+                    tool = load_function(function_name=function.full_name)
                 case _:
                     raise ValueError(f"Unknown tool type: {function_type}")
 
@@ -552,7 +335,7 @@ def create_vector_search_tool(
     return vector_search_tool
 
 
-def create_genie_tool(genie_room: dict[str, Any]) -> Callable[[str], GenieResponse]:
+def create_genie_tool(genie_room: GenieRoomModel) -> Callable[[str], GenieResponse]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
 
@@ -568,9 +351,8 @@ def create_genie_tool(genie_room: dict[str, Any]) -> Callable[[str], GenieRespon
         A callable tool function that processes natural language queries through Genie
     """
     logger.debug("create_genie_tool")
-    space_id: str = genie_room.get(
-        "space_id", os.environ.get("DATABRICKS_GENIE_SPACE_ID")
-    )
+    space_id: str = genie_room.space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
+
     genie: Genie = Genie(
         space_id=space_id,
     )
@@ -603,12 +385,8 @@ def search_tool() -> BaseTool:
 
 
 def create_find_product_by_sku_tool(
-    schema: dict[str, Any], warehouse: dict[str, Any]
+    schema: SchemaModel, warehouse: WarehouseModel
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema["catalog_name"]
-    schema_name: str = schema["schema_name"]
-    warehouse_id: str = warehouse["warehouse_id"]
-
     @tool
     def find_product_by_sku(skus: list[str]) -> tuple:
         """
@@ -649,11 +427,11 @@ def create_find_product_by_sku_tool(
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{schema_name}.find_product_by_sku(ARRAY({skus}))
+            SELECT * FROM {schema.full_name}.find_product_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -675,12 +453,8 @@ def create_find_product_by_sku_tool(
 
 
 def create_find_product_by_upc_tool(
-    schema: dict[str, Any], warehouse: dict[str, Any]
+    schema: SchemaModel, warehouse: WarehouseModel
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema["catalog_name"]
-    schema_name: str = schema["schema_name"]
-    warehouse_id: str = warehouse["warehouse_id"]
-
     @tool
     def find_product_by_upc(upcs: list[str]) -> tuple:
         """
@@ -706,11 +480,11 @@ def create_find_product_by_upc_tool(
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{schema_name}.find_product_by_upc(ARRAY({upcs}))
+            SELECT * FROM {schema.full_name}.find_product_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -732,12 +506,8 @@ def create_find_product_by_upc_tool(
 
 
 def create_find_inventory_by_sku_tool(
-    schema: dict[str, Any], warehouse: dict[str, Any]
+    schema: SchemaModel, warehouse: WarehouseModel
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema["catalog_name"]
-    schema_name: str = schema["schema_name"]
-    warehouse_id: str = warehouse["warehouse_id"]
-
     @tool
     def find_inventory_by_sku(skus: list[str]) -> tuple:
         """
@@ -783,11 +553,11 @@ def create_find_inventory_by_sku_tool(
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{schema_name}.find_inventory_by_sku(ARRAY({skus}))
+            SELECT * FROM {schema.full_name}.find_inventory_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -809,12 +579,8 @@ def create_find_inventory_by_sku_tool(
 
 
 def create_find_inventory_by_upc_tool(
-    schema: dict[str, Any], warehouse: dict[str, Any]
+    schema: SchemaModel, warehouse: WarehouseModel
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema["catalog_name"]
-    schema_name: str = schema["schema_name"]
-    warehouse_id: str = warehouse["warehouse_id"]
-
     @tool
     def find_inventory_by_upc(upcs: list[str]) -> tuple:
         """
@@ -845,11 +611,11 @@ def create_find_inventory_by_upc_tool(
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{schema_name}.find_inventory_by_upc(ARRAY({upcs}))
+            SELECT * FROM {schema.full_name}.find_inventory_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -871,12 +637,8 @@ def create_find_inventory_by_upc_tool(
 
 
 def create_find_store_inventory_by_sku_tool(
-    schema: dict[str, Any], warehouse: dict[str, Any]
+    schema: SchemaModel, warehouse: WarehouseModel
 ) -> Callable[[str, list[str]], tuple]:
-    catalog_name: str = schema["catalog_name"]
-    schema_name: str = schema["schema_name"]
-    warehouse_id: str = warehouse["warehouse_id"]
-
     @tool
     def find_store_inventory_by_sku(store: str, skus: list[str]) -> tuple:
         """
@@ -925,11 +687,11 @@ def create_find_store_inventory_by_sku_tool(
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{schema_name}.find_store_inventory_by_sku('{store}', ARRAY({skus}))
+            SELECT * FROM {schema.full_name}.find_store_inventory_by_sku('{store}', ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -951,12 +713,8 @@ def create_find_store_inventory_by_sku_tool(
 
 
 def create_find_store_inventory_by_upc_tool(
-    schema: dict[str, Any], warehouse: dict[str, Any]
+    schema: SchemaModel, warehouse: WarehouseModel
 ) -> Callable[[str, list[str]], tuple]:
-    catalog_name: str = schema["catalog_name"]
-    schema_name: str = schema["schema_name"]
-    warehouse_id: str = warehouse["warehouse_id"]
-
     @tool
     def find_store_inventory_by_upc(store: str, upcs: list[str]) -> tuple:
         """
@@ -990,11 +748,11 @@ def create_find_store_inventory_by_upc_tool(
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM {catalog_name}.{schema_name}.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
+            SELECT * FROM {schema.full_name}.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,

@@ -69,7 +69,7 @@ help:
 	$(info TEST_DIR: $(TEST_DIR))
 	$(info DIST_DIR: $(DIST_DIR))
 	$(info )
-	$(info $$> make [all|dist|install|clean|distclean|format|depends])
+	$(info $$> make [all|dist|install|clean|distclean|format|depends|schema|test|help])
 	$(info )
 	$(info       all          - build library: [$(LIB)]. This is the default)
 	$(info       dist         - build library: [$(LIB)])
@@ -79,5 +79,8 @@ help:
 	$(info       distclean    - removes library)
 	$(info       format       - format source code)
 	$(info       depends      - installs library dependencies)
+	$(info       schema       - print JSON schema for AppConfig)
+	$(info       test         - run tests)
+	$(info       help         - show this help message)
 	@true
 

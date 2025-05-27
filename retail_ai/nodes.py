@@ -11,9 +11,9 @@ from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
-from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 
+from retail_ai.config import AgentModel, AppConfig, SupervisorModel
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
@@ -24,7 +24,7 @@ from retail_ai.tools import (
 from retail_ai.types import AgentCallable
 
 
-def create_agent_node(name: str, model_config: ModelConfig) -> AgentCallable:
+def create_agent_node(agent: AgentModel) -> AgentCallable:
     """
     Factory function that creates a LangGraph node for a specialized agent.
 
@@ -39,20 +39,7 @@ def create_agent_node(name: str, model_config: ModelConfig) -> AgentCallable:
     Returns:
         An agent callable function that processes state and returns responses
     """
-    logger.debug(f"Creating agent node for {name}")
-    try:
-        agent_config = model_config.get("agents").get(name)
-        if not agent_config:
-            raise ValueError(f"No configuration found for agent name: {name}")
-
-        model: str = agent_config.get("model").get("name")
-        temperature: float = agent_config.get("model").get("temperature", 0.1)
-        prompt: str = agent_config.get("prompt")
-        guardrails: Sequence[dict[str, Any]] = agent_config.get("guardrails", [])
-        tool_definitions: Sequence[dict[str, Any]] = agent_config.get("tools", [])
-    except (AttributeError, KeyError) as e:
-        logger.error(f"Error extracting configuration for {name}: {e}")
-        raise ValueError(f"Invalid configuration for agent name: {name}")
+    logger.debug(f"Creating agent node for {agent.name}")
 
     @mlflow.trace()
     def agent_node(
@@ -68,13 +55,15 @@ def create_agent_node(name: str, model_config: ModelConfig) -> AgentCallable:
         Returns:
             Either a dict with response messages or a CompiledStateGraph for further processing
         """
-        logger.debug(f"Executing {name} agent node")
+        logger.debug(f"Executing {agent.name} agent node")
 
         # Initialize model with appropriate temperature
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=temperature)
+        llm: LanguageModelLike = ChatDatabricks(
+            model=agent.model.name, temperature=agent.model.temperature
+        )
 
         # Format system prompt with user context
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
+        prompt_template: PromptTemplate = PromptTemplate.from_template(agent.prompt)
         configurable: dict[str, Any] = {
             "user_id": state.get("user_id", ""),
             "store_num": state.get("store_num", ""),
@@ -82,31 +71,30 @@ def create_agent_node(name: str, model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        # Create tools for this agent
-        tools: Sequence[BaseTool] = create_tools(tool_definitions)
+        tools: Sequence[BaseTool] = create_tools(agent.tools)
 
         # Create the agent with ReAct framework
-        agent: CompiledStateGraph = create_react_agent(
+        compiled_agent: CompiledStateGraph = create_react_agent(
             model=llm,
             prompt=system_prompt,
             tools=tools,
         )
 
         # Apply guardrails if specified
-        for guardrail_definition in guardrails:
+        for guardrail_definition in agent.guardrails:
             guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
+            compiled_agent = with_guardrails(compiled_agent, guardrail)
 
-        # Return the agent or its response
-        return agent
+        # Return the compiled agent or its response
+        return compiled_agent
 
     # Set function name dynamically for better debugging
-    agent_node.__name__ = f"{name}_node_impl"
+    agent_node.__name__ = f"{agent.name}_node_impl"
 
     return agent_node
 
 
-def message_validation_node(model_config: ModelConfig) -> AgentCallable:
+def message_validation_node(config: AppConfig) -> AgentCallable:
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug(f"state: {state}")
@@ -130,7 +118,7 @@ def message_validation_node(model_config: ModelConfig) -> AgentCallable:
     return message_validation
 
 
-def supervisor_node(model_config: ModelConfig) -> AgentCallable:
+def supervisor_node(config: AppConfig) -> AgentCallable:
     """
     Create a node that routes questions to the appropriate specialized agent.
 
@@ -145,20 +133,19 @@ def supervisor_node(model_config: ModelConfig) -> AgentCallable:
         An agent callable function that updates the state with the routing decision
     """
     logger.debug("Creating supervisor node")
-    agents_config: dict[str, Any] = model_config.get("app").get("agents", [])
-    supervisor_config: dict[str, Any] = (
-        model_config.get("app").get("orchestration", {}).get("supervisor", {})
-    )
+    agents: Sequence[AgentModel] = config.app.agents
 
-    supervisor: Supervisor = Supervisor(agents=agents_config)
+    s: Supervisor = Supervisor(agents=agents)
+    supervisor_model: SupervisorModel = config.app.orchestration.supervisor
 
-    prompt: str = supervisor.prompt
-    allowed_routes: Sequence[str] = supervisor.allowed_routes
-    model: str = supervisor_config.get("model").get("name")
-    temperature: float = supervisor_config.get("temperature", 0.1)
-    default_route: str | dict[str, Any] = supervisor_config.get("default_agent", None)
-    if isinstance(default_route, dict):
-        default_route = default_route.get("name", None)
+    prompt: str = s.prompt
+    allowed_routes: Sequence[str] = s.allowed_routes
+    model: str = supervisor_model.model.name
+    temperature: float = supervisor_model.model.temperature
+    default_route: str | AgentModel = supervisor_model.default_agent
+
+    if isinstance(default_route, AgentModel):
+        default_route = default_route.name
 
     logger.debug(
         f"Creating supervisor node with model={model}, temperature={temperature}, "
@@ -194,13 +181,11 @@ def supervisor_node(model_config: ModelConfig) -> AgentCallable:
     return supervisor
 
 
-def process_images_node(model_config: ModelConfig) -> AgentCallable:
-    process_image_config: dict[str, Any] = model_config.get("agents").get(
-        "process_image", {}
-    )
-    model: str = process_image_config.get("model").get("name")
-    temperature: float = process_image_config.get("model").get("temperature", 0.1)
-    prompt: str = process_image_config.get("prompt")
+def process_images_node(config: AppConfig) -> AgentCallable:
+    process_image_config: AgentModel = config.agents.get("process_image", {})
+    model: str = process_image_config.model.name
+    temperature: float = process_image_config.model.temperature
+    prompt: str = process_image_config.prompt
 
     @mlflow.trace()
     def process_images(

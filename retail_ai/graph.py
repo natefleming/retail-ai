@@ -1,9 +1,9 @@
-from typing import Any, Sequence
+from typing import Sequence
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from mlflow.models import ModelConfig
 
+from retail_ai.config import AgentModel, AppConfig
 from retail_ai.messages import has_image
 from retail_ai.nodes import (
     create_agent_node,
@@ -22,19 +22,16 @@ def route_message_validation(state: AgentState) -> str:
     return "supervisor"
 
 
-def create_retail_ai_graph(model_config: ModelConfig) -> CompiledStateGraph:
+def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
-    workflow.add_node(
-        "message_validation", message_validation_node(model_config=model_config)
-    )
-    workflow.add_node("process_images", process_images_node(model_config=model_config))
-    workflow.add_node("supervisor", supervisor_node(model_config=model_config))
+    workflow.add_node("message_validation", message_validation_node(config=config))
+    workflow.add_node("process_images", process_images_node(config=config))
+    workflow.add_node("supervisor", supervisor_node(config=config))
 
-    agents: Sequence[dict[str, Any]] = model_config.get("app").get("agents")
-    agent_names: Sequence[str] = [agent["name"] for agent in agents]
-    for name in agent_names:
-        workflow.add_node(name, create_agent_node(name=name, model_config=model_config))
+    agents: Sequence[AgentModel] = config.app.agents
+    for agent in agents:
+        workflow.add_node(agent.name, create_agent_node(agent=agent))
 
     workflow.add_conditional_edges(
         "message_validation",
@@ -48,7 +45,7 @@ def create_retail_ai_graph(model_config: ModelConfig) -> CompiledStateGraph:
 
     workflow.add_edge("process_images", "supervisor")
 
-    routes: dict[str, str] = {n: n for n in agent_names}
+    routes: dict[str, str] = {n: n for n in [agent.name for agent in agents]}
     workflow.add_conditional_edges(
         "supervisor",
         lambda state: state["route"],
