@@ -32,7 +32,7 @@ def _volume_as_path(self: VolumeInfo) -> Path:
 VolumeInfo.as_path = _volume_as_path
 
 
-def full_name(entity: dict[str, Any]) -> str:
+def full_name(name: str, schema: dict[str, Any] = {}, **kwargs) -> str:
     """
     Generate a fully qualified name for a Databricks entity.
 
@@ -46,12 +46,14 @@ def full_name(entity: dict[str, Any]) -> str:
     Returns:
         A string representing the fully qualified name of the entity
     """
-    if "catalog_name" in entity and "schema_name" in entity:
-        return f"{entity['catalog_name']}.{entity['schema_name']}.{entity['name']}"
-    elif "full_name" in entity:
-        return f"{entity['full_name']}.{entity['name']}"
+    catalog_name = schema.get("catalog_name")
+    schema_name = schema.get("schema_name")
+    if catalog_name and schema_name:
+        return f"{catalog_name}.{schema_name}.{name}"
+    elif catalog_name:
+        return f"{catalog_name}.{name}"
     else:
-        return entity["name"]
+        return name
 
 
 def get_or_create_catalog(name: str, w: WorkspaceClient | None = None) -> CatalogInfo:

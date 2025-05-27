@@ -9,7 +9,7 @@ src_dir: Path = root_dir / "retail_ai"
 test_dir: Path = root_dir / "tests"
 
 sys.path.insert(0, str(test_dir.resolve()))
-sys.path.insert(0, str(src_dir.resolve()))
+sys.path.insert(0, str(root_dir.resolve()))
 
 
 @pytest.fixture

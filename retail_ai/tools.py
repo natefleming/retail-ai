@@ -24,12 +24,12 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
-from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
-from retail_ai.utils import callable_from_function_name
 from retail_ai.catalog import full_name
+from retail_ai.utils import callable_from_function_name
+
 
 class ProductFeature(BaseModel):
     """A specific feature or attribute of a product for comparison."""
@@ -364,7 +364,7 @@ def find_product_details_by_description_tool(
     with categorical filtering to improve product discovery in retail applications. It enables
     natural language product lookups with classification-based narrowing of results.
 
-    Args: 
+    Args:
         retriever: Configuration details for the vector search retriever, including:
             - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
             - columns: List of columns to retrieve from the vector store
@@ -377,11 +377,10 @@ def find_product_details_by_description_tool(
     vector_store: dict[str, Any] = retriever.get("vector_store", {})
 
     endpoint_name: str = vector_store.get("endpoint_name")
-    index_name: str = full_name(vector_store.get("index"))
+    index_name: str = full_name(**vector_store.get("index"))
     columns: Sequence[str] = retriever.get("columns", [])
     search_parameters: dict[str, Any] = retriever.get("search_parameters", {})
 
-    
     @tool
     @mlflow.trace(span_type="RETRIEVER", name="vector_search")
     def find_product_details_by_description(content: str) -> Sequence[Document]:
@@ -443,13 +442,14 @@ def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
         if tool is None:
             logger.debug(f"Creating tool: {name}...")
             function: dict[str, Any] = config.get("function")
-            function_name: str = full_name(function)
+            function_name: str = full_name(**function)
             function_type: str = function.get("type", "factory")
             function_args: dict[str, Any] = function.get("args", {})
 
             match function_type:
                 case "unity_catalog":
-                    tool = create_uc_tools(function_name=function_name)
+                    tools = create_uc_tools(function_name=function_name)
+                    tool = next(iter(tools or []), None)
                 case "factory":
                     factory: Callable = callable_from_function_name(
                         function_name=function_name
@@ -469,7 +469,7 @@ def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
     return tools
 
 
-def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
+def create_uc_tools(function_name: str | Sequence[str]) -> Sequence[BaseTool]:
     """
     Create LangChain tools from Unity Catalog functions.
 
@@ -489,24 +489,17 @@ def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
-    if isinstance(function_names, str):
-        function_names = [function_names]
+    if isinstance(function_name, str):
+        function_name = [function_name]
     toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=function_names, client=client
+        function_names=function_name, client=client
     )
 
     return toolkit.tools
 
 
 def create_vector_search_tool(
-    name: str,
-    description: str,
-    index_name: str,
-    primary_key: str = "id",
-    text_column: str = "content",
-    doc_uri: str = "doc_uri",
-    columns: Sequence[str] = None,
-    search_parameters: dict[str, str] = {},
+    retriever: dict[str, Any],
 ) -> BaseTool:
     """
     Create a Vector Search tool for retrieving documents from a Databricks Vector Search index.
@@ -516,21 +509,32 @@ def create_vector_search_tool(
     for proper integration with the model serving infrastructure.
 
     Args:
-        name: Name of the tool (used for tool selection)
-        description: Description of the tool's purpose (used for tool selection)
-        index_name: Name of the Vector Search index to query
-        primary_key: Field name of the document's primary identifier
-        text_column: Field name that contains the main text content
-        doc_uri: Field name for storing document URI/location
-        columns: Specific columns to retrieve from the vector store (None retrieves all)
-        search_parameters: Additional parameters to customize vector search behavior
+        retriever: Configuration details for the vector search retriever, including:
+            - name: Name of the tool
+            - description: Description of the tool's purpose
+            - primary_key: Primary key column for the vector store
+            - text_column: Text column used for vector search
+            - doc_uri: URI for documentation or additional context
+            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
+            - columns: List of columns to retrieve from the vector store
+            - search_parameters: Additional parameters for customizing the search behavior
 
     Returns:
         A BaseTool instance that can perform vector search operations
     """
+
+    vector_store: dict[str, Any] = retriever.get("vector_store", {})
+
+    index_name: str = full_name(**vector_store.get("index"))
+    columns: Sequence[str] = retriever.get("columns", [])
+    search_parameters: dict[str, Any] = retriever.get("search_parameters", {})
+    primary_key: str = vector_store.get("primary_key")
+    doc_uri: str = vector_store.get("doc_uri")
+    text_column: str = vector_store.get("embedding_source_column")
+
     vector_search_tool: BaseTool = VectorSearchRetrieverTool(
-        name=name,
-        description=description,
+        name="",
+        description="",
         index_name=index_name,
         columns=columns,
         **search_parameters,
@@ -538,7 +542,7 @@ def create_vector_search_tool(
 
     # Register the retriever schema with MLflow for model serving integration
     mlflow.models.set_retriever_schema(
-        name=name,
+        name="retriever",
         primary_key=primary_key,
         text_column=text_column,
         doc_uri=doc_uri,
@@ -548,7 +552,7 @@ def create_vector_search_tool(
     return vector_search_tool
 
 
-def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieResponse]:
+def create_genie_tool(genie_room: dict[str, Any]) -> Callable[[str], GenieResponse]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
 
@@ -563,8 +567,10 @@ def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieRe
     Returns:
         A callable tool function that processes natural language queries through Genie
     """
-    # Try to get space_id from environment variable if not provided
-    space_id = space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
+    logger.debug("create_genie_tool")
+    space_id: str = genie_room.get(
+        "space_id", os.environ.get("DATABRICKS_GENIE_SPACE_ID")
+    )
     genie: Genie = Genie(
         space_id=space_id,
     )
@@ -597,11 +603,11 @@ def search_tool() -> BaseTool:
 
 
 def create_find_product_by_sku_tool(
-    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
+    schema: dict[str, Any], warehouse: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema_definition["catalog_name"]
-    schema_name: str = schema_definition["schema_name"]
-    warehouse_id: str = warehouse_description["warehouse_id"]
+    catalog_name: str = schema["catalog_name"]
+    schema_name: str = schema["schema_name"]
+    warehouse_id: str = warehouse["warehouse_id"]
 
     @tool
     def find_product_by_sku(skus: list[str]) -> tuple:
@@ -669,11 +675,11 @@ def create_find_product_by_sku_tool(
 
 
 def create_find_product_by_upc_tool(
-    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
+    schema: dict[str, Any], warehouse: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema_definition["catalog_name"]
-    schema_name: str = schema_definition["schema_name"]
-    warehouse_id: str = warehouse_description["warehouse_id"]
+    catalog_name: str = schema["catalog_name"]
+    schema_name: str = schema["schema_name"]
+    warehouse_id: str = warehouse["warehouse_id"]
 
     @tool
     def find_product_by_upc(upcs: list[str]) -> tuple:
@@ -726,11 +732,11 @@ def create_find_product_by_upc_tool(
 
 
 def create_find_inventory_by_sku_tool(
-    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
+    schema: dict[str, Any], warehouse: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema_definition["catalog_name"]
-    schema_name: str = schema_definition["schema_name"]
-    warehouse_id: str = warehouse_description["warehouse_id"]
+    catalog_name: str = schema["catalog_name"]
+    schema_name: str = schema["schema_name"]
+    warehouse_id: str = warehouse["warehouse_id"]
 
     @tool
     def find_inventory_by_sku(skus: list[str]) -> tuple:
@@ -803,11 +809,11 @@ def create_find_inventory_by_sku_tool(
 
 
 def create_find_inventory_by_upc_tool(
-    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
+    schema: dict[str, Any], warehouse: dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
-    catalog_name: str = schema_definition["catalog_name"]
-    schema_name: str = schema_definition["schema_name"]
-    warehouse_id: str = warehouse_description["warehouse_id"]
+    catalog_name: str = schema["catalog_name"]
+    schema_name: str = schema["schema_name"]
+    warehouse_id: str = warehouse["warehouse_id"]
 
     @tool
     def find_inventory_by_upc(upcs: list[str]) -> tuple:
@@ -865,11 +871,11 @@ def create_find_inventory_by_upc_tool(
 
 
 def create_find_store_inventory_by_sku_tool(
-    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
+    schema: dict[str, Any], warehouse: dict[str, Any]
 ) -> Callable[[str, list[str]], tuple]:
-    catalog_name: str = schema_definition["catalog_name"]
-    schema_name: str = schema_definition["schema_name"]
-    warehouse_id: str = warehouse_description["warehouse_id"]
+    catalog_name: str = schema["catalog_name"]
+    schema_name: str = schema["schema_name"]
+    warehouse_id: str = warehouse["warehouse_id"]
 
     @tool
     def find_store_inventory_by_sku(store: str, skus: list[str]) -> tuple:
@@ -945,11 +951,11 @@ def create_find_store_inventory_by_sku_tool(
 
 
 def create_find_store_inventory_by_upc_tool(
-    schema_definition: dict[str, Any], warehouse_description: dict[str, Any]
+    schema: dict[str, Any], warehouse: dict[str, Any]
 ) -> Callable[[str, list[str]], tuple]:
-    catalog_name: str = schema_definition["catalog_name"]
-    schema_name: str = schema_definition["schema_name"]
-    warehouse_id: str = warehouse_description["warehouse_id"]
+    catalog_name: str = schema["catalog_name"]
+    schema_name: str = schema["schema_name"]
+    warehouse_id: str = warehouse["warehouse_id"]
 
     @tool
     def find_store_inventory_by_upc(store: str, upcs: list[str]) -> tuple:

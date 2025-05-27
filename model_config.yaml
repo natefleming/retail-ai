@@ -135,6 +135,15 @@ tools:
       name: retail_ai.tools.search_tool
       args: {}
 
+  vector_search_tool: &vector_search_tool
+    name: vector_search
+    function:
+      type: factory
+      name: retail_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever
+
+
   find_product_details_by_description_tool:
     &find_product_details_by_description_tool
     name: find_product_details_by_description

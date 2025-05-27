@@ -21,6 +21,7 @@ UV := uv
 UV_SYNC := $(UV) sync 
 UV_BUILD := $(UV) build 
 UV_EXPORT := $(UV) export --no-hashes --format requirements-txt 
+PYTEST := $(UV) run pytest -v -s
 RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 
 RUFF_FORMAT := $(UV) run ruff format 
 FIND := $(shell which find)
