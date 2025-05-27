@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
 from retail_ai.catalog import full_name
-from retail_ai.utils import callable_from_function_name
+from retail_ai.utils import load_function
 
 
 class ProductFeature(BaseModel):
@@ -451,12 +451,12 @@ def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
                     tools = create_uc_tools(function_name=function_name)
                     tool = next(iter(tools or []), None)
                 case "factory":
-                    factory: Callable = callable_from_function_name(
+                    factory: Callable = load_function(
                         function_name=function_name
                     )
                     tool = factory(**function_args)
                 case "python":
-                    tool = callable_from_function_name(function_name=function_name)
+                    tool = load_function(function_name=function_name)
                 case _:
                     raise ValueError(f"Unknown tool type: {function_type}")
 

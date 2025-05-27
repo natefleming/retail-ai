@@ -2,7 +2,7 @@ import importlib
 from typing import Any, Callable
 
 
-def callable_from_function_name(function_name: str) -> Callable[..., Any]:
+def load_function(function_name: str) -> Callable[..., Any]:
     """
     Dynamically import and return a callable function using its fully qualified name.
 
