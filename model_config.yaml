@@ -1,3 +1,6 @@
+# yaml-language-server: $schema=./schemas/model_config_schema.json
+
+
 schemas:
   retail_schema: &retail_schema
     catalog_name: nfleming

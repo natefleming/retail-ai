@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "retail-ai"
 version = "0.1.0"
@@ -23,9 +27,20 @@ dependencies = [
     "unitycatalog-ai[databricks]>=0.3.0",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["retail_ai"]
+
+[tool.hatch.build]
+exclude = [
+    "data",
+    "docs",
+    "examples",
+    "tests",
+]
+
 [tool.ruff]
 # Enable the Ruff formatter
-target-version = "py310"  # Specify your Python version
+target-version = "py312"  # Specify your Python version
 line-length = 88  # Same as Black's default
 indent-width = 4
 

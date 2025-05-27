@@ -193,7 +193,7 @@ def create_product_comparison_tool(
 
 
 def find_allowable_classifications(
-    catalog_name: str, schema_name: str, w: Optional[WorkspaceClient] = None
+    schema: dict[str, Any],
 ) -> Sequence[str]:
     """
     Retrieve the list of allowable product classifications from a Unity Catalog function.
@@ -214,10 +214,12 @@ def find_allowable_classifications(
         Exception: If the Unity Catalog function execution fails
     """
 
+    catalog_name: str = schema["catalog_name"]
+    schema_name: str = schema["schema_name"]
+
     logger.debug(f"catalog_name={catalog_name}, schema_name={schema_name}")
 
-    if w is None:
-        w = WorkspaceClient()
+    w: WorkspaceClient = WorkspaceClient()
 
     client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
 
@@ -451,9 +453,7 @@ def create_tools(tool_configs: Sequence[dict[str, Any]]) -> Sequence[BaseTool]:
                     tools = create_uc_tools(function_name=function_name)
                     tool = next(iter(tools or []), None)
                 case "factory":
-                    factory: Callable = load_function(
-                        function_name=function_name
-                    )
+                    factory: Callable = load_function(function_name=function_name)
                     tool = factory(**function_args)
                 case "python":
                     tool = load_function(function_name=function_name)

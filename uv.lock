@@ -2487,7 +2487,7 @@ wheels = [
 [[package]]
 name = "retail-ai"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "databricks-agents" },
     { name = "databricks-langchain" },

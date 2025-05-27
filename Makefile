@@ -18,9 +18,10 @@ endif
 
 
 UV := uv
-UV_SYNC := $(UV) sync 
-UV_BUILD := $(UV) build 
-UV_EXPORT := $(UV) export --no-hashes --format requirements-txt 
+SYNC := $(UV) sync 
+BUILD := $(UV) build 
+PYTHON := $(UV) run python 
+EXPORT := $(UV) export --no-hashes --format requirements-txt 
 PYTEST := $(UV) run pytest -v -s
 RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 
 RUFF_FORMAT := $(UV) run ruff format 
@@ -33,30 +34,31 @@ CD := cd
 all: dist
 
 install: depends 
-	$(UV_SYNC) 
+	$(SYNC) 
 
 dist: install
-	$(UV_BUILD)
+	$(BUILD)
 
 depends: 
-	$(UV_SYNC) 
-	$(UV_EXPORT) > $(REQUIREMENTS_FILE)
+	@$(SYNC) 
+	@$(EXPORT) > $(REQUIREMENTS_FILE)
 
 format: depends
 	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR)
 	$(RUFF_FORMAT) $(SRC_DIR) $(TEST_DIR)
 
-
 clean: 
 	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyc -exec rm -f {} \;
 	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyo -exec rm -f {} \;
-
 
 distclean: clean
 	$(RM) $(DIST_DIR)
 	$(RM) $(SRC_DIR)/*.egg-info 
 	$(RM) $(TOP_DIR)/.mypy_cache
 	$(FIND) $(SRC_DIR) $(TEST_DIR) \( -name __pycache__ -a -type d \) -prune -exec rm -rf {} \;
+
+schema: depends
+	@$(PYTHON) -c "from retail_ai.config import AppConfig; import json; print(json.dumps(AppConfig.model_json_schema(), indent=2))"
 
 test: 
 	$(PYTEST) $(TEST_DIR)
