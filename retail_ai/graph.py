@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Any, Sequence
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -31,7 +31,8 @@ def create_retail_ai_graph(model_config: ModelConfig) -> CompiledStateGraph:
     workflow.add_node("process_images", process_images_node(model_config=model_config))
     workflow.add_node("supervisor", supervisor_node(model_config=model_config))
 
-    agent_names: Sequence[str] = model_config.get("app").get("agents").keys()
+    agents: Sequence[dict[str, Any]] = model_config.get("app").get("agents")
+    agent_names: Sequence[str] = [agent["name"] for agent in agents]
     for name in agent_names:
         workflow.add_node(name, create_agent_node(name=name, model_config=model_config))
 

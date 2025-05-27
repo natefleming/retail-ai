@@ -15,7 +15,8 @@ logger.add(sys.stderr, level="INFO")
 def supervisor(model_config: ModelConfig) -> Supervisor:
     supervisor = Supervisor()
     agents: dict[str, Any] = model_config.get("app").get("agents")
-    for name, agent in agents.items():
+    for agent in agents:
+        name: str = agent["name"]
         supervisor.register(name, agent)
     return supervisor
 
@@ -34,7 +35,8 @@ def test_supervisor_register_agent(model_config: ModelConfig) -> None:
     """
     supervisor = Supervisor()
     agents: dict[str, Any] = model_config.get("app").get("agents")
-    for name, agent in agents.items():
+    for agent in agents:
+        name = agent["name"]
         supervisor.register(name, agent)
 
     assert len(supervisor.agents) == len(agents)
@@ -44,7 +46,7 @@ def test_supervisor_default_agent(
     supervisor: Supervisor, model_config: ModelConfig
 ) -> None:
     agents = model_config.get("app").get("agents")
-    allowed_routes: Sequence[str] = sorted(list(agents.keys()))
+    allowed_routes: Sequence[str] = sorted([agent["name"] for agent in agents])
     assert supervisor.allowed_routes == allowed_routes
 
 

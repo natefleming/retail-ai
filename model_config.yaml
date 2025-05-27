@@ -107,8 +107,8 @@ resources:
       name: "Retail Database"
       connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
       connection_kwargs:
-      autocommit: True
-      prepare_threshold: 0
+        autocommit: True
+        prepare_threshold: 0
 
 retrievers:
   products_retriever: &products_retriever
@@ -273,8 +273,9 @@ checkpointer: &checkpointer
   database: *retail_database
 
 agents:
-  
   general: &general
+    name: general
+    description: "General retail store assistant for home improvement and hardware store inquiries"
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
@@ -297,6 +298,8 @@ agents:
       Example: "What are your store hours?" or "Do you offer free delivery?"
 
   orders: &orders
+    name: orders
+    description: "Order management specialist for tracking orders, delivery status, and related inquiries"
     model: *tool_calling_llm
     tools: []
     guardrails:
@@ -318,6 +321,8 @@ agents:
       Example: "When will my order arrive?" or "Can I schedule delivery for my new refrigerator?"
 
   diy: &diy
+    name: diy
+    description: "DIY and home improvement expert providing how-to advice, project guidance, and tool recommendations"
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
@@ -364,6 +369,8 @@ agents:
       Example: "How do I install crown molding?" or "What's the best way to paint kitchen cabinets?"
 
   product: &product
+    name: product
+    description: "Product specialist providing detailed information about specific products, features, specifications, and intended uses"
     model: *tool_calling_llm
     tools:
       - *find_product_by_sku_tool
@@ -389,6 +396,8 @@ agents:
       Example: "Tell me about the Craftsman cordless drill" or "What are the specs of the Dewalt table saw?"
 
   inventory: &inventory
+    name: inventory
+    description: "Inventory management specialist providing information about product availability, stock levels, and store inventory"
     model: *tool_calling_llm
     tools:
       - *find_inventory_by_sku_tool
@@ -416,6 +425,8 @@ agents:
       Example: "Do you have the Black+Decker sander in stock?" or "When will you get more Makita batteries?"
 
   comparison: &comparison
+    name: comparison
+    description: "Product comparison specialist providing detailed comparisons between different products, highlighting key differences and best use cases"
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
@@ -440,6 +451,8 @@ agents:
       Example: "Compare the Milwaukee and Ryobi power drills" or "What's better for deck building: pressure-treated or cedar?"
 
   recommendation: &recommendation
+    name: recommendation
+    description: "Product recommendation specialist providing tailored product suggestions based on customer needs, preferences, and budget"
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
@@ -463,6 +476,8 @@ agents:
       Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
 
   process_image: &process_image
+    name: process_image
+    description: "Image analysis specialist for extracting product information from images, including summaries, product names, and UPC codes"
     model: *reasoning_llm
     tools: []
     prompt: |
@@ -501,19 +516,19 @@ app:
         - CAN_MANAGE
 
   agents:
-    general: *general
-    orders: *orders
-    diy: *diy
-    product: *product
-    inventory: *inventory
-    comparison: *comparison
-    recommendation: *recommendation
-    process_image: *process_image
+    - *orders
+    - *diy
+    - *product
+    - *inventory
+    - *comparison
+    - *recommendation
+    - *general
+    - *process_image
 
   orchestration:
     supervisor:
       model: *tool_calling_llm
-      default_agent: general
+      default_agent: *general
 
 evaluation:
   model: *judge_llm

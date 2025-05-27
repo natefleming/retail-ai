@@ -2,8 +2,10 @@ from typing import Any, Self, Sequence
 
 
 class Supervisor:
-    def __init__(self, agents: dict[str, Any] = {}) -> None:
-        self.agents = agents
+    def __init__(self, agents: Sequence[dict[str, Any]] = []) -> None:
+        self.agents: dict[str, dict[str, Any]] = {}
+        for agent in agents:
+            self.register(agent["name"], agent)
 
     def register(self, name: str, agent: dict[str, Any]) -> Self:
         self.agents[name] = agent

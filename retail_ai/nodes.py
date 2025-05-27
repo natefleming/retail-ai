@@ -145,7 +145,7 @@ def supervisor_node(model_config: ModelConfig) -> AgentCallable:
         An agent callable function that updates the state with the routing decision
     """
     logger.debug("Creating supervisor node")
-    agents_config: dict[str, Any] = model_config.get("app").get("agents", {})
+    agents_config: dict[str, Any] = model_config.get("app").get("agents", [])
     supervisor_config: dict[str, Any] = (
         model_config.get("app").get("orchestration", {}).get("supervisor", {})
     )
@@ -156,7 +156,9 @@ def supervisor_node(model_config: ModelConfig) -> AgentCallable:
     allowed_routes: Sequence[str] = supervisor.allowed_routes
     model: str = supervisor_config.get("model").get("name")
     temperature: float = supervisor_config.get("temperature", 0.1)
-    default_route: str = supervisor_config.get("default_agent", None)
+    default_route: str | dict[str, Any] = supervisor_config.get("default_agent", None)
+    if isinstance(default_route, dict):
+        default_route = default_route.get("name", None)
 
     logger.debug(
         f"Creating supervisor node with model={model}, temperature={temperature}, "
