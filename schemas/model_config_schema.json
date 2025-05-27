@@ -22,7 +22,7 @@
         },
         "guardrails": {
           "items": {
-            "$ref": "#/$defs/GuardrailModel"
+            "$ref": "#/$defs/GuardrailsModel"
           },
           "title": "Guardrails",
           "type": "array"
@@ -221,7 +221,8 @@
     },
     "EndpointType": {
       "enum": [
-        "STANDARD"
+        "STANDARD",
+        "OPTIMIZED_STORAGE"
       ],
       "title": "EndpointType",
       "type": "string"
@@ -351,7 +352,7 @@
       "title": "GenieRoomModel",
       "type": "object"
     },
-    "GuardrailModel": {
+    "GuardrailsModel": {
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -365,7 +366,7 @@
         "model",
         "prompt"
       ],
-      "title": "GuardrailModel",
+      "title": "GuardrailsModel",
       "type": "object"
     },
     "IndexModel": {
@@ -965,7 +966,7 @@
     },
     "guardrails": {
       "additionalProperties": {
-        "$ref": "#/$defs/GuardrailModel"
+        "$ref": "#/$defs/GuardrailsModel"
       },
       "title": "Guardrails",
       "type": "object"

@@ -47,12 +47,9 @@ class LLMModel(BaseModel):
     max_tokens: Optional[int] = 8192
 
 
-class EmbeddingModelModel(BaseModel):
-    name: str
-
-
 class EndpointType(str, Enum):
     STANDARD = "STANDARD"
+    OPTIMIZED_STORAGE = "OPTIMIZED_STORAGE"
 
 
 class HasFullName(ABC):
@@ -203,7 +200,7 @@ class ToolModel(BaseModel):
     function: PythonFunctionModel | FactoryFunctionModel | UnityCatalogFunctionModel
 
 
-class GuardrailModel(BaseModel):
+class GuardrailsModel(BaseModel):
     model: LLMModel
     prompt: str
 
@@ -222,7 +219,7 @@ class AgentModel(BaseModel):
     description: str
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
-    guardrails: list[GuardrailModel] = Field(default_factory=list)
+    guardrails: list[GuardrailsModel] = Field(default_factory=list)
     checkpointer: Optional[CheckpointerModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
@@ -308,7 +305,7 @@ class AppConfig(BaseModel):
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
     tools: dict[str, ToolModel] = Field(default_factory=dict)
-    guardrails: dict[str, GuardrailModel] = Field(default_factory=dict)
+    guardrails: dict[str, GuardrailsModel] = Field(default_factory=dict)
     checkpointer: Optional[CheckpointerModel] = None
     agents: dict[str, AgentModel] = Field(default_factory=dict)
     app: AppModel

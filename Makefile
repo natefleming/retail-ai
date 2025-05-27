@@ -44,8 +44,8 @@ depends:
 	@$(EXPORT) > $(REQUIREMENTS_FILE)
 
 format: depends
-	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR)
-	$(RUFF_FORMAT) $(SRC_DIR) $(TEST_DIR)
+	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR) 
+	$(RUFF_FORMAT) $(SRC_DIR) $(TEST_DIR) 
 
 clean: 
 	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyc -exec rm -f {} \;

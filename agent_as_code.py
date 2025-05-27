@@ -1,18 +1,14 @@
 
-from typing import Sequence
 import sys
 
 import mlflow
-from mlflow.models import ModelConfig
-
-from langchain_core.runnables import RunnableSequence
 from langgraph.graph.state import CompiledStateGraph
-from mlflow.pyfunc import ChatModel
-from retail_ai.graph import create_retail_ai_graph
-from retail_ai.models import create_agent 
-
 from loguru import logger
+from mlflow.models import ModelConfig
+from mlflow.pyfunc import ChatModel
 
+from retail_ai.graph import create_retail_ai_graph
+from retail_ai.models import create_agent
 
 mlflow.langchain.autolog()
 
