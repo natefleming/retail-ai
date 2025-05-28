@@ -136,6 +136,10 @@
     },
     "CheckpointerModel": {
       "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
         "type": {
           "$ref": "#/$defs/CheckpointerTypeModel"
         },
@@ -144,6 +148,7 @@
         }
       },
       "required": [
+        "name",
         "type",
         "database"
       ],
@@ -355,6 +360,10 @@
     },
     "GuardrailsModel": {
       "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
         "model": {
           "$ref": "#/$defs/LLMModel"
         },
@@ -364,6 +373,7 @@
         }
       },
       "required": [
+        "name",
         "model",
         "prompt"
       ],
@@ -451,12 +461,28 @@
     "OrchestrationModel": {
       "properties": {
         "supervisor": {
-          "$ref": "#/$defs/SupervisorModel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SupervisorModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "swarm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SwarmModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
-      "required": [
-        "supervisor"
-      ],
       "title": "OrchestrationModel",
       "type": "object"
     },
@@ -767,6 +793,18 @@
         "default_agent"
       ],
       "title": "SupervisorModel",
+      "type": "object"
+    },
+    "SwarmModel": {
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/LLMModel"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "SwarmModel",
       "type": "object"
     },
     "TableModel": {

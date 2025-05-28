@@ -256,6 +256,7 @@ tools:
 
 guardrails:
   llm_judge_guardrail: &llm_judge_guardrail
+    name: llm_judge
     model: *judge_llm
     prompt: |
       You are an expert judge evaluating AI responses. Your task is to critique the AI assistant's latest response in the conversation below.
@@ -280,6 +281,7 @@ guardrails:
       {outputs}
 
 checkpointer: &checkpointer
+  name: default_checkpointer
   type: postgres
   database: *retail_database
 
@@ -525,7 +527,6 @@ app:
     - principals: []
       entitlements:
         - CAN_MANAGE
-
   agents:
     - *orders
     - *diy
@@ -534,12 +535,12 @@ app:
     - *comparison
     - *recommendation
     - *general
-    - *process_image
-
   orchestration:
     supervisor:
       model: *tool_calling_llm
       default_agent: *general
+    # swarm:
+    #   model: *tool_calling_llm
 
 evaluation:
   model: *judge_llm

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PrivilegeEnum(str, Enum):
@@ -218,6 +218,7 @@ class ToolModel(BaseModel):
 
 
 class GuardrailsModel(BaseModel):
+    name: str
     model: LLMModel
     prompt: str
 
@@ -227,6 +228,7 @@ class CheckpointerTypeModel(str, Enum):
 
 
 class CheckpointerModel(BaseModel):
+    name: str
     type: CheckpointerTypeModel
     database: DatabaseModel
 
@@ -246,9 +248,23 @@ class SupervisorModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
 
+class SwarmModel(BaseModel):
+    model: LLMModel
+
 
 class OrchestrationModel(BaseModel):
-    supervisor: SupervisorModel
+    supervisor: Optional[SupervisorModel] = None
+    swarm: Optional[SwarmModel] = None
+    
+    @model_validator(mode='after')
+    def validate_mutually_exclusive(self):
+        if self.supervisor is not None and self.swarm is not None:
+            raise ValueError("Cannot specify both supervisor and swarm")
+        if self.supervisor is None and self.swarm is None:
+            raise ValueError("Must specify either supervisor or swarm")
+        return self
+
+
 
 
 class RegisteredModelModel(BaseModel, HasFullName):

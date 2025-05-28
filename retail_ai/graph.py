@@ -3,7 +3,7 @@ from typing import Sequence
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from retail_ai.config import AgentModel, AppConfig
+from retail_ai.config import AgentModel, AppConfig, OrchestrationModel
 from retail_ai.messages import has_image
 from retail_ai.nodes import (
     create_agent_node,
@@ -14,6 +14,7 @@ from retail_ai.nodes import (
 from retail_ai.state import AgentConfig, AgentState
 
 
+
 def route_message_validation(state: AgentState) -> str:
     if not state["is_valid_config"]:
         return END
@@ -22,7 +23,7 @@ def route_message_validation(state: AgentState) -> str:
     return "supervisor"
 
 
-def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
+def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node("message_validation", message_validation_node(config=config))
@@ -55,3 +56,16 @@ def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
     workflow.set_entry_point("message_validation")
 
     return workflow.compile()
+
+
+def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
+    orchestration: OrchestrationModel = config.app.orchestration
+    if orchestration.supervisor:
+        return _create_supervisor_graph(config)
+    
+    if orchestration.swarm:
+        raise NotImplementedError("Swarm orchestration is not implemented yet.")
+    
+    raise ValueError("No valid orchestration model found in the configuration.")
+ 
+
