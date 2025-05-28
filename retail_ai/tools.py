@@ -1,7 +1,7 @@
 import os
 from io import StringIO
 from typing import Any, Callable, Literal, Sequence
-
+from collections import OrderedDict
 import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
@@ -227,10 +227,13 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
 
     logger.debug("create_tools")
 
-    tools: list[BaseTool] = []
+    tools: OrderedDict[str, BaseTool] = OrderedDict()
 
     for tool_config in tool_models:
         name: str = tool_config.name
+        if name in tools:
+            logger.warning(f"Tool {name} already exists, skipping creation.")
+            continue
         tool: BaseTool = tool_registry.get(name)
         if tool is None:
             logger.debug(f"Creating tool: {name}...")
@@ -253,9 +256,9 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
         else:
             logger.debug(f"Tool {name} already exists, reusing it.")
 
-        tools.append(tool)
+        tools[name] = tool
 
-    return tools
+    return tools.values()
 
 
 def create_mcp_tool(
