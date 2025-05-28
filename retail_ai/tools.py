@@ -1,7 +1,8 @@
 import os
-from io import StringIO
-from typing import Any, Callable, Literal, Sequence
 from collections import OrderedDict
+from io import StringIO
+from typing import Any, Callable, Literal, Optional, Sequence
+
 import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
@@ -26,7 +27,6 @@ from loguru import logger
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
-from retail_ai.catalog import full_name
 from retail_ai.config import (
     BaseFunctionModel,
     FactoryFunctionModel,
@@ -38,6 +38,7 @@ from retail_ai.config import (
     SchemaModel,
     ToolModel,
     UnityCatalogFunctionModel,
+    VectorStoreModel,
     WarehouseModel,
 )
 from retail_ai.utils import load_function
@@ -349,6 +350,8 @@ def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
 
 def create_vector_search_tool(
     retriever: dict[str, Any],
+    name: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> BaseTool:
     """
     Create a Vector Search tool for retrieving documents from a Databricks Vector Search index.
@@ -372,18 +375,21 @@ def create_vector_search_tool(
         A BaseTool instance that can perform vector search operations
     """
 
-    vector_store: dict[str, Any] = retriever.get("vector_store", {})
+    if isinstance(retriever, dict):
+        retriever = RetrieverModel(**retriever)
 
-    index_name: str = full_name(**vector_store.get("index"))
-    columns: Sequence[str] = retriever.get("columns", [])
-    search_parameters: dict[str, Any] = retriever.get("search_parameters", {})
-    primary_key: str = vector_store.get("primary_key")
-    doc_uri: str = vector_store.get("doc_uri")
-    text_column: str = vector_store.get("embedding_source_column")
+    vector_store: VectorStoreModel = retriever.vector_store
+
+    index_name: str = vector_store.index.full_name
+    columns: Sequence[str] = retriever.columns
+    search_parameters: dict[str, Any] = retriever.search_parameters
+    primary_key: str = vector_store.primary_key
+    doc_uri: str = vector_store.doc_uri
+    text_column: str = vector_store.embedding_source_column
 
     vector_search_tool: BaseTool = VectorSearchRetrieverTool(
-        name="",
-        description="",
+        name=name,
+        description=description,
         index_name=index_name,
         columns=columns,
         **search_parameters,
@@ -391,7 +397,7 @@ def create_vector_search_tool(
 
     # Register the retriever schema with MLflow for model serving integration
     mlflow.models.set_retriever_schema(
-        name="retriever",
+        name=name or "retriever",
         primary_key=primary_key,
         text_column=text_column,
         doc_uri=doc_uri,

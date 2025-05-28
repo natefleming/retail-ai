@@ -1,5 +1,6 @@
-from typing import Self, Sequence
 from collections import OrderedDict
+from typing import Self, Sequence
+
 from retail_ai.config import AgentModel
 
 

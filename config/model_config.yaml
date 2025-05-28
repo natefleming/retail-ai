@@ -1,6 +1,5 @@
 # yaml-language-server: $schema=../schemas/model_config_schema.json
 
-
 schemas:
   retail_schema: &retail_schema
     catalog_name: nfleming
@@ -153,6 +152,9 @@ tools:
       name: retail_ai.tools.create_vector_search_tool
       args:
         retriever: *products_retriever
+        name: product_vector_search_tool
+        description: "Search for products using vector search"
+
 
 
   find_product_details_by_description_tool:
@@ -552,11 +554,11 @@ evaluation:
 datasets:
   - schema: *retail_schema
     table: products
-    ddl: ./data/retail/products.sql
-    data: ./data/retail/products.snappy.parquet
+    ddl: ../data/retail/products.sql
+    data: ../data/retail/products.snappy.parquet
     format: parquet
   - schema: *retail_schema
     table: inventory
-    ddl: ./data/retail/inventory.sql
-    data: ./data/retail/inventory.snappy.parquet
+    ddl: ../data/retail/inventory.sql
+    data: ../data/retail/inventory.snappy.parquet
     format: parquet

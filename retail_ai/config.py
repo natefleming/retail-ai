@@ -248,6 +248,7 @@ class SupervisorModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
 
+
 class SwarmModel(BaseModel):
     model: LLMModel
 
@@ -255,16 +256,14 @@ class SwarmModel(BaseModel):
 class OrchestrationModel(BaseModel):
     supervisor: Optional[SupervisorModel] = None
     swarm: Optional[SwarmModel] = None
-    
-    @model_validator(mode='after')
+
+    @model_validator(mode="after")
     def validate_mutually_exclusive(self):
         if self.supervisor is not None and self.swarm is not None:
             raise ValueError("Cannot specify both supervisor and swarm")
         if self.supervisor is None and self.swarm is None:
             raise ValueError("Must specify either supervisor or swarm")
         return self
-
-
 
 
 class RegisteredModelModel(BaseModel, HasFullName):

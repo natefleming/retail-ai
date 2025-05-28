@@ -14,7 +14,6 @@ from retail_ai.nodes import (
 from retail_ai.state import AgentConfig, AgentState
 
 
-
 def route_message_validation(state: AgentState) -> str:
     if not state["is_valid_config"]:
         return END
@@ -62,10 +61,8 @@ def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
     orchestration: OrchestrationModel = config.app.orchestration
     if orchestration.supervisor:
         return _create_supervisor_graph(config)
-    
+
     if orchestration.swarm:
         raise NotImplementedError("Swarm orchestration is not implemented yet.")
-    
-    raise ValueError("No valid orchestration model found in the configuration.")
- 
 
+    raise ValueError("No valid orchestration model found in the configuration.")
