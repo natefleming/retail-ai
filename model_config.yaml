@@ -131,7 +131,6 @@ retrievers:
       query_type: ANN
 
 tools:
-
   genie_tool: &genie_tool
     name: genie
     function:
@@ -166,37 +165,37 @@ tools:
         retriever: *products_retriever
 
   find_product_by_sku_uc_tool: &find_product_by_sku_uc_tool
-    name: find_product_by_sku
+    name: find_product_by_sku_uc
     function:
       type: unity_catalog
       <<: *find_product_by_sku
 
   find_product_by_upc_uc_tool: &find_product_by_upc_uc_tool
-    name: find_product_by_upc
+    name: find_product_by_upc_uc
     function:
       type: unity_catalog
       <<: *find_product_by_upc
 
   find_inventory_by_sku_uc_tool: &find_inventory_by_sku_uc_tool
-    name: find_inventory_by_sku
+    name: find_inventory_by_sku_uc
     function:
       type: unity_catalog
       <<: *find_inventory_by_sku
 
   find_inventory_by_upc_uc_tool: &find_inventory_by_upc_uc_tool
-    name: find_inventory_by_upc
+    name: find_inventory_by_upc_uc
     function:
       type: unity_catalog
       <<: *find_inventory_by_upc
 
   find_store_inventory_by_sku_uc_tool: &find_store_inventory_by_sku_uc_tool
-    name: find_store_inventory_by_sku
+    name: find_store_inventory_by_sku_uc
     function:
       type: unity_catalog
       <<: *find_store_inventory_by_sku
 
   find_store_inventory_by_upc_uc_tool: &find_store_inventory_by_upc_uc_tool
-    name: find_store_inventory_by_upc
+    name: find_store_inventory_by_upc_uc
     function:
       type: unity_catalog
       <<: *find_store_inventory_by_upc
