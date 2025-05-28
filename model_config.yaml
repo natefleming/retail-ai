@@ -131,8 +131,17 @@ retrievers:
       query_type: ANN
 
 tools:
+
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: retail_ai.tools.create_genie_tool
+      args:
+        genie_room: *retail_genie_room
+
   search_tool: &search_tool
-    name: search_tool
+    name: search
     function:
       type: factory
       name: retail_ai.tools.search_tool

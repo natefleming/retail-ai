@@ -29,11 +29,15 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 from retail_ai.catalog import full_name
 from retail_ai.config import (
     BaseFunctionModel,
+    FactoryFunctionModel,
     FunctionType,
     GenieRoomModel,
+    McpFunctionModel,
+    PythonFunctionModel,
     RetrieverModel,
     SchemaModel,
     ToolModel,
+    UnityCatalogFunctionModel,
     WarehouseModel,
 )
 from retail_ai.utils import load_function
@@ -147,7 +151,7 @@ def create_product_classification_tool(
 
 
 def find_product_details_by_description_tool(
-    retriever: RetrieverModel,
+    retriever: dict[str, Any],
 ) -> Callable[[str, str], Sequence[Document]]:
     """
     Create a tool for finding product details using vector search with classification filtering.
@@ -165,6 +169,8 @@ def find_product_details_by_description_tool(
         A callable tool function that performs vector search for product details
         based on natural language descriptions and classification filters
     """
+    if isinstance(retriever, dict):
+        retriever = RetrieverModel(**retriever)
 
     logger.debug("find_product_details_by_description_tool")
 
@@ -233,13 +239,13 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
 
             match function_type:
                 case FunctionType.UNITY_CATALOG:
-                    tools = create_uc_tools(function_name=function.full_name)
-                    tool = next(iter(tools or []), None)
+                    tool = create_uc_tool(function)
                 case FunctionType.FACTORY:
-                    factory: Callable = load_function(function_name=function.name)
-                    tool = factory(**function.args)
+                    tool = create_factory_tool(function)
                 case FunctionType.PYTHON:
-                    tool = load_function(function_name=function.full_name)
+                    tool = create_python_tool(function)
+                case FunctionType.MCP:
+                    tool = create_mcp_tool(function)
                 case _:
                     raise ValueError(f"Unknown tool type: {function_type}")
 
@@ -252,7 +258,64 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
     return tools
 
 
-def create_uc_tools(function_name: str | Sequence[str]) -> Sequence[BaseTool]:
+def create_mcp_tool(
+    function: McpFunctionModel,
+) -> Callable[..., Any]:
+    """
+    Create a tool for invoking a Databricks MCP function.
+
+    This factory function wraps a Databricks MCP function as a callable tool that can be
+    invoked by agents during reasoning.
+
+    Args:
+        function: McpFunctionModel instance containing the function details
+
+    Returns:
+        A callable tool function that wraps the specified MCP function
+    """
+    logger.debug(f"create_mcp_tool: {function.full_name}")
+
+    raise NotImplementedError("MCP tools are not yet implemented.")
+
+
+def create_factory_tool(
+    function: FactoryFunctionModel,
+) -> Callable[..., Any]:
+    """
+    Create a factory tool from a FactoryFunctionModel.
+    This factory function dynamically loads a Python function and returns it as a callable tool.
+    Args:
+        function: FactoryFunctionModel instance containing the function details
+    Returns:
+        A callable tool function that wraps the specified factory function
+    """
+    logger.debug(f"create_factory_tool: {function.full_name}")
+
+    factory: Callable[..., Any] = load_function(function_name=function.full_name)
+    tool: Callable[..., Any] = factory(**function.args)
+    return tool
+
+
+def create_python_tool(
+    function: PythonFunctionModel,
+) -> Callable[..., Any]:
+    """
+    Create a Python tool from a Python function model.
+    This factory function wraps a Python function as a callable tool that can be
+    invoked by agents during reasoning.
+    Args:
+        function: PythonFunctionModel instance containing the function details
+    Returns:
+        A callable tool function that wraps the specified Python function
+    """
+    logger.debug(f"create_python_tool: {function.full_name}")
+
+    # Load the Python function dynamically
+    tool: Callable[..., Any] = load_function(function_name=function.full_name)
+    return tool
+
+
+def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
     """
     Create LangChain tools from Unity Catalog functions.
 
@@ -261,24 +324,24 @@ def create_uc_tools(function_name: str | Sequence[str]) -> Sequence[BaseTool]:
     tool that can be invoked by the agent during reasoning.
 
     Args:
-        function_names: Single function name or list of function names in format
-                      "catalog.schema.function"
+        function: UnityCatalogFunctionModel instance containing the function details
 
     Returns:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
+    logger.debug(f"create_uc_tool: {function.full_name}")
+
     # set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
-    if isinstance(function_name, str):
-        function_name = [function_name]
     toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=function_name, client=client
+        function_names=[function.full_name], client=client
     )
 
-    return toolkit.tools
+    tool = next(iter(toolkit.tools or []), None)
+    return tool
 
 
 def create_vector_search_tool(
@@ -335,7 +398,9 @@ def create_vector_search_tool(
     return vector_search_tool
 
 
-def create_genie_tool(genie_room: GenieRoomModel) -> Callable[[str], GenieResponse]:
+def create_genie_tool(
+    genie_room: GenieRoomModel | dict[str, Any],
+) -> Callable[[str], GenieResponse]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
 
@@ -351,6 +416,10 @@ def create_genie_tool(genie_room: GenieRoomModel) -> Callable[[str], GenieRespon
         A callable tool function that processes natural language queries through Genie
     """
     logger.debug("create_genie_tool")
+
+    if isinstance(genie_room, dict):
+        genie_room = GenieRoomModel(**genie_room)
+
     space_id: str = genie_room.space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
 
     genie: Genie = Genie(
@@ -385,8 +454,13 @@ def search_tool() -> BaseTool:
 
 
 def create_find_product_by_sku_tool(
-    schema: SchemaModel, warehouse: WarehouseModel
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_product_by_sku(skus: list[str]) -> tuple:
         """
@@ -453,8 +527,13 @@ def create_find_product_by_sku_tool(
 
 
 def create_find_product_by_upc_tool(
-    schema: SchemaModel, warehouse: WarehouseModel
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_product_by_upc(upcs: list[str]) -> tuple:
         """
@@ -506,8 +585,13 @@ def create_find_product_by_upc_tool(
 
 
 def create_find_inventory_by_sku_tool(
-    schema: SchemaModel, warehouse: WarehouseModel
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_inventory_by_sku(skus: list[str]) -> tuple:
         """
@@ -579,8 +663,13 @@ def create_find_inventory_by_sku_tool(
 
 
 def create_find_inventory_by_upc_tool(
-    schema: SchemaModel, warehouse: WarehouseModel
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
 ) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_inventory_by_upc(upcs: list[str]) -> tuple:
         """
@@ -637,8 +726,13 @@ def create_find_inventory_by_upc_tool(
 
 
 def create_find_store_inventory_by_sku_tool(
-    schema: SchemaModel, warehouse: WarehouseModel
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
 ) -> Callable[[str, list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_store_inventory_by_sku(store: str, skus: list[str]) -> tuple:
         """
@@ -713,8 +807,13 @@ def create_find_store_inventory_by_sku_tool(
 
 
 def create_find_store_inventory_by_upc_tool(
-    schema: SchemaModel, warehouse: WarehouseModel
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
 ) -> Callable[[str, list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_store_inventory_by_upc(store: str, upcs: list[str]) -> tuple:
         """

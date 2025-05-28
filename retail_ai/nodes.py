@@ -41,6 +41,8 @@ def create_agent_node(agent: AgentModel) -> AgentCallable:
     """
     logger.debug(f"Creating agent node for {agent.name}")
 
+    tools: Sequence[BaseTool] = create_tools(agent.tools)
+
     @mlflow.trace()
     def agent_node(
         state: AgentState, config: AgentConfig
@@ -71,9 +73,6 @@ def create_agent_node(agent: AgentModel) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools: Sequence[BaseTool] = create_tools(agent.tools)
-
-        # Create the agent with ReAct framework
         compiled_agent: CompiledStateGraph = create_react_agent(
             model=llm,
             prompt=system_prompt,
@@ -89,7 +88,7 @@ def create_agent_node(agent: AgentModel) -> AgentCallable:
         return compiled_agent
 
     # Set function name dynamically for better debugging
-    agent_node.__name__ = f"{agent.name}_node_impl"
+    agent_node.__name__ = f"{agent.name}_node"
 
     return agent_node
 

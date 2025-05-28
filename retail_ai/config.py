@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -160,6 +160,7 @@ class FunctionType(str, Enum):
     PYTHON = "python"
     FACTORY = "factory"
     UNITY_CATALOG = "unity_catalog"
+    MCP = "mcp"
 
 
 class BaseFunctionModel(BaseModel):
@@ -169,6 +170,7 @@ class BaseFunctionModel(BaseModel):
 
 class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    type: FunctionType = FunctionType.PYTHON
 
     @property
     def full_name(self) -> str:
@@ -179,6 +181,15 @@ class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
 
 class FactoryFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
+    type: FunctionType = FunctionType.FACTORY
+
+    @property
+    def full_name(self) -> str:
+        return self.name
+
+
+class McpFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+    type: FunctionType = FunctionType.MCP
 
     @property
     def full_name(self) -> str:
@@ -187,6 +198,7 @@ class FactoryFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
 
 class UnityCatalogFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    type: FunctionType = FunctionType.UNITY_CATALOG
 
     @property
     def full_name(self) -> str:
@@ -197,7 +209,12 @@ class UnityCatalogFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
 
 class ToolModel(BaseModel):
     name: str
-    function: PythonFunctionModel | FactoryFunctionModel | UnityCatalogFunctionModel
+    function: (
+        PythonFunctionModel
+        | FactoryFunctionModel
+        | UnityCatalogFunctionModel
+        | McpFunctionModel
+    )
 
 
 class GuardrailsModel(BaseModel):
@@ -313,3 +330,68 @@ class AppConfig(BaseModel):
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="allow", use_enum_values=True)
+
+    def find_agents(
+        self, predicate: Callable[[AgentModel], bool] | None = None
+    ) -> Sequence[AgentModel]:
+        """
+        Find agents in the configuration that match a given predicate.
+
+        Args:
+            predicate: A callable that takes an AgentModel and returns True if it matches.
+
+        Returns:
+            A list of AgentModel instances that match the predicate.
+        """
+        if predicate is None:
+
+            def _null_predicate(agent: AgentModel) -> bool:
+                return True
+
+            predicate = _null_predicate
+
+        return [agent for agent in self.agents.values() if predicate(agent)]
+
+    def find_tools(
+        self, predicate: Callable[[ToolModel], bool] | None = None
+    ) -> Sequence[AgentModel]:
+        """
+        Find agents in the configuration that match a given predicate.
+
+        Args:
+            predicate: A callable that takes an AgentModel and returns True if it matches.
+
+        Returns:
+            A list of AgentModel instances that match the predicate.
+        """
+        if predicate is None:
+
+            def _null_predicate(tool: ToolModel) -> bool:
+                return True
+
+            predicate = _null_predicate
+
+        return [tool for tool in self.tools.values() if predicate(tool)]
+
+    def find_guardrails(
+        self, predicate: Callable[[GuardrailsModel], bool] | None = None
+    ) -> Sequence[AgentModel]:
+        """
+        Find agents in the configuration that match a given predicate.
+
+        Args:
+            predicate: A callable that takes an AgentModel and returns True if it matches.
+
+        Returns:
+            A list of AgentModel instances that match the predicate.
+        """
+        if predicate is None:
+
+            def _null_predicate(guardrails: GuardrailsModel) -> bool:
+                return True
+
+            predicate = _null_predicate
+
+        return [
+            guardrail for guardrail in self.guardrails.values() if predicate(guardrail)
+        ]
