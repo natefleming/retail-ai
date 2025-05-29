@@ -4,6 +4,8 @@ from typing import Self, Sequence
 from retail_ai.config import AgentModel
 
 
+
+
 class Supervisor:
     def __init__(self, agents: Sequence[AgentModel] = []) -> None:
         self.agent_registry: OrderedDict[str, AgentModel] = {}

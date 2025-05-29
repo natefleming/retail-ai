@@ -5,7 +5,7 @@ import pytest
 from loguru import logger
 
 from retail_ai.config import AgentModel, AppConfig
-from retail_ai.supervisor import Supervisor
+from retail_ai.orchestration import Supervisor
 
 logger.remove()
 logger.add(sys.stderr, level="INFO")

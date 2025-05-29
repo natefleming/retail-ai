@@ -249,6 +249,7 @@ langchain-core==0.3.55
     #   langgraph
     #   langgraph-checkpoint
     #   langgraph-prebuilt
+    #   langgraph-swarm
 langchain-openai==0.3.14
     # via openevals
 langchain-text-splitters==0.3.8
@@ -256,6 +257,7 @@ langchain-text-splitters==0.3.8
 langgraph==0.3.31
     # via
     #   langgraph-reflection
+    #   langgraph-swarm
     #   retail-ai
 langgraph-checkpoint==2.0.24
     # via
@@ -270,6 +272,8 @@ langgraph-reflection==0.0.1
     # via retail-ai
 langgraph-sdk==0.1.63
     # via langgraph
+langgraph-swarm==0.0.11
+    # via retail-ai
 langsmith==0.3.33
     # via
     #   langchain

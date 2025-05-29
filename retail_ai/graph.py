@@ -12,7 +12,9 @@ from retail_ai.nodes import (
     supervisor_node,
 )
 from retail_ai.state import AgentConfig, AgentState
-
+from langgraph_swarm import create_swarm, create_handoff_tool
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.memory import InMemoryStore
 
 def route_message_validation(state: AgentState) -> str:
     if not state["is_valid_config"]:
@@ -57,12 +59,31 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     return workflow.compile()
 
 
+def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
+    agents: Sequence[CompiledStateGraph] = (
+        [create_agent_node(agent=agent) for agent in config.app.agents]
+    )
+    default_agent: AgentModel = config.app.orchestration.swarm.default_agent
+    if isinstance(default_agent, AgentModel):
+        default_agent = default_agent.name
+
+    workflow: StateGraph = create_swarm(
+        agents=agents,
+        default_active_agent=default_agent,
+        state_schema= AgentState,
+        config_schema=AgentConfig,
+    )
+
+    checkpointer = None #InMemorySaver()
+    store = None #InMemoryStore()    
+    return workflow.compile(checkpointer=checkpointer, store=store)
+
 def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
     orchestration: OrchestrationModel = config.app.orchestration
     if orchestration.supervisor:
         return _create_supervisor_graph(config)
 
     if orchestration.swarm:
-        raise NotImplementedError("Swarm orchestration is not implemented yet.")
+        return _create_swarm_graph(config)
 
     raise ValueError("No valid orchestration model found in the configuration.")

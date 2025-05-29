@@ -1408,6 +1408,19 @@ wheels = [
 ]
 
 [[package]]
+name = "langgraph-swarm"
+version = "0.0.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "langgraph" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/36/49afc8dc81bf877956d5f3d0e9980aca1f83884a81ad200302a84a11ad64/langgraph_swarm-0.0.11.tar.gz", hash = "sha256:8aafc47c849c0e4eb6ea5cdc7791977be67e11b319ff91f8a6ccef0ded1984a4", size = 11118, upload-time = "2025-04-30T15:59:28.525Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/97/135f4372e3e9bf74fc4d12151758d25970a0e842716c144e348aac12af1b/langgraph_swarm-0.0.11-py3-none-any.whl", hash = "sha256:c99a92a4d383a2f5a4db40952a37bfdef0c41b44288fef56b0214056eb6801a0", size = 9458, upload-time = "2025-04-30T15:59:27.646Z" },
+]
+
+[[package]]
 name = "langsmith"
 version = "0.3.33"
 source = { registry = "https://pypi.org/simple" }
@@ -2527,6 +2540,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-reflection" },
+    { name = "langgraph-swarm" },
     { name = "loguru" },
     { name = "mcp" },
     { name = "mlflow" },
@@ -2554,6 +2568,7 @@ requires-dist = [
     { name = "langgraph", specifier = "==0.3.31" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.21" },
     { name = "langgraph-reflection", specifier = ">=0.0.1" },
+    { name = "langgraph-swarm", specifier = ">=0.0.11" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mcp", specifier = ">=1.9.1" },
     { name = "mlflow", specifier = ">=2.21.3" },

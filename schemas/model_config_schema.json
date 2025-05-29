@@ -799,10 +799,22 @@
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
+        },
+        "default_agent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentModel"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Default Agent"
         }
       },
       "required": [
-        "model"
+        "model",
+        "default_agent"
       ],
       "title": "SwarmModel",
       "type": "object"

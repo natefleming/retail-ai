@@ -251,7 +251,7 @@ class SupervisorModel(BaseModel):
 
 class SwarmModel(BaseModel):
     model: LLMModel
-
+    default_agent: AgentModel | str
 
 class OrchestrationModel(BaseModel):
     supervisor: Optional[SupervisorModel] = None

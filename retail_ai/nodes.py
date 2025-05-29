@@ -17,7 +17,7 @@ from retail_ai.config import AgentModel, AppConfig, SupervisorModel
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.supervisor import Supervisor
+from retail_ai.orchestration import Supervisor
 from retail_ai.tools import (
     create_tools,
 )
