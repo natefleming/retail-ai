@@ -249,6 +249,7 @@ langchain-core==0.3.55
     #   langgraph
     #   langgraph-checkpoint
     #   langgraph-prebuilt
+    #   langgraph-supervisor
     #   langgraph-swarm
 langchain-openai==0.3.14
     # via openevals
@@ -257,6 +258,7 @@ langchain-text-splitters==0.3.8
 langgraph==0.3.31
     # via
     #   langgraph-reflection
+    #   langgraph-supervisor
     #   langgraph-swarm
     #   retail-ai
 langgraph-checkpoint==2.0.24
@@ -267,11 +269,15 @@ langgraph-checkpoint==2.0.24
 langgraph-checkpoint-postgres==2.0.21
     # via retail-ai
 langgraph-prebuilt==0.1.8
-    # via langgraph
+    # via
+    #   langgraph
+    #   langgraph-supervisor
 langgraph-reflection==0.0.1
     # via retail-ai
 langgraph-sdk==0.1.63
     # via langgraph
+langgraph-supervisor==0.0.27
+    # via retail-ai
 langgraph-swarm==0.0.11
     # via retail-ai
 langsmith==0.3.33

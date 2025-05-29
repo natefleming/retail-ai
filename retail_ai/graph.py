@@ -1,7 +1,8 @@
-from typing import Sequence
+from typing import Any, Callable, Sequence
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph_swarm import create_handoff_tool, create_swarm
 
 from retail_ai.config import AgentModel, AppConfig, OrchestrationModel
 from retail_ai.messages import has_image
@@ -12,9 +13,7 @@ from retail_ai.nodes import (
     supervisor_node,
 )
 from retail_ai.state import AgentConfig, AgentState
-from langgraph_swarm import create_swarm, create_handoff_tool
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.store.memory import InMemoryStore
+
 
 def route_message_validation(state: AgentState) -> str:
     if not state["is_valid_config"]:
@@ -60,9 +59,24 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
 
 
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
-    agents: Sequence[CompiledStateGraph] = (
-        [create_agent_node(agent=agent) for agent in config.app.agents]
-    )
+    agents: list[CompiledStateGraph] = []
+    for registered_agent in config.app.agents:
+        handoff_tools: list[Callable[..., Any]] = []
+        for handoff_to_agent in config.app.agents:
+            if registered_agent.name == handoff_to_agent.name:
+                continue
+            handoff_tools.append(
+                create_handoff_tool(
+                    agent_name=handoff_to_agent.name,
+                    description=handoff_to_agent.description,
+                    config_schema=AgentConfig,
+                    state_schema=AgentState,
+                )
+            )
+        agents.append(
+            create_agent_node(agent=registered_agent, additional_tools=handoff_tools)
+        )
+
     default_agent: AgentModel = config.app.orchestration.swarm.default_agent
     if isinstance(default_agent, AgentModel):
         default_agent = default_agent.name
@@ -70,13 +84,14 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = create_swarm(
         agents=agents,
         default_active_agent=default_agent,
-        state_schema= AgentState,
+        state_schema=AgentState,
         config_schema=AgentConfig,
     )
 
-    checkpointer = None #InMemorySaver()
-    store = None #InMemoryStore()    
+    checkpointer = None  # InMemorySaver()
+    store = None  # InMemoryStore()
     return workflow.compile(checkpointer=checkpointer, store=store)
+
 
 def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
     orchestration: OrchestrationModel = config.app.orchestration

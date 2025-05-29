@@ -380,6 +380,24 @@
       "title": "GuardrailsModel",
       "type": "object"
     },
+    "HandoffModel": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "handoff_prompt": {
+          "title": "Handoff Prompt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "handoff_prompt"
+      ],
+      "title": "HandoffModel",
+      "type": "object"
+    },
     "IndexModel": {
       "properties": {
         "schema": {
@@ -1020,6 +1038,20 @@
     },
     "resources": {
       "$ref": "#/$defs/ResourcesModel"
+    },
+    "handoffs": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/HandoffModel"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Handoffs"
     },
     "retrievers": {
       "additionalProperties": {

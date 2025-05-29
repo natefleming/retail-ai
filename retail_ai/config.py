@@ -233,6 +233,11 @@ class CheckpointerModel(BaseModel):
     database: DatabaseModel
 
 
+class HandoffModel(BaseModel):
+    name: str
+    handoff_prompt: str
+
+
 class AgentModel(BaseModel):
     name: str
     description: str
@@ -252,6 +257,7 @@ class SupervisorModel(BaseModel):
 class SwarmModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
+
 
 class OrchestrationModel(BaseModel):
     supervisor: Optional[SupervisorModel] = None
@@ -335,6 +341,8 @@ class ResourcesModel(BaseModel):
 class AppConfig(BaseModel):
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
+    handoffs: Optional[dict[str, HandoffModel]] = Field(default_factory=dict)
+
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
     tools: dict[str, ToolModel] = Field(default_factory=dict)
     guardrails: dict[str, GuardrailsModel] = Field(default_factory=dict)

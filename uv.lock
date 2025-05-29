@@ -1408,6 +1408,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langgraph-supervisor"
+version = "0.0.27"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "langgraph" },
+    { name = "langgraph-prebuilt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c4/96/46a6bfa2df4a9f120438e1e6dc343f3804485e188f26e4428185c864699a/langgraph_supervisor-0.0.27.tar.gz", hash = "sha256:1d07b722f54ab446e4ce8ad45f26cde7a593a77b1d1641684d91cb8fe6ac725a", size = 20769, upload-time = "2025-05-29T14:45:46.155Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/0e/48d0d29739e969450cd4aa5d83b68cb9cd3d1ba663cb3e02f43c445cbaf5/langgraph_supervisor-0.0.27-py3-none-any.whl", hash = "sha256:f3b200acf04fd7a0476b4688136fee49b0ed1505e6cec7058367e62fec2e8121", size = 15760, upload-time = "2025-05-29T14:45:44.76Z" },
+]
+
+[[package]]
 name = "langgraph-swarm"
 version = "0.0.11"
 source = { registry = "https://pypi.org/simple" }
@@ -2540,6 +2554,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-reflection" },
+    { name = "langgraph-supervisor" },
     { name = "langgraph-swarm" },
     { name = "loguru" },
     { name = "mcp" },
@@ -2568,6 +2583,7 @@ requires-dist = [
     { name = "langgraph", specifier = "==0.3.31" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.21" },
     { name = "langgraph-reflection", specifier = ">=0.0.1" },
+    { name = "langgraph-supervisor", specifier = ">=0.0.27" },
     { name = "langgraph-swarm", specifier = ">=0.0.11" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mcp", specifier = ">=1.9.1" },

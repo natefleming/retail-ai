@@ -13,18 +13,19 @@ from langgraph.prebuilt import create_react_agent
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from retail_ai.config import AgentModel, AppConfig, SupervisorModel
+from retail_ai.config import AgentModel, AppConfig, SupervisorModel, ToolModel
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.orchestration import Supervisor
 from retail_ai.tools import (
     create_tools,
 )
 from retail_ai.types import AgentCallable
 
 
-def create_agent_node(agent: AgentModel) -> AgentCallable:
+def create_agent_node(
+    agent: AgentModel, additional_tools: Optional[Sequence[ToolModel]] = None
+) -> AgentCallable:
     """
     Factory function that creates a LangGraph node for a specialized agent.
 
@@ -41,7 +42,10 @@ def create_agent_node(agent: AgentModel) -> AgentCallable:
     """
     logger.debug(f"Creating agent node for {agent.name}")
 
-    tools: Sequence[BaseTool] = create_tools(agent.tools)
+    tools: Sequence[ToolModel] = agent.tools
+    if additional_tools:
+        tools += additional_tools
+    tools: Sequence[BaseTool] = create_tools(tools)
 
     @mlflow.trace()
     def agent_node(
@@ -117,6 +121,21 @@ def message_validation_node(config: AppConfig) -> AgentCallable:
     return message_validation
 
 
+def _supervisor_prompt(agents: Sequence[AgentModel]) -> str:
+    prompt_result: str = "Analyze the user question and select ONE specific route from the allowed options:\n\n"
+
+    for agent in agents:
+        route: str = agent.name
+        handoff_prompt: str = agent.handoff_prompt
+        prompt_result += f"  - Route to '{route}': {handoff_prompt}\n"
+
+    prompt_result += (
+        "\n Choose exactly ONE route that BEST matches the user's primary intent."
+    )
+
+    return prompt_result
+
+
 def supervisor_node(config: AppConfig) -> AgentCallable:
     """
     Create a node that routes questions to the appropriate specialized agent.
@@ -134,11 +153,11 @@ def supervisor_node(config: AppConfig) -> AgentCallable:
     logger.debug("Creating supervisor node")
     agents: Sequence[AgentModel] = config.app.agents
 
-    s: Supervisor = Supervisor(agents=agents)
     supervisor_model: SupervisorModel = config.app.orchestration.supervisor
 
-    prompt: str = s.prompt
-    allowed_routes: Sequence[str] = s.allowed_routes
+    prompt: str = _supervisor_prompt(agents=agents)
+    logger.debug(f"Supervisor prompt: {prompt}")
+    allowed_routes: Sequence[str] = list(set([a.name for a in agents]))
     model: str = supervisor_model.model.name
     temperature: float = supervisor_model.model.temperature
     default_route: str | AgentModel = supervisor_model.default_agent

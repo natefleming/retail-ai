@@ -130,15 +130,6 @@ retrievers:
       query_type: ANN
 
 tools:
-
-  handoff_to_orders_tool: &handoff_to_orders_tool
-    name: handoff_to_orders
-    function:
-      type: factory
-      name: langgraph_swarm.create_handoff_tool
-      args:
-        agent_name: orders
-
   genie_tool: &genie_tool
     name: genie
     function:

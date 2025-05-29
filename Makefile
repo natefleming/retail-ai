@@ -14,9 +14,6 @@ else
     PYTHON := python3
 endif
 
-
-
-
 UV := uv
 SYNC := $(UV) sync 
 BUILD := $(UV) build 
