@@ -1,23 +1,34 @@
 # Databricks notebook source
-from typing import Sequence
+%pip install uv
 
-pip_requirements: Sequence[str] = (
-  "databricks-sdk",
-  "databricks-vectorsearch",
-  "mlflow",
-  "python-dotenv"
-)
+import os
+os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
+%sh uv --project ../ sync
 %restart_python
+
+
+# from typing import Sequence
+
+# pip_requirements: Sequence[str] = (
+#   "databricks-sdk",
+#   "databricks-vectorsearch",
+#   "mlflow",
+#   "python-dotenv"
+# )
+
+# pip_requirements: str = " ".join(pip_requirements)
+
+# %pip install --quiet --upgrade {pip_requirements}
+# %restart_python
 
 # COMMAND ----------
 
+import sys
 from typing import Sequence
-
 from importlib.metadata import version
+
+sys.path.insert(0, "..")
 
 
 pip_requirements: Sequence[str] = (
@@ -43,89 +54,75 @@ _ = load_dotenv(find_dotenv())
 from typing import Any, Sequence
 
 from mlflow.models import ModelConfig
+from retail_ai.config import AppConfig, VectorStoreModel
+from databricks.sdk import WorkspaceClient
+from databricks.vector_search.index import VectorSearchIndex
+from retail_ai.vector_search import index_exists, endpoint_exists
+from databricks.vector_search.client import VectorSearchClient
 
 
 model_config_file: str = "model_config.yaml"
-config: ModelConfig = ModelConfig(development_config=model_config_file)
-
-vector_store_config: dict[str, Any] = config.get("resources").get("vector_stores").get("products_vector_store")
-
-embedding_model_endpoint_name: str = vector_store_config.get("embedding_model").get("name")
-endpoint_name: str = vector_store_config.get("endpoint_name")
-endpoint_type: str = vector_store_config.get("endpoint_type")
-index_name: str = vector_store_config.get("index_name")
-source_table_name: str = vector_store_config.get("source_table_name")
-primary_key: str = vector_store_config.get("primary_key")
-embedding_source_column: str = vector_store_config.get("embedding_source_column")
-columns: Sequence[str] = vector_store_config.get("columns", [])
+model_config: ModelConfig = ModelConfig(development_config=model_config_file)
+config: AppConfig = AppConfig(**model_config.to_dict())
 
 
+vector_stores: dict[str, VectorStoreModel] = config.resources.vector_stores
 
-print(f"embedding_model_endpoint_name: {embedding_model_endpoint_name}")
-print(f"endpoint_name: {endpoint_name}")
-print(f"endpoint_type: {endpoint_type}")
-print(f"index_name: {index_name}")
-print(f"source_table_name: {source_table_name}")
-print(f"primary_key: {primary_key}")
-print(f"embedding_source_column: {embedding_source_column}")
-print(f"columns: {columns}")
+for name, vector_store in vector_stores.items():
+  name: str
+  vector_store: VectorStoreModel
 
+  print(f"vector_store: {vector_store}")
 
+  vsc: VectorSearchClient = VectorSearchClient()
 
-# COMMAND ----------
+  if not endpoint_exists(vsc, vector_store.endpoint_name):
+      vsc.create_endpoint_and_wait(
+        name=vector_store.endpoint_name, 
+        endpoint_type=vector_store.endpoint_type.name,
+        verbose=True, 
+      )
 
-from databricks.vector_search.client import VectorSearchClient
-from retail_ai.vector_search import endpoint_exists
-
-vsc: VectorSearchClient = VectorSearchClient()
-
-if not endpoint_exists(vsc, endpoint_name):
-    vsc.create_endpoint_and_wait(name=endpoint_name, verbose=True, endpoint_type=endpoint_type)
-
-print(f"Endpoint named {endpoint_name} is ready.")
+  print(f"Endpoint named {vector_store.endpoint_name} is ready.")
 
 
-# COMMAND ----------
+  if not index_exists(vsc, vector_store.endpoint_name, vector_store.index.full_name):
+    print(f"Creating index {vector_store.index.full_name} on endpoint {vector_store.endpoint_name}...")
+    vsc.create_delta_sync_index_and_wait(
+      endpoint_name=vector_store.endpoint_name,
+      index_name=vector_store.index.full_name,
+      source_table_name=vector_store.source_table.full_name,
+      pipeline_type="TRIGGERED",
+      primary_key=vector_store.index.primary_key,
+      embedding_source_column=vector_store.embedding_source_column, 
+      embedding_model_endpoint_name=vector_store.embedding_model.name 
+    )
+  else:
+    vsc.get_index(vector_store.endpoint_name, vector_store.index.full_name).sync()
 
-from databricks.sdk import WorkspaceClient
-from databricks.vector_search.index import VectorSearchIndex
-from retail_ai.vector_search import index_exists
+  print(f"index {vector_store.index.full_name} on table {vector_store.source_table.full_name} is ready")
 
-
-if not index_exists(vsc, endpoint_name, index_name):
-  print(f"Creating index {index_name} on endpoint {endpoint_name}...")
-  vsc.create_delta_sync_index_and_wait(
-    endpoint_name=endpoint_name,
-    index_name=index_name,
-    source_table_name=source_table_name,
-    pipeline_type="TRIGGERED",
-    primary_key=primary_key,
-    embedding_source_column=embedding_source_column, 
-    embedding_model_endpoint_name=embedding_model_endpoint_name 
-  )
-else:
-  vsc.get_index(endpoint_name, index_name).sync()
-
-print(f"index {index_name} on table {source_table_name} is ready")
 
 # COMMAND ----------
 
 from typing import Dict, Any, List
 
-import mlflow.deployments
 from databricks.vector_search.index import VectorSearchIndex
-from mlflow.deployments.databricks import DatabricksDeploymentClient
+from retail_ai.config import RetrieverModel
 
 
 question: str = "What what is the best hammer for drywall?"
 
-index: VectorSearchIndex = vsc.get_index(endpoint_name, index_name)
-k: int = 3
+for name, retriever in config.retrievers.items():
+  retriever: RetrieverModel
+  index: VectorSearchIndex = vsc.get_index(retriever.vector_store.endpoint_name, retriever.vector_store.index.full_name)
+  k: int = 3
 
-search_results: Dict[str, Any] = index.similarity_search(
-  query_text=question,
-  columns=columns,
-  num_results=k)
+  search_results: Dict[str, Any] = index.similarity_search(
+    query_text=question,
+    columns=retriever.columns,
+    **retriever.search_parameters
+  )
 
-chunks: List[str] = search_results.get('result', {}).get('data_array', [])
-chunks
+  chunks: list[str] = search_results.get('result', {}).get('data_array', [])
+  chunks

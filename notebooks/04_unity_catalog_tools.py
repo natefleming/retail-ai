@@ -1,26 +1,36 @@
 # Databricks notebook source
-from typing import Sequence
+%pip install uv
 
-pip_requirements: Sequence[str] = (
-  "langgraph",
-  "langchain",
-  "databricks-langchain",
-  "unitycatalog-langchain[databricks]",
-  "databricks-sdk",
-  "mlflow",
-  "python-dotenv",
+import os
+os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-)
-
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
+%sh uv --project ../ sync
 %restart_python
 
-# COMMAND ----------
+# from typing import Sequence
 
+# pip_requirements: Sequence[str] = (
+#   "langgraph",
+#   "langchain",
+#   "databricks-langchain",
+#   "unitycatalog-langchain[databricks]",
+#   "databricks-sdk",
+#   "mlflow",
+#   "python-dotenv",
+
+# )
+
+# pip_requirements: str = " ".join(pip_requirements)
+
+# %pip install --quiet --upgrade {pip_requirements}
+# %restart_python
+
+# COMMAND ----------
+import sys
 from typing import Sequence
 from importlib.metadata import version
+
+sys.path.insert(0, "..")
 
 pip_requirements: Sequence[str] = (
   f"langgraph=={version('langgraph')}",

@@ -1,24 +1,32 @@
 # Databricks notebook source
-from typing import Sequence
+%pip install uv
 
-pip_requirements: Sequence[str] = (
-  "langgraph",
-  "langchain",
-  "databricks-langchain", 
-  "databricks-sdk",
-  "mlflow",
-  "python-dotenv",
-  "loguru",
-  "langgraph-reflection",
-  "openevals",
-  "duckduckgo-search",
-  "faker",
-)
+import os
+os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
+%sh uv --project ../ sync
 %restart_python
+
+# from typing import Sequence
+
+# pip_requirements: Sequence[str] = (
+#   "langgraph",
+#   "langchain",
+#   "databricks-langchain", 
+#   "databricks-sdk",
+#   "mlflow",
+#   "python-dotenv",
+#   "loguru",
+#   "langgraph-reflection",
+#   "openevals",
+#   "duckduckgo-search",
+#   "faker",
+# )
+
+# pip_requirements: str = " ".join(pip_requirements)
+
+# %pip install --quiet --upgrade {pip_requirements}
+# %restart_python
 
 # COMMAND ----------
 

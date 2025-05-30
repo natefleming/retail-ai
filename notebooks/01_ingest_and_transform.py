@@ -1,21 +1,31 @@
 # Databricks notebook source
-from typing import Sequence
+%pip install uv
 
-pip_requirements: Sequence[str] = (
-  "databricks-sdk",
-  "python-dotenv",
-  "mlflow"
-)
+import os
+os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
+%sh uv --project ../ sync
 %restart_python
+
+
+# pip_requirements: Sequence[str] = (
+#   "databricks-sdk",
+#   "python-dotenv",
+#   "mlflow"
+# )
+
+# pip_requirements: str = " ".join(pip_requirements)
+
+# %pip install --quiet --upgrade {pip_requirements}
+# %restart_python
 
 # COMMAND ----------
 
+import sys
 from typing import Sequence
 from importlib.metadata import version
+
+sys.path.insert(0, "..")
 
 pip_requirements: Sequence[str] = (
   f"databricks-sdk=={version('databricks-sdk')}",
@@ -41,16 +51,12 @@ _ = load_dotenv(find_dotenv())
 
 import mlflow
 from mlflow.models import ModelConfig
+from retail_ai.config import AppConfig
 
-config: ModelConfig = ModelConfig(development_config="model_config.yaml")
+model_config: ModelConfig = ModelConfig(development_config="model_config.yaml")
+config: AppConfig = AppConfig(**model_config.to_dict())
 
-catalog_name: str = config.get("catalog_name")
-database_name: str = config.get("database_name")
-volume_name: str = config.get("volume_name")
 
-print(f"catalog_name: {catalog_name}")
-print(f"database_name: {database_name}")
-print(f"volume_name: {volume_name}")
 
 # COMMAND ----------
 
@@ -66,48 +72,59 @@ from retail_ai.catalog import (
   get_or_create_database, 
   get_or_create_volume
 )
+from retail_ai.config import SchemaModel, VolumeModel
 
 
 w: WorkspaceClient = WorkspaceClient()
 
-catalog: CatalogInfo = get_or_create_catalog(name=catalog_name, w=w)
-database: SchemaInfo = get_or_create_database(catalog=catalog, name=database_name, w=w)
-volume: VolumeInfo = get_or_create_volume(catalog=catalog, database=database, name=volume_name, w=w)
 
-print(f"catalog: {catalog.full_name}")
-print(f"database: {database.full_name}")
-print(f"volume: {volume.full_name}")
-print(f"volume path: {volume.as_path()}")
+for schema in config.schemas:
+  schema: SchemaModel
+  catalog_info: CatalogInfo = get_or_create_catalog(name=schema.catalog_name, w=w)
+  schema_info: SchemaInfo = get_or_create_database(catalog=catalog_info, name=schema.schema_name, w=w)
+
+  print(f"catalog: {catalog_info.full_name}")
+  print(f"schema: {schema_info.full_name}")
+
+for volume in config.resources.volumes:
+  volume: VolumeModel
+  volume_info: VolumeInfo = get_or_create_volume(
+    catalog=volume.schema_model.catalog_name,
+    database=volume.schema_model.schema_name,
+    name=volume.name,
+    w=w
+  )
+  print(f"volume: {volume_info.full_name}")
 
 # COMMAND ----------
 
 from typing import Any, Sequence
 import re
 from pathlib import Path
+from retail_ai.config import DatasetModel
 
-
-datasets: Sequence[dict[str, str]] = config.get("datasets")
+datasets: Sequence[DatasetModel] = config.datasets
 
 context = dbutils.entry_point.getDbutils().notebook().getContext()
-current_dir = "file:///Workspace" / Path(context.notebookPath().get()).relative_to("/").parent
+current_dir = "file:///Workspace" / Path(context.notebookPath().get()).relative_to("/").parent[1]
 
 for dataset in datasets:
-  table: str = dataset.get("table")
-  ddl_path: Path = Path(dataset.get("ddl"))
-  data_path: Path = current_dir / Path(dataset.get("data"))
-  format: str = dataset.get("format")
+  dataset: DatasetModel
+  table: str = dataset.table.full_name
+  ddl_path: Path = Path(dataset.ddl)
+  data_path: Path = current_dir / Path(dataset.data)
+  format: str = dataset.format
 
   statements: Sequence[str] = [s for s in re.split(r"\s*;\s*",  ddl_path.read_text()) if s]
   for statement in statements:
     print(statement)
-    spark.sql(statement, args={"database": database.full_name})
+    spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
     spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
 
 
 
 # COMMAND ----------
 
-spark.sql(f"USE {database.full_name}")
-for dataset in datasets:
-  table: str = dataset.get("table")
-  display(spark.table(table))
+
+for dataset in config.datasets:
+  display(spark.table(dataset.table.full_name))

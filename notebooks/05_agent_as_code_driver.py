@@ -1,37 +1,49 @@
 # Databricks notebook source
-from typing import Sequence
+%pip install uv
 
-pip_requirements: Sequence[str] = (
-  "langgraph",
-  "langchain",
-  "databricks-langchain",
-  "unitycatalog-langchain[databricks]",
-  "unitycatalog-ai[databricks]",
-  "langgraph-checkpoint-postgres",
-  "duckduckgo-search",
-  "databricks-agents",
-  "psycopg[binary,pool]", 
-  "databricks-sdk",
-  "langgraph-reflection",
-  "openevals",
-  "mlflow",
-  "pydantic",
-  "python-dotenv",
-  "uv",
-  "grandalf",
-  "loguru",
-)
+import os
+os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
+%sh uv --project ../ sync
 %restart_python
+
+# from typing import Sequence
+
+# pip_requirements: Sequence[str] = (
+#   "langgraph",
+#   "langchain",
+#   "databricks-langchain",
+#   "unitycatalog-langchain[databricks]",
+#   "unitycatalog-ai[databricks]",
+#   "langgraph-checkpoint-postgres",
+#   "duckduckgo-search",
+#   "databricks-agents",
+#   "psycopg[binary,pool]", 
+#   "databricks-sdk",
+#   "langgraph-reflection",
+#   "openevals",
+#   "mlflow",
+#   "pydantic",
+#   "python-dotenv",
+#   "uv",
+#   "grandalf",
+#   "loguru",
+# )
+
+# pip_requirements: str = " ".join(pip_requirements)
+
+# %pip install --quiet --upgrade {pip_requirements}
+# %restart_python
 
 # COMMAND ----------
 
+import sys
 from typing import Sequence
 from importlib.metadata import version
 from pkg_resources import get_distribution
+
+sys.path.insert(0, "..")
+
 
 
 pip_requirements: Sequence[str] = [
@@ -44,6 +56,8 @@ pip_requirements: Sequence[str] = [
     f"duckduckgo-search=={version('duckduckgo-search')}",
     f"databricks-sdk=={version('databricks-sdk')}",
     f"langgraph-reflection=={version('langgraph-reflection')}",
+    f"langgraph-swarm=={version('langgraph-swarm')}",
+    f"langgraph-supervisor=={version('langgraph-supervisor')}",
     f"openevals=={version('openevals')}",
     f"mlflow=={version('mlflow')}",
     f"psycopg[binary,pool]=={version('psycopg')}",

@@ -4,7 +4,6 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: nfleming
     schema_name: retail_ai
-    full_name: nfleming.retail_ai
     permissions:
       - principals: []
         privileges:
@@ -552,13 +551,15 @@ evaluation:
   num_evals: 25
 
 datasets:
-  - schema: *retail_schema
-    table: products
+  - table: 
+      schema: *retail_schema
+      name: products
     ddl: ../data/retail/products.sql
     data: ../data/retail/products.snappy.parquet
     format: parquet
-  - schema: *retail_schema
-    table: inventory
+  - table: 
+      schema: *retail_schema
+      name: inventory
     ddl: ../data/retail/inventory.sql
     data: ../data/retail/inventory.snappy.parquet
     format: parquet

@@ -162,6 +162,19 @@
       "title": "CheckpointerTypeModel",
       "type": "string"
     },
+    "ConnectionModel": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConnectionModel",
+      "type": "object"
+    },
     "DatabaseModel": {
       "properties": {
         "name": {
@@ -195,12 +208,8 @@
     },
     "DatasetModel": {
       "properties": {
-        "schema": {
-          "$ref": "#/$defs/SchemaModel"
-        },
         "table": {
-          "title": "Table",
-          "type": "string"
+          "$ref": "#/$defs/TableModel"
         },
         "ddl": {
           "title": "Ddl",
@@ -215,7 +224,6 @@
         }
       },
       "required": [
-        "schema",
         "table",
         "ddl",
         "data",
@@ -378,24 +386,6 @@
         "prompt"
       ],
       "title": "GuardrailsModel",
-      "type": "object"
-    },
-    "HandoffModel": {
-      "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "handoff_prompt": {
-          "title": "Handoff Prompt",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "handoff_prompt"
-      ],
-      "title": "HandoffModel",
       "type": "object"
     },
     "IndexModel": {
@@ -663,6 +653,13 @@
           },
           "title": "Databases",
           "type": "object"
+        },
+        "connections": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ConnectionModel"
+          },
+          "title": "Connections",
+          "type": "object"
         }
       },
       "title": "ResourcesModel",
@@ -702,10 +699,6 @@
           "title": "Schema Name",
           "type": "string"
         },
-        "full_name": {
-          "title": "Full Name",
-          "type": "string"
-        },
         "permissions": {
           "items": {
             "$ref": "#/$defs/PermissionModel"
@@ -717,7 +710,6 @@
       "required": [
         "catalog_name",
         "schema_name",
-        "full_name",
         "permissions"
       ],
       "title": "SchemaModel",
@@ -1038,20 +1030,6 @@
     },
     "resources": {
       "$ref": "#/$defs/ResourcesModel"
-    },
-    "handoffs": {
-      "anyOf": [
-        {
-          "additionalProperties": {
-            "$ref": "#/$defs/HandoffModel"
-          },
-          "type": "object"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Handoffs"
     },
     "retrievers": {
       "additionalProperties": {

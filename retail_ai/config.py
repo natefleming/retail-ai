@@ -4,6 +4,11 @@ from typing import Any, Callable, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+class HasFullName(ABC):
+    @property
+    @abstractmethod
+    def full_name(self) -> str:
+        pass
 
 class PrivilegeEnum(str, Enum):
     ALL_PRIVILEGES = "ALL_PRIVILEGES"
@@ -34,11 +39,14 @@ class PermissionModel(BaseModel):
     privileges: list[PrivilegeEnum]
 
 
-class SchemaModel(BaseModel):
+class SchemaModel(HasFullName, BaseModel):
     catalog_name: str
     schema_name: str
-    full_name: str
     permissions: list[PermissionModel]
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.catalog_name}.{self.schema_name}"
 
 
 class LLMModel(BaseModel):
@@ -50,14 +58,6 @@ class LLMModel(BaseModel):
 class EndpointType(str, Enum):
     STANDARD = "STANDARD"
     OPTIMIZED_STORAGE = "OPTIMIZED_STORAGE"
-
-
-class HasFullName(ABC):
-    @property
-    @abstractmethod
-    def full_name(self) -> str:
-        pass
-
 
 class IndexModel(BaseModel, HasFullName):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
@@ -129,6 +129,14 @@ class FunctionModel(BaseModel, HasFullName):
     def full_name(self) -> str:
         if self.schema_model:
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
+
+
+class ConnectionModel(BaseModel, HasFullName):
+    name: str
+
+    @property
+    def full_name(self) -> str:
         return self.name
 
 
@@ -233,11 +241,6 @@ class CheckpointerModel(BaseModel):
     database: DatabaseModel
 
 
-class HandoffModel(BaseModel):
-    name: str
-    handoff_prompt: str
-
-
 class AgentModel(BaseModel):
     name: str
     description: str
@@ -320,8 +323,7 @@ class DatasetFormat(str, Enum):
 
 
 class DatasetModel(BaseModel):
-    schema_model: SchemaModel = Field(alias="schema")
-    table: str
+    table: TableModel
     ddl: str
     data: str
     format: DatasetFormat
@@ -336,13 +338,12 @@ class ResourcesModel(BaseModel):
     functions: dict[str, FunctionModel] = Field(default_factory=dict)
     warehouses: dict[str, WarehouseModel] = Field(default_factory=dict)
     databases: dict[str, DatabaseModel] = Field(default_factory=dict)
+    connections: dict[str, ConnectionModel] = Field(default_factory=dict)
 
 
 class AppConfig(BaseModel):
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
-    handoffs: Optional[dict[str, HandoffModel]] = Field(default_factory=dict)
-
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
     tools: dict[str, ToolModel] = Field(default_factory=dict)
     guardrails: dict[str, GuardrailsModel] = Field(default_factory=dict)

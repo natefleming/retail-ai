@@ -3,7 +3,6 @@ from collections import OrderedDict
 from io import StringIO
 from typing import Any, Callable, Literal, Optional, Sequence
 
-import langgraph_swarm
 import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
@@ -33,7 +32,6 @@ from retail_ai.config import (
     FactoryFunctionModel,
     FunctionType,
     GenieRoomModel,
-    HandoffModel,
     McpFunctionModel,
     PythonFunctionModel,
     RetrieverModel,
@@ -44,33 +42,6 @@ from retail_ai.config import (
     WarehouseModel,
 )
 from retail_ai.utils import load_function
-
-
-def create_handoff_tool(
-    handoff: HandoffModel | dict[str, Any],
-) -> Callable[[str], dict[str, Any]]:
-    """
-    Create a handoff tool that allows agents to delegate tasks to other agents.
-
-    This factory function generates a tool that can be used by agents to hand off
-    specific tasks or queries to another agent for processing. It is useful for
-    creating multi-agent workflows where tasks can be distributed based on expertise.
-
-    Args:
-        agent: Dictionary containing agent configuration details
-
-    Returns:
-        A callable tool function that takes a task description and returns the handoff details
-    """
-    logger.debug(f"create_handoff_tool: {handoff}")
-
-    if isinstance(handoff, dict):
-        handoff = HandoffModel(**handoff)
-
-    return langgraph_swarm.create_handoff_tool(
-        agent_name=handoff.name,
-        description=handoff.handoff_prompt,
-    )
 
 
 def find_allowable_classifications(schema: SchemaModel) -> Sequence[str]:
