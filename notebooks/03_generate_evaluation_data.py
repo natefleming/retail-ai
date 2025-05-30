@@ -48,86 +48,68 @@ _ = load_dotenv(find_dotenv())
 from typing import Any, Dict, Optional, List
 
 from mlflow.models import ModelConfig
-from retail_ai.catalog import full_name
-
-model_config_file: str = "model_config.yaml"
-config: ModelConfig = ModelConfig(development_config=model_config_file)
-
-
-vector_store_config: dict[str, Any] = config.get("resources").get("vector_stores").get("product_vector_store")
-
-source_table_name: str = full_name(vector_store_config.get("source_table"))
-primary_key: str = vector_store_config.get("primary_key")
-embedding_source_column: str = vector_store_config.get("embedding_source_column")
-doc_uri: str = vector_store_config.get("doc_uri")
-
-evaluation_config: Dict[str, Any] = config.get("evaluation")
-
-evaluation_table_name: str = full_name(evaluation_config.get("table"))
-num_evals: int = evaluation_config.get("num_evals")
-
-print(f"evaluation_table_name: {evaluation_table_name}")
-print(f"source_table_name: {source_table_name}")
-print(f"primary_key: {primary_key}")
-print(f"embedding_source_column: {embedding_source_column}")
-print(f"doc_uri: {doc_uri}")
-print(f"num_evals: {num_evals}")
-
-# COMMAND ----------
-
+from retail_ai.config import AppConfig, VectorStoreModel, EvaluationModel
 from pyspark.sql import DataFrame, Column
 import pyspark.sql.functions as F
 import pandas as pd
-
-doc_uri: Column = F.col(doc_uri) if doc_uri else F.lit("source")
-parsed_docs_df: DataFrame = (
-  spark.table(source_table_name)
-  .withColumn("id", F.col(primary_key))
-  .withColumn("content", F.col(embedding_source_column))
-  .withColumn("doc_uri", F.lit("source"))
-)
-parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
-
-display(parsed_docs_pdf)
-
-# COMMAND ----------
-
 from pyspark.sql import DataFrame
-
-# Use the synthetic eval generation API to get some evals
 from databricks.agents.evals import generate_evals_df
 
-# "Ghost text" for agent description and question guidelines - feel free to modify as you see fit.
-agent_description = f"""
-The agent is a RAG chatbot that answers questions about retail hardware and gives recommendations for purchases. 
-"""
-question_guidelines = f"""
-# User personas
-- An employee or client asking about products and inventory
+
+model_config_file: str = "model_config.yaml"
+model_config: ModelConfig = ModelConfig(development_config=model_config_file)
+config: AppConfig = AppConfig(**model_config.to_dict())
 
 
-# Example questions
-- What grills do you have in stock?
-- Can you recommend a accessories for my Toro lawn mower?
+evaluation: EvaluationModel = config.evaluation
 
-# Additional Guidelines
-- Questions should be succinct, and human-like
-"""
-
-evals_pdf: pd.DataFrame = generate_evals_df(
-    docs=parsed_docs_pdf[
-        :500
-    ],  
-    num_evals=num_evals, 
-    agent_description=agent_description,
-    question_guidelines=question_guidelines,
-)
-
-evals_df: DataFrame = spark.createDataFrame(evals_pdf)
-
-evals_df.write.mode("overwrite").saveAsTable(evaluation_table_name)
+for _, vector_store in config.resources.vector_stores.items():
+  vector_store: VectorStoreModel    
 
 
-# COMMAND ----------
+  doc_uri: Column = F.col(vector_store.doc_uri) if vector_store.doc_uri else F.lit("source")
+  parsed_docs_df: DataFrame = (
+    spark.table(vector_store.source_table.full_name)
+    .withColumn("id", F.col(vector_store.primary_key))
+    .withColumn("content", F.col(vector_store.embedding_source_column))
+    .withColumn("doc_uri", F.lit("source"))
+  )
+  parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
 
-display(spark.table(evaluation_table_name))
+  display(parsed_docs_pdf)
+
+
+
+
+
+  # "Ghost text" for agent description and question guidelines - feel free to modify as you see fit.
+  agent_description = f"""
+  The agent is a RAG chatbot that answers questions about retail hardware and gives recommendations for purchases. 
+  """
+  question_guidelines = f"""
+  # User personas
+  - An employee or client asking about products and inventory
+
+
+  # Example questions
+  - What grills do you have in stock?
+  - Can you recommend a accessories for my Toro lawn mower?
+
+  # Additional Guidelines
+  - Questions should be succinct, and human-like
+  """
+
+  evals_pdf: pd.DataFrame = generate_evals_df(
+      docs=parsed_docs_pdf[
+          :500
+      ],  
+      num_evals=evaluation.num_evals, 
+      agent_description=agent_description,
+      question_guidelines=question_guidelines,
+  )
+
+  evals_df: DataFrame = spark.createDataFrame(evals_pdf)
+
+  evals_df.write.mode("overwrite").saveAsTable(evaluation.table.full_name)
+
+  display(spark.table(evaluation.table.full_name))

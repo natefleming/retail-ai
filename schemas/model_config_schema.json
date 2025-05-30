@@ -255,7 +255,7 @@
           "$ref": "#/$defs/LLMModel"
         },
         "table": {
-          "$ref": "#/$defs/EvaluationTableModel"
+          "$ref": "#/$defs/TableModel"
         },
         "num_evals": {
           "title": "Num Evals",
@@ -268,23 +268,6 @@
         "num_evals"
       ],
       "title": "EvaluationModel",
-      "type": "object"
-    },
-    "EvaluationTableModel": {
-      "properties": {
-        "schema": {
-          "$ref": "#/$defs/SchemaModel"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        }
-      },
-      "required": [
-        "schema",
-        "name"
-      ],
-      "title": "EvaluationTableModel",
       "type": "object"
     },
     "FactoryFunctionModel": {
@@ -757,30 +740,6 @@
       "title": "SearchParametersModel",
       "type": "object"
     },
-    "SourceTableModel": {
-      "properties": {
-        "schema": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SchemaModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "title": "SourceTableModel",
-      "type": "object"
-    },
     "SupervisorModel": {
       "properties": {
         "model": {
@@ -928,7 +887,7 @@
           "$ref": "#/$defs/IndexModel"
         },
         "source_table": {
-          "$ref": "#/$defs/SourceTableModel"
+          "$ref": "#/$defs/TableModel"
         },
         "primary_key": {
           "title": "Primary Key",

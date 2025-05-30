@@ -4,11 +4,13 @@ from typing import Any, Callable, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+
 class HasFullName(ABC):
     @property
     @abstractmethod
     def full_name(self) -> str:
         pass
+
 
 class PrivilegeEnum(str, Enum):
     ALL_PRIVILEGES = "ALL_PRIVILEGES"
@@ -49,17 +51,7 @@ class SchemaModel(HasFullName, BaseModel):
         return f"{self.catalog_name}.{self.schema_name}"
 
 
-class LLMModel(BaseModel):
-    name: str
-    temperature: Optional[float] = 0.1
-    max_tokens: Optional[int] = 8192
-
-
-class EndpointType(str, Enum):
-    STANDARD = "STANDARD"
-    OPTIMIZED_STORAGE = "OPTIMIZED_STORAGE"
-
-class IndexModel(BaseModel, HasFullName):
+class TableModel(BaseModel, HasFullName):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -70,7 +62,18 @@ class IndexModel(BaseModel, HasFullName):
         return self.name
 
 
-class SourceTableModel(BaseModel, HasFullName):
+class LLMModel(BaseModel):
+    name: str
+    temperature: Optional[float] = 0.1
+    max_tokens: Optional[int] = 8192
+
+
+class EndpointType(str, Enum):
+    STANDARD = "STANDARD"
+    OPTIMIZED_STORAGE = "OPTIMIZED_STORAGE"
+
+
+class IndexModel(BaseModel, HasFullName):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -86,7 +89,7 @@ class VectorStoreModel(BaseModel):
     endpoint_name: str
     endpoint_type: EndpointType
     index: IndexModel
-    source_table: SourceTableModel
+    source_table: TableModel
     primary_key: str
     doc_uri: Optional[str] = None
     embedding_source_column: str
@@ -97,17 +100,6 @@ class GenieRoomModel(BaseModel):
     name: str
     description: str
     space_id: str
-
-
-class TableModel(BaseModel, HasFullName):
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
-
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
 
 
 class VolumeModel(BaseModel, HasFullName):
@@ -307,14 +299,9 @@ class AppModel(BaseModel):
     orchestration: OrchestrationModel
 
 
-class EvaluationTableModel(BaseModel):
-    schema_model: SchemaModel = Field(alias="schema")
-    name: str
-
-
 class EvaluationModel(BaseModel):
     model: LLMModel
-    table: EvaluationTableModel
+    table: TableModel
     num_evals: int
 
 

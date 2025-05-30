@@ -65,6 +65,7 @@ from mlflow.models import ModelConfig
 model_config_file: str = "model_config.yaml"
 model_config: ModelConfig = ModelConfig(development_config=model_config_file)
 
+
 schema_description: Dict[str, Any] = model_config.get("schemas").get("retail_schema")
 catalog_name: str = schema_description.get("catalog_name")
 schema_name: str = schema_description.get("schema_name")

@@ -68,8 +68,7 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 
 vector_stores: dict[str, VectorStoreModel] = config.resources.vector_stores
 
-for name, vector_store in vector_stores.items():
-  name: str
+for _, vector_store in vector_stores.items():
   vector_store: VectorStoreModel
 
   print(f"vector_store: {vector_store}")

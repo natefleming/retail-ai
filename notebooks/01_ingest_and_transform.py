@@ -78,7 +78,7 @@ from retail_ai.config import SchemaModel, VolumeModel
 w: WorkspaceClient = WorkspaceClient()
 
 
-for schema in config.schemas:
+for _, schema in config.schemas.items():
   schema: SchemaModel
   catalog_info: CatalogInfo = get_or_create_catalog(name=schema.catalog_name, w=w)
   schema_info: SchemaInfo = get_or_create_database(catalog=catalog_info, name=schema.schema_name, w=w)
@@ -86,7 +86,7 @@ for schema in config.schemas:
   print(f"catalog: {catalog_info.full_name}")
   print(f"schema: {schema_info.full_name}")
 
-for volume in config.resources.volumes:
+for _, volume in config.resources.volumes.items():
   volume: VolumeModel
   volume_info: VolumeInfo = get_or_create_volume(
     catalog=volume.schema_model.catalog_name,
