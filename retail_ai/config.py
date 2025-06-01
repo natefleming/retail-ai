@@ -41,7 +41,7 @@ class PermissionModel(BaseModel):
     privileges: list[PrivilegeEnum]
 
 
-class SchemaModel(HasFullName, BaseModel):
+class SchemaModel(BaseModel, HasFullName):
     catalog_name: str
     schema_name: str
     permissions: list[PermissionModel]
@@ -68,9 +68,14 @@ class LLMModel(BaseModel):
     max_tokens: Optional[int] = 8192
 
 
-class EndpointType(str, Enum):
+class VectorSearchEndpointType(str, Enum):
     STANDARD = "STANDARD"
     OPTIMIZED_STORAGE = "OPTIMIZED_STORAGE"
+
+
+class VectorSearchEndpoint(BaseModel):
+    name: str
+    type: VectorSearchEndpointType
 
 
 class IndexModel(BaseModel, HasFullName):
@@ -86,8 +91,7 @@ class IndexModel(BaseModel, HasFullName):
 
 class VectorStoreModel(BaseModel):
     embedding_model: LLMModel
-    endpoint_name: str
-    endpoint_type: EndpointType
+    endpoint: VectorSearchEndpoint
     index: IndexModel
     source_table: TableModel
     primary_key: str
@@ -289,8 +293,16 @@ class AppPermissionModel(BaseModel):
     entitlements: list[EntitlementEnum]
 
 
+class LogLevel(str, Enum):
+    TRACE = "TRACE"
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+
+
 class AppModel(BaseModel):
-    log_level: str
+    log_level: LogLevel
     registered_model: RegisteredModelModel
     endpoint_name: str
     tags: dict[str, Any]
@@ -306,7 +318,11 @@ class EvaluationModel(BaseModel):
 
 
 class DatasetFormat(str, Enum):
+    CSV = "csv"
+    DELTA = "delta"
+    JSON = "json"
     PARQUET = "parquet"
+    ORC = "orc"
 
 
 class DatasetModel(BaseModel):

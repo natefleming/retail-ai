@@ -478,6 +478,7 @@ pyyaml==6.0.2
     #   langchain-community
     #   langchain-core
     #   mlflow-skinny
+    #   retail-ai
 regex==2024.11.6
     # via tiktoken
 requests==2.32.3

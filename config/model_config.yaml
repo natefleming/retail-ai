@@ -37,8 +37,9 @@ resources:
   vector_stores:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
-      endpoint_name: one-env-shared-endpoint-12
-      endpoint_type: STANDARD
+      endpoint:
+        name: one-env-shared-endpoint-12
+        type: STANDARD
       index:
         schema: *retail_schema
         name: products_index

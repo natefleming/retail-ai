@@ -75,29 +75,29 @@ for _, vector_store in vector_stores.items():
 
   vsc: VectorSearchClient = VectorSearchClient()
 
-  if not endpoint_exists(vsc, vector_store.endpoint_name):
+  if not endpoint_exists(vsc, vector_store.endpoint.name):
       vsc.create_endpoint_and_wait(
-        name=vector_store.endpoint_name, 
-        endpoint_type=vector_store.endpoint_type.name,
+        name=vector_store.endpoint.name, 
+        endpoint_type=vector_store.endpoint.type,
         verbose=True, 
       )
 
-  print(f"Endpoint named {vector_store.endpoint_name} is ready.")
+  print(f"Endpoint named {vector_store.endpoint.name} is ready.")
 
 
-  if not index_exists(vsc, vector_store.endpoint_name, vector_store.index.full_name):
-    print(f"Creating index {vector_store.index.full_name} on endpoint {vector_store.endpoint_name}...")
+  if not index_exists(vsc, vector_store.endpoint.name, vector_store.index.full_name):
+    print(f"Creating index {vector_store.index.full_name} on endpoint {vector_store.endpoint.name}...")
     vsc.create_delta_sync_index_and_wait(
-      endpoint_name=vector_store.endpoint_name,
+      endpoint_name=vector_store.endpoint.name,
       index_name=vector_store.index.full_name,
       source_table_name=vector_store.source_table.full_name,
       pipeline_type="TRIGGERED",
-      primary_key=vector_store.index.primary_key,
+      primary_key=vector_store.primary_key,
       embedding_source_column=vector_store.embedding_source_column, 
       embedding_model_endpoint_name=vector_store.embedding_model.name 
     )
   else:
-    vsc.get_index(vector_store.endpoint_name, vector_store.index.full_name).sync()
+    vsc.get_index(vector_store.endpoint.name, vector_store.index.full_name).sync()
 
   print(f"index {vector_store.index.full_name} on table {vector_store.source_table.full_name} is ready")
 
@@ -114,7 +114,7 @@ question: str = "What what is the best hammer for drywall?"
 
 for name, retriever in config.retrievers.items():
   retriever: RetrieverModel
-  index: VectorSearchIndex = vsc.get_index(retriever.vector_store.endpoint_name, retriever.vector_store.index.full_name)
+  index: VectorSearchIndex = vsc.get_index(retriever.vector_store.endpoint.name, retriever.vector_store.index.full_name)
   k: int = 3
 
   search_results: Dict[str, Any] = index.similarity_search(

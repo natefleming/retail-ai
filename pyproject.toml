@@ -27,9 +27,13 @@ dependencies = [
     "psycopg[binary,pool]>=3.2.6",
     "pydantic>=2.11.3",
     "python-dotenv>=1.1.0",
+    "pyyaml>=6.0.2",
     "rich>=14.0.0",
     "unitycatalog-ai[databricks]>=0.3.0",
 ]
+
+[project.scripts]
+retail-ai = "retail_ai.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["retail_ai"]

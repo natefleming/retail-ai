@@ -67,8 +67,7 @@
     "AppModel": {
       "properties": {
         "log_level": {
-          "title": "Log Level",
-          "type": "string"
+          "$ref": "#/$defs/LogLevel"
         },
         "registered_model": {
           "$ref": "#/$defs/RegisteredModelModel"
@@ -231,14 +230,6 @@
       ],
       "title": "DatasetModel",
       "type": "object"
-    },
-    "EndpointType": {
-      "enum": [
-        "STANDARD",
-        "OPTIMIZED_STORAGE"
-      ],
-      "title": "EndpointType",
-      "type": "string"
     },
     "EntitlementEnum": {
       "enum": [
@@ -431,6 +422,17 @@
       ],
       "title": "LLMModel",
       "type": "object"
+    },
+    "LogLevel": {
+      "enum": [
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR"
+      ],
+      "title": "LogLevel",
+      "type": "string"
     },
     "McpFunctionModel": {
       "properties": {
@@ -871,17 +873,38 @@
       "title": "UnityCatalogFunctionModel",
       "type": "object"
     },
+    "VectorSearchEndpoint": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/VectorSearchEndpointType"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "VectorSearchEndpoint",
+      "type": "object"
+    },
+    "VectorSearchEndpointType": {
+      "enum": [
+        "STANDARD",
+        "OPTIMIZED_STORAGE"
+      ],
+      "title": "VectorSearchEndpointType",
+      "type": "string"
+    },
     "VectorStoreModel": {
       "properties": {
         "embedding_model": {
           "$ref": "#/$defs/LLMModel"
         },
-        "endpoint_name": {
-          "title": "Endpoint Name",
-          "type": "string"
-        },
-        "endpoint_type": {
-          "$ref": "#/$defs/EndpointType"
+        "endpoint": {
+          "$ref": "#/$defs/VectorSearchEndpoint"
         },
         "index": {
           "$ref": "#/$defs/IndexModel"
@@ -919,8 +942,7 @@
       },
       "required": [
         "embedding_model",
-        "endpoint_name",
-        "endpoint_type",
+        "endpoint",
         "index",
         "source_table",
         "primary_key",

@@ -1,9 +1,9 @@
-from typing import Any, Callable, TypeAlias
+from typing import Any, Callable
 
 from retail_ai.state import AgentConfig, AgentState
 
 # Define a type alias for agent node functions in the LangGraph workflow
-AgentCallable: TypeAlias = Callable[[AgentState, AgentConfig], dict[str, Any]]
+type AgentCallable = Callable[[AgentState, AgentConfig], dict[str, Any]]
 """
 Type definition for agent node functions used in the retail AI LangGraph workflow.
 
