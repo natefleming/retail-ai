@@ -45,19 +45,22 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 
 # COMMAND ----------
 
+from rich import print as pprint
+
 from databricks.agents.monitoring import (
     update_monitor, 
     AssessmentsSuiteConfig, 
     BuiltinJudge, 
     GuidelinesJudge
 )
+from databricks.rag_eval.monitoring.entities import Monitor
 
-monitor = update_monitor(
+
+monitor: Monitor = update_monitor(
     endpoint_name = config.app.endpoint_name,
     assessments_config = AssessmentsSuiteConfig(
-        sample=1.0,  # Sample 100% of requests
+        sample=1.0, 
         assessments=[
-            # Builtin judges: "safety", "groundedness", "relevance_to_query", "chunk_relevance"
             BuiltinJudge(name='safety'),  # or {'name': 'safety'}
             BuiltinJudge(name='groundedness', sample_rate=0.4), # or {'name': 'groundedness', 'sample_rate': 0.4}
             BuiltinJudge(name='relevance_to_query'), # or {'name': 'relevance_to_query'}
@@ -70,3 +73,9 @@ monitor = update_monitor(
         ],
     )
 )
+
+pprint(monitor)
+
+# COMMAND ----------
+
+type(monitor)

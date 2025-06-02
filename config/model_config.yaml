@@ -155,8 +155,6 @@ tools:
         name: product_vector_search_tool
         description: "Search for products using vector search"
 
-
-
   find_product_details_by_description_tool:
     &find_product_details_by_description_tool
     name: find_product_details_by_description
