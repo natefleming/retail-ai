@@ -18,11 +18,11 @@ resources:
       job_clusters:
         - job_cluster_key: common-cluster
           new_cluster:
-            spark_version: "latest"
-            node_type_id: "i3.xlarge"
+            node_type_id: Standard_D4ads_v5
+            spark_version: 16.2.x-scala2.12
             num_workers: 1
       tasks:
-        - task_key: intest-and-transform
+        - task_key: ingest-and-transform
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/01_ingest_and_transform.py
@@ -30,7 +30,7 @@ resources:
             - whl: ./dist/*.whl
         - task_key: provision-vector-search
           depends_on:
-            - task_key: intest-and-transform
+            - task_key: ingest-and-transform
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/02_provision_vector_search.py
@@ -60,9 +60,18 @@ resources:
             notebook_path: ./notebooks/05_agent_as_code_driver.py
           libraries:
             - whl: ./dist/*.whl
+        - task_key: run-evaluation
+          depends_on:
+            - task_key: deploy-agents
+            - task_key: generate-evaluation-data
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/06_run_evaluation.py
+          libraries:
+            - whl: ./dist/*.whl
 
 targets:
   dev:
     default: True
     workspace:
-      host: <workspace-url>
+      host: https://adb-984752964297111.11.azuredatabricks.net
