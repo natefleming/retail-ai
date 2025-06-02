@@ -1,32 +1,37 @@
 # Databricks notebook source
-%pip install uv
+# MAGIC %pip install uv
+# MAGIC
+# MAGIC import os
+# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
+# MAGIC
+# MAGIC %sh uv --project ../ sync
+# MAGIC %restart_python
+# MAGIC
+# MAGIC # from typing import Sequence
+# MAGIC
+# MAGIC # pip_requirements: Sequence[str] = (
+# MAGIC #   "langgraph",
+# MAGIC #   "langchain",
+# MAGIC #   "databricks-langchain", 
+# MAGIC #   "databricks-sdk",
+# MAGIC #   "mlflow",
+# MAGIC #   "python-dotenv",
+# MAGIC #   "loguru",
+# MAGIC #   "langgraph-reflection",
+# MAGIC #   "openevals",
+# MAGIC #   "duckduckgo-search",
+# MAGIC #   "faker",
+# MAGIC # )
+# MAGIC
+# MAGIC # pip_requirements: str = " ".join(pip_requirements)
+# MAGIC
+# MAGIC # %pip install --quiet --upgrade {pip_requirements}
+# MAGIC # %restart_python
 
-import os
-os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
+# COMMAND ----------
 
-%sh uv --project ../ sync
-%restart_python
-
-# from typing import Sequence
-
-# pip_requirements: Sequence[str] = (
-#   "langgraph",
-#   "langchain",
-#   "databricks-langchain", 
-#   "databricks-sdk",
-#   "mlflow",
-#   "python-dotenv",
-#   "loguru",
-#   "langgraph-reflection",
-#   "openevals",
-#   "duckduckgo-search",
-#   "faker",
-# )
-
-# pip_requirements: str = " ".join(pip_requirements)
-
-# %pip install --quiet --upgrade {pip_requirements}
-# %restart_python
+# MAGIC %sql
+# MAGIC SELECT * FROM nfleming.retail_ai.find_product_by_upc(ARRAY('087848741428'))
 
 # COMMAND ----------
 

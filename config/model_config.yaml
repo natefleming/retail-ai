@@ -5,7 +5,7 @@ schemas:
     catalog_name: nfleming
     schema_name: retail_ai
     permissions:
-      - principals: []
+      - principals: [users]
         privileges:
           - ALL_PRIVILEGES
 
@@ -126,7 +126,7 @@ retrievers:
       - description
     search_parameters:
       num_results: 20
-      filter: {}
+      filters: {}
       query_type: ANN
 
 tools:
@@ -526,7 +526,7 @@ app:
     business: rcg
     streaming: true
   permissions:
-    - principals: []
+    - principals: [users]
       entitlements:
         - CAN_MANAGE
   agents:

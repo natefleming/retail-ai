@@ -1,25 +1,16 @@
 # Databricks notebook source
-%pip install uv
+# MAGIC %pip install uv
+# MAGIC
+# MAGIC import os
+# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-import os
-os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
+# COMMAND ----------
 
-%sh uv --project ../ sync
-%restart_python
+# MAGIC %sh uv --project ../ sync
 
-# from typing import Sequence
+# COMMAND ----------
 
-# pip_requirements: Sequence[str] = (
-#   "databricks-agents",
-#   "backoff",
-#   "mlflow",
-#   "python-dotenv",
-# )
-
-# pip_requirements: str = " ".join(pip_requirements)
-
-# %pip install --quiet --upgrade {pip_requirements}
-# %restart_python
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -29,10 +20,8 @@ from importlib.metadata import version
 
 sys.path.insert(0, "..")
 
-
 pip_requirements: Sequence[str] = (
   f"databricks-agents=={version('databricks-agents')}",
-  f"backoff=={version('backoff')}",
   f"mlflow=={version('mlflow')}",
 )
 print("\n".join(pip_requirements))
@@ -56,16 +45,17 @@ from pyspark.sql import DataFrame
 from databricks.agents.evals import generate_evals_df
 
 
-model_config_file: str = "model_config.yaml"
+model_config_file: str = "../config/model_config.yaml"
 model_config: ModelConfig = ModelConfig(development_config=model_config_file)
 config: AppConfig = AppConfig(**model_config.to_dict())
 
 
 evaluation: EvaluationModel = config.evaluation
 
+spark.sql(f"DROP TABLE IF EXISTS {evaluation.table.full_name}")
+
 for _, vector_store in config.resources.vector_stores.items():
   vector_store: VectorStoreModel    
-
 
   doc_uri: Column = F.col(vector_store.doc_uri) if vector_store.doc_uri else F.lit("source")
   parsed_docs_df: DataFrame = (
@@ -78,11 +68,6 @@ for _, vector_store in config.resources.vector_stores.items():
 
   display(parsed_docs_pdf)
 
-
-
-
-
-  # "Ghost text" for agent description and question guidelines - feel free to modify as you see fit.
   agent_description = f"""
   The agent is a RAG chatbot that answers questions about retail hardware and gives recommendations for purchases. 
   """
@@ -110,6 +95,6 @@ for _, vector_store in config.resources.vector_stores.items():
 
   evals_df: DataFrame = spark.createDataFrame(evals_pdf)
 
-  evals_df.write.mode("overwrite").saveAsTable(evaluation.table.full_name)
+  evals_df.write.mode("append").saveAsTable(evaluation.table.full_name)
 
   display(spark.table(evaluation.table.full_name))

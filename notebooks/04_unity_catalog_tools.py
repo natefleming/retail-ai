@@ -1,31 +1,19 @@
 # Databricks notebook source
-%pip install uv
-
-import os
-os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
-
-%sh uv --project ../ sync
-%restart_python
-
-# from typing import Sequence
-
-# pip_requirements: Sequence[str] = (
-#   "langgraph",
-#   "langchain",
-#   "databricks-langchain",
-#   "unitycatalog-langchain[databricks]",
-#   "databricks-sdk",
-#   "mlflow",
-#   "python-dotenv",
-
-# )
-
-# pip_requirements: str = " ".join(pip_requirements)
-
-# %pip install --quiet --upgrade {pip_requirements}
-# %restart_python
+# MAGIC %pip install --quiet uv
+# MAGIC
+# MAGIC import os
+# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
 # COMMAND ----------
+
+# MAGIC %sh uv --project ../ sync
+
+# COMMAND ----------
+
+# MAGIC %restart_python
+
+# COMMAND ----------
+
 import sys
 from typing import Sequence
 from importlib.metadata import version
@@ -60,15 +48,15 @@ _ = load_dotenv(find_dotenv())
 from typing import Any, Dict, Optional, List
 
 from mlflow.models import ModelConfig
+from retail_ai.config import AppConfig, SchemaModel
 
-
-model_config_file: str = "model_config.yaml"
+model_config_file: str = "../config/model_config.yaml"
 model_config: ModelConfig = ModelConfig(development_config=model_config_file)
+config: AppConfig = AppConfig(**model_config.to_dict())
 
-
-schema_description: Dict[str, Any] = model_config.get("schemas").get("retail_schema")
-catalog_name: str = schema_description.get("catalog_name")
-schema_name: str = schema_description.get("schema_name")
+schema: SchemaModel = config.schemas.get("retail_schema")
+catalog_name: str = schema.catalog_name
+schema_name: str = schema.schema_name
 
 
 print(f"catalog_name: {catalog_name}")

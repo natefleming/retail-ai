@@ -1,39 +1,16 @@
 # Databricks notebook source
-%pip install uv
+# MAGIC %pip install uv
+# MAGIC
+# MAGIC import os
+# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-import os
-os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
+# COMMAND ----------
 
-%sh uv --project ../ sync
-%restart_python
+# MAGIC %sh uv --project ../ sync
 
-# from typing import Sequence
+# COMMAND ----------
 
-# pip_requirements: Sequence[str] = (
-#   "langgraph",
-#   "langchain",
-#   "databricks-langchain",
-#   "unitycatalog-langchain[databricks]",
-#   "unitycatalog-ai[databricks]",
-#   "langgraph-checkpoint-postgres",
-#   "duckduckgo-search",
-#   "databricks-agents",
-#   "psycopg[binary,pool]", 
-#   "databricks-sdk",
-#   "langgraph-reflection",
-#   "openevals",
-#   "mlflow",
-#   "pydantic",
-#   "python-dotenv",
-#   "uv",
-#   "grandalf",
-#   "loguru",
-# )
-
-# pip_requirements: str = " ".join(pip_requirements)
-
-# %pip install --quiet --upgrade {pip_requirements}
-# %restart_python
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -43,8 +20,6 @@ from importlib.metadata import version
 from pkg_resources import get_distribution
 
 sys.path.insert(0, "..")
-
-
 
 pip_requirements: Sequence[str] = [
     f"langgraph=={version('langgraph')}",
@@ -76,30 +51,30 @@ print("\n".join(pip_requirements))
 # COMMAND ----------
 
 # MAGIC %%writefile agent_as_code.py
-# MAGIC
-# MAGIC from typing import Sequence
 # MAGIC import sys
 # MAGIC
 # MAGIC import mlflow
 # MAGIC from mlflow.models import ModelConfig
 # MAGIC
-# MAGIC from langchain_core.runnables import RunnableSequence
 # MAGIC from langgraph.graph.state import CompiledStateGraph
 # MAGIC from mlflow.pyfunc import ChatModel
 # MAGIC from retail_ai.graph import create_retail_ai_graph
 # MAGIC from retail_ai.models import create_agent 
+# MAGIC from retail_ai.config import AppConfig
 # MAGIC
 # MAGIC from loguru import logger
 # MAGIC
-# MAGIC
 # MAGIC mlflow.langchain.autolog()
 # MAGIC
-# MAGIC config: ModelConfig = ModelConfig(development_config="model_config.yaml")
-# MAGIC log_level: str = config.get("app").get("log_level")
+# MAGIC model_config_path: str = "../config/model_config.yaml"
+# MAGIC model_config: ModelConfig = ModelConfig(development_config=model_config_path)
+# MAGIC config: AppConfig = AppConfig(**model_config.to_dict())
+# MAGIC
+# MAGIC log_level: str = config.app.log_level
 # MAGIC
 # MAGIC logger.add(sys.stderr, level=log_level)
 # MAGIC
-# MAGIC graph: CompiledStateGraph = create_retail_ai_graph(model_config=config)
+# MAGIC graph: CompiledStateGraph = create_retail_ai_graph(config=config)
 # MAGIC
 # MAGIC app: ChatModel = create_agent(graph)
 # MAGIC
@@ -144,45 +119,16 @@ from mlflow.models.auth_policy import (
 )
 import mlflow
 from mlflow.models.model import ModelInfo
-from retail_ai.catalog import full_name
 from agent_as_code import config
 
 
-model_names: set = set()
-for _, model  in config.get("resources").get("llms", {}).items():
-    model_name: str = model["name"]
-    model_names.add(model_name)
-
-vector_indexes: set = set()
-for _, vector_store  in config.get("resources").get("vector_stores", {}).items():
-    index_name: str = full_name(vector_store["index"])
-    vector_indexes.add(index_name)
-
-warehouse_ids: set = set()
-for _, warehouse  in config.get("resources").get("warehouses", {}).items():
-    warehouse_id: str = warehouse["warehouse_id"]
-    warehouse_ids.add(warehouse_id)
-
-space_ids: set = set()
-for _, genie_room  in config.get("resources").get("genie_rooms", {}).items():
-    space_id: str = genie_room["space_id"]
-    space_ids.add(space_id)
-
-tables_names: set = set()
-for _, table  in config.get("resources").get("tables", {}).items():
-    tables_name: str = full_name(table)
-    tables_names.add(tables_name)
-
-function_names: set = set()
-for _, function  in config.get("resources").get("functions", {}).items():
-    function_name: str = full_name(function)
-    function_names.add(function_name)
-
-connection_names: set = set()
-for _, connection  in config.get("resources").get("connections", {}).items():
-    connection_name: str = full_name(connection)
-    connection_names.add(connection_name)
-
+model_names: set = set([l.name for l in config.resources.llms.values()])
+vector_indexes: set = set([v.index.full_name for v in config.resources.vector_stores.values()])
+warehouse_ids: set = set([w.warehouse_id for w in config.resources.warehouses.values()])
+space_ids: set = set([g.space_id for g in config.resources.genie_rooms.values()])
+tables_names: set = set([t.full_name for t in config.resources.tables.values()])
+function_names: set = set([f.full_name for f in config.resources.functions.values()])
+connection_names: set = set([c.full_name for c in config.resources.connections.values()])
 
 resources: list[DatabricksResource] = []
 
@@ -194,7 +140,7 @@ resources += [DatabricksFunction(function_name=f) for f in function_names if f]
 resources += [DatabricksTable(table_name=t) for t in tables_names if t]
 resources += [DatabricksUCConnection(connection_name=c) for c in connection_names if c]
 
-input_example: dict[str, Any] = config.get("app").get("diy_example")
+#input_example: dict[str, Any] = config.get("app").get("diy_example")
 
 system_auth_policy: SystemAuthPolicy = SystemAuthPolicy(resources=resources)
 
@@ -225,8 +171,8 @@ with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
     logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
         python_model="agent_as_code.py",
-        code_paths=["retail_ai"],
-        model_config=config.to_dict(),
+        code_paths=["../retail_ai"],
+        model_config=config.model_dump(),
         artifact_path="agent",
         pip_requirements=pip_requirements,
         resources=resources,
@@ -243,7 +189,7 @@ from agent_as_code import config
 
 mlflow.set_registry_uri("databricks-uc")
 
-registered_model_name: str = full_name(config.get("app").get("registered_model"))
+registered_model_name: str = config.app.registered_model.full_name
 
 model_version: ModelVersion = mlflow.register_model(
     name=registered_model_name, 
@@ -269,13 +215,12 @@ print(champion_model)
 
 from databricks import agents
 from retail_ai.models import get_latest_model_version
-from retail_ai.catalog import full_name
 from agent_as_code import config
 
 
-registered_model_name: str = full_name(config.get("app").get("registered_model"))
-endpoint_name: str = config.get("app").get("endpoint_name")
-tags: dict[str, str] = config.get("app").get("tags")
+registered_model_name: str = config.app.registered_model.full_name
+endpoint_name: str = config.app.endpoint_name
+tags: dict[str, str] = config.app.tags
 latest_version: int = get_latest_model_version(registered_model_name)
 
 agents.deploy(
@@ -290,37 +235,31 @@ agents.deploy(
 
 # COMMAND ----------
 
-import mlflow
-from mlflow.models.model import ModelInfo
-from mlflow.entities.model_registry.model_version import ModelVersion
-from mlflow.models.evaluation import EvaluationResult
+from typing import Any, Sequence
 from retail_ai.catalog import full_name
-import pandas as pd
-
+from databricks.agents import set_permissions, PermissionLevel
+from rich import print as pprint
 from agent_as_code import config
 
+registered_model_name: str = config.app.registered_model.full_name
+permissions: Sequence[dict[str, Any]] = config.app.permissions
 
-model_info: mlflow.models.model.ModelInfo
-evaluation_result: EvaluationResult
+pprint(registered_model_name)
+pprint(permissions)
 
-evaluation_table_name: str = full_name(config.get("evaluation").get("table"))
+for permission in permissions:
+    principals: Sequence[str] = permission.principals
+    entitlements: Sequence[str] = permission.entitlements
 
-evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
+    if not principals or not entitlements:
+        continue
+    for entitlement in entitlements:
+        set_permissions(
+            model_name=registered_model_name,
+            users=principals,
+            permission_level=PermissionLevel[entitlement]
+        )
 
-global_guidelines = {
-
-}
-
-model_uri: str = f"models:/{registered_model_name}@Champion"
-
-with mlflow.start_run():
-    mlflow.set_tag("type", "evaluation")
-    eval_results = mlflow.evaluate(
-        data=evaluation_pdf,
-        model=model_uri,
-        model_type="databricks-agent",
-        evaluator_config={"databricks-agent": {"global_guidelines": global_guidelines}},
-    )
 
 # COMMAND ----------
 
@@ -334,29 +273,6 @@ mlflow.models.predict(
     input_data=example_input,
     env_manager="uv",
 )
-
-# COMMAND ----------
-
-from typing import Any, Sequence
-from retail_ai.catalog import full_name
-from databricks.agents import set_permissions, PermissionLevel
-
-from agent_as_code import config
-
-registered_model_name: str = full_name(config.get("app").get("registered_model"))
-permissions: Sequence[dict[str, Any]] = config.get("app").get("permissions") 
-
-for permission in permissions:
-    principals: Sequence[str] = permission.get("principals")
-    entitlements: Sequence[str] = permission.get("entitlements")
-
-    for entitlement in entitlements:
-        set_permissions(
-            model_name=registered_model_name,
-            users=principals,
-            permission_level=PermissionLevel[entitlement]
-        )
-
 
 # COMMAND ----------
 

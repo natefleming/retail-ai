@@ -1,23 +1,16 @@
 # Databricks notebook source
-%pip install uv
+# MAGIC %pip install uv
+# MAGIC
+# MAGIC import os
+# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-import os
-os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
+# COMMAND ----------
 
-%sh uv --project ../ sync
-%restart_python
+# MAGIC %sh uv --project ../ sync
 
+# COMMAND ----------
 
-# pip_requirements: Sequence[str] = (
-#   "databricks-sdk",
-#   "python-dotenv",
-#   "mlflow"
-# )
-
-# pip_requirements: str = " ".join(pip_requirements)
-
-# %pip install --quiet --upgrade {pip_requirements}
-# %restart_python
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -35,7 +28,6 @@ pip_requirements: Sequence[str] = (
 
 print("\n".join(pip_requirements))
 
-
 # COMMAND ----------
 
 # MAGIC %load_ext autoreload
@@ -49,13 +41,17 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
+
+
+# COMMAND ----------
+
 import mlflow
 from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
 
-model_config: ModelConfig = ModelConfig(development_config="model_config.yaml")
+development_config: str = "../config/model_config.yaml"
+model_config: ModelConfig = ModelConfig(development_config=development_config)
 config: AppConfig = AppConfig(**model_config.to_dict())
-
 
 
 # COMMAND ----------
@@ -87,10 +83,11 @@ for _, schema in config.schemas.items():
   print(f"schema: {schema_info.full_name}")
 
 for _, volume in config.resources.volumes.items():
+  print(volume.name)
   volume: VolumeModel
   volume_info: VolumeInfo = get_or_create_volume(
-    catalog=volume.schema_model.catalog_name,
-    database=volume.schema_model.schema_name,
+    catalog=catalog_info,
+    database=schema_info,
     name=volume.name,
     w=w
   )
@@ -105,19 +102,18 @@ from retail_ai.config import DatasetModel
 
 datasets: Sequence[DatasetModel] = config.datasets
 
-context = dbutils.entry_point.getDbutils().notebook().getContext()
-current_dir = "file:///Workspace" / Path(context.notebookPath().get()).relative_to("/").parent[1]
+current_dir: Path = "file:///" / Path.cwd().relative_to("/")
 
 for dataset in datasets:
   dataset: DatasetModel
   table: str = dataset.table.full_name
+  print(ddl_path)
   ddl_path: Path = Path(dataset.ddl)
   data_path: Path = current_dir / Path(dataset.data)
   format: str = dataset.format
 
   statements: Sequence[str] = [s for s in re.split(r"\s*;\s*",  ddl_path.read_text()) if s]
   for statement in statements:
-    print(statement)
     spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
     spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
 

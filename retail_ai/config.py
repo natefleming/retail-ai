@@ -12,7 +12,7 @@ class HasFullName(ABC):
         pass
 
 
-class PrivilegeEnum(str, Enum):
+class Privilege(str, Enum):
     ALL_PRIVILEGES = "ALL_PRIVILEGES"
     USE_CATALOG = "USE_CATALOG"
     USE_SCHEMA = "USE_SCHEMA"
@@ -37,8 +37,9 @@ class PrivilegeEnum(str, Enum):
 
 
 class PermissionModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     principals: list[str] = Field(default_factory=list)
-    privileges: list[PrivilegeEnum]
+    privileges: list[Privilege]
 
 
 class SchemaModel(BaseModel, HasFullName):
@@ -74,6 +75,7 @@ class VectorSearchEndpointType(str, Enum):
 
 
 class VectorSearchEndpoint(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     name: str
     type: VectorSearchEndpointType
 
@@ -150,7 +152,7 @@ class DatabaseModel(BaseModel):
 
 class SearchParametersModel(BaseModel):
     num_results: Optional[int] = 10
-    filter: Optional[dict[str, Any]] = Field(default_factory=dict)
+    filters: Optional[dict[str, Any]] = Field(default_factory=dict)
     query_type: Optional[str] = "ANN"
 
 
@@ -168,11 +170,13 @@ class FunctionType(str, Enum):
 
 
 class BaseFunctionModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     type: FunctionType
     name: str
 
 
 class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+    model_config = ConfigDict(use_enum_values=True) 
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.PYTHON
 
@@ -184,6 +188,7 @@ class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
 
 
 class FactoryFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     args: dict[str, Any] = Field(default_factory=dict)
     type: FunctionType = FunctionType.FACTORY
 
@@ -193,6 +198,7 @@ class FactoryFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
 
 
 class McpFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     type: FunctionType = FunctionType.MCP
 
     @property
@@ -201,6 +207,7 @@ class McpFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
 
 
 class UnityCatalogFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.UNITY_CATALOG
 
@@ -227,13 +234,14 @@ class GuardrailsModel(BaseModel):
     prompt: str
 
 
-class CheckpointerTypeModel(str, Enum):
+class CheckpointerType(str, Enum):
     POSTGRES = "postgres"
 
 
 class CheckpointerModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     name: str
-    type: CheckpointerTypeModel
+    type: CheckpointerType
     database: DatabaseModel
 
 
@@ -282,15 +290,16 @@ class RegisteredModelModel(BaseModel, HasFullName):
         return self.name
 
 
-class EntitlementEnum(str, Enum):
+class Entitlement(str, Enum):
     CAN_MANAGE = "CAN_MANAGE"
     CAN_QUERY = "CAN_QUERY"
     CAN_VIEW = "CAN_VIEW"
 
 
 class AppPermissionModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     principals: list[str] = Field(default_factory=list)
-    entitlements: list[EntitlementEnum]
+    entitlements: list[Entitlement]
 
 
 class LogLevel(str, Enum):
@@ -302,6 +311,7 @@ class LogLevel(str, Enum):
 
 
 class AppModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     log_level: LogLevel
     registered_model: RegisteredModelModel
     endpoint_name: str
@@ -326,6 +336,7 @@ class DatasetFormat(str, Enum):
 
 
 class DatasetModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     table: TableModel
     ddl: str
     data: str
@@ -345,6 +356,7 @@ class ResourcesModel(BaseModel):
 
 
 class AppConfig(BaseModel):
+    model_config = ConfigDict(extra="allow", use_enum_values=True)
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
@@ -356,7 +368,6 @@ class AppConfig(BaseModel):
     evaluation: Optional[EvaluationModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
 
-    model_config = ConfigDict(extra="allow", use_enum_values=True)
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

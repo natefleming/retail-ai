@@ -193,14 +193,14 @@ def find_product_details_by_description_tool(
 
         # Initialize the Vector Search client with endpoint and index configuration
         vector_search: VectorStore = DatabricksVectorSearch(
-            endpoint=retriever.vector_store.endpoint_name,
+            endpoint=retriever.vector_store.endpoint.name,
             index_name=retriever.vector_store.index.full_name,
             columns=retriever.columns,
             client_args={},
         )
 
         documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, **retriever.search_parameters
+            query=content, **retriever.search_parameters.model_dump()
         )
 
         logger.debug(f"found {len(documents)} documents")

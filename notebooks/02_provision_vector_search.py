@@ -1,26 +1,16 @@
 # Databricks notebook source
-%pip install uv
+# MAGIC %pip install uv
+# MAGIC
+# MAGIC import os
+# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
-import os
-os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
+# COMMAND ----------
 
-%sh uv --project ../ sync
-%restart_python
+# MAGIC %sh uv --project ../ sync
 
+# COMMAND ----------
 
-# from typing import Sequence
-
-# pip_requirements: Sequence[str] = (
-#   "databricks-sdk",
-#   "databricks-vectorsearch",
-#   "mlflow",
-#   "python-dotenv"
-# )
-
-# pip_requirements: str = " ".join(pip_requirements)
-
-# %pip install --quiet --upgrade {pip_requirements}
-# %restart_python
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -29,7 +19,6 @@ from typing import Sequence
 from importlib.metadata import version
 
 sys.path.insert(0, "..")
-
 
 pip_requirements: Sequence[str] = (
   f"databricks-sdk=={version('databricks-sdk')}",
@@ -61,7 +50,7 @@ from retail_ai.vector_search import index_exists, endpoint_exists
 from databricks.vector_search.client import VectorSearchClient
 
 
-model_config_file: str = "model_config.yaml"
+model_config_file: str = "../config/model_config.yaml"
 model_config: ModelConfig = ModelConfig(development_config=model_config_file)
 config: AppConfig = AppConfig(**model_config.to_dict())
 
@@ -120,8 +109,8 @@ for name, retriever in config.retrievers.items():
   search_results: Dict[str, Any] = index.similarity_search(
     query_text=question,
     columns=retriever.columns,
-    **retriever.search_parameters
+    **retriever.search_parameters.model_dump()
   )
 
   chunks: list[str] = search_results.get('result', {}).get('data_array', [])
-  chunks
+  print(chunks)
