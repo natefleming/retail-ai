@@ -176,7 +176,7 @@ class BaseFunctionModel(BaseModel):
 
 
 class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
-    model_config = ConfigDict(use_enum_values=True) 
+    model_config = ConfigDict(use_enum_values=True)
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.PYTHON
 
@@ -367,7 +367,6 @@ class AppConfig(BaseModel):
     app: AppModel
     evaluation: Optional[EvaluationModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
-
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

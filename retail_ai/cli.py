@@ -8,6 +8,8 @@ from loguru import logger
 from mlflow.models import ModelConfig
 
 from retail_ai.config import AppConfig
+from retail_ai.graph import create_retail_ai_graph
+from retail_ai.models import save_image
 
 logger.remove()
 logger.add(sys.stderr, level="ERROR")
@@ -35,6 +37,24 @@ def parse_args(args: Sequence[str]) -> Namespace:
         help="Path to the model configuration file (default: model_config.yaml)",
     )
 
+    graph_parser: ArgumentParser = subparsers.add_parser(
+        "graph", help="Generate the graph representation of the model"
+    )
+    graph_parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        required=True,
+        help="Path to save the graph representation",
+    )
+    graph_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default="model_config.yaml",
+        help="Path to the model configuration file (default: model_config.yaml)",
+    )
+
     options = parser.parse_args(args)
 
     return options
@@ -43,6 +63,14 @@ def parse_args(args: Sequence[str]) -> Namespace:
 def handle_schema_command(options: Namespace) -> None:
     logger.debug("Generating JSON schema...")
     print(json.dumps(AppConfig.model_json_schema(), indent=2))
+
+
+def handle_graph_command(options: Namespace) -> None:
+    logger.debug("Generating graph representation...")
+    model_config: ModelConfig = ModelConfig(development_config=options.config)
+    config: AppConfig = AppConfig(**model_config.to_dict())
+    app = create_retail_ai_graph(config)
+    save_image(app, options.output)
 
 
 def handle_validate_command(options: Namespace) -> None:
@@ -72,6 +100,8 @@ def main() -> None:
             handle_schema_command(options)
         case "validate":
             handle_validate_command(options)
+        case "graph":
+            handle_graph_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")
             sys.exit(1)
