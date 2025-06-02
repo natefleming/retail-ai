@@ -121,7 +121,7 @@
         },
         "entitlements": {
           "items": {
-            "$ref": "#/$defs/EntitlementEnum"
+            "$ref": "#/$defs/Entitlement"
           },
           "title": "Entitlements",
           "type": "array"
@@ -140,7 +140,7 @@
           "type": "string"
         },
         "type": {
-          "$ref": "#/$defs/CheckpointerTypeModel"
+          "$ref": "#/$defs/CheckpointerType"
         },
         "database": {
           "$ref": "#/$defs/DatabaseModel"
@@ -154,11 +154,11 @@
       "title": "CheckpointerModel",
       "type": "object"
     },
-    "CheckpointerTypeModel": {
+    "CheckpointerType": {
       "enum": [
         "postgres"
       ],
-      "title": "CheckpointerTypeModel",
+      "title": "CheckpointerType",
       "type": "string"
     },
     "ConnectionModel": {
@@ -200,7 +200,11 @@
     },
     "DatasetFormat": {
       "enum": [
-        "parquet"
+        "csv",
+        "delta",
+        "json",
+        "parquet",
+        "orc"
       ],
       "title": "DatasetFormat",
       "type": "string"
@@ -231,13 +235,13 @@
       "title": "DatasetModel",
       "type": "object"
     },
-    "EntitlementEnum": {
+    "Entitlement": {
       "enum": [
         "CAN_MANAGE",
         "CAN_QUERY",
         "CAN_VIEW"
       ],
-      "title": "EntitlementEnum",
+      "title": "Entitlement",
       "type": "string"
     },
     "EvaluationModel": {
@@ -490,7 +494,7 @@
         },
         "privileges": {
           "items": {
-            "$ref": "#/$defs/PrivilegeEnum"
+            "$ref": "#/$defs/Privilege"
           },
           "title": "Privileges",
           "type": "array"
@@ -502,7 +506,7 @@
       "title": "PermissionModel",
       "type": "object"
     },
-    "PrivilegeEnum": {
+    "Privilege": {
       "enum": [
         "ALL_PRIVILEGES",
         "USE_CATALOG",
@@ -526,7 +530,7 @@
         "READ_FILES",
         "WRITE_FILES"
       ],
-      "title": "PrivilegeEnum",
+      "title": "Privilege",
       "type": "string"
     },
     "PythonFunctionModel": {
@@ -714,7 +718,7 @@
           "default": 10,
           "title": "Num Results"
         },
-        "filter": {
+        "filters": {
           "anyOf": [
             {
               "additionalProperties": true,
@@ -724,7 +728,7 @@
               "type": "null"
             }
           ],
-          "title": "Filter"
+          "title": "Filters"
         },
         "query_type": {
           "anyOf": [
