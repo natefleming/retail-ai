@@ -260,33 +260,3 @@ for permission in permissions:
             permission_level=PermissionLevel[entitlement]
         )
 
-
-# COMMAND ----------
-
-from typing import Any
-from agent_as_code import config
-
-example_input: dict[str, Any] = config.get("app").get("diy_example")
-
-mlflow.models.predict(
-    model_uri=logged_agent_info.model_uri,
-    input_data=example_input,
-    env_manager="uv",
-)
-
-# COMMAND ----------
-
-from typing import Any
-from mlflow.deployments import get_deploy_client
-from rich import print as pprint
-from agent_as_code import config
-
-endpoint_name: str = config.get("app").get("endpoint_name")
-example_input: dict[str, Any] = config.get("app").get("inventory_example")
-
-response = get_deploy_client("databricks").predict(
-    endpoint=endpoint_name,
-    inputs=example_input,
-)
-
-pprint(response)
