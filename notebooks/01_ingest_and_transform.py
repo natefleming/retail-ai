@@ -41,10 +41,6 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
-
 import mlflow
 from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
@@ -107,7 +103,6 @@ current_dir: Path = "file:///" / Path.cwd().relative_to("/")
 for dataset in datasets:
   dataset: DatasetModel
   table: str = dataset.table.full_name
-  print(ddl_path)
   ddl_path: Path = Path(dataset.ddl)
   data_path: Path = current_dir / Path(dataset.data)
   format: str = dataset.format
