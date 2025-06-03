@@ -16,43 +16,117 @@ logger.add(sys.stderr, level="ERROR")
 
 
 def parse_args(args: Sequence[str]) -> Namespace:
-    parser: ArgumentParser = ArgumentParser(description="The Retail AI CLI")
+    parser: ArgumentParser = ArgumentParser(
+        prog="retail-ai",
+        description="Retail AI Agent Command Line Interface - A comprehensive tool for managing, validating, and visualizing multi-agent retail AI systems",
+        epilog="""
+Examples:
+  retail-ai schema                                          # Generate JSON schema for configuration validation
+  retail-ai validate -c config/model_config.yaml            # Validate a specific configuration file
+  retail-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
+  retail-ai validate                                        # Validate with detailed logging
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
-        "-v", "--verbose", action="count", default=0, help="Increase the verbosity"
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity level (use -v, -vv, -vvv, or -vvvv for ERROR, WARNING, INFO, DEBUG, or TRACE levels)",
     )
+
     subparsers = parser.add_subparsers(
-        dest="command", required=True, help="Available commands"
+        dest="command",
+        required=True,
+        help="Available commands for managing the Retail AI system",
+        metavar="COMMAND",
     )
 
-    _: ArgumentParser = subparsers.add_parser("schema", help="Generate the json schema")
+    # Schema command
+    _: ArgumentParser = subparsers.add_parser(
+        "schema",
+        help="Generate JSON schema for configuration validation",
+        description="""
+Generate the JSON schema definition for the Retail AI configuration format.
+This schema can be used for IDE autocompletion, validation tools, and documentation.
+The output is a complete JSON Schema that describes all valid configuration options,
+including agents, tools, models, orchestration patterns, and guardrails.
+        """,
+        epilog="Example: retail-ai schema > config_schema.json",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
+    # Validation command
     validation_parser: ArgumentParser = subparsers.add_parser(
-        "validate", help="Validate the configuration"
+        "validate",
+        help="Validate configuration file syntax and semantics",
+        description="""
+Validate a Retail AI configuration file for correctness and completeness.
+This command checks:
+- YAML syntax and structure
+- Required fields and data types
+- Agent configurations and dependencies
+- Tool definitions and availability
+- Model specifications and compatibility
+- Orchestration patterns (supervisor/swarm)
+- Guardrail configurations
+
+Exit codes:
+  0 - Configuration is valid
+  1 - Configuration contains errors
+        """,
+        epilog="""
+Examples:
+  retail-ai validate                                  # Validate default model_config.yaml
+  retail-ai validate -c config/production.yaml       # Validate specific config file
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     validation_parser.add_argument(
         "-c",
         "--config",
         type=str,
         default="model_config.yaml",
-        help="Path to the model configuration file (default: model_config.yaml)",
+        metavar="FILE",
+        help="Path to the model configuration file to validate (default: model_config.yaml)",
     )
 
+    # Graph command
     graph_parser: ArgumentParser = subparsers.add_parser(
-        "graph", help="Generate the graph representation of the model"
+        "graph",
+        help="Generate visual representation of the agent workflow",
+        description="""
+Generate a visual graph representation of the configured Retail AI system.
+This creates a diagram showing:
+- Agent nodes and their relationships
+- Orchestration flow (supervisor or swarm patterns)
+- Tool dependencies and connections
+- Message routing and state transitions
+- Conditional logic and decision points
+        """,
+        epilog="""
+Examples:
+  retail-ai graph -o architecture.png                # Generate PNG diagram
+  retail-ai graph -o workflow.png -c prod.yaml       # Generate PNG from specific config
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     graph_parser.add_argument(
         "-o",
         "--output",
         type=str,
         required=True,
-        help="Path to save the graph representation",
+        metavar="FILE",
+        help="Output file path for the generated graph.",
     )
     graph_parser.add_argument(
         "-c",
         "--config",
         type=str,
         default="model_config.yaml",
-        help="Path to the model configuration file (default: model_config.yaml)",
+        metavar="FILE",
+        help="Path to the model configuration file to visualize (default: model_config.yaml)",
     )
 
     options = parser.parse_args(args)
@@ -75,9 +149,13 @@ def handle_graph_command(options: Namespace) -> None:
 
 def handle_validate_command(options: Namespace) -> None:
     logger.debug(f"Validating configuration from {options.config}...")
-    model_config: ModelConfig = ModelConfig(development_config=options.config)
-    _: AppConfig = AppConfig(**model_config.to_dict())
-
+    try:
+        model_config: ModelConfig = ModelConfig(development_config=options.config)
+        _: AppConfig = AppConfig(**model_config.to_dict())
+        sys.exit(0)  
+    except Exception as e:
+        logger.error(f"Configuration validation failed: {e}")
+        sys.exit(1)
 
 def setup_logging(verbosity: int) -> None:
     logger.remove()
