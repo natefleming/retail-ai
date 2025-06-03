@@ -81,7 +81,7 @@ Exit codes:
         """,
         epilog="""
 Examples:
-  retail-ai validate                                  # Validate default model_config.yaml
+  retail-ai validate                                  # Validate default ../config/model_config.yaml
   retail-ai validate -c config/production.yaml       # Validate specific config file
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -90,9 +90,9 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="model_config.yaml",
+        default="../config/model_config.yaml",
         metavar="FILE",
-        help="Path to the model configuration file to validate (default: model_config.yaml)",
+        help="Path to the model configuration file to validate (default: ../config/model_config.yaml)",
     )
 
     # Graph command
@@ -127,9 +127,9 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="model_config.yaml",
+        default="../config/model_config.yaml",
         metavar="FILE",
-        help="Path to the model configuration file to visualize (default: model_config.yaml)",
+        help="Path to the model configuration file to visualize (default: ../config/model_config.yaml)",
     )
 
     bundle_parser: ArgumentParser = subparsers.add_parser(
@@ -158,9 +158,9 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="model_config.yaml",
+        default="../config/model_config.yaml",
         metavar="FILE",
-        help="Path to the model configuration file for the bundle (default: model_config.yaml)",
+        help="Path to the model configuration file for the bundle (default: ../config/model_config.yaml)",
     )
     bundle_parser.add_argument(
         "-d",
@@ -227,15 +227,16 @@ def run_databricks_command(
     cmd.extend(command)
     if config:
         config_path = Path(config)
-        if not config_path.exists():
-            logger.error(f"Configuration file {config_path} does not exist.")
-            sys.exit(1)
         notebooks_dir = Path("notebooks")
 
         if config_path.is_absolute():
             config_path = config_path.relative_to(Path.cwd())
 
         relative_config = notebooks_dir / config_path
+        if not relative_config.exists():
+            logger.error(f"Configuration file {relative_config} does not exist.")
+            sys.exit(1)
+            
         relative_config = Path(
             *relative_config.parts[1:]
         )  # Skip the first part (notebooks directory)

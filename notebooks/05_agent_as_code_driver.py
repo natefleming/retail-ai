@@ -98,6 +98,7 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 
 # COMMAND ----------
 
+from langgraph.graph.state import CompiledStateGraph
 from retail_ai.models import display_graph
 from retail_ai.graph import create_retail_ai_graph
 

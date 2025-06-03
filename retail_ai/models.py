@@ -257,14 +257,16 @@ def process_messages(
         return _process_config_messages(app, messages, custom_inputs)
 
 
-def display_graph(app: LanggraphChatModel) -> None:
+def display_graph(app: LanggraphChatModel | CompiledStateGraph) -> None:
     from IPython.display import HTML, Image, display
+    if isinstance(app, LanggraphChatModel):
+        app = app.graph
 
     try:
-        content = Image(app.graph.get_graph(xray=True).draw_mermaid_png())
+        content = Image(app.get_graph(xray=True).draw_mermaid_png())
     except Exception as e:
         print(e)
-        ascii_graph: str = app.graph.get_graph(xray=True).draw_ascii()
+        ascii_graph: str = app.get_graph(xray=True).draw_ascii()
         html_content = f"""
     <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
     {ascii_graph}
