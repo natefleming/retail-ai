@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 from argparse import ArgumentParser, Namespace
-from typing import Sequence
+from typing import Sequence, Optional
 
 from loguru import logger
 from mlflow.models import ModelConfig
@@ -10,6 +10,8 @@ from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
 from retail_ai.graph import create_retail_ai_graph
 from retail_ai.models import save_image
+import subprocess
+
 
 logger.remove()
 logger.add(sys.stderr, level="ERROR")
@@ -25,6 +27,7 @@ Examples:
   retail-ai validate -c config/model_config.yaml            # Validate a specific configuration file
   retail-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
   retail-ai validate                                        # Validate with detailed logging
+  retail-ai bundle --deploy                                 # Deploy the Retail AI asset bundle
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -129,6 +132,38 @@ Examples:
         help="Path to the model configuration file to visualize (default: model_config.yaml)",
     )
 
+
+    bundle_parser: ArgumentParser = subparsers.add_parser(
+        "bundle",
+        help="Bundle configuration for deployment",
+        description="""
+Perform operations on the Retail AI asset bundle.
+This command prepares the configuration for deployment by:
+- Deploying Retail AI as an asset bundle
+- Running the Retail AI system with the current configuration
+""",
+        epilog="""
+Examples:
+    retail-ai bundle --deploy
+    retail-ai bundle --run
+""")
+    
+    bundle_parser.add_argument(
+        "-p", "--profile",
+        type=str,
+        help="The Databricks profile to use for deployment",
+    )
+    bundle_parser.add_argument(
+        "-d", "--deploy",
+        action="store_true",
+        help="Deploy the Retail AI asset bundle",
+    )
+    bundle_parser.add_argument(
+        "-r", "--run",
+        action="store_true",
+        help="Run the Retail AI system with the current configuration",
+    )
+    
     options = parser.parse_args(args)
 
     return options
@@ -169,6 +204,47 @@ def setup_logging(verbosity: int) -> None:
     level: str = levels.get(verbosity, "TRACE")
     logger.add(sys.stderr, level=level)
 
+def run_databricks_command(command: list[str], profile: Optional[str] = None) -> None:
+    """Execute a databricks CLI command with optional profile."""
+    cmd = ["databricks"]
+    if profile:
+        cmd.extend(["-p", profile])
+    cmd.extend(command)
+    
+    logger.debug(f"Executing command: {' '.join(cmd)}")
+    try:
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                 text=True, bufsize=1, universal_newlines=True)
+        
+        for line in iter(process.stdout.readline, ''):
+            print(line.rstrip())
+            
+        process.wait()
+        
+        if process.returncode != 0:
+            logger.error(f"Command failed with exit code {process.returncode}")
+            sys.exit(1)
+        else:
+            logger.info("Command executed successfully")
+            
+    except FileNotFoundError:
+        logger.error("databricks CLI not found. Please install the Databricks CLI.")
+        sys.exit(1)
+
+
+def handle_bundle_command(options: Namespace) -> None:
+    logger.debug("Bundling configuration...")
+    profile = options.profile
+    
+    if options.deploy:
+        logger.info("Deploying Retail AI asset bundle...")
+        run_databricks_command(["bundle", "deploy"], profile)
+    if options.run:
+        logger.info("Running Retail AI system with current configuration...")
+        run_databricks_command(["bundle", "run", "deploy-retail-ai-job"], profile)
+    else:
+        logger.warning("No action specified. Use --deploy or --run flags.")
+
 
 def main() -> None:
     options: argparse.Namespace = parse_args(sys.argv[1:])
@@ -180,6 +256,8 @@ def main() -> None:
             handle_validate_command(options)
         case "graph":
             handle_graph_command(options)
+        case "bundle":
+            handle_bundle_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")
             sys.exit(1)

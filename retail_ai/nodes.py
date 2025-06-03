@@ -8,7 +8,6 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableSequence
 from langchain_core.tools import BaseTool
-from langgraph.func import entrypoint
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
@@ -49,7 +48,6 @@ def create_agent_node(
     tools: Sequence[BaseTool] = create_tools(tools) + additional_tools
 
     @mlflow.trace()
-    @entrypoint
     def agent_node(
         state: AgentState, config: AgentConfig
     ) -> dict[str, BaseMessage] | CompiledStateGraph:
@@ -94,15 +92,11 @@ def create_agent_node(
         # Return the compiled agent or its response
         return compiled_agent
 
-    # Set function name dynamically for better debugging
-    agent_node.name = agent.name
-
     return agent_node
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:
     @mlflow.trace()
-    @entrypoint
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug(f"state: {state}")
 
@@ -175,7 +169,6 @@ def supervisor_node(config: AppConfig) -> AgentCallable:
     )
 
     @mlflow.trace()
-    @entrypoint
     def supervisor(state: AgentState, config: AgentConfig) -> dict[str, str]:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=temperature)
 
@@ -211,7 +204,6 @@ def process_images_node(config: AppConfig) -> AgentCallable:
     prompt: str = process_image_config.prompt
 
     @mlflow.trace()
-    @entrypoint
     def process_images(
         state: AgentState, config: AgentConfig
     ) -> dict[str, BaseMessage]:
