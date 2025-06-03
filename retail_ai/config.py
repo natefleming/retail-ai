@@ -2,6 +2,16 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional, Sequence
 
+from mlflow.models.resources import (
+    DatabricksFunction,
+    DatabricksGenieSpace,
+    DatabricksResource,
+    DatabricksServingEndpoint,
+    DatabricksSQLWarehouse,
+    DatabricksTable,
+    DatabricksUCConnection,
+    DatabricksVectorSearchIndex,
+)
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -9,6 +19,12 @@ class HasFullName(ABC):
     @property
     @abstractmethod
     def full_name(self) -> str:
+        pass
+
+
+class IsDatabricksResource(ABC):
+    @abstractmethod
+    def as_resource(self) -> DatabricksResource:
         pass
 
 
@@ -52,9 +68,10 @@ class SchemaModel(BaseModel, HasFullName):
         return f"{self.catalog_name}.{self.schema_name}"
 
 
-class TableModel(BaseModel, HasFullName):
+class TableModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
+    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
@@ -62,11 +79,18 @@ class TableModel(BaseModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksTable(table_name=self.full_name)
 
-class LLMModel(BaseModel):
+
+class LLMModel(BaseModel, IsDatabricksResource):
     name: str
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
+    on_behalf_of_user: Optional[bool] = False
+
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksServingEndpoint(endpoint_name=self.name)
 
 
 class VectorSearchEndpointType(str, Enum):
@@ -80,9 +104,10 @@ class VectorSearchEndpoint(BaseModel):
     type: VectorSearchEndpointType
 
 
-class IndexModel(BaseModel, HasFullName):
+class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
+    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
@@ -90,8 +115,11 @@ class IndexModel(BaseModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksVectorSearchIndex(index_name=self.full_name)
 
-class VectorStoreModel(BaseModel):
+
+class VectorStoreModel(BaseModel, IsDatabricksResource):
     embedding_model: LLMModel
     endpoint: VectorSearchEndpoint
     index: IndexModel
@@ -101,11 +129,18 @@ class VectorStoreModel(BaseModel):
     embedding_source_column: str
     columns: list[str]
 
+    def as_resource(self) -> DatabricksResource:
+        return self.index.as_resource()
 
-class GenieRoomModel(BaseModel):
+
+class GenieRoomModel(BaseModel, IsDatabricksResource):
     name: str
     description: str
     space_id: str
+    on_behalf_of_user: Optional[bool] = False
+
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksGenieSpace(genie_space_id=self.space_id)
 
 
 class VolumeModel(BaseModel, HasFullName):
@@ -119,9 +154,10 @@ class VolumeModel(BaseModel, HasFullName):
         return self.name
 
 
-class FunctionModel(BaseModel, HasFullName):
+class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
+    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
@@ -129,19 +165,29 @@ class FunctionModel(BaseModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksFunction(function_name=self.full_name)
 
-class ConnectionModel(BaseModel, HasFullName):
+
+class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
     name: str
+    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
         return self.name
 
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksUCConnection(connection_name=self.name)
 
-class WarehouseModel(BaseModel):
+
+class WarehouseModel(BaseModel, IsDatabricksResource):
     name: str
     description: str
     warehouse_id: str
+
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksSQLWarehouse(warehouse_id=self.warehouse_id)
 
 
 class DatabaseModel(BaseModel):
@@ -176,7 +222,7 @@ class BaseFunctionModel(BaseModel):
 
 
 class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
-    model_config = ConfigDict(use_enum_values=True) 
+    model_config = ConfigDict(use_enum_values=True)
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.PYTHON
 
@@ -367,7 +413,6 @@ class AppConfig(BaseModel):
     app: AppModel
     evaluation: Optional[EvaluationModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
-
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

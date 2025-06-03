@@ -38,6 +38,7 @@ class AgentState(MessagesState):
 
     context: Sequence[Document]  # Documents retrieved from vector search
     route: str
+    active_agent: str
 
     is_valid_config: bool
 

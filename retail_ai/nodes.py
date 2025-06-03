@@ -24,7 +24,7 @@ from retail_ai.types import AgentCallable
 
 
 def create_agent_node(
-    agent: AgentModel, additional_tools: Optional[Sequence[ToolModel]] = None
+    agent: AgentModel, additional_tools: Optional[Sequence[BaseTool]] = None
 ) -> AgentCallable:
     """
     Factory function that creates a LangGraph node for a specialized agent.
@@ -43,9 +43,9 @@ def create_agent_node(
     logger.debug(f"Creating agent node for {agent.name}")
 
     tools: Sequence[ToolModel] = agent.tools
-    if additional_tools:
-        tools += additional_tools
-    tools: Sequence[BaseTool] = create_tools(tools)
+    if not additional_tools:
+        additional_tools = []
+    tools: Sequence[BaseTool] = create_tools(tools) + additional_tools
 
     @mlflow.trace()
     def agent_node(
@@ -88,11 +88,9 @@ def create_agent_node(
             guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
             compiled_agent = with_guardrails(compiled_agent, guardrail)
 
+        compiled_agent.name = agent.name
         # Return the compiled agent or its response
         return compiled_agent
-
-    # Set function name dynamically for better debugging
-    agent_node.__name__ = f"{agent.name}_node"
 
     return agent_node
 
