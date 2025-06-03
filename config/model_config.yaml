@@ -502,7 +502,7 @@ agents:
       - Be transparent about limitations in your knowledge
 
       Remember: Use your tools strategically and comprehensively. Multiple tool searches may be required to provide complete, accurate product information.
-        handoff_prompt: |
+    handoff_prompt: |
       Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
       Example: "Tell me about the Craftsman cordless drill" or "What are the specs of the Dewalt table saw?"
 
