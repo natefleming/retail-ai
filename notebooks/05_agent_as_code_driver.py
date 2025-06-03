@@ -98,10 +98,12 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 
 # COMMAND ----------
 
-from agent_as_code import app
 from retail_ai.models import display_graph
+from retail_ai.graph import create_retail_ai_graph
 
-display_graph(app)
+graph: CompiledStateGraph = create_retail_ai_graph(config=config)
+
+display_graph(graph)
 
 # COMMAND ----------
 
