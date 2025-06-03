@@ -10,7 +10,11 @@ artifacts:
     build: uv build
     path: .
 
-
+variables:
+  config_path:
+    description: Path to the configuration file for the job.
+    default: ../config/model_config.yaml
+    
 resources:
   jobs:
     deploy-retail-ai-job:
@@ -26,6 +30,8 @@ resources:
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/01_ingest_and_transform.py
+            base_parameters:
+              config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
         - task_key: provision-vector-search
@@ -34,6 +40,8 @@ resources:
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/02_provision_vector_search.py
+            base_parameters:
+              config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
         - task_key: generate-evaluation-data
@@ -42,6 +50,8 @@ resources:
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/03_generate_evaluation_data.py
+            base_parameters:
+              config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
         - task_key: unity-catalog-tools
@@ -50,6 +60,8 @@ resources:
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/04_unity_catalog_tools.py
+            base_parameters:
+              config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
         - task_key: deploy-agents
@@ -58,6 +70,8 @@ resources:
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/05_agent_as_code_driver.py
+            base_parameters:
+              config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
         - task_key: create-monitor
@@ -66,6 +80,8 @@ resources:
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/07_create_monitor.py
+            base_parameters:
+              config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
         - task_key: run-evaluation
@@ -75,6 +91,8 @@ resources:
           job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/06_run_evaluation.py
+            base_parameters:
+              config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
 
