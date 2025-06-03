@@ -1,8 +1,9 @@
 import argparse
 import json
+import subprocess
 import sys
 from argparse import ArgumentParser, Namespace
-from typing import Sequence, Optional
+from typing import Optional, Sequence
 
 from loguru import logger
 from mlflow.models import ModelConfig
@@ -10,8 +11,6 @@ from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
 from retail_ai.graph import create_retail_ai_graph
 from retail_ai.models import save_image
-import subprocess
-
 
 logger.remove()
 logger.add(sys.stderr, level="ERROR")
@@ -132,7 +131,6 @@ Examples:
         help="Path to the model configuration file to visualize (default: model_config.yaml)",
     )
 
-
     bundle_parser: ArgumentParser = subparsers.add_parser(
         "bundle",
         help="Bundle configuration for deployment",
@@ -146,24 +144,28 @@ This command prepares the configuration for deployment by:
 Examples:
     retail-ai bundle --deploy
     retail-ai bundle --run
-""")
-    
+""",
+    )
+
     bundle_parser.add_argument(
-        "-p", "--profile",
+        "-p",
+        "--profile",
         type=str,
         help="The Databricks profile to use for deployment",
     )
     bundle_parser.add_argument(
-        "-d", "--deploy",
+        "-d",
+        "--deploy",
         action="store_true",
         help="Deploy the Retail AI asset bundle",
     )
     bundle_parser.add_argument(
-        "-r", "--run",
+        "-r",
+        "--run",
         action="store_true",
         help="Run the Retail AI system with the current configuration",
     )
-    
+
     options = parser.parse_args(args)
 
     return options
@@ -187,10 +189,11 @@ def handle_validate_command(options: Namespace) -> None:
     try:
         model_config: ModelConfig = ModelConfig(development_config=options.config)
         _: AppConfig = AppConfig(**model_config.to_dict())
-        sys.exit(0)  
+        sys.exit(0)
     except Exception as e:
         logger.error(f"Configuration validation failed: {e}")
         sys.exit(1)
+
 
 def setup_logging(verbosity: int) -> None:
     logger.remove()
@@ -204,29 +207,36 @@ def setup_logging(verbosity: int) -> None:
     level: str = levels.get(verbosity, "TRACE")
     logger.add(sys.stderr, level=level)
 
+
 def run_databricks_command(command: list[str], profile: Optional[str] = None) -> None:
     """Execute a databricks CLI command with optional profile."""
     cmd = ["databricks"]
     if profile:
         cmd.extend(["-p", profile])
     cmd.extend(command)
-    
+
     logger.debug(f"Executing command: {' '.join(cmd)}")
     try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                 text=True, bufsize=1, universal_newlines=True)
-        
-        for line in iter(process.stdout.readline, ''):
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        for line in iter(process.stdout.readline, ""):
             print(line.rstrip())
-            
+
         process.wait()
-        
+
         if process.returncode != 0:
             logger.error(f"Command failed with exit code {process.returncode}")
             sys.exit(1)
         else:
             logger.info("Command executed successfully")
-            
+
     except FileNotFoundError:
         logger.error("databricks CLI not found. Please install the Databricks CLI.")
         sys.exit(1)
@@ -235,7 +245,7 @@ def run_databricks_command(command: list[str], profile: Optional[str] = None) ->
 def handle_bundle_command(options: Namespace) -> None:
     logger.debug("Bundling configuration...")
     profile = options.profile
-    
+
     if options.deploy:
         logger.info("Deploying Retail AI asset bundle...")
         run_databricks_command(["bundle", "deploy"], profile)

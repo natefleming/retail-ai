@@ -166,6 +166,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
         }
       },
       "required": [
@@ -303,6 +315,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
         }
       },
       "required": [
@@ -334,6 +358,18 @@
         "space_id": {
           "title": "Space Id",
           "type": "string"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
         }
       },
       "required": [
@@ -382,6 +418,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
         }
       },
       "required": [
@@ -419,6 +467,18 @@
           ],
           "default": 8192,
           "title": "Max Tokens"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
         }
       },
       "required": [
@@ -810,6 +870,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
         }
       },
       "required": [
