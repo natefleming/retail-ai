@@ -1,4 +1,5 @@
 import os
+from collections import OrderedDict
 from io import StringIO
 from typing import Any, Callable, Literal, Optional, Sequence
 
@@ -20,179 +21,30 @@ from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrie
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
-from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
-
-class ProductFeature(BaseModel):
-    """A specific feature or attribute of a product for comparison."""
-
-    name: str = Field(description="Name of the feature being compared")
-    description: str = Field(
-        description="Brief description of what this feature represents"
-    )
-    importance: int = Field(
-        description="Importance rating from 1-10, where 10 is most important"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
+from retail_ai.config import (
+    BaseFunctionModel,
+    FactoryFunctionModel,
+    FunctionType,
+    GenieRoomModel,
+    McpFunctionModel,
+    PythonFunctionModel,
+    RetrieverModel,
+    SchemaModel,
+    ToolModel,
+    UnityCatalogFunctionModel,
+    VectorStoreModel,
+    WarehouseModel,
+)
+from retail_ai.utils import load_function
 
 
-class ProductAttribute(BaseModel):
-    """A specific attribute and its value for a product."""
-
-    feature: str = Field(description="Name of the feature/attribute")
-    value: str = Field(
-        description="The value or description of this attribute for this product"
-    )
-    rating: Optional[int] = Field(
-        None, description="Optional numerical rating (1-10) if applicable"
-    )
-    pros: list[str] = Field(
-        default_factory=list, description="Positive aspects of this attribute"
-    )
-    cons: list[str] = Field(
-        default_factory=list, description="Negative aspects of this attribute"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
-
-
-class ProductInfo(BaseModel):
-    """Information about a specific product."""
-
-    product_id: str = Field(description="Unique identifier for the product")
-    product_name: str = Field(description="Name of the product")
-    attributes: list[ProductAttribute] = Field(
-        description="List of attributes for this product"
-    )
-    overall_rating: int = Field(description="Overall rating of the product from 1-10")
-    price_value_ratio: int = Field(
-        description="Rating of price-to-value ratio from 1-10"
-    )
-    summary: str = Field(
-        description="Brief summary of this product's strengths and weaknesses"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
-
-
-class ComparisonResult(BaseModel):
-    """The final comparison between multiple products."""
-
-    products: list[ProductInfo] = Field(description="List of products being compared")
-    key_features: list[ProductFeature] = Field(
-        description="Key features that were compared"
-    )
-    winner: Optional[str] = Field(
-        None, description="Product ID of the overall winner, if there is one"
-    )
-    best_value: Optional[str] = Field(
-        None, description="Product ID with the best value for money"
-    )
-    comparison_summary: str = Field(
-        description="Overall summary of the comparison results"
-    )
-    recommendations: list[str, str] = Field(
-        description="Recommendations for different user needs/scenarios"
-    )
-
-    model_config = {
-        "extra": "forbid",  # This prevents additional properties
-        "json_schema_extra": {
-            "additionalProperties": False  # Explicitly set in schema
-        },
-    }
-
-
-def create_product_comparison_tool(
-    llm: LanguageModelLike,
-) -> Callable[[str], list[str]]:
-    """
-    Creates a product comparison tool that can compare multiple products.
-
-    Args:
-        llm: The language model to use for comparison analysis
-
-    Returns:
-        A callable tool that performs product comparisons
-    """
-
-    logger.debug("create_product_comparison_tool")
-
-    # Create the prompt template for product comparison
-    comparison_template = """
-    You are a retail product comparison expert. Analyze the following products and provide a detailed comparison.
-    
-    Products to compare:
-    {products}
-    
-    Based on the information provided, compare these products across their features, specifications, price points, 
-    and overall value. Identify strengths and weaknesses of each product.
-    
-    Your analysis should be thorough and objective. Consider various use cases and customer needs.
-    
-    """
-
-    prompt = PromptTemplate(
-        template=comparison_template,
-        input_variables=["products"],
-    )
-
-    @tool
-    def product_comparison(products: list[dict[str, Any]]) -> ComparisonResult:
-        """
-        Compare multiple products and provide structured analysis of their features,
-        specifications, pros, cons, and recommendations for different user needs.
-
-        Args:
-            products: List of product dictionaries to compare. Each product should include
-                     at minimum: product_id, product_name, price, and relevant specifications.
-
-        Returns:
-            A ComparisonResult object with detailed comparison analysis
-        """
-        logger.debug(f"product_comparison: {len(products)} products")
-
-        # Format the products for the prompt
-        products_str = "\n\n".join(
-            [f"Product {i+1}: {str(product)}" for i, product in enumerate(products)]
-        )
-
-        # Generate the comparison using the LLM
-        formatted_prompt = prompt.format(products=products_str)
-        llm_with_tools = llm.with_structured_output(ComparisonResult)
-        comparison_result: ComparisonResult = llm_with_tools.invoke(formatted_prompt)
-
-        logger.debug(f"comparison_result: {comparison_result}")
-        return comparison_result
-
-    return product_comparison
-
-
-def find_allowable_classifications(
-    catalog_name: str, database_name: str, w: Optional[WorkspaceClient] = None
-) -> Sequence[str]:
+def find_allowable_classifications(schema: SchemaModel) -> Sequence[str]:
     """
     Retrieve the list of allowable product classifications from a Unity Catalog function.
 
@@ -203,7 +55,7 @@ def find_allowable_classifications(
     Args:
         w: Databricks WorkspaceClient instance for API access
         catalog_name: Name of the Unity Catalog containing the function
-        database_name: Name of the database/schema containing the function
+        schema_name: Name of the database/schema containing the function
 
     Returns:
         A sequence of strings representing valid product classifications
@@ -212,16 +64,17 @@ def find_allowable_classifications(
         Exception: If the Unity Catalog function execution fails
     """
 
-    logger.debug(f"catalog_name={catalog_name}, database_name={database_name}")
+    logger.debug(
+        f"catalog_name={schema.catalog_name}, schema_name={schema.schema_name}"
+    )
 
-    if w is None:
-        w = WorkspaceClient()
+    w: WorkspaceClient = WorkspaceClient()
 
     client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
 
     # Execute the Unity Catalog function to retrieve classifications
     result: FunctionExecutionResult = client.execute_function(
-        function_name=f"{catalog_name}.{database_name}.find_allowable_product_classifications",
+        function_name=f"{schema.full_name}.find_allowable_product_classifications",
         parameters={},
     )
 
@@ -298,65 +151,8 @@ def create_product_classification_tool(
     return product_classification
 
 
-def create_sku_extraction_tool(llm: LanguageModelLike) -> Callable[[str], str]:
-    """
-    Create a tool that leverages an LLM to extract SKU identifiers from natural language text.
-
-    In GenAI applications, this tool enables automated extraction of product SKUs from
-    customer queries, support tickets, reviews, or conversational inputs without requiring
-    explicit structured input. This facilitates product lookups, inventory checks, and
-    personalized recommendations in conversational AI systems.
-
-    Args:
-      llm: Language model to use for SKU extraction from unstructured text
-
-    Returns:
-      A callable tool function that extracts a list of SKUs from input text
-    """
-    logger.debug("create_sku_extraction_tool")
-
-    # Define a Pydantic model to enforce structured output from the LLM
-    class SkuIdentifier(BaseModel):
-        skus: list[str] = Field(
-            ...,
-            description="The SKU of the product. Typically 8-12 characters",
-            default_factory=list,
-        )
-
-    @tool
-    def sku_extraction(input: str) -> list[str]:
-        """
-        Extract product SKUs from natural language text for product identification.
-
-        This tool parses unstructured text to identify and extract product SKUs,
-        enabling downstream tools to perform inventory checks, price lookups,
-        or detailed product information retrieval. It handles various text formats
-        including customer queries, product descriptions, and conversation history.
-
-        Args:
-          input (str): Natural language text that may contain product SKU references
-                 (e.g., "I'm looking for information about SKU ABC123")
-
-        Returns:
-          list[str]: A list of extracted SKU identifiers (empty list if none found)
-        """
-        logger.debug(f"sku_extraction: input={input}")
-        # Configure the LLM to output in the structured SkuIdentifier format
-        llm_with_tools: LanguageModelLike = llm.with_structured_output(SkuIdentifier)
-        # Invoke the LLM to extract SKUs from the input text
-        skus: Sequence[str] = llm_with_tools.invoke(input=input).skus
-
-        logger.debug(f"sku_extraction: extracted skus={skus}")
-        return skus
-
-    return sku_extraction
-
-
 def find_product_details_by_description_tool(
-    endpoint_name: str,
-    index_name: str,
-    columns: Sequence[str],
-    k: int = 10,
+    retriever: RetrieverModel | dict[str, Any],
 ) -> Callable[[str, str], Sequence[Document]]:
     """
     Create a tool for finding product details using vector search with classification filtering.
@@ -366,16 +162,18 @@ def find_product_details_by_description_tool(
     natural language product lookups with classification-based narrowing of results.
 
     Args:
-      endpoint_name: Name of the Databricks Vector Search endpoint to query
-      index_name: Name of the specific vector index containing product information
-      columns: List of columns to retrieve from the product database
-      filter_column: Database column name that contains product classification values
-      k: Maximum number of search results to return (default: 10)
-
+        retriever: Configuration details for the vector search retriever, including:
+            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
+            - columns: List of columns to retrieve from the vector store
+            - search_parameters: Additional parameters for customizing the search behavior
     Returns:
-      A callable tool function that performs filtered vector search using both
-      product descriptions and classification categories
+        A callable tool function that performs vector search for product details
+        based on natural language descriptions and classification filters
     """
+    if isinstance(retriever, dict):
+        retriever = RetrieverModel(**retriever)
+
+    logger.debug("find_product_details_by_description_tool")
 
     @tool
     @mlflow.trace(span_type="RETRIEVER", name="vector_search")
@@ -395,14 +193,14 @@ def find_product_details_by_description_tool(
 
         # Initialize the Vector Search client with endpoint and index configuration
         vector_search: VectorStore = DatabricksVectorSearch(
-            endpoint=endpoint_name,
-            index_name=index_name,
-            columns=columns,
+            endpoint=retriever.vector_store.endpoint.name,
+            index_name=retriever.vector_store.index.full_name,
+            columns=retriever.columns,
             client_args={},
         )
 
         documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, k=k, filter={}
+            query=content, **retriever.search_parameters.model_dump()
         )
 
         logger.debug(f"found {len(documents)} documents")
@@ -411,7 +209,117 @@ def find_product_details_by_description_tool(
     return find_product_details_by_description
 
 
-def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
+tool_registry: dict[str, BaseTool] = {}
+
+
+def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
+    """
+    Create a list of tools based on the provided configuration.
+
+    This factory function generates a list of tools based on the specified configurations.
+    Each tool is created according to its type and parameters defined in the configuration.
+
+    Args:
+        tool_configs: A sequence of dictionaries containing tool configurations
+
+    Returns:
+        A sequence of BaseTool objects created from the provided configurations
+    """
+
+    logger.debug("create_tools")
+
+    tools: OrderedDict[str, BaseTool] = OrderedDict()
+
+    for tool_config in tool_models:
+        name: str = tool_config.name
+        if name in tools:
+            logger.warning(f"Tool {name} already exists, skipping creation.")
+            continue
+        tool: BaseTool = tool_registry.get(name)
+        if tool is None:
+            logger.debug(f"Creating tool: {name}...")
+            function: BaseFunctionModel = tool_config.function
+            function_type: FunctionType = function.type
+
+            match function_type:
+                case FunctionType.UNITY_CATALOG:
+                    tool = create_uc_tool(function)
+                case FunctionType.FACTORY:
+                    tool = create_factory_tool(function)
+                case FunctionType.PYTHON:
+                    tool = create_python_tool(function)
+                case FunctionType.MCP:
+                    tool = create_mcp_tool(function)
+                case _:
+                    raise ValueError(f"Unknown tool type: {function_type}")
+
+            tool_registry[name] = tool
+        else:
+            logger.debug(f"Tool {name} already exists, reusing it.")
+
+        tools[name] = tool
+
+    return list(tools.values())
+
+
+def create_mcp_tool(
+    function: McpFunctionModel,
+) -> Callable[..., Any]:
+    """
+    Create a tool for invoking a Databricks MCP function.
+
+    This factory function wraps a Databricks MCP function as a callable tool that can be
+    invoked by agents during reasoning.
+
+    Args:
+        function: McpFunctionModel instance containing the function details
+
+    Returns:
+        A callable tool function that wraps the specified MCP function
+    """
+    logger.debug(f"create_mcp_tool: {function.full_name}")
+
+    raise NotImplementedError("MCP tools are not yet implemented.")
+
+
+def create_factory_tool(
+    function: FactoryFunctionModel,
+) -> Callable[..., Any]:
+    """
+    Create a factory tool from a FactoryFunctionModel.
+    This factory function dynamically loads a Python function and returns it as a callable tool.
+    Args:
+        function: FactoryFunctionModel instance containing the function details
+    Returns:
+        A callable tool function that wraps the specified factory function
+    """
+    logger.debug(f"create_factory_tool: {function.full_name}")
+
+    factory: Callable[..., Any] = load_function(function_name=function.full_name)
+    tool: Callable[..., Any] = factory(**function.args)
+    return tool
+
+
+def create_python_tool(
+    function: PythonFunctionModel,
+) -> Callable[..., Any]:
+    """
+    Create a Python tool from a Python function model.
+    This factory function wraps a Python function as a callable tool that can be
+    invoked by agents during reasoning.
+    Args:
+        function: PythonFunctionModel instance containing the function details
+    Returns:
+        A callable tool function that wraps the specified Python function
+    """
+    logger.debug(f"create_python_tool: {function.full_name}")
+
+    # Load the Python function dynamically
+    tool: Callable[..., Any] = load_function(function_name=function.full_name)
+    return tool
+
+
+def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
     """
     Create LangChain tools from Unity Catalog functions.
 
@@ -420,35 +328,30 @@ def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
     tool that can be invoked by the agent during reasoning.
 
     Args:
-        function_names: Single function name or list of function names in format
-                      "catalog.schema.function"
+        function: UnityCatalogFunctionModel instance containing the function details
 
     Returns:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
+    logger.debug(f"create_uc_tool: {function.full_name}")
+
     # set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
-    if isinstance(function_names, str):
-        function_names = [function_names]
     toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=function_names, client=client
+        function_names=[function.full_name], client=client
     )
 
-    return toolkit.tools
+    tool = next(iter(toolkit.tools or []), None)
+    return tool
 
 
 def create_vector_search_tool(
-    name: str,
-    description: str,
-    index_name: str,
-    primary_key: str = "id",
-    text_column: str = "content",
-    doc_uri: str = "doc_uri",
-    columns: Sequence[str] = None,
-    search_parameters: dict[str, str] = {},
+    retriever: dict[str, Any],
+    name: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> BaseTool:
     """
     Create a Vector Search tool for retrieving documents from a Databricks Vector Search index.
@@ -458,18 +361,32 @@ def create_vector_search_tool(
     for proper integration with the model serving infrastructure.
 
     Args:
-        name: Name of the tool (used for tool selection)
-        description: Description of the tool's purpose (used for tool selection)
-        index_name: Name of the Vector Search index to query
-        primary_key: Field name of the document's primary identifier
-        text_column: Field name that contains the main text content
-        doc_uri: Field name for storing document URI/location
-        columns: Specific columns to retrieve from the vector store (None retrieves all)
-        search_parameters: Additional parameters to customize vector search behavior
+        retriever: Configuration details for the vector search retriever, including:
+            - name: Name of the tool
+            - description: Description of the tool's purpose
+            - primary_key: Primary key column for the vector store
+            - text_column: Text column used for vector search
+            - doc_uri: URI for documentation or additional context
+            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
+            - columns: List of columns to retrieve from the vector store
+            - search_parameters: Additional parameters for customizing the search behavior
 
     Returns:
         A BaseTool instance that can perform vector search operations
     """
+
+    if isinstance(retriever, dict):
+        retriever = RetrieverModel(**retriever)
+
+    vector_store: VectorStoreModel = retriever.vector_store
+
+    index_name: str = vector_store.index.full_name
+    columns: Sequence[str] = retriever.columns
+    search_parameters: dict[str, Any] = retriever.search_parameters
+    primary_key: str = vector_store.primary_key
+    doc_uri: str = vector_store.doc_uri
+    text_column: str = vector_store.embedding_source_column
+
     vector_search_tool: BaseTool = VectorSearchRetrieverTool(
         name=name,
         description=description,
@@ -480,7 +397,7 @@ def create_vector_search_tool(
 
     # Register the retriever schema with MLflow for model serving integration
     mlflow.models.set_retriever_schema(
-        name=name,
+        name=name or "retriever",
         primary_key=primary_key,
         text_column=text_column,
         doc_uri=doc_uri,
@@ -490,7 +407,9 @@ def create_vector_search_tool(
     return vector_search_tool
 
 
-def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieResponse]:
+def create_genie_tool(
+    genie_room: GenieRoomModel | dict[str, Any],
+) -> Callable[[str], GenieResponse]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
 
@@ -505,8 +424,13 @@ def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieRe
     Returns:
         A callable tool function that processes natural language queries through Genie
     """
-    # Try to get space_id from environment variable if not provided
-    space_id = space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
+    logger.debug("create_genie_tool")
+
+    if isinstance(genie_room, dict):
+        genie_room = GenieRoomModel(**genie_room)
+
+    space_id: str = genie_room.space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
+
     genie: Genie = Genie(
         space_id=space_id,
     )
@@ -533,12 +457,19 @@ def create_genie_tool(space_id: Optional[str] = None) -> Callable[[str], GenieRe
     return genie_tool
 
 
-def search_tool(model_config: ModelConfig) -> BaseTool:
+def search_tool() -> BaseTool:
     logger.debug("search_tool")
     return DuckDuckGoSearchRun(output_format="list")
 
 
-def create_find_product_by_sku_tool(warehouse_id: str) -> None:
+def create_find_product_by_sku_tool(
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_product_by_sku(skus: list[str]) -> tuple:
         """
@@ -579,11 +510,11 @@ def create_find_product_by_sku_tool(warehouse_id: str) -> None:
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_product_by_sku(ARRAY({skus}))
+            SELECT * FROM {schema.full_name}.find_product_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -604,7 +535,14 @@ def create_find_product_by_sku_tool(warehouse_id: str) -> None:
     return find_product_by_sku
 
 
-def create_find_product_by_upc_tool(warehouse_id: str) -> None:
+def create_find_product_by_upc_tool(
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_product_by_upc(upcs: list[str]) -> tuple:
         """
@@ -630,11 +568,11 @@ def create_find_product_by_upc_tool(warehouse_id: str) -> None:
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_product_by_upc(ARRAY({upcs}))
+            SELECT * FROM {schema.full_name}.find_product_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -655,7 +593,14 @@ def create_find_product_by_upc_tool(warehouse_id: str) -> None:
     return find_product_by_upc
 
 
-def create_find_inventory_by_sku_tool(warehouse_id: str) -> None:
+def create_find_inventory_by_sku_tool(
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_inventory_by_sku(skus: list[str]) -> tuple:
         """
@@ -701,11 +646,11 @@ def create_find_inventory_by_sku_tool(warehouse_id: str) -> None:
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_inventory_by_sku(ARRAY({skus}))
+            SELECT * FROM {schema.full_name}.find_inventory_by_sku(ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -726,7 +671,14 @@ def create_find_inventory_by_sku_tool(warehouse_id: str) -> None:
     return find_inventory_by_sku
 
 
-def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
+def create_find_inventory_by_upc_tool(
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
+) -> Callable[[list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_inventory_by_upc(upcs: list[str]) -> tuple:
         """
@@ -757,11 +709,11 @@ def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_inventory_by_upc(ARRAY({upcs}))
+            SELECT * FROM {schema.full_name}.find_inventory_by_upc(ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -782,7 +734,14 @@ def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
     return find_inventory_by_upc
 
 
-def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
+def create_find_store_inventory_by_sku_tool(
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
+) -> Callable[[str, list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_store_inventory_by_sku(store: str, skus: list[str]) -> tuple:
         """
@@ -831,11 +790,11 @@ def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_store_inventory_by_sku('{store}', ARRAY({skus}))
+            SELECT * FROM {schema.full_name}.find_store_inventory_by_sku('{store}', ARRAY({skus}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,
@@ -856,7 +815,14 @@ def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
     return find_store_inventory_by_sku
 
 
-def create_find_store_inventory_by_upc_tool(warehouse_id: str) -> None:
+def create_find_store_inventory_by_upc_tool(
+    schema: SchemaModel | dict[str, Any], warehouse: WarehouseModel | dict[str, Any]
+) -> Callable[[str, list[str]], tuple]:
+    if isinstance(schema, dict):
+        schema = SchemaModel(**schema)
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel(**warehouse)
+
     @tool
     def find_store_inventory_by_upc(store: str, upcs: list[str]) -> tuple:
         """
@@ -890,11 +856,11 @@ def create_find_store_inventory_by_upc_tool(warehouse_id: str) -> None:
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
-            SELECT * FROM nfleming.retail_ai.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
+            SELECT * FROM {schema.full_name}.find_store_inventory_by_upc('{store}', ARRAY({upcs}))
         """
         logger.debug(statement)
         statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=statement, warehouse_id=warehouse_id
+            statement=statement, warehouse_id=warehouse.warehouse_id
         )
         while statement_response.status.state in [
             StatementState.PENDING,

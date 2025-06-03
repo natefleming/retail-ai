@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors.platform import NotFound
@@ -29,6 +30,30 @@ def _volume_as_path(self: VolumeInfo) -> Path:
 
 # Monkey patch the VolumeInfo class to add the as_path method
 VolumeInfo.as_path = _volume_as_path
+
+
+def full_name(name: str, schema: dict[str, Any] = {}, **kwargs) -> str:
+    """
+    Generate a fully qualified name for a Databricks entity.
+
+    This function constructs a fully qualified name for entities like catalogs,
+    schemas, and volumes by combining their names with the catalog and schema
+    names as appropriate.
+
+    Args:
+        entity: A dictionary containing the entity's name, catalog_name, and schema_name
+
+    Returns:
+        A string representing the fully qualified name of the entity
+    """
+    catalog_name = schema.get("catalog_name")
+    schema_name = schema.get("schema_name")
+    if catalog_name and schema_name:
+        return f"{catalog_name}.{schema_name}.{name}"
+    elif catalog_name:
+        return f"{catalog_name}.{name}"
+    else:
+        return name
 
 
 def get_or_create_catalog(name: str, w: WorkspaceClient | None = None) -> CatalogInfo:

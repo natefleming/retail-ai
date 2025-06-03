@@ -2,7 +2,7 @@ import importlib
 from typing import Any, Callable
 
 
-def callable_from_fqn(fqn: str) -> Callable[[Any, ...], Any]:
+def load_function(function_name: str) -> Callable[..., Any]:
     """
     Dynamically import and return a callable function using its fully qualified name.
 
@@ -29,7 +29,7 @@ def callable_from_fqn(fqn: str) -> Callable[[Any, ...], Any]:
     """
     try:
         # Split the FQN into module path and function name
-        module_path, func_name = fqn.rsplit(".", 1)
+        module_path, func_name = function_name.rsplit(".", 1)
 
         # Dynamically import the module
         module = importlib.import_module(module_path)
@@ -44,4 +44,4 @@ def callable_from_fqn(fqn: str) -> Callable[[Any, ...], Any]:
         return func
     except (ImportError, AttributeError, TypeError) as e:
         # Provide a detailed error message that includes the original exception
-        raise ImportError(f"Failed to import {fqn}: {e}")
+        raise ImportError(f"Failed to import {function_name}: {e}")

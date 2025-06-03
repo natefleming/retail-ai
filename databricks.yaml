@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=./schemas/bundle_config_schema.json
+
+
+bundle:
+  name: retail-ai-bundle
+
+artifacts:
+  default:
+    type: whl
+    build: uv build
+    path: .
+
+
+resources:
+  jobs:
+    deploy-retail-ai-job:
+      name: deploy-retail-ai-job
+      job_clusters:
+        - job_cluster_key: common-cluster
+          new_cluster:
+            node_type_id: Standard_D4ads_v5
+            spark_version: 16.2.x-scala2.12
+            num_workers: 1
+      tasks:
+        - task_key: ingest-and-transform
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/01_ingest_and_transform.py
+          libraries:
+            - whl: ./dist/*.whl
+        - task_key: provision-vector-search
+          depends_on:
+            - task_key: ingest-and-transform
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/02_provision_vector_search.py
+          libraries:
+            - whl: ./dist/*.whl
+        - task_key: generate-evaluation-data
+          depends_on:
+            - task_key: provision-vector-search
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/03_generate_evaluation_data.py
+          libraries:
+            - whl: ./dist/*.whl
+        - task_key: unity-catalog-tools
+          depends_on:
+            - task_key: provision-vector-search
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/04_unity_catalog_tools.py
+          libraries:
+            - whl: ./dist/*.whl
+        - task_key: deploy-agents
+          depends_on:
+            - task_key: unity-catalog-tools
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/05_agent_as_code_driver.py
+          libraries:
+            - whl: ./dist/*.whl
+        - task_key: create-monitor
+          depends_on:
+            - task_key: deploy-agents
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/07_create_monitor.py
+          libraries:
+            - whl: ./dist/*.whl
+        - task_key: run-evaluation
+          depends_on:
+            - task_key: create-monitor
+            - task_key: generate-evaluation-data
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/06_run_evaluation.py
+          libraries:
+            - whl: ./dist/*.whl
+
+targets:
+  dev:
+    default: True
+    workspace:
+      host: https://adb-984752964297111.11.azuredatabricks.net

@@ -1,26 +1,24 @@
 # Databricks notebook source
-from typing import Sequence
-
-pip_requirements: Sequence[str] = (
-  "langgraph",
-  "langchain",
-  "databricks-langchain",
-  "unitycatalog-langchain[databricks]",
-  "databricks-sdk",
-  "mlflow",
-  "python-dotenv",
-
-)
-
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
-%restart_python
+# MAGIC %pip install --quiet uv
+# MAGIC
+# MAGIC import os
+# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
 
 # COMMAND ----------
 
+# MAGIC %sh uv --project ../ sync
+
+# COMMAND ----------
+
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+import sys
 from typing import Sequence
 from importlib.metadata import version
+
+sys.path.insert(0, "..")
 
 pip_requirements: Sequence[str] = (
   f"langgraph=={version('langgraph')}",
@@ -50,17 +48,19 @@ _ = load_dotenv(find_dotenv())
 from typing import Any, Dict, Optional, List
 
 from mlflow.models import ModelConfig
+from retail_ai.config import AppConfig, SchemaModel
 
-
-model_config_file: str = "model_config.yaml"
+model_config_file: str = "../config/model_config.yaml"
 model_config: ModelConfig = ModelConfig(development_config=model_config_file)
+config: AppConfig = AppConfig(**model_config.to_dict())
 
-catalog_name: str = model_config.get("catalog_name")
-database_name: str = model_config.get("database_name")
+schema: SchemaModel = config.schemas.get("retail_schema")
+catalog_name: str = schema.catalog_name
+schema_name: str = schema.schema_name
 
 
 print(f"catalog_name: {catalog_name}")
-print(f"database_name: {database_name}")
+print(f"schema_name: {schema_name}")
 
 # COMMAND ----------
 
@@ -77,7 +77,7 @@ client: DatabricksFunctionClient = DatabricksFunctionClient(client=w)
 
 client.create_function(
   sql_function_body=f"""
-CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_sku(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_product_by_sku(
   sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -102,7 +102,7 @@ SELECT
   ,merchandise_class
   ,class_cd
   ,description
-FROM {catalog_name}.{database_name}.products 
+FROM {catalog_name}.{schema_name}.products 
 WHERE ARRAY_CONTAINS(find_product_by_sku.sku, sku)
 """
 )
@@ -116,7 +116,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_product_by_sku",
+    function_name=f"{catalog_name}.{schema_name}.find_product_by_sku",
     parameters={"sku": ["00176279"] }
 )
 
@@ -131,7 +131,7 @@ display(pdf)
 
 client.create_function(
   sql_function_body=f"""
-CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_product_by_upc(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_product_by_upc(
   upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -156,7 +156,7 @@ SELECT
   ,merchandise_class
   ,class_cd
   ,description
-FROM {catalog_name}.{database_name}.products 
+FROM {catalog_name}.{schema_name}.products 
 WHERE ARRAY_CONTAINS(find_product_by_upc.upc, upc);
   """
 )
@@ -170,7 +170,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_product_by_upc",
+    function_name=f"{catalog_name}.{schema_name}.find_product_by_upc",
     parameters={"upc": ["0017627748017"] }
 )
 
@@ -185,7 +185,7 @@ display(pdf)
 
 client.create_function(
   sql_function_body=f"""
-CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_inventory_by_sku(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_inventory_by_sku(
   sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -220,8 +220,8 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM {catalog_name}.{database_name}.inventory inventory
-JOIN {catalog_name}.{database_name}.products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS(find_inventory_by_sku.sku, products.sku);
   """
@@ -236,7 +236,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_inventory_by_sku",
+    function_name=f"{catalog_name}.{schema_name}.find_inventory_by_sku",
     parameters={"sku": ["00176279"] }
 )
 
@@ -251,7 +251,7 @@ display(pdf)
 
 client.create_function(
   sql_function_body=f"""
-CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_inventory_by_upc(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_inventory_by_upc(
   upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -286,8 +286,8 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM {catalog_name}.{database_name}.inventory inventory
-JOIN {catalog_name}.{database_name}.products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS( find_inventory_by_upc.upc, products.upc)
   """
@@ -302,7 +302,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_inventory_by_upc",
+    function_name=f"{catalog_name}.{schema_name}.find_inventory_by_upc",
     parameters={"upc": ["0017627748017"] }
 )
 
@@ -317,7 +317,7 @@ display(pdf)
 
 client.create_function(
   sql_function_body=f"""
-CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_sku(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_store_inventory_by_sku(
   store STRING COMMENT 'The store identifier to retrieve inventory for'
   ,sku ARRAY<STRING> COMMENT 'One or more unique identifiers to retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
@@ -353,8 +353,8 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM {catalog_name}.{database_name}.inventory inventory
-JOIN {catalog_name}.{database_name}.products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS(find_store_inventory_by_sku.sku, products.sku) AND inventory.store = find_store_inventory_by_sku.store;
   """
@@ -369,7 +369,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_sku",
+    function_name=f"{catalog_name}.{schema_name}.find_store_inventory_by_sku",
     parameters={"store": "35048", "sku": ["00176279"] }
 )
 
@@ -384,7 +384,7 @@ display(pdf)
 
 client.create_function(
   sql_function_body=f"""
-CREATE OR REPLACE FUNCTION {catalog_name}.{database_name}.find_store_inventory_by_upc(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_store_inventory_by_upc(
   store STRING COMMENT 'The store identifier to retrieve inventory for'
   ,upc ARRAY<STRING> COMMENT 'One or more unique identifiers to retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
@@ -420,8 +420,8 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM {catalog_name}.{database_name}.inventory inventory
-JOIN {catalog_name}.{database_name}.products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS(find_store_inventory_by_upc.upc, products.upc) AND inventory.store = find_store_inventory_by_upc.store;
   """
@@ -436,7 +436,7 @@ from unitycatalog.ai.core.base import FunctionExecutionResult
 
 
 result: FunctionExecutionResult = client.execute_function(
-    function_name=f"{catalog_name}.{database_name}.find_store_inventory_by_upc",
+    function_name=f"{catalog_name}.{schema_name}.find_store_inventory_by_upc",
     parameters={"store": "35048", "upc": ["0017627748017"] }
 )
 

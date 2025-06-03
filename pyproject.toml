@@ -1,30 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "retail-ai"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Retail AI Agent: A modular, multi-agent orchestration framework for retail and supply chain AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "databricks-agents>=0.20.0",
     "databricks-langchain>=0.4.2",
     "databricks-sdk>=0.50.0",
+    "duckduckgo-search>=8.0.2",
     "grandalf>=0.8",
     "langchain>=0.3.24",
-    "langgraph==0.3.31",
+    "langgraph>=0.3.31",
     "langgraph-checkpoint-postgres>=2.0.21",
     "langgraph-reflection>=0.0.1",
+    "langgraph-supervisor>=0.0.27",
+    "langgraph-swarm>=0.0.11",
     "loguru>=0.7.3",
+    "mcp>=1.9.1",
     "mlflow>=2.21.3",
     "openevals>=0.0.19",
     "psycopg[binary,pool]>=3.2.6",
     "pydantic>=2.11.3",
     "python-dotenv>=1.1.0",
+    "pyyaml>=6.0.2",
+    "rich>=14.0.0",
     "unitycatalog-ai[databricks]>=0.3.0",
+]
+
+[project.scripts]
+retail-ai = "retail_ai.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["retail_ai"]
+
+[tool.hatch.build]
+exclude = [
+    "data",
+    "docs",
+    "examples",
+    "tests",
 ]
 
 [tool.ruff]
 # Enable the Ruff formatter
-target-version = "py310"  # Specify your Python version
+target-version = "py312"  # Specify your Python version
 line-length = 88  # Same as Black's default
 indent-width = 4
 
@@ -65,4 +89,10 @@ exclude = [
     "dist",
     "node_modules",
     "venv",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "ruff>=0.11.11",
 ]

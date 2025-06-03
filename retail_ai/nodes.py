@@ -7,29 +7,95 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableSequence
+from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
-from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
 
+from retail_ai.config import AgentModel, AppConfig, SupervisorModel, ToolModel
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import (
-    create_find_inventory_by_sku_tool,
-    create_find_inventory_by_upc_tool,
-    create_find_product_by_sku_tool,
-    create_find_product_by_upc_tool,
-    create_find_store_inventory_by_sku_tool,
-    create_find_store_inventory_by_upc_tool,
-    find_product_details_by_description_tool,
-    search_tool,
+    create_tools,
 )
 from retail_ai.types import AgentCallable
 
 
-def message_validation_node(model_config: ModelConfig) -> AgentCallable:
+def create_agent_node(
+    agent: AgentModel, additional_tools: Optional[Sequence[BaseTool]] = None
+) -> AgentCallable:
+    """
+    Factory function that creates a LangGraph node for a specialized agent.
+
+    This creates a node function that handles user requests using a specialized agent
+    based on the provided agent_type. The function configures the agent with the
+    appropriate model, prompt, tools, and guardrails from the model_config.
+
+    Args:
+        model_config: Configuration containing models, prompts, tools, and guardrails
+        agent_type: Type of agent to create (e.g., "general", "product", "inventory")
+
+    Returns:
+        An agent callable function that processes state and returns responses
+    """
+    logger.debug(f"Creating agent node for {agent.name}")
+
+    tools: Sequence[ToolModel] = agent.tools
+    if not additional_tools:
+        additional_tools = []
+    tools: Sequence[BaseTool] = create_tools(tools) + additional_tools
+
+    @mlflow.trace()
+    def agent_node(
+        state: AgentState, config: AgentConfig
+    ) -> dict[str, BaseMessage] | CompiledStateGraph:
+        """
+        Process user messages using a specialized agent.
+
+        Args:
+            state: Current state containing messages and context
+            config: Configuration parameters
+
+        Returns:
+            Either a dict with response messages or a CompiledStateGraph for further processing
+        """
+        logger.debug(f"Executing {agent.name} agent node")
+
+        # Initialize model with appropriate temperature
+        llm: LanguageModelLike = ChatDatabricks(
+            model=agent.model.name, temperature=agent.model.temperature
+        )
+
+        # Format system prompt with user context
+        prompt_template: PromptTemplate = PromptTemplate.from_template(agent.prompt)
+        configurable: dict[str, Any] = {
+            "user_id": state.get("user_id", ""),
+            "store_num": state.get("store_num", ""),
+            # Add any additional context needed from state
+        }
+        system_prompt: str = prompt_template.format(**configurable)
+
+        compiled_agent: CompiledStateGraph = create_react_agent(
+            model=llm,
+            prompt=system_prompt,
+            tools=tools,
+        )
+
+        # Apply guardrails if specified
+        for guardrail_definition in agent.guardrails:
+            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
+            compiled_agent = with_guardrails(compiled_agent, guardrail)
+
+        compiled_agent.name = agent.name
+        # Return the compiled agent or its response
+        return compiled_agent
+
+    return agent_node
+
+
+def message_validation_node(config: AppConfig) -> AgentCallable:
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug(f"state: {state}")
@@ -53,7 +119,22 @@ def message_validation_node(model_config: ModelConfig) -> AgentCallable:
     return message_validation
 
 
-def router_node(model_config: ModelConfig) -> AgentCallable:
+def _supervisor_prompt(agents: Sequence[AgentModel]) -> str:
+    prompt_result: str = "Analyze the user question and select ONE specific route from the allowed options:\n\n"
+
+    for agent in agents:
+        route: str = agent.name
+        handoff_prompt: str = agent.handoff_prompt
+        prompt_result += f"  - Route to '{route}': {handoff_prompt}\n"
+
+    prompt_result += (
+        "\n Choose exactly ONE route that BEST matches the user's primary intent."
+    )
+
+    return prompt_result
+
+
+def supervisor_node(config: AppConfig) -> AgentCallable:
     """
     Create a node that routes questions to the appropriate specialized agent.
 
@@ -67,17 +148,29 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
     Returns:
         An agent callable function that updates the state with the routing decision
     """
+    logger.debug("Creating supervisor node")
+    agents: Sequence[AgentModel] = config.app.agents
 
-    model: str = model_config.get("agents").get("router").get("model").get("name")
-    prompt: str = model_config.get("agents").get("router").get("prompt")
-    allowed_routes: Sequence[str] = (
-        model_config.get("agents").get("router").get("allowed_routes")
+    supervisor_model: SupervisorModel = config.app.orchestration.supervisor
+
+    prompt: str = _supervisor_prompt(agents=agents)
+    logger.debug(f"Supervisor prompt: {prompt}")
+    allowed_routes: Sequence[str] = list(set([a.name for a in agents]))
+    model: str = supervisor_model.model.name
+    temperature: float = supervisor_model.model.temperature
+    default_route: str | AgentModel = supervisor_model.default_agent
+
+    if isinstance(default_route, AgentModel):
+        default_route = default_route.name
+
+    logger.debug(
+        f"Creating supervisor node with model={model}, temperature={temperature}, "
+        f"default_route={default_route}, allowed_routes={allowed_routes}"
     )
-    default_route: str = model_config.get("agents").get("router").get("default_route")
 
     @mlflow.trace()
-    def router(state: AgentState, config: AgentConfig) -> dict[str, str]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
+    def supervisor(state: AgentState, config: AgentConfig) -> dict[str, str]:
+        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=temperature)
 
         class Router(BaseModel):
             route: Literal[tuple(allowed_routes)] = Field(
@@ -101,413 +194,14 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
         # Return the route decision to update the agent state
         return {"route": response.route}
 
-    return router
+    return supervisor
 
 
-def general_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("general").get("model").get("name")
-    prompt: str = model_config.get("agents").get("general").get("prompt")
-    guardrails: Sequence[dict[str, Any]] = (
-        model_config.get("agents").get("general").get("guardrails") or []
-    )
-
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
-        "products_retriever"
-    )
-    index_name: str = retriever_config.get("vector_store").get("index_name")
-    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
-    columns: Sequence[str] = retriever_config.get("columns")
-    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
-    num_results: int = search_parameters.get("num_results", 10)
-
-    @mlflow.trace()
-    def general(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
-
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state["user_id"],
-            "store_num": state["store_num"],
-        }
-        system_prompt: str = prompt_template.format(**configurable)
-
-        tools = [
-            find_product_details_by_description_tool(
-                endpoint_name=endpoint_name,
-                index_name=index_name,
-                columns=columns,
-                k=num_results,
-            ),
-        ]
-
-        agent: CompiledStateGraph = create_react_agent(
-            model=llm,
-            prompt=system_prompt,
-            tools=tools,
-        )
-
-        for guardrail_definition in guardrails:
-            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
-
-        return agent
-
-    return general
-
-
-def product_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("product").get("model").get("name")
-    prompt: str = model_config.get("agents").get("product").get("prompt")
-    guardrails: dict[str, Any] = (
-        model_config.get("agents").get("product").get("guardrails") or []
-    )
-
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
-        "products_retriever"
-    )
-    index_name: str = retriever_config.get("vector_store").get("index_name")
-    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
-    columns: Sequence[str] = retriever_config.get("columns")
-    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
-    num_results: int = search_parameters.get("num_results", 10)
-
-    warehouse_id: str = (
-        model_config.get("resources")
-        .get("warehouses")
-        .get("shared_endpoint_warehouse")
-        .get("warehouse_id")
-    )
-
-    @mlflow.trace()
-    def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
-
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state["user_id"],
-            "store_num": state["store_num"],
-        }
-        system_prompt: str = prompt_template.format(**configurable)
-
-        tools = []
-        # tools = create_uc_tools(
-        #     [
-        #         "nfleming.retail_ai.find_product_by_sku",
-        #         "nfleming.retail_ai.find_product_by_upc",
-        #     ]
-        # )
-
-        tools += [
-            find_product_details_by_description_tool(
-                endpoint_name=endpoint_name,
-                index_name=index_name,
-                columns=columns,
-                k=num_results,
-            ),
-            create_find_product_by_sku_tool(warehouse_id=warehouse_id),
-            create_find_product_by_upc_tool(warehouse_id=warehouse_id),
-        ]
-
-        agent: CompiledStateGraph = create_react_agent(
-            model=llm,
-            prompt=system_prompt,
-            tools=tools,
-        )
-
-        for guardrail_definition in guardrails:
-            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
-
-        return agent
-
-    return product
-
-
-def inventory_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("inventory").get("model").get("name")
-    prompt: str = model_config.get("agents").get("inventory").get("prompt")
-    guardrails: dict[str, Any] = (
-        model_config.get("agents").get("inventory").get("guardrails") or []
-    )
-
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
-        "products_retriever"
-    )
-    index_name: str = retriever_config.get("vector_store").get("index_name")
-    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
-    columns: Sequence[str] = retriever_config.get("columns")
-    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
-    num_results: int = search_parameters.get("num_results", 10)
-
-    warehouse_id: str = (
-        model_config.get("resources")
-        .get("warehouses")
-        .get("shared_endpoint_warehouse")
-        .get("warehouse_id")
-    )
-
-    @mlflow.trace()
-    def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
-
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state["user_id"],
-            "store_num": state["store_num"],
-        }
-        system_prompt: str = prompt_template.format(**configurable)
-
-        tools = []
-        # tools = create_uc_tools(
-        #     [
-        #         "nfleming.retail_ai.find_inventory_by_sku",
-        #         "nfleming.retail_ai.find_inventory_by_upc",
-        #     ]
-        # )
-
-        tools += [
-            find_product_details_by_description_tool(
-                endpoint_name=endpoint_name,
-                index_name=index_name,
-                columns=columns,
-                k=num_results,
-            ),
-            create_find_inventory_by_sku_tool(warehouse_id=warehouse_id),
-            create_find_inventory_by_upc_tool(warehouse_id=warehouse_id),
-            create_find_store_inventory_by_sku_tool(warehouse_id=warehouse_id),
-            create_find_store_inventory_by_upc_tool(warehouse_id=warehouse_id),
-        ]
-
-        agent: CompiledStateGraph = create_react_agent(
-            model=llm,
-            prompt=system_prompt,
-            tools=tools,
-        )
-
-        for guardrail_definition in guardrails:
-            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
-
-        return agent
-
-    return inventory
-
-
-def comparison_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("comparison").get("model").get("name")
-    prompt: str = model_config.get("agents").get("comparison").get("prompt")
-    guardrails: dict[str, Any] = (
-        model_config.get("agents").get("comparison").get("guardrails") or []
-    )
-
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
-        "products_retriever"
-    )
-    index_name: str = retriever_config.get("vector_store").get("index_name")
-    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
-    columns: Sequence[str] = retriever_config.get("columns")
-    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
-    num_results: int = search_parameters.get("num_results", 10)
-    warehouse_id: str = (
-        model_config.get("resources")
-        .get("warehouses")
-        .get("shared_endpoint_warehouse")
-        .get("warehouse_id")
-    )
-
-    @mlflow.trace()
-    def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
-
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state["user_id"],
-            "store_num": state["store_num"],
-        }
-        system_prompt: str = prompt_template.format(**configurable)
-
-        tools = []
-        # tools = create_uc_tools(
-        #     [
-        #         "nfleming.retail_ai.find_product_by_sku",
-        #         "nfleming.retail_ai.find_product_by_upc",
-        #     ]
-        # )
-
-        tools += [
-            find_product_details_by_description_tool(
-                endpoint_name=endpoint_name,
-                index_name=index_name,
-                columns=columns,
-                k=num_results,
-            ),
-            create_find_product_by_sku_tool(warehouse_id=warehouse_id),
-            create_find_product_by_upc_tool(warehouse_id=warehouse_id),
-        ]
-
-        agent: CompiledStateGraph = create_react_agent(
-            model=llm,
-            prompt=system_prompt,
-            tools=tools,
-        )
-
-        for guardrail_definition in guardrails:
-            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
-
-        return agent
-
-    return comparison
-
-
-def orders_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("orders").get("model").get("name")
-    prompt: str = model_config.get("agents").get("orders").get("prompt")
-    guardrails: dict[str, Any] = (
-        model_config.get("agents").get("orders").get("guardrails")
-    )
-
-    @mlflow.trace()
-    def orders(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
-
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state["user_id"],
-            "store_num": state["store_num"],
-        }
-        system_prompt: str = prompt_template.format(**configurable)
-
-        tools = []
-
-        agent: CompiledStateGraph = create_react_agent(
-            model=llm,
-            prompt=system_prompt,
-            tools=tools,
-        )
-
-        for guardrail_definition in guardrails:
-            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
-
-        return agent
-
-    return orders
-
-
-def diy_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = model_config.get("agents").get("diy").get("model").get("name")
-    prompt: str = model_config.get("agents").get("diy").get("prompt")
-    guardrails: dict[str, Any] = (
-        model_config.get("agents").get("diy").get("guardrails") or []
-    )
-
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
-        "products_retriever"
-    )
-    index_name: str = retriever_config.get("vector_store").get("index_name")
-    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
-    columns: Sequence[str] = retriever_config.get("columns")
-    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
-    num_results: int = search_parameters.get("num_results", 10)
-
-    @mlflow.trace()
-    def diy(state: AgentState, config: AgentConfig) -> CompiledStateGraph:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
-
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state["user_id"],
-            "store_num": state["store_num"],
-        }
-        system_prompt: str = prompt_template.format(**configurable)
-
-        tools = [search_tool(model_config)]
-
-        tools += [
-            find_product_details_by_description_tool(
-                endpoint_name=endpoint_name,
-                index_name=index_name,
-                columns=columns,
-                k=num_results,
-            ),
-        ]
-
-        agent: CompiledStateGraph = create_react_agent(
-            model=llm,
-            prompt=system_prompt,
-            tools=tools,
-        )
-
-        for guardrail_definition in guardrails:
-            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
-
-        return agent
-
-    return diy
-
-
-def recommendation_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = (
-        model_config.get("agents").get("recommendation").get("model").get("name")
-    )
-    prompt: str = model_config.get("agents").get("recommendation").get("prompt")
-    guardrails: dict[str, Any] = (
-        model_config.get("agents").get("recommendation").get("guardrails") or []
-    )
-
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get(
-        "products_retriever"
-    )
-    index_name: str = retriever_config.get("vector_store").get("index_name")
-    endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
-    columns: Sequence[str] = retriever_config.get("columns")
-    search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
-    num_results: int = search_parameters.get("num_results", 10)
-
-    @mlflow.trace()
-    def recommendation(
-        state: AgentState, config: AgentConfig
-    ) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
-
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state["user_id"],
-            "store_num": state["store_num"],
-        }
-        system_prompt: str = prompt_template.format(**configurable)
-
-        tools = [
-            find_product_details_by_description_tool(
-                endpoint_name=endpoint_name,
-                index_name=index_name,
-                columns=columns,
-                k=num_results,
-            ),
-        ]
-
-        agent: CompiledStateGraph = create_react_agent(
-            model=llm,
-            prompt=system_prompt,
-            tools=tools,
-        )
-
-        for guardrail_definition in guardrails:
-            guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-            agent = with_guardrails(agent, guardrail)
-
-        return agent
-
-    return recommendation
-
-
-def process_images_node(model_config: ModelConfig) -> AgentCallable:
-    model: str = (
-        model_config.get("agents").get("process_image").get("model").get("name")
-    )
-    prompt: str = model_config.get("agents").get("process_image").get("prompt")
+def process_images_node(config: AppConfig) -> AgentCallable:
+    process_image_config: AgentModel = config.agents.get("process_image", {})
+    model: str = process_image_config.model.name
+    temperature: float = process_image_config.model.temperature
+    prompt: str = process_image_config.prompt
 
     @mlflow.trace()
     def process_images(
@@ -536,7 +230,7 @@ def process_images_node(model_config: ModelConfig) -> AgentCallable:
 
         ImageProcessor.__doc__ = prompt
 
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
+        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=temperature)
 
         last_message: HumanMessage = last_human_message(state["messages"])
         messages: Sequence[BaseMessage] = [last_message]
