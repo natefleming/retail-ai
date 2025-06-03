@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 from argparse import ArgumentParser, Namespace
+from pathlib import Path
 from typing import Optional, Sequence
 
 from loguru import logger
@@ -11,7 +12,6 @@ from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
 from retail_ai.graph import create_retail_ai_graph
 from retail_ai.models import save_image
-from pathlib import Path
 
 logger.remove()
 logger.add(sys.stderr, level="ERROR")
@@ -45,7 +45,6 @@ Examples:
         help="Available commands for managing the Retail AI system",
         metavar="COMMAND",
     )
-
 
     # Schema command
     _: ArgumentParser = subparsers.add_parser(
@@ -218,7 +217,9 @@ def setup_logging(verbosity: int) -> None:
     logger.add(sys.stderr, level=level)
 
 
-def run_databricks_command(command: list[str], profile: Optional[str] = None, config: Optional[str] = None) -> None:
+def run_databricks_command(
+    command: list[str], profile: Optional[str] = None, config: Optional[str] = None
+) -> None:
     """Execute a databricks CLI command with optional profile."""
     cmd = ["databricks"]
     if profile:
@@ -230,12 +231,14 @@ def run_databricks_command(command: list[str], profile: Optional[str] = None, co
             logger.error(f"Configuration file {config_path} does not exist.")
             sys.exit(1)
         notebooks_dir = Path("notebooks")
-        
+
         if config_path.is_absolute():
             config_path = config_path.relative_to(Path.cwd())
-  
+
         relative_config = notebooks_dir / config_path
-        relative_config = Path(*relative_config.parts[1:])  # Skip the first part (notebooks directory)
+        relative_config = Path(
+            *relative_config.parts[1:]
+        )  # Skip the first part (notebooks directory)
         cmd.append(f'--var="config_path={relative_config}"')
 
     logger.debug(f"Executing command: {' '.join(cmd)}")
@@ -274,7 +277,9 @@ def handle_bundle_command(options: Namespace) -> None:
         run_databricks_command(["bundle", "deploy"], profile, config)
     if options.run:
         logger.info("Running Retail AI system with current configuration...")
-        run_databricks_command(["bundle", "run", "deploy-retail-ai-job"], profile, config)
+        run_databricks_command(
+            ["bundle", "run", "deploy-retail-ai-job"], profile, config
+        )
     else:
         logger.warning("No action specified. Use --deploy or --run flags.")
 
