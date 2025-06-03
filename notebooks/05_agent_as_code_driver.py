@@ -14,6 +14,12 @@
 
 # COMMAND ----------
 
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+config_path: str = dbutils.widgets.get("config-path")
+print(config_path)
+
+# COMMAND ----------
+
 import sys
 from typing import Sequence
 from importlib.metadata import version
@@ -47,6 +53,15 @@ print("\n".join(pip_requirements))
 
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
+
+# COMMAND ----------
+
+from mlflow.models import ModelConfig
+from retail_ai.config import AppConfig
+
+model_config_path: str = config_path
+model_config: ModelConfig = ModelConfig(development_config=model_config_path)
+config: AppConfig = AppConfig(**model_config.to_dict())
 
 # COMMAND ----------
 
@@ -88,7 +103,6 @@ from retail_ai.models import display_graph
 
 display_graph(app)
 
-
 # COMMAND ----------
 
 # from pathlib import Path
@@ -119,7 +133,6 @@ from mlflow.models.auth_policy import (
 )
 import mlflow
 from mlflow.models.model import ModelInfo
-from agent_as_code import config
 
 
 model_names: set = set([l.name for l in config.resources.llms.values()])
@@ -184,7 +197,6 @@ with mlflow.start_run(run_name="agent"):
 import mlflow
 from mlflow.entities.model_registry.model_version import ModelVersion
 from retail_ai.catalog import full_name
-from agent_as_code import config
 
 
 mlflow.set_registry_uri("databricks-uc")
@@ -215,7 +227,6 @@ print(champion_model)
 
 from databricks import agents
 from retail_ai.models import get_latest_model_version
-from agent_as_code import config
 
 
 registered_model_name: str = config.app.registered_model.full_name
@@ -239,7 +250,7 @@ from typing import Any, Sequence
 from retail_ai.catalog import full_name
 from databricks.agents import set_permissions, PermissionLevel
 from rich import print as pprint
-from agent_as_code import config
+
 
 registered_model_name: str = config.app.registered_model.full_name
 permissions: Sequence[dict[str, Any]] = config.app.permissions

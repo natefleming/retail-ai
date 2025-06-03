@@ -275,11 +275,8 @@ def display_graph(app: LanggraphChatModel) -> None:
     display(content)
 
 
-def save_image(app: LanggraphChatModel | CompiledStateGraph, path: PathLike) -> None:
-    if isinstance(app, LanggraphChatModel):
-        app = app.graph
-
+def save_image(app: LanggraphChatModel, path: PathLike) -> None:
     path = Path(path)
-    content = app.get_graph(xray=True).draw_mermaid_png()
+    content = app.graph.get_graph(xray=True).draw_mermaid_png()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)

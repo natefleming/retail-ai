@@ -447,9 +447,9 @@ agents:
     description: "Product specialist providing detailed information about specific products, features, specifications, and intended uses"
     model: *tool_calling_llm
     tools:
-      - *find_product_details_by_description_tool
       - *find_product_by_sku_tool
       - *find_product_by_upc_tool
+      - *find_product_details_by_description_tool
     guardrails:
       []
       #- *llm_judge_guardrail
@@ -470,9 +470,9 @@ agents:
       - Cross-reference information across multiple tools to ensure accuracy and completeness
 
       #### Tool Usage Strategy
-      - If given a product description: ALWAYS use the description search tool, then verify with SKU/UPC tools if codes are found
       - If given a SKU: Use the SKU lookup tool first, then supplement with description search if needed
       - If given a UPC: Use the UPC lookup tool first, then supplement with other tools for additional details
+      - If given a product description: Use the description search tool, then verify with SKU/UPC tools if codes are found
       - Always search for complementary products, accessories, or alternatives when relevant
       - Use tool results to inform follow-up searches for related products or specifications
 
@@ -502,7 +502,7 @@ agents:
       - Be transparent about limitations in your knowledge
 
       Remember: Use your tools strategically and comprehensively. Multiple tool searches may be required to provide complete, accurate product information.
-    handoff_prompt: |
+        handoff_prompt: |
       Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
       Example: "Tell me about the Craftsman cordless drill" or "What are the specs of the Dewalt table saw?"
 
@@ -534,9 +534,9 @@ agents:
       - Cross-reference inventory data across different tools to ensure accuracy
 
       #### Tool Usage Strategy
-      - If given a product description: ALWAYS use description search to find product codes, then use those codes for inventory lookup
       - If given a SKU: Use SKU-based inventory lookup first, then supplement with product details if needed
       - If given a UPC: Use UPC-based inventory lookup first, then cross-reference with other tools
+      - If given a product description: Use description search to find product codes, then use those codes for inventory lookup
       - Use product lookup tools to verify item details before checking inventory
       - Search for related items or alternatives if primary products are out of stock
 
@@ -596,7 +596,6 @@ agents:
       - Cross-reference information across multiple tools to ensure accuracy and completeness
 
       #### Tool Usage Strategy for Comparisons
-      - If given a product description: ALWAYS use description search to find product codes, then use those codes for inventory lookup
       - For each product in the comparison: Use product lookup tools to gather specifications, features, and pricing
       - Use search results from one product to inform searches for comparable alternatives or related models
       - Look for additional products in the same category that might provide better comparison context
@@ -667,6 +666,7 @@ agents:
 
       #### Tool Usage Strategy for Recommendations
       - Start with broad category searches using description-based tools to identify potential products
+      - Use specific product lookup tools (SKU/UPC) to gather detailed specifications for promising candidates
       - Cross-reference tool results to find complementary products, accessories, or alternatives
       - Use search results to identify products across different price ranges and quality levels
       - Leverage tool data to verify compatibility with customer's existing equipment or project requirements
@@ -762,7 +762,6 @@ app:
       default_agent: *general
     # swarm:
     #   model: *tool_calling_llm
-    #   default_agent: *general
 
 evaluation:
   model: *judge_llm

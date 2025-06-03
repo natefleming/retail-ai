@@ -14,6 +14,12 @@
 
 # COMMAND ----------
 
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+config_path: str = dbutils.widgets.get("config-path")
+print(config_path)
+
+# COMMAND ----------
+
 import sys
 from typing import Sequence
 from importlib.metadata import version
@@ -50,7 +56,7 @@ from typing import Any, Dict, Optional, List
 from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig, SchemaModel
 
-model_config_file: str = "../config/model_config.yaml"
+model_config_file: str = config_path
 model_config: ModelConfig = ModelConfig(development_config=model_config_file)
 config: AppConfig = AppConfig(**model_config.to_dict())
 

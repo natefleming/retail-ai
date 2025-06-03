@@ -259,7 +259,7 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
 
         tools[name] = tool
 
-    return list(tools.values())
+    return tools.values()
 
 
 def create_mcp_tool(
