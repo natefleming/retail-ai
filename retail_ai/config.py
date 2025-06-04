@@ -13,7 +13,8 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
+from databricks_langchain import ChatDatabricks
+from langchain_core.language_models import LanguageModelLike
 
 class HasFullName(ABC):
     @property
@@ -88,9 +89,18 @@ class LLMModel(BaseModel, IsDatabricksResource):
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
     on_behalf_of_user: Optional[bool] = False
+    fallbacks: Optional[list[str]] = Field(default_factory=list)
 
     def as_resource(self) -> DatabricksResource:
         return DatabricksServingEndpoint(endpoint_name=self.name)
+    
+    @property
+    def chat_model(self) -> LanguageModelLike:
+        chat_client: LanguageModelLike = ChatDatabricks(model=self.name, temperature=self.temperature)
+        fallbacks: Sequence[LanguageModelLike] = [ChatDatabricks(model=f, temperature=self.temperature) for f in self.fallbacks if f != self.name]
+        if fallbacks:
+            chat_client = chat_client.with_fallbacks(fallbacks)
+        return chat_client
 
 
 class VectorSearchEndpointType(str, Enum):

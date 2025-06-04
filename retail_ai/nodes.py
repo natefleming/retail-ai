@@ -1,7 +1,6 @@
 from typing import Any, Literal, Optional, Sequence
 
 import mlflow
-from databricks_langchain import ChatDatabricks
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -69,9 +68,7 @@ def create_agent_node(
         additional_tools = []
     tools: Sequence[BaseTool] = create_tools(tools) + additional_tools
 
-    llm: LanguageModelLike = ChatDatabricks(
-        model=agent.model.name, temperature=agent.model.temperature
-    )
+    llm: LanguageModelLike = agent.model.chat_model
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         model=llm,
@@ -165,7 +162,7 @@ def supervisor_node(config: AppConfig) -> AgentCallable:
 
     @mlflow.trace()
     def supervisor(state: AgentState, config: AgentConfig) -> dict[str, str]:
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=temperature)
+        llm: LanguageModelLike = supervisor_model.model.chat_model
 
         class Router(BaseModel):
             route: Literal[tuple(allowed_routes)] = Field(
@@ -225,7 +222,7 @@ def process_images_node(config: AppConfig) -> AgentCallable:
 
         ImageProcessor.__doc__ = prompt
 
-        llm: LanguageModelLike = ChatDatabricks(model=model, temperature=temperature)
+        llm: LanguageModelLike = process_image_config.model.chat_model
 
         last_message: HumanMessage = last_human_message(state["messages"])
         messages: Sequence[BaseMessage] = [last_message]

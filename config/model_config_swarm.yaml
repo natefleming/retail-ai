@@ -20,6 +20,8 @@ resources:
       name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 8192
+      fallbacks:
+        - databricks-meta-llama-3-3-70b-instruct
 
     reasoning_llm: &reasoning_llm
       name: databricks-claude-3-7-sonnet
