@@ -236,7 +236,7 @@ def run_databricks_command(
         if not relative_config.exists():
             logger.error(f"Configuration file {relative_config} does not exist.")
             sys.exit(1)
-            
+
         relative_config = Path(
             *relative_config.parts[1:]
         )  # Skip the first part (notebooks directory)

@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections import OrderedDict
 from io import StringIO
@@ -23,6 +24,7 @@ from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
 from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
@@ -37,6 +39,7 @@ from retail_ai.config import (
     RetrieverModel,
     SchemaModel,
     ToolModel,
+    TransportType,
     UnityCatalogFunctionModel,
     VectorStoreModel,
     WarehouseModel,
@@ -279,7 +282,25 @@ def create_mcp_tool(
     """
     logger.debug(f"create_mcp_tool: {function.full_name}")
 
-    raise NotImplementedError("MCP tools are not yet implemented.")
+    connection: dict[str, Any]
+    match function.transport:
+        case TransportType.STDIO:
+            connection = {
+                "command": function.command,
+                "args": function.args,
+                "transport": function.transport,
+            }
+        case TransportType.STREAMABLE_HTTP:
+            connection = {
+                "url": function.url,
+                "transport": function.transport,
+            }
+
+    client: MultiServerMCPClient = MultiServerMCPClient({function.name: connection})
+
+    tools = asyncio.run(client.get_tools())
+    tool = next(iter(tools or []), None)
+    return tool
 
 
 def create_factory_tool(

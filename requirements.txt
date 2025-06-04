@@ -244,6 +244,7 @@ langchain-core==0.3.63
     # via
     #   langchain
     #   langchain-community
+    #   langchain-mcp-adapters
     #   langchain-openai
     #   langchain-text-splitters
     #   langgraph
@@ -251,6 +252,8 @@ langchain-core==0.3.63
     #   langgraph-prebuilt
     #   langgraph-supervisor
     #   langgraph-swarm
+langchain-mcp-adapters==0.1.4
+    # via retail-ai
 langchain-openai==0.3.18
     # via openevals
 langchain-text-splitters==0.3.8
@@ -307,7 +310,9 @@ marshmallow==3.26.1
 matplotlib==3.10.3
     # via mlflow
 mcp==1.9.2
-    # via retail-ai
+    # via
+    #   langchain-mcp-adapters
+    #   retail-ai
 mdurl==0.1.2
     # via markdown-it-py
 mlflow==2.22.0

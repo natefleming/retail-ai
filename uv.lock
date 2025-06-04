@@ -1315,6 +1315,19 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-mcp-adapters"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "mcp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/07/5add51f5f8c4dd4f0a9a84ddb8a5e3c5277c664f093c6047c9337418f6e0/langchain_mcp_adapters-0.1.4.tar.gz", hash = "sha256:3eab41e1682b6e6a47b3734232ad3289c7cd97dbae30facf1ad4d47b62a56629", size = 18797, upload-time = "2025-05-29T15:10:32.728Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/b6/8410cf0f9f307d1b96696fc833983b01911cc5004bebf7a13849ebbe37a3/langchain_mcp_adapters-0.1.4-py3-none-any.whl", hash = "sha256:9f36c985284df827062c8e467d0b093cb67f31f14ca216c56aed8e09e3607276", size = 12898, upload-time = "2025-05-29T15:10:31.445Z" },
+]
+
+[[package]]
 name = "langchain-openai"
 version = "0.3.18"
 source = { registry = "https://pypi.org/simple" }
@@ -2581,6 +2594,7 @@ dependencies = [
     { name = "duckduckgo-search" },
     { name = "grandalf" },
     { name = "langchain" },
+    { name = "langchain-mcp-adapters" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-reflection" },
@@ -2612,6 +2626,7 @@ requires-dist = [
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
     { name = "grandalf", specifier = ">=0.8" },
     { name = "langchain", specifier = ">=0.3.24" },
+    { name = "langchain-mcp-adapters", specifier = ">=0.1.4" },
     { name = "langgraph", specifier = ">=0.3.31" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.21" },
     { name = "langgraph-reflection", specifier = ">=0.0.1" },

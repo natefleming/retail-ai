@@ -130,6 +130,14 @@ retrievers:
       query_type: ANN
 
 tools:
+  weather_tool_mcp: &weather_tool_mcp
+    name: weather
+    function:
+      type: mcp
+      name: weather
+      transport: streamable_http
+      url: http://localhost:8000/mcp
+
   genie_tool: &genie_tool
     name: genie
     function:

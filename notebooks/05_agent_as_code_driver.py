@@ -28,24 +28,25 @@ from pkg_resources import get_distribution
 sys.path.insert(0, "..")
 
 pip_requirements: Sequence[str] = [
-    f"langgraph=={version('langgraph')}",
-    f"langchain=={version('langchain')}",
-    f"databricks-langchain=={version('databricks-langchain')}",
-    f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
-    f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
-    f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
-    f"duckduckgo-search=={version('duckduckgo-search')}",
-    f"databricks-sdk=={version('databricks-sdk')}",
-    f"langgraph-reflection=={version('langgraph-reflection')}",
-    f"langgraph-swarm=={version('langgraph-swarm')}",
-    f"langgraph-supervisor=={version('langgraph-supervisor')}",
-    f"openevals=={version('openevals')}",
-    f"mlflow=={version('mlflow')}",
-    f"psycopg[binary,pool]=={version('psycopg')}",
     f"databricks-agents=={version('databricks-agents')}",
-    f"pydantic=={version('pydantic')}",
+    f"databricks-connect=={get_distribution('databricks-connect').version}",
+    f"databricks-langchain=={version('databricks-langchain')}",
+    f"databricks-sdk=={version('databricks-sdk')}",
+    f"duckduckgo-search=={version('duckduckgo-search')}",
+    f"langchain=={version('langchain')}",
+    f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
+    f"langgraph=={version('langgraph')}",
+    f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
+    f"langgraph-reflection=={version('langgraph-reflection')}",
+    f"langgraph-supervisor=={version('langgraph-supervisor')}",
+    f"langgraph-swarm=={version('langgraph-swarm')}",
     f"loguru=={version('loguru')}",
-    f"databricks-connect=={get_distribution('databricks-connect').version}"
+    f"mlflow=={version('mlflow')}",
+    f"openevals=={version('openevals')}",
+    f"psycopg[binary,pool]=={version('psycopg')}",
+    f"pydantic=={version('pydantic')}",
+    f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
+    f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
 ]
 print("\n".join(pip_requirements))
 

@@ -259,6 +259,7 @@ def process_messages(
 
 def display_graph(app: LanggraphChatModel | CompiledStateGraph) -> None:
     from IPython.display import HTML, Image, display
+
     if isinstance(app, LanggraphChatModel):
         app = app.graph
 

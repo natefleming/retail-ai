@@ -243,13 +243,33 @@ class FactoryFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
         return self.name
 
 
+class TransportType(str, Enum):
+    STREAMABLE_HTTP = "streamable_http"
+    STDIO = "stdio"
+
+
 class McpFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     type: FunctionType = FunctionType.MCP
 
+    transport: TransportType
+    command: Optional[str] = "python"
+    url: Optional[str] = None
+    args: list[str] = Field(default_factory=list)
+
     @property
     def full_name(self) -> str:
         return self.name
+
+    @model_validator(mode="after")
+    def validate_mutually_exclusive(self):
+        if self.transport == TransportType.STREAMABLE_HTTP and not self.url:
+            raise ValueError("url must be provided for STREAMABLE_HTTP transport")
+        if self.transport == TransportType.STDIO and not self.command:
+            raise ValueError("command must not be provided for STDIO transport")
+        if self.transport == TransportType.STDIO and not self.args:
+            raise ValueError("args must not be provided for STDIO transport")
+        return self
 
 
 class UnityCatalogFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
