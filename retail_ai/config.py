@@ -25,6 +25,8 @@ class HasFullName(ABC):
 
 
 class IsDatabricksResource(ABC):
+    on_behalf_of_user: Optional[bool] = False
+
     @abstractmethod
     def as_resource(self) -> DatabricksResource:
         pass
@@ -73,7 +75,6 @@ class SchemaModel(BaseModel, HasFullName):
 class TableModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
-    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
@@ -82,18 +83,17 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksTable(table_name=self.full_name)
+        return DatabricksTable(table_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user)
 
 
 class LLMModel(BaseModel, IsDatabricksResource):
     name: str
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
-    on_behalf_of_user: Optional[bool] = False
     fallbacks: Optional[list[str]] = Field(default_factory=list)
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksServingEndpoint(endpoint_name=self.name)
+        return DatabricksServingEndpoint(endpoint_name=self.name, on_behalf_of_user=self.on_behalf_of_user)
 
     @property
     def chat_model(self) -> LanguageModelLike:
@@ -124,7 +124,6 @@ class VectorSearchEndpoint(BaseModel):
 class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
-    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
@@ -133,7 +132,7 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksVectorSearchIndex(index_name=self.full_name)
+        return DatabricksVectorSearchIndex(index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user)
 
 
 class VectorStoreModel(BaseModel, IsDatabricksResource):
@@ -154,11 +153,9 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
     name: str
     description: str
     space_id: str
-    on_behalf_of_user: Optional[bool] = False
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksGenieSpace(genie_space_id=self.space_id)
-
+        return DatabricksGenieSpace(genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user)
 
 class VolumeModel(BaseModel, HasFullName):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
@@ -174,7 +171,6 @@ class VolumeModel(BaseModel, HasFullName):
 class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
-    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
@@ -183,19 +179,18 @@ class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksFunction(function_name=self.full_name)
+        return DatabricksFunction(function_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user)
 
 
 class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
     name: str
-    on_behalf_of_user: Optional[bool] = False
 
     @property
     def full_name(self) -> str:
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksUCConnection(connection_name=self.name)
+        return DatabricksUCConnection(connection_name=self.name, on_behalf_of_user=self.on_behalf_of_user)
 
 
 class WarehouseModel(BaseModel, IsDatabricksResource):
@@ -204,7 +199,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     warehouse_id: str
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksSQLWarehouse(warehouse_id=self.warehouse_id)
+        return DatabricksSQLWarehouse(warehouse_id=self.warehouse_id, on_behalf_of_user=self.on_behalf_of_user)
 
 
 class DatabaseModel(BaseModel):

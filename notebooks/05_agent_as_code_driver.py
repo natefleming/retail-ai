@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install uv
+# MAGIC %pip install --quiet uv
 # MAGIC
 # MAGIC import os
 # MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
@@ -138,27 +138,35 @@ from mlflow.models.auth_policy import (
 )
 import mlflow
 from mlflow.models.model import ModelInfo
+from retail_ai.config import (
+    ConnectionModel,
+    FunctionModel,
+    GenieRoomModel,
+    IndexModel,
+    LLMModel,
+    TableModel,
+    VectorStoreModel,
+    WarehouseModel
+)
 
 
-model_names: set = set([l.name for l in config.resources.llms.values()])
-vector_indexes: set = set([v.index.full_name for v in config.resources.vector_stores.values()])
-warehouse_ids: set = set([w.warehouse_id for w in config.resources.warehouses.values()])
-space_ids: set = set([g.space_id for g in config.resources.genie_rooms.values()])
-tables_names: set = set([t.full_name for t in config.resources.tables.values()])
-function_names: set = set([f.full_name for f in config.resources.functions.values()])
-connection_names: set = set([c.full_name for c in config.resources.connections.values()])
+llms: Sequence[LLMModel] = {llm.name: llm for llm in config.resources.llms.values()}.values()
+vector_indexes: Sequence[IndexModel] = {v.index.full_name: v.index for v in config.resources.vector_stores.values()}.values()
+warehouses: Sequence[WarehouseModel] = {w.warehouse_id: w for w in config.resources.warehouses.values() if w.warehouse_id}.values()
+genie_rooms: Sequence[GenieRoomModel] = {g.space_id: g for g in config.resources.genie_rooms.values() if g.space_id}.values()
+tables: Sequence[TableModel] = {t.full_name: t for t in config.resources.tables.values() if t.full_name}.values()
+functions: Sequence[FunctionModel] = {f.full_name: f for f in config.resources.functions.values()}.values()
+connections: Sequence[ConnectionModel] = {c.full_name: c for c in config.resources.connections.values()}.values()
 
 resources: list[DatabricksResource] = []
+resources += [llm.as_resource() for llm in llms]
+resources += [vector_index.as_resource() for vector_index in vector_indexes]
+resources += [warehouse.as_resource() for warehouse in warehouses]
+resources += [genie_room.as_resource() for genie_room in genie_rooms]
+resources += [function.as_resource() for function in functions]
+resources += [table.as_resource() for table in tables]
+resources += [connection.as_resource() for connection in connections]
 
-resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names if m]
-resources += [DatabricksVectorSearchIndex(index_name=v) for v in vector_indexes if v]
-resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouse_ids if w]
-resources += [DatabricksGenieSpace(genie_space_id=s) for s in space_ids if s]
-resources += [DatabricksFunction(function_name=f) for f in function_names if f]
-resources += [DatabricksTable(table_name=t) for t in tables_names if t]
-resources += [DatabricksUCConnection(connection_name=c) for c in connection_names if c]
-
-#input_example: dict[str, Any] = config.get("app").get("diy_example")
 
 system_auth_policy: SystemAuthPolicy = SystemAuthPolicy(resources=resources)
 

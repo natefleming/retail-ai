@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install uv
+# MAGIC %pip install --quiet uv
 # MAGIC
 # MAGIC import os
 # MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]

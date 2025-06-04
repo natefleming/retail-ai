@@ -127,7 +127,7 @@ retrievers:
       - class_cd
       - description
     search_parameters:
-      num_results: 20
+      num_results: 10
       filters: {}
       query_type: ANN
 
@@ -311,7 +311,8 @@ agents:
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
 
-      You are a helpful retail store assistant for a home improvement and hardware store. You have access to search tools to find current information about products, pricing, and store policies.
+      You are a helpful retail store assistant for a home improvement and hardware store. You have access to search tools to find general information 
+      which can not be better answered by another agent.
 
       #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
       Before answering ANY question:
@@ -324,7 +325,6 @@ agents:
 
       #### Your Capabilities
       - General store information (hours, policies, services)
-      - Product inquiries and basic recommendations
       - Store services and policies
       - General retail assistance
 

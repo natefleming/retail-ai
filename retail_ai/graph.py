@@ -74,7 +74,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             handoff_tools.append(
                 create_handoff_tool(
                     agent_name=handoff_to_agent.name,
-                    description=handoff_to_agent.description,
+                    description=f"Ask {handoff_to_agent.name} for help with: " + handoff_to_agent.handoff_prompt,
                 )
             )
         # Create agent directly using create_react_agent instead of create_agent_node

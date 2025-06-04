@@ -202,8 +202,12 @@ def find_product_details_by_description_tool(
             client_args={},
         )
 
+        search_params: dict[str, Any] = retriever.search_parameters.model_dump()
+        if "num_results" in search_params:
+            search_params["k"] = search_params.pop("num_results")
+
         documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, **retriever.search_parameters.model_dump()
+            query=content, **search_params
         )
 
         logger.debug(f"found {len(documents)} documents")

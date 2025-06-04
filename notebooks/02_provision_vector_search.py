@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install uv
+# MAGIC %pip install --quiet uv
 # MAGIC
 # MAGIC import os
 # MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
@@ -105,7 +105,7 @@ from databricks.vector_search.index import VectorSearchIndex
 from retail_ai.config import RetrieverModel
 
 
-question: str = "What what is the best hammer for drywall?"
+question: str = "How many grills do we have in stock?"
 
 for name, retriever in config.retrievers.items():
   retriever: RetrieverModel
@@ -119,4 +119,53 @@ for name, retriever in config.retrievers.items():
   )
 
   chunks: list[str] = search_results.get('result', {}).get('data_array', [])
+  print(len(chunks))
   print(chunks)
+
+# COMMAND ----------
+
+import asyncio
+import os
+from collections import OrderedDict
+from io import StringIO
+from typing import Any, Callable, Literal, Optional, Sequence
+
+import mlflow
+import pandas as pd
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.sql import (
+    StatementResponse,
+    StatementState,
+)
+from databricks_ai_bridge.genie import GenieResponse
+from databricks_langchain import (
+    DatabricksFunctionClient,
+    DatabricksVectorSearch,
+    UCFunctionToolkit,
+)
+from databricks_langchain.genie import Genie
+from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_core.documents import Document
+from langchain_core.language_models import LanguageModelLike
+from langchain_core.tools import BaseTool, tool
+from langchain_core.vectorstores.base import VectorStore
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from loguru import logger
+from pydantic import BaseModel, Field
+from unitycatalog.ai.core.base import FunctionExecutionResult
+
+
+content = "What grills do you have in stock?"
+for name, retriever in config.retrievers.items():
+  vector_search: VectorStore = DatabricksVectorSearch(
+      endpoint=retriever.vector_store.endpoint.name,
+      index_name=retriever.vector_store.index.full_name,
+      columns=retriever.columns,
+      client_args={},
+  )
+
+  documents: Sequence[Document] = vector_search.similarity_search(
+      query=content, **retriever.search_parameters.model_dump()
+  )
+  print(len(documents))

@@ -127,7 +127,7 @@ retrievers:
       - class_cd
       - description
     search_parameters:
-      num_results: 20
+      num_results: 10
       filters: {}
       query_type: ANN
 
