@@ -189,8 +189,7 @@ There are four types of tools supported:
        function:
          type: python
          name: retail_ai.tools.my_function_name
-         schema: # Optional schema definition
-           name: my_function_name
+         schema: *retail_schema # Optional schema definition
    ```
    **Development:**
    Implement the Python function in the specified module (e.g., `retail_ai/tools.py`). The function will be imported and called directly when the tool is invoked.
@@ -225,8 +224,7 @@ There are four types of tools supported:
        function:
          type: unity_catalog
          name: find_product_by_sku
-         schema:
-           name: retail_schema
+         schema: *retail_schema
    ```
    **Development:**
    Create the corresponding SQL function in your Databricks Unity Catalog using the specified schema and function name. The tool will automatically generate the appropriate function signature and documentation.
@@ -390,16 +388,13 @@ The `orchestration` block within the `app` section allows you to define the inte
 
 ```bash
 # Install development dependencies
-make install-dev
+make depends
 
 # Build the package
-make build
+make install
 
 # Run tests
 make test
-
-# Run linting
-make lint
 
 # Format code
 make format
@@ -464,12 +459,6 @@ To customize the agent:
 ```bash
 # Run all tests
 make test
-
-# Run specific tests
-make test ARGS="tests/test_config.py"
-
-# Run with coverage
-make test-cov
 ```
 
 ## Logging
@@ -489,15 +478,6 @@ This setting controls the verbosity of logs produced by the `retail_ai` package.
 The system also includes:
 - **MLflow tracing** for request tracking.
 - **Structured logging** is used internally.
-
-To temporarily override logging levels in your development environment for specific modules, you can use standard Python logging:
-```python
-import logging
-# Example: Set retail_ai logger to DEBUG
-logging.getLogger("retail_ai").setLevel(logging.DEBUG) 
-# Example: Set a specific module's logger to DEBUG
-logging.getLogger("retail_ai.tools").setLevel(logging.DEBUG)
-```
 
 ## License
 
