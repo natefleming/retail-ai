@@ -1,11 +1,11 @@
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Callable, Literal, Optional, Sequence
 
 import mlflow
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.modifier import RemoveMessage
-from langchain_core.runnables import RunnableSequence
+from langchain_core.runnables import RunnableConfig, RunnableSequence
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -20,15 +20,15 @@ from retail_ai.tools import (
     create_tools,
 )
 from retail_ai.types import AgentCallable
-from typing import Callable
-from langchain_core.runnables import RunnableConfig
-from langchain_core.messages.modifier import RemoveMessage
-from langchain_core.messages import SystemMessage
+
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
     logger.debug(f"make_prompt: {base_system_prompt}")
+
     def prompt(state: AgentState, config: AgentConfig) -> list:
-        prompt_template: PromptTemplate = PromptTemplate.from_template(base_system_prompt)
+        prompt_template: PromptTemplate = PromptTemplate.from_template(
+            base_system_prompt
+        )
 
         configurable: dict[str, Any] = config.get("configurable", {})
         params: dict[str, Any] = {
@@ -36,13 +36,14 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
             "store_num": configurable.get("store_num", ""),
         }
         system_prompt: str = prompt_template.format(**params)
-        
+
         messages: Sequence[BaseMessage] = state["messages"]
         messages = [SystemMessage(content=system_prompt)] + messages
 
         return messages
 
     return prompt
+
 
 def create_agent_node(
     agent: AgentModel, additional_tools: Optional[Sequence[BaseTool]] = None
@@ -83,8 +84,6 @@ def create_agent_node(
     compiled_agent.name = agent.name
 
     return compiled_agent
-
-
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:
@@ -191,8 +190,6 @@ def supervisor_node(config: AppConfig) -> AgentCallable:
 
 def process_images_node(config: AppConfig) -> AgentCallable:
     process_image_config: AgentModel = config.agents.get("process_image", {})
-    model: str = process_image_config.model.name
-    temperature: float = process_image_config.model.temperature
     prompt: str = process_image_config.prompt
 
     @mlflow.trace()

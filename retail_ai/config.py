@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional, Sequence
 
+from databricks_langchain import ChatDatabricks
+from langchain_core.language_models import LanguageModelLike
 from mlflow.models.resources import (
     DatabricksFunction,
     DatabricksGenieSpace,
@@ -13,8 +15,7 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from databricks_langchain import ChatDatabricks
-from langchain_core.language_models import LanguageModelLike
+
 
 class HasFullName(ABC):
     @property
@@ -93,11 +94,17 @@ class LLMModel(BaseModel, IsDatabricksResource):
 
     def as_resource(self) -> DatabricksResource:
         return DatabricksServingEndpoint(endpoint_name=self.name)
-    
+
     @property
     def chat_model(self) -> LanguageModelLike:
-        chat_client: LanguageModelLike = ChatDatabricks(model=self.name, temperature=self.temperature)
-        fallbacks: Sequence[LanguageModelLike] = [ChatDatabricks(model=f, temperature=self.temperature) for f in self.fallbacks if f != self.name]
+        chat_client: LanguageModelLike = ChatDatabricks(
+            model=self.name, temperature=self.temperature
+        )
+        fallbacks: Sequence[LanguageModelLike] = [
+            ChatDatabricks(model=f, temperature=self.temperature)
+            for f in self.fallbacks
+            if f != self.name
+        ]
         if fallbacks:
             chat_client = chat_client.with_fallbacks(fallbacks)
         return chat_client
