@@ -83,7 +83,9 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksTable(table_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user)
+        return DatabricksTable(
+            table_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
+        )
 
 
 class LLMModel(BaseModel, IsDatabricksResource):
@@ -93,7 +95,9 @@ class LLMModel(BaseModel, IsDatabricksResource):
     fallbacks: Optional[list[str]] = Field(default_factory=list)
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksServingEndpoint(endpoint_name=self.name, on_behalf_of_user=self.on_behalf_of_user)
+        return DatabricksServingEndpoint(
+            endpoint_name=self.name, on_behalf_of_user=self.on_behalf_of_user
+        )
 
     @property
     def chat_model(self) -> LanguageModelLike:
@@ -132,7 +136,9 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksVectorSearchIndex(index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user)
+        return DatabricksVectorSearchIndex(
+            index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
+        )
 
 
 class VectorStoreModel(BaseModel, IsDatabricksResource):
@@ -155,7 +161,10 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
     space_id: str
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksGenieSpace(genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user)
+        return DatabricksGenieSpace(
+            genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user
+        )
+
 
 class VolumeModel(BaseModel, HasFullName):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
@@ -179,7 +188,9 @@ class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksFunction(function_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user)
+        return DatabricksFunction(
+            function_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
+        )
 
 
 class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
@@ -190,7 +201,9 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
         return self.name
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksUCConnection(connection_name=self.name, on_behalf_of_user=self.on_behalf_of_user)
+        return DatabricksUCConnection(
+            connection_name=self.name, on_behalf_of_user=self.on_behalf_of_user
+        )
 
 
 class WarehouseModel(BaseModel, IsDatabricksResource):
@@ -199,7 +212,9 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     warehouse_id: str
 
     def as_resource(self) -> DatabricksResource:
-        return DatabricksSQLWarehouse(warehouse_id=self.warehouse_id, on_behalf_of_user=self.on_behalf_of_user)
+        return DatabricksSQLWarehouse(
+            warehouse_id=self.warehouse_id, on_behalf_of_user=self.on_behalf_of_user
+        )
 
 
 class DatabaseModel(BaseModel):
