@@ -68,6 +68,7 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 
 # MAGIC %%writefile agent_as_code.py
 # MAGIC import sys
+# MAGIC import os
 # MAGIC
 # MAGIC import mlflow
 # MAGIC from mlflow.models import ModelConfig
@@ -82,7 +83,7 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 # MAGIC
 # MAGIC mlflow.langchain.autolog()
 # MAGIC
-# MAGIC model_config_path: str = "../config/model_config.yaml"
+# MAGIC model_config_path: str = os.getenv("MODEL_CONFIG_PATH", "../config/model_config.yaml")
 # MAGIC model_config: ModelConfig = ModelConfig(development_config=model_config_path)
 # MAGIC config: AppConfig = AppConfig(**model_config.to_dict())
 # MAGIC
@@ -109,12 +110,12 @@ display_graph(graph)
 
 # COMMAND ----------
 
-# from pathlib import Path
-# from agent_as_code import app
-# from retail_ai.models import save_image
+from pathlib import Path
+from agent_as_code import app
+from retail_ai.models import save_image
 
-# path: Path = Path("docs") / "architecture.png"
-# save_image(app, path)
+path: Path = Path.cwd().parent / Path("docs") / "architecture.png"
+save_image(app, path)
 
 # COMMAND ----------
 

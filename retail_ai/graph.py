@@ -23,12 +23,14 @@ from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import create_tools
 
 
-def route_message_validation(state: AgentState) -> str:
-    if not state["is_valid_config"]:
-        return END
-    if has_image(state["messages"]):
-        return "process_images"
-    return "supervisor"
+def route_message_validation(on_success: str) -> Callable:
+    def _(state: AgentState) -> str:
+        if not state["is_valid_config"]:
+            return END
+        if has_image(state["messages"]):
+            return "process_images"
+        return on_success
+    return _
 
 
 def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
@@ -45,7 +47,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.add_conditional_edges(
         "message_validation",
-        route_message_validation,
+        route_message_validation("supervisor"),
         {
             "supervisor": "supervisor",
             "process_images": "process_images",
@@ -83,7 +85,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             )
         # Create agent directly using create_react_agent instead of create_agent_node
         agents.append(
-            _create_swarm_agent(agent=registered_agent, additional_tools=handoff_tools)
+            create_agent_node(agent=registered_agent, additional_tools=handoff_tools)
         )
 
     default_agent: AgentModel = config.app.orchestration.swarm.default_agent
@@ -111,7 +113,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.add_conditional_edges(
         "message_validation",
-        route_message_validation,
+        route_message_validation("swarm"),
         {
             "swarm": "swarm",
             "process_images": "process_images",
@@ -125,53 +127,6 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     return workflow.compile()
 
-
-def _create_swarm_agent(
-    agent: AgentModel, additional_tools: Sequence[BaseTool] = None
-) -> CompiledStateGraph:
-    """
-    Create a compiled agent for swarm orchestration.
-
-    Args:
-        agent: Agent configuration
-        additional_tools: Additional tools to include (handoff tools)
-
-    Returns:
-        CompiledStateGraph ready for swarm orchestration
-    """
-    logger.debug(f"Creating swarm agent for {agent.name}")
-
-    # Get agent tools and combine with additional tools
-    tools: Sequence[BaseTool] = create_tools(agent.tools)
-    if additional_tools:
-        tools = list(tools) + list(additional_tools)
-
-    # Initialize model
-    llm: LanguageModelLike = ChatDatabricks(
-        model=agent.model.name, temperature=agent.model.temperature
-    )
-
-    # Format system prompt - for swarm, we use a simpler approach without state-based formatting
-    prompt_template: PromptTemplate = PromptTemplate.from_template(agent.prompt)
-    system_prompt: str = prompt_template.format(
-        user_id="{user_id}",  # These will be filled at runtime
-        store_num="{store_num}",
-    )
-
-    # Create the react agent
-    compiled_agent: CompiledStateGraph = create_react_agent(
-        model=llm,
-        prompt=system_prompt,
-        tools=tools,
-        name=agent.name,  # Set the agent name
-    )
-
-    # Apply guardrails if specified
-    for guardrail_definition in agent.guardrails:
-        guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
-        compiled_agent = with_guardrails(compiled_agent, guardrail)
-
-    return compiled_agent
 
 
 def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:

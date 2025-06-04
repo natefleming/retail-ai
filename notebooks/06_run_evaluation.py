@@ -14,6 +14,12 @@
 
 # COMMAND ----------
 
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+config_path: str = dbutils.widgets.get("config-path")
+print(config_path)
+
+# COMMAND ----------
+
 import mlflow
 from mlflow.models.model import ModelInfo
 from mlflow.entities.model_registry.model_version import ModelVersion

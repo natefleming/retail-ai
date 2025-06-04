@@ -27,7 +27,7 @@ The system uses Databricks Vector Search, Unity Catalog, and LLMs to provide acc
 
 The Multi-Agent AI system is built as a component-based agent architecture that routes queries to specialized agents based on the nature of the request. This approach enables domain-specific handling while maintaining a unified interface that can be adapted to any industry or use case.
 
-[View Architecture Diagram](docs/architecture.png)
+![View Architecture Diagram](./docs/architecture.png)
 
 ### Core Components
 

@@ -1,4 +1,5 @@
 import sys
+import os
 
 import mlflow
 from mlflow.models import ModelConfig
@@ -13,7 +14,7 @@ from loguru import logger
 
 mlflow.langchain.autolog()
 
-model_config_path: str = "../config/model_config.yaml"
+model_config_path: str = os.getenv("MODEL_CONFIG_PATH", "../config/model_config.yaml")
 model_config: ModelConfig = ModelConfig(development_config=model_config_path)
 config: AppConfig = AppConfig(**model_config.to_dict())
 

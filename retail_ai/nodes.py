@@ -23,19 +23,25 @@ from retail_ai.tools import (
 from retail_ai.types import AgentCallable
 from typing import Callable
 from langchain_core.runnables import RunnableConfig
+from langchain_core.messages.modifier import RemoveMessage
+from langchain_core.messages import SystemMessage
 
-
-def make_prompt(prompt: str) -> Callable[[dict, RunnableConfig], list]:
+def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
+    logger.debug(f"make_prompt: {base_system_prompt}")
     def prompt(state: AgentState, config: AgentConfig) -> list:
-        
-        prompt_template: PromptTemplate = PromptTemplate.from_template(prompt)
-        configurable: dict[str, Any] = {
-            "user_id": state.get("user_id", ""),
-            "store_num": state.get("store_num", ""),
+        prompt_template: PromptTemplate = PromptTemplate.from_template(base_system_prompt)
+
+        configurable: dict[str, Any] = config.get("configurable", {})
+        params: dict[str, Any] = {
+            "user_id": configurable.get("user_id", ""),
+            "store_num": configurable.get("store_num", ""),
         }
-        system_prompt: str = prompt_template.format(**configurable)
+        system_prompt: str = prompt_template.format(**params)
         
-        return [{"role": "system", "content": system_prompt}] + state["messages"]
+        messages: Sequence[BaseMessage] = state["messages"]
+        messages = [SystemMessage(content=system_prompt)] + messages
+
+        return messages
 
     return prompt
 
@@ -63,35 +69,9 @@ def create_agent_node(
         additional_tools = []
     tools: Sequence[BaseTool] = create_tools(tools) + additional_tools
 
-    # @mlflow.trace()
-    # def agent_node(
-    #     state: AgentState, config: AgentConfig
-    # ) -> dict[str, BaseMessage] | CompiledStateGraph:
-    #     """
-    #     Process user messages using a specialized agent.
-
-    #     Args:
-    #         state: Current state containing messages and context
-    #         config: Configuration parameters
-
-    #     Returns:
-    #         Either a dict with response messages or a CompiledStateGraph for further processing
-    #     """
-    #     logger.debug(f"Executing {agent.name} agent node")
-
-    #     # Initialize model with appropriate temperature
     llm: LanguageModelLike = ChatDatabricks(
         model=agent.model.name, temperature=agent.model.temperature
     )
-
-        # Format system prompt with user context
-        # prompt_template: PromptTemplate = PromptTemplate.from_template(agent.prompt)
-        # configurable: dict[str, Any] = {
-        #     "user_id": state.get("user_id", ""),
-        #     "store_num": state.get("store_num", ""),
-        #     # Add any additional context needed from state
-        # }
-        # system_prompt: str = prompt_template.format(**configurable)
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         model=llm,
@@ -99,16 +79,15 @@ def create_agent_node(
         tools=tools,
     )
 
-    # Apply guardrails if specified
     for guardrail_definition in agent.guardrails:
         guardrail: CompiledStateGraph = reflection_guardrail(guardrail_definition)
         compiled_agent = with_guardrails(compiled_agent, guardrail)
 
     compiled_agent.name = agent.name
-    # Return the compiled agent or its response
+
     return compiled_agent
 
-    #return agent_node
+
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:

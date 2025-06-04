@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install uv
+# MAGIC %pip install --quiet uv
 # MAGIC
 # MAGIC import os
 # MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
@@ -11,6 +11,12 @@
 # COMMAND ----------
 
 # MAGIC %restart_python
+
+# COMMAND ----------
+
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+config_path: str = dbutils.widgets.get("config-path")
+print(config_path)
 
 # COMMAND ----------
 
@@ -52,13 +58,38 @@ retail_examples: dict[str, Any] = yaml.safe_load(retail_examples_path.read_text(
 
 # COMMAND ----------
 
-# MAGIC %restart_python
+import sys
+
+import mlflow
+from mlflow.models import ModelConfig
+
+from langgraph.graph.state import CompiledStateGraph
+from mlflow.pyfunc import ChatModel
+from retail_ai.graph import create_retail_ai_graph
+from retail_ai.models import create_agent 
+from retail_ai.config import AppConfig
+
+from loguru import logger
+
+mlflow.langchain.autolog()
+
+model_config_path: str = config_path
+model_config: ModelConfig = ModelConfig(development_config=model_config_path)
+config: AppConfig = AppConfig(**model_config.to_dict())
+
+log_level: str = config.app.log_level
+
+logger.add(sys.stderr, level=log_level)
+
+graph: CompiledStateGraph = create_retail_ai_graph(config=config)
+
+app: ChatModel = create_agent(graph)
+
 
 # COMMAND ----------
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 # store num
@@ -86,7 +117,6 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 # store num
@@ -114,7 +144,6 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 # store num
@@ -142,7 +171,6 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 # store num
@@ -175,7 +203,6 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -187,7 +214,6 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -207,7 +233,6 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -220,7 +245,6 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -239,7 +263,6 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -252,7 +275,6 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -269,7 +291,6 @@ from rich import print as pprint
 
 from pathlib import Path
 from langchain_core.messages import HumanMessage, convert_to_messages
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 from retail_ai.messages import convert_to_langchain_messages
 
@@ -297,7 +318,6 @@ process_messages(
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -310,7 +330,6 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -329,7 +348,6 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -342,7 +360,6 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -361,7 +378,6 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -374,7 +390,6 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -393,7 +408,6 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -407,7 +421,6 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from agent_as_code import app, config
 from retail_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -424,7 +437,6 @@ from rich import print as pprint
 
 from pathlib import Path
 from langchain_core.messages import HumanMessage, convert_to_messages
-from agent_as_code import app, config
 from retail_ai.models import process_messages
 from retail_ai.messages import convert_to_langchain_messages
 

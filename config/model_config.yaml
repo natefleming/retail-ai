@@ -765,11 +765,12 @@ app:
     - *recommendation
     - *general
   orchestration:
-    supervisor:
+    # supervisor:
+    #   model: *tool_calling_llm
+    #   default_agent: *general
+    swarm:
       model: *tool_calling_llm
       default_agent: *general
-    # swarm:
-    #   model: *tool_calling_llm
 
 evaluation:
   model: *judge_llm
