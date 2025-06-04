@@ -1,23 +1,31 @@
-# Retail AI Agent
+# Multi-Agent AI Orchestration Framework
 
-A conversational AI system for retail operations built on Databricks, providing recommendation, inventory management, and product information capabilities through a unified agent architecture.
+A modular, multi-agent orchestration framework for building sophisticated AI workflows on Databricks. While this implementation provides a complete retail AI reference architecture, the framework is designed to support any domain or use case requiring agent coordination, tool integration, and dynamic configuration.
 
 ## Overview
 
-This project implements a LangGraph-based conversational AI agent for retail operations that can:
+This project implements a LangGraph-based multi-agent orchestration framework that can:
 
-- Answer questions about product inventory
-- Provide product recommendations based on customer preferences
-- Look up specific product details
-- Answer general retail-related questions
+- **Route queries** to specialized agents based on content and context
+- **Coordinate multiple AI agents** working together on complex tasks
+- **Integrate diverse tools** including databases, APIs, vector search, and external services
+- **Support flexible orchestration patterns** (supervisor, swarm, and custom workflows)
+- **Provide dynamic configuration** through YAML-based agent and tool definitions
+- **Enable domain-specific specialization** while maintaining a unified interface
 
-The system uses Databricks Vector Search, Unity Catalog, and LLMs to provide accurate, context-aware responses.
+**Retail Reference Implementation**: This repository includes a complete retail AI system demonstrating:
+- Product inventory management and search
+- Customer recommendation engines  
+- Order tracking and management
+- Product classification and information retrieval
+
+The system uses Databricks Vector Search, Unity Catalog, and LLMs to provide accurate, context-aware responses across any domain.
 
 ## Architecture
 
 ### Overview
 
-The Retail AI system is built as a component-based agent architecture that routes queries to specialized agents based on the nature of the request. This approach enables domain-specific handling while maintaining a unified interface.
+The Multi-Agent AI system is built as a component-based agent architecture that routes queries to specialized agents based on the nature of the request. This approach enables domain-specific handling while maintaining a unified interface that can be adapted to any industry or use case.
 
 [View Architecture Diagram](docs/architecture.png)
 
@@ -42,7 +50,7 @@ All components are defined in `model_config.yaml` using a modular approach:
 The system uses a LangGraph-based workflow with the following key nodes:
 
 - **Message Validation**: Validates incoming requests (`message_validation_node`)
-- **Agent Routing**: Routes messages to appropriate specialized agents
+- **Agent Routing**: Routes messages to appropriate specialized agents using supervisor or swarm patterns
 - **Agent Execution**: Processes requests using specialized agents with their configured tools
 - **Response Generation**: Returns structured responses to users
 
@@ -50,9 +58,10 @@ The system uses a LangGraph-based workflow with the following key nodes:
 
 Agents are dynamically configured from the `model_config.yaml` file and can include:
 - Custom LLM models and parameters
-- Specific sets of available tools
+- Specific sets of available tools (Python functions, Unity Catalog functions, factory tools, MCP services)
 - Domain-specific system prompts
 - Guardrails for response quality
+- Handoff prompts for agent coordination
 
 ### Technical Implementation
 
@@ -89,6 +98,52 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 make install
 ```
 
+## Command Line Interface
+
+The framework includes a comprehensive CLI for managing, validating, and visualizing your multi-agent system:
+
+### Schema Generation
+Generate JSON schema for configuration validation and IDE autocompletion:
+```bash
+retail-ai schema > schema.json
+```
+
+### Configuration Validation
+Validate your configuration file for syntax and semantic correctness:
+```bash
+# Validate default configuration
+retail-ai validate
+
+# Validate specific configuration file
+retail-ai validate -c config/production.yaml
+```
+
+### Graph Visualization
+Generate visual representations of your agent workflow:
+```bash
+# Generate architecture diagram
+retail-ai graph -o architecture.png
+
+# Generate diagram from specific config
+retail-ai graph -o workflow.png -c config/custom.yaml
+```
+
+### Deployment
+Deploy your multi-agent system using Databricks Asset Bundles:
+```bash
+# Deploy the system
+retail-ai bundle --deploy
+
+# Run the deployed system
+retail-ai bundle --run
+
+# Use specific Databricks profile
+retail-ai bundle --deploy --run --profile my-profile
+```
+
+### Verbose Output
+Add `-v`, `-vv`, `-vvv`, or `-vvvv` flags for increasing levels of verbosity (ERROR, WARNING, INFO, DEBUG, TRACE).
+
 ## Configuration
 
 Configuration is managed through `model_config.yaml`. This file defines all components of the Retail AI system, including resources, tools, agents, and the overall application setup.
@@ -119,125 +174,158 @@ app:
 
 ### Developing and Configuring Tools
 
-Tools are functions that agents can use to interact with external systems or perform specific tasks. They are defined under the `tools` key in `model_config.yaml`. The key for each tool entry serves as its unique name.
+Tools are functions that agents can use to interact with external systems or perform specific tasks. They are defined under the `tools` key in `model_config.yaml`. Each tool has a unique name and contains a `function` specification.
 
 There are four types of tools supported:
 
 #### 1. Python Tools (`type: python`)
-   These tools directly map to Python functions. The `name` field should correspond to a function defined typically in `retail_ai/tools.py` or another importable module.
+   These tools directly map to Python functions. The `name` field should correspond to a function that can be imported and called directly.
 
    **Configuration Example:**
    ```yaml
-   # filepath: /Users/nate/development/retail-ai/config/model_config.yaml
    tools:
-     get_product_details_by_id:
+     my_python_tool:
+       name: my_python_tool
        function:
          type: python
-         name: get_product_details_by_id # Corresponds to a Python function
-         # Optional: schema for the function if it's a UC function or needs specific metadata
-         schema: 
-           function_name: get_product_details_by_id 
-           # ... other schema details
+         name: retail_ai.tools.my_function_name
+         schema: # Optional schema definition
+           name: my_function_name
    ```
    **Development:**
-   Implement the Python function (e.g., `get_product_details_by_id`) in `retail_ai/tools.py`. This function will be called when the tool is invoked.
+   Implement the Python function in the specified module (e.g., `retail_ai/tools.py`). The function will be imported and called directly when the tool is invoked.
 
 #### 2. Factory Tools (`type: factory`)
-   Factory tools are used when a tool requires more complex initialization or setup. The `name` field points to a factory function (e.g., in `retail_ai/tools.py`) that returns an initialized LangChain `BaseTool` instance.
+   Factory tools use factory functions that return initialized LangChain `BaseTool` instances. This is useful for tools requiring complex initialization or configuration.
 
    **Configuration Example:**
    ```yaml
-   # filepath: /Users/nate/development/retail-ai/config/model_config.yaml
    tools:
-     product_vector_search:
+     vector_search_tool:
+       name: vector_search
        function:
          type: factory
-         name: create_product_vector_search_tool # Corresponds to a factory function
-         # Optional: schema for the function
-         schema:
-           function_name: create_product_vector_search_tool
+         name: retail_ai.tools.create_vector_search_tool
+         args:
+           retriever: *products_retriever
+           name: product_vector_search_tool
+           description: "Search for products using vector search"
    ```
    **Development:**
-   Implement the factory function (e.g., `create_product_vector_search_tool`) in `retail_ai/tools.py`. This function should return a fully configured `BaseTool` object.
+   Implement the factory function (e.g., `create_vector_search_tool`) in `retail_ai/tools.py`. This function should accept the specified `args` and return a fully configured `BaseTool` object.
 
 #### 3. Unity Catalog Tools (`type: unity_catalog`)
-   These tools represent SQL functions registered in Databricks Unity Catalog. The agent can call these functions directly.
+   These tools represent SQL functions registered in Databricks Unity Catalog. They reference functions by their Unity Catalog schema and name.
 
    **Configuration Example:**
    ```yaml
-   # filepath: /Users/nate/development/retail-ai/config/model_config.yaml
    tools:
-     check_stock_level:
+     find_product_by_sku_uc_tool:
+       name: find_product_by_sku_uc
        function:
          type: unity_catalog
-         name: check_stock_level_uc # Name of the UC function
-         schema: # UC schema details
-           catalog_name: main
-           schema_name: retail_data
-           function_name: check_stock_level_uc
+         name: find_product_by_sku
+         schema:
+           name: retail_schema
    ```
    **Development:**
-   Create the corresponding SQL function (e.g., `main.retail_data.check_stock_level_uc`) in your Databricks Unity Catalog.
+   Create the corresponding SQL function in your Databricks Unity Catalog using the specified schema and function name. The tool will automatically generate the appropriate function signature and documentation.
 
 #### 4. MCP (Model Context Protocol) Tools (`type: mcp`)
-   MCP tools allow interaction with external services or models that adhere to the Model Context Protocol.
+   MCP tools allow interaction with external services that implement the Model Context Protocol, supporting both HTTP and stdio transports.
 
    **Configuration Example:**
    ```yaml
-   # filepath: /Users/nate/development/retail-ai/config/model_config.yaml
    tools:
-     external_pricing_service:
+     weather_tool_mcp:
+       name: weather
        function:
          type: mcp
-         name: get_latest_price # Name of the MCP function/endpoint
-         # MCP-specific configuration might go here or be handled by the tool's implementation
-         schema:
-           function_name: get_latest_price
+         name: weather
+         transport: streamable_http
+         url: http://localhost:8000/mcp
    ```
    **Development:**
-   Ensure the MCP service is running and accessible. The tool implementation will handle communication with this service.
+   Ensure the MCP service is running and accessible at the specified URL or command. The framework will handle the MCP protocol communication automatically.
 
 ### Configuring New Agents
 
-Agents are specialized AI assistants. They are defined under the `agents` key in `model_config.yaml`. The key for each agent entry serves as its unique name.
+Agents are specialized AI assistants defined under the `agents` key in `model_config.yaml`. Each agent has a unique name and specific configuration.
 
 **Configuration Example:**
 ```yaml
-# filepath: /Users/nate/development/retail-ai/config/model_config.yaml
 agents:
-  product_inquiry_agent: # Unique name for the agent
-    name: "Product Inquiry Agent" # Display name
-    description: "Handles specific questions about product features, availability, and price."
-    model: *llama3_70b_instruct # Reference to an LLM defined in resources
-    tools: # List of tool names (keys from the 'tools' section) this agent can use
-      - get_product_details_by_id
-      - check_stock_level
-      - product_vector_search 
-    system_prompt: |
-      You are a helpful assistant specializing in product information.
-      Use the available tools to answer questions accurately.
-    # Optional: guardrails specific to this agent
-    guardrails:
-      - ensure_politeness 
+  general:
+    name: general
+    description: "General retail store assistant for home improvement and hardware store inquiries"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+      - *vector_search_tool
+    guardrails: []
+    checkpointer: *checkpointer
+    prompt: |
+      You are a helpful retail store assistant for a home improvement and hardware store.
+      You have access to search tools to find current information about products, pricing, and store policies.
+      
+      #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
+      Before answering ANY question:
+      - ALWAYS use your available search tools to find the most current and accurate information
+      - Search for specific details about store policies, product availability, pricing, and services
 ```
+
+**Agent Configuration Fields:**
+- `name`: Unique identifier for the agent
+- `description`: Human-readable description of the agent's purpose
+- `model`: Reference to an LLM model (using YAML anchors like `*tool_calling_llm`)
+- `tools`: Array of tool references (using YAML anchors like `*search_tool`)
+- `guardrails`: Array of guardrail references (can be empty `[]`)
+- `checkpointer`: Reference to a checkpointer for conversation state (optional)
+- `prompt`: System prompt that defines the agent's behavior and instructions
+
 **To configure a new agent:**
-1.  Add a new entry under the `agents` section with a unique key (e.g., `product_inquiry_agent`).
-2.  Define its `name`, `description`, `model` (referencing an LLM from `resources` using a YAML anchor like `*tool_calling_llm`), and `system_prompt`.
-3.  List the tools (by their keys from the `tools` section, e.g., `get_product_details_by_id`) that this agent is allowed to use under its `tools` array.
+1. Add a new entry under the `agents` section with a unique key
+2. Define the required fields: `name`, `description`, `model`, `tools`, and `prompt`
+3. Optionally configure `guardrails` and `checkpointer`
+4. Reference the agent in the application configuration using YAML anchors
 
 ### Assigning Tools to Agents
 
-As shown in the agent configuration example above, tools are assigned to an agent by listing their unique names (the keys used in the `tools` section) within the `tools` array of that agent's definition.
+Tools are assigned to agents by referencing them using YAML anchors in the agent's `tools` array. Each tool must be defined in the `tools` section with an anchor (using `&tool_name`), then referenced in the agent configuration (using `*tool_name`).
 
+**Example:**
 ```yaml
-# filepath: /Users/nate/development/retail-ai/config/model_config.yaml
+tools:
+  search_tool: &search_tool
+    name: search
+    function:
+      type: factory
+      name: retail_ai.tools.search_tool
+      args: {}
+
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: retail_ai.tools.create_genie_tool
+      args:
+        genie_room: *retail_genie_room
+
 agents:
-  some_agent:
-    # ... other agent properties ...
+  general:
+    name: general
+    description: "General retail store assistant"
+    model: *tool_calling_llm
     tools:
-      - tool_key_1 # Defined under tools.tool_key_1
-      - tool_key_2 # Defined under tools.tool_key_2
+      - *search_tool    # Reference to the search_tool anchor
+      - *genie_tool     # Reference to the genie_tool anchor
+    # ... other agent configuration
 ```
+
+This YAML anchor system allows for:
+- **Reusability**: The same tool can be assigned to multiple agents
+- **Maintainability**: Tool configuration is centralized in one place
+- **Consistency**: Tools are guaranteed to have the same configuration across agents
 
 ### Assigning Agents to the Application and Configuring Orchestration
 
