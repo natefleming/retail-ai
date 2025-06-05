@@ -109,7 +109,7 @@ resources:
   databases:
     retail_database: &retail_database
       name: "Retail Database"
-      connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
+      #connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
       connection_kwargs:
         autocommit: True
         prepare_threshold: 0
@@ -132,7 +132,6 @@ retrievers:
       query_type: ANN
 
 tools:
-
   weather_tool_mcp: &weather_tool_mcp
     name: weather
     function:
@@ -291,7 +290,6 @@ guardrails:
       ### Response:
       {outputs}
 
-
 memory: &memory
   checkpointer: 
     name: default_checkpointer
@@ -300,9 +298,10 @@ memory: &memory
 
   store: 
     name: default_store
-    embedding_model: *embedding_model
-    dims: 1536
-
+    #embedding_model: *embedding_model
+    #dims: 1536
+    type: postgres
+    database: *retail_database
 
 agents:
   general: &general
@@ -774,12 +773,12 @@ app:
     - *recommendation
     - *general
   orchestration:
-    # supervisor:
-    #   model: *tool_calling_llm
-    #   default_agent: *general
-    swarm:
+    supervisor:
       model: *tool_calling_llm
       default_agent: *general
+    # swarm:
+    #   model: *tool_calling_llm
+    #   default_agent: *general
 
 evaluation:
   model: *judge_llm

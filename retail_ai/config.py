@@ -8,7 +8,7 @@ from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
-from langgraph.store.postgres import AsyncPostgresStore
+from langgraph.store.postgres import PostgresStore
 from loguru import logger
 from mlflow.models.resources import (
     DatabricksFunction,
@@ -392,7 +392,7 @@ class StoreModel(BaseModel):
         logger.debug("Creating Postgres store")
         if not self.database:
             raise ValueError("Database must be provided for Postgres store")
-        store: AsyncPostgresStore = AsyncPostgresStore.from_conn_string(
+        store: PostgresStore = PostgresStore.from_conn_string(
             self.database.connection_url
         )
         store.setup()
