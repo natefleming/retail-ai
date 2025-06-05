@@ -9,6 +9,8 @@ from langchain_core.runnables import RunnableConfig, RunnableSequence
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
+from langgraph.store.memory import InMemoryStore
+from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -64,17 +66,26 @@ def create_agent_node(
     """
     logger.debug(f"Creating agent node for {agent.name}")
 
+    llm: LanguageModelLike = agent.model.as_chat_model()
+
     tools: Sequence[ToolModel] = agent.tools
     if not additional_tools:
         additional_tools = []
     tools: Sequence[BaseTool] = create_tools(tools) + additional_tools
 
-    llm: LanguageModelLike = agent.model.chat_model
+    store: InMemoryStore = None
+    if agent.memory and agent.memory.store:
+        store = agent.memory.store.as_store()
+        tools += [
+            create_manage_memory_tool(namespace=("memory",)),
+            create_search_memory_tool(namespace=("memory",)),
+        ]
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         model=llm,
         prompt=make_prompt(agent.prompt),
         tools=tools,
+        store=store,
     )
 
     for guardrail_definition in agent.guardrails:

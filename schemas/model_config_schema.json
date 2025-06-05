@@ -27,10 +27,10 @@
           "title": "Guardrails",
           "type": "array"
         },
-        "checkpointer": {
+        "memory": {
           "anyOf": [
             {
-              "$ref": "#/$defs/CheckpointerModel"
+              "$ref": "#/$defs/MemoryModel"
             },
             {
               "type": "null"
@@ -140,7 +140,7 @@
           "type": "string"
         },
         "type": {
-          "$ref": "#/$defs/CheckpointerType"
+          "$ref": "#/$defs/StorageType"
         },
         "database": {
           "$ref": "#/$defs/DatabaseModel"
@@ -154,19 +154,8 @@
       "title": "CheckpointerModel",
       "type": "object"
     },
-    "CheckpointerType": {
-      "enum": [
-        "postgres"
-      ],
-      "title": "CheckpointerType",
-      "type": "string"
-    },
     "ConnectionModel": {
       "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
         "on_behalf_of_user": {
           "anyOf": [
             {
@@ -178,6 +167,10 @@
           ],
           "default": false,
           "title": "On Behalf Of User"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
         }
       },
       "required": [
@@ -193,8 +186,16 @@
           "type": "string"
         },
         "connection_url": {
-          "title": "Connection Url",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connection Url"
         },
         "connection_kwargs": {
           "additionalProperties": true,
@@ -203,9 +204,7 @@
         }
       },
       "required": [
-        "name",
-        "connection_url",
-        "connection_kwargs"
+        "name"
       ],
       "title": "DatabaseModel",
       "type": "object"
@@ -301,6 +300,18 @@
     },
     "FunctionModel": {
       "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
         "schema": {
           "anyOf": [
             {
@@ -315,18 +326,6 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
-        "on_behalf_of_user": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": false,
-          "title": "On Behalf Of User"
         }
       },
       "required": [
@@ -347,18 +346,6 @@
     },
     "GenieRoomModel": {
       "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "description": {
-          "title": "Description",
-          "type": "string"
-        },
-        "space_id": {
-          "title": "Space Id",
-          "type": "string"
-        },
         "on_behalf_of_user": {
           "anyOf": [
             {
@@ -370,6 +357,18 @@
           ],
           "default": false,
           "title": "On Behalf Of User"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "space_id": {
+          "title": "Space Id",
+          "type": "string"
         }
       },
       "required": [
@@ -404,6 +403,18 @@
     },
     "IndexModel": {
       "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
         "schema": {
           "anyOf": [
             {
@@ -418,7 +429,16 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "IndexModel",
+      "type": "object"
+    },
+    "LLMModel": {
+      "properties": {
         "on_behalf_of_user": {
           "anyOf": [
             {
@@ -430,16 +450,7 @@
           ],
           "default": false,
           "title": "On Behalf Of User"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "title": "IndexModel",
-      "type": "object"
-    },
-    "LLMModel": {
-      "properties": {
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -467,18 +478,6 @@
           ],
           "default": 8192,
           "title": "Max Tokens"
-        },
-        "on_behalf_of_user": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": false,
-          "title": "On Behalf Of User"
         },
         "fallbacks": {
           "anyOf": [
@@ -562,6 +561,34 @@
         "transport"
       ],
       "title": "McpFunctionModel",
+      "type": "object"
+    },
+    "MemoryModel": {
+      "properties": {
+        "checkpointer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckpointerModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "MemoryModel",
       "type": "object"
     },
     "OrchestrationModel": {
@@ -855,6 +882,72 @@
       "title": "SearchParametersModel",
       "type": "object"
     },
+    "StorageType": {
+      "enum": [
+        "postgres",
+        "memory"
+      ],
+      "title": "StorageType",
+      "type": "string"
+    },
+    "StoreModel": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "embedding_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StorageType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "memory"
+        },
+        "dims": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1536,
+          "title": "Dims"
+        },
+        "database": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabaseModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "StoreModel",
+      "type": "object"
+    },
     "SupervisorModel": {
       "properties": {
         "model": {
@@ -905,6 +998,18 @@
     },
     "TableModel": {
       "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
         "schema": {
           "anyOf": [
             {
@@ -919,18 +1024,6 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
-        "on_behalf_of_user": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": false,
-          "title": "On Behalf Of User"
         }
       },
       "required": [
@@ -1033,6 +1126,18 @@
     },
     "VectorStoreModel": {
       "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
         "embedding_model": {
           "$ref": "#/$defs/LLMModel"
         },
@@ -1111,6 +1216,18 @@
     },
     "WarehouseModel": {
       "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -1166,10 +1283,10 @@
       "title": "Guardrails",
       "type": "object"
     },
-    "checkpointer": {
+    "memory": {
       "anyOf": [
         {
-          "$ref": "#/$defs/CheckpointerModel"
+          "$ref": "#/$defs/MemoryModel"
         },
         {
           "type": "null"

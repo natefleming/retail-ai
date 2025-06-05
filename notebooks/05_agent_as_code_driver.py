@@ -40,6 +40,7 @@ pip_requirements: Sequence[str] = [
     f"langgraph-reflection=={version('langgraph-reflection')}",
     f"langgraph-supervisor=={version('langgraph-supervisor')}",
     f"langgraph-swarm=={version('langgraph-swarm')}",
+    f"langmem=={version('langmem')}",
     f"loguru=={version('loguru')}",
     f"mlflow=={version('mlflow')}",
     f"openevals=={version('openevals')}",

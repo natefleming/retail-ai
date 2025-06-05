@@ -16,8 +16,11 @@ alembic==1.16.1
     # via mlflow
 annotated-types==0.7.0
     # via pydantic
+anthropic==0.52.2
+    # via langchain-anthropic
 anyio==4.9.0
     # via
+    #   anthropic
     #   httpx
     #   mcp
     #   openai
@@ -111,11 +114,15 @@ deprecated==1.2.18
 deprecation==2.1.0
     # via databricks-vectorsearch
 distro==1.9.0
-    # via openai
+    # via
+    #   anthropic
+    #   openai
 docker==7.1.0
     # via mlflow
 duckduckgo-search==8.0.2
     # via retail-ai
+dydantic==0.0.8
+    # via trustcall
 fastapi==0.115.12
     # via mlflow-skinny
 flask==3.1.1
@@ -183,6 +190,7 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via
+    #   anthropic
     #   langgraph-sdk
     #   langsmith
     #   mcp
@@ -215,7 +223,9 @@ jinja2==3.1.6
     #   flask
     #   mlflow
 jiter==0.10.0
-    # via openai
+    # via
+    #   anthropic
+    #   openai
 jmespath==1.0.1
     # via
     #   boto3
@@ -223,7 +233,9 @@ jmespath==1.0.1
 joblib==1.5.1
     # via scikit-learn
 jsonpatch==1.33
-    # via langchain-core
+    # via
+    #   langchain-core
+    #   trustcall
 jsonpointer==3.0.0
     # via jsonpatch
 kiwisolver==1.4.8
@@ -233,9 +245,12 @@ langchain==0.3.25
     #   databricks-langchain
     #   langchain-community
     #   langgraph-reflection
+    #   langmem
     #   openevals
     #   retail-ai
     #   unitycatalog-langchain
+langchain-anthropic==0.3.15
+    # via langmem
 langchain-community==0.3.21 ; python_full_version >= '3.13'
     # via unitycatalog-langchain
 langchain-community==0.3.24 ; python_full_version < '3.13'
@@ -243,6 +258,7 @@ langchain-community==0.3.24 ; python_full_version < '3.13'
 langchain-core==0.3.63
     # via
     #   langchain
+    #   langchain-anthropic
     #   langchain-community
     #   langchain-mcp-adapters
     #   langchain-openai
@@ -252,10 +268,13 @@ langchain-core==0.3.63
     #   langgraph-prebuilt
     #   langgraph-supervisor
     #   langgraph-swarm
+    #   langmem
 langchain-mcp-adapters==0.1.4
     # via retail-ai
 langchain-openai==0.3.18
-    # via openevals
+    # via
+    #   langmem
+    #   openevals
 langchain-text-splitters==0.3.8
     # via langchain
 langgraph==0.4.7
@@ -263,12 +282,15 @@ langgraph==0.4.7
     #   langgraph-reflection
     #   langgraph-supervisor
     #   langgraph-swarm
+    #   langmem
     #   retail-ai
+    #   trustcall
 langgraph-checkpoint==2.0.26
     # via
     #   langgraph
     #   langgraph-checkpoint-postgres
     #   langgraph-prebuilt
+    #   langmem
 langgraph-checkpoint-postgres==2.0.21
     # via retail-ai
 langgraph-prebuilt==0.2.2
@@ -283,11 +305,14 @@ langgraph-supervisor==0.0.27
     # via retail-ai
 langgraph-swarm==0.0.11
     # via retail-ai
+langmem==0.0.27
+    # via retail-ai
 langsmith==0.3.43
     # via
     #   langchain
     #   langchain-community
     #   langchain-core
+    #   langmem
     #   openevals
 loguru==0.7.3
     # via retail-ai
@@ -432,11 +457,14 @@ pycparser==2.22
     # via cffi
 pydantic==2.11.5
     # via
+    #   anthropic
     #   databricks-agents
     #   databricks-ai-bridge
     #   databricks-langchain
+    #   dydantic
     #   fastapi
     #   langchain
+    #   langchain-anthropic
     #   langchain-core
     #   langgraph
     #   langsmith
@@ -528,6 +556,7 @@ smmap==5.0.2
     # via gitdb
 sniffio==1.3.1
     # via
+    #   anthropic
     #   anyio
     #   openai
 sqlalchemy==2.0.41
@@ -563,9 +592,12 @@ tqdm==4.67.1
     # via
     #   databricks-agents
     #   openai
+trustcall==0.0.39
+    # via langmem
 typing-extensions==4.13.2
     # via
     #   alembic
+    #   anthropic
     #   anyio
     #   azure-core
     #   azure-storage-blob

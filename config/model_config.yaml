@@ -132,6 +132,7 @@ retrievers:
       query_type: ANN
 
 tools:
+
   weather_tool_mcp: &weather_tool_mcp
     name: weather
     function:
@@ -290,10 +291,18 @@ guardrails:
       ### Response:
       {outputs}
 
-checkpointer: &checkpointer
-  name: default_checkpointer
-  type: postgres
-  database: *retail_database
+
+memory: &memory
+  checkpointer: 
+    name: default_checkpointer
+    type: postgres
+    database: *retail_database
+
+  store: 
+    name: default_store
+    embedding_model: *embedding_model
+    dims: 1536
+
 
 agents:
   general: &general
@@ -305,7 +314,7 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    checkpointer: *checkpointer
+    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -352,10 +361,8 @@ agents:
     description: "Order management specialist for tracking orders, delivery status, and related inquiries"
     model: *tool_calling_llm
     tools: []
-    guardrails:
-      []
-      #- *llm_judge_guardrail
-    checkpointer: *checkpointer
+    guardrails: []
+    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -413,7 +420,7 @@ agents:
     guardrails:
       []
       # - *llm_judge_guardrail
-    checkpointer: *checkpointer
+    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -463,7 +470,7 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    checkpointer: *checkpointer
+    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -527,7 +534,7 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    checkpointer: *checkpointer
+    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -589,7 +596,7 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    checkpointer: *checkpointer
+    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -658,7 +665,7 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    checkpointer: *checkpointer
+    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}

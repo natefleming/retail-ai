@@ -1,9 +1,15 @@
+import os
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional, Sequence
 
-from databricks_langchain import ChatDatabricks
+from databricks_langchain import ChatDatabricks, DatabricksEmbeddings
+from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
+from langgraph.store.base import BaseStore
+from langgraph.store.memory import InMemoryStore
+from langgraph.store.postgres import AsyncPostgresStore
+from loguru import logger
 from mlflow.models.resources import (
     DatabricksFunction,
     DatabricksGenieSpace,
@@ -99,8 +105,7 @@ class LLMModel(BaseModel, IsDatabricksResource):
             endpoint_name=self.name, on_behalf_of_user=self.on_behalf_of_user
         )
 
-    @property
-    def chat_model(self) -> LanguageModelLike:
+    def as_chat_model(self) -> LanguageModelLike:
         chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name, temperature=self.temperature
         )
@@ -219,8 +224,21 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 
 class DatabaseModel(BaseModel):
     name: str
-    connection_url: str
-    connection_kwargs: dict[str, Any]
+    connection_url: Optional[str] = None
+    connection_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    def model_post_init(self, context) -> None:
+        if not self.connection_url:
+            if "PGCONNECTION_STRING" in os.environ:
+                self.connection_url = os.getenv("PGCONNECTION_STRING")
+            else:
+                pg_host: str = os.getenv("PGHOST", "localhost")
+                pg_port: str = os.getenv("PGPORT", "5432")
+                pg_database: str = os.getenv("PGDATABASE", "postgres")
+                pg_user: str = os.getenv("PGUSER", "postgres")
+                pg_password: str = os.getenv("PGPASSWORD", "")
+
+                self.connection_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
 
 
 class SearchParametersModel(BaseModel):
@@ -327,15 +345,63 @@ class GuardrailsModel(BaseModel):
     prompt: str
 
 
-class CheckpointerType(str, Enum):
+class StorageType(str, Enum):
     POSTGRES = "postgres"
+    MEMORY = "memory"
 
 
 class CheckpointerModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     name: str
-    type: CheckpointerType
+    type: StorageType
     database: DatabaseModel
+
+
+class StoreModel(BaseModel):
+    name: str
+    embedding_model: Optional[LLMModel] = None
+    type: Optional[StorageType] = StorageType.MEMORY
+    dims: Optional[int] = 1536
+    database: Optional[DatabaseModel] = None
+
+    def as_store(self) -> BaseStore:
+        store: BaseStore = (
+            self._as_postgres_store()
+            if self.type == StorageType.POSTGRES
+            else self._as_in_memory_store()
+        )
+
+        return store
+
+    def _as_in_memory_store(self) -> BaseStore:
+        logger.debug("Creating InMemory store")
+        embeddings: Embeddings = DatabricksEmbeddings(
+            endpoint=self.embedding_model.name
+        )
+
+        def embed_texts(texts: list[str]) -> list[list[float]]:
+            return embeddings.embed_documents(texts)
+
+        store: BaseStore = InMemoryStore(
+            index={"dims": self.dims, "embed": embed_texts}
+        )
+
+        return store
+
+    def _as_postgres_store(self) -> BaseStore:
+        logger.debug("Creating Postgres store")
+        if not self.database:
+            raise ValueError("Database must be provided for Postgres store")
+        store: AsyncPostgresStore = AsyncPostgresStore.from_conn_string(
+            self.database.connection_url
+        )
+        store.setup()
+        return store
+
+
+class MemoryModel(BaseModel):
+    checkpointer: Optional[CheckpointerModel] = None
+    store: Optional[StoreModel] = None
 
 
 class AgentModel(BaseModel):
@@ -344,7 +410,7 @@ class AgentModel(BaseModel):
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
     guardrails: list[GuardrailsModel] = Field(default_factory=list)
-    checkpointer: Optional[CheckpointerModel] = None
+    memory: Optional[MemoryModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
 
@@ -455,7 +521,7 @@ class AppConfig(BaseModel):
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
     tools: dict[str, ToolModel] = Field(default_factory=dict)
     guardrails: dict[str, GuardrailsModel] = Field(default_factory=dict)
-    checkpointer: Optional[CheckpointerModel] = None
+    memory: Optional[MemoryModel] = None
     agents: dict[str, AgentModel] = Field(default_factory=dict)
     app: AppModel
     evaluation: Optional[EvaluationModel] = None
