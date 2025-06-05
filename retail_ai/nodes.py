@@ -68,10 +68,10 @@ def create_agent_node(
 
     llm: LanguageModelLike = agent.model.as_chat_model()
 
-    tools: Sequence[ToolModel] = agent.tools
+    tool_models: Sequence[ToolModel] = agent.tools
     if not additional_tools:
         additional_tools = []
-    tools: Sequence[BaseTool] = create_tools(tools) + additional_tools
+    tools: Sequence[BaseTool] = create_tools(tool_models) + additional_tools
 
     store: InMemoryStore = None
     if agent.memory and agent.memory.store:

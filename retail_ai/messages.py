@@ -72,6 +72,7 @@ def convert_to_langchain_messages(messages: dict[str, Any]) -> Sequence[BaseMess
         image_paths: Sequence[str] = []
         if "image_paths" in m:
             image_paths = m.pop("image_paths")
+        message: HumanMessage = HumanMessage(**m)
         message = message_with_images(message, image_paths)
         langchain_messages.append(message)
     return langchain_messages

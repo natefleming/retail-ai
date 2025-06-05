@@ -367,7 +367,7 @@ class StoreModel(BaseModel):
     def as_store(self) -> BaseStore:
         store: BaseStore = (
             self._as_postgres_store()
-            if self.type == StorageType.POSTGRES or self.database and not self.embedding_model
+            if self.type == StorageType.POSTGRES or self.database
             else self._as_in_memory_store()
         )
 
@@ -392,10 +392,22 @@ class StoreModel(BaseModel):
         logger.debug("Creating Postgres store")
         if not self.database:
             raise ValueError("Database must be provided for Postgres store")
-        store: PostgresStore = PostgresStore.from_conn_string(
-            self.database.connection_url
-        )
-        store.setup()
+
+        index: dict[str, Any] = {}
+        if self.embedding_model:
+            embeddings: Embeddings = DatabricksEmbeddings(
+                endpoint=self.embedding_model.name
+            )
+
+            def embed_texts(texts: list[str]) -> list[list[float]]:
+                return embeddings.embed_documents(texts)
+
+            index = {"dims": self.dims, "embed": embed_texts}
+
+        with PostgresStore.from_conn_string(conn_string=self.database.connection_url, index=index) as store:
+             store.setup()
+       
+
         return store
 
 
