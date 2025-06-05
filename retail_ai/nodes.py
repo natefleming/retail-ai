@@ -172,7 +172,7 @@ def supervisor_node(config: AppConfig) -> AgentCallable:
 
     @mlflow.trace()
     def supervisor(state: AgentState, config: AgentConfig) -> dict[str, str]:
-        llm: LanguageModelLike = supervisor_model.model.chat_model
+        llm: LanguageModelLike = supervisor_model.model.as_chat_model()
 
         class Router(BaseModel):
             route: Literal[tuple(allowed_routes)] = Field(
@@ -230,7 +230,7 @@ def process_images_node(config: AppConfig) -> AgentCallable:
 
         ImageProcessor.__doc__ = prompt
 
-        llm: LanguageModelLike = process_image_config.model.chat_model
+        llm: LanguageModelLike = process_image_config.model.as_chat_model()
 
         last_message: HumanMessage = last_human_message(state["messages"])
         messages: Sequence[BaseMessage] = [last_message]
