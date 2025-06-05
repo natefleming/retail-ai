@@ -238,7 +238,7 @@ class DatabaseModel(BaseModel):
                 pg_user: str = os.getenv("PGUSER", "postgres")
                 pg_password: str = os.getenv("PGPASSWORD", "")
 
-                self.connection_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
+                self.connection_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}?sslmode=require"
 
 
 class SearchParametersModel(BaseModel):
@@ -358,6 +358,7 @@ class CheckpointerModel(BaseModel):
 
 
 class StoreModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     name: str
     embedding_model: Optional[LLMModel] = None
     type: Optional[StorageType] = StorageType.MEMORY
@@ -367,7 +368,7 @@ class StoreModel(BaseModel):
     def as_store(self) -> BaseStore:
         store: BaseStore = (
             self._as_postgres_store()
-            if self.type == StorageType.POSTGRES or self.database
+            if self.type == StorageType.POSTGRES 
             else self._as_in_memory_store()
         )
 
@@ -404,6 +405,7 @@ class StoreModel(BaseModel):
 
             index = {"dims": self.dims, "embed": embed_texts}
 
+        logger.debug(f"connection_url: {self.database.connection_url}")
         with PostgresStore.from_conn_string(
             conn_string=self.database.connection_url, index=index
         ) as store:
