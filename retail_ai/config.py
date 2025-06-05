@@ -404,9 +404,10 @@ class StoreModel(BaseModel):
 
             index = {"dims": self.dims, "embed": embed_texts}
 
-        with PostgresStore.from_conn_string(conn_string=self.database.connection_url, index=index) as store:
-             store.setup()
-       
+        with PostgresStore.from_conn_string(
+            conn_string=self.database.connection_url, index=index
+        ) as store:
+            store.setup()
 
         return store
 
