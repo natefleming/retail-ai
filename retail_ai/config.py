@@ -367,7 +367,7 @@ class StoreModel(BaseModel):
     def as_store(self) -> BaseStore:
         store: BaseStore = (
             self._as_postgres_store()
-            if self.type == StorageType.POSTGRES
+            if self.type == StorageType.POSTGRES or self.database and not self.embedding_model
             else self._as_in_memory_store()
         )
 
