@@ -14,6 +14,9 @@ variables:
   config_path:
     description: Path to the configuration file for the job.
     default: ../config/model_config.yaml
+  node_type: 
+    description: The job compute node type
+    default: Standard_D4ads_v5
     
 resources:
   jobs:
@@ -22,7 +25,7 @@ resources:
       job_clusters:
         - job_cluster_key: common-cluster
           new_cluster:
-            node_type_id: Standard_D4ads_v5
+            node_type_id: ${var.node_type}
             spark_version: 16.2.x-scala2.12
             num_workers: 1
       tasks:
@@ -101,3 +104,9 @@ targets:
     default: True
     workspace:
       host: https://adb-984752964297111.11.azuredatabricks.net
+  prd:
+    default: True
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
+    variables:
+      node_type: i3.xlarge

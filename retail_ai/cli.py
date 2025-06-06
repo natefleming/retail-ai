@@ -174,6 +174,13 @@ Examples:
         action="store_true",
         help="Run the Retail AI system with the current configuration",
     )
+    bundle_parser.add_argument(
+        "-e",
+        "--env",
+        type=str,
+        default="dev",
+        help="Environment for the bundle (default: dev)",
+    )
 
     options = parser.parse_args(args)
 
@@ -218,12 +225,14 @@ def setup_logging(verbosity: int) -> None:
 
 
 def run_databricks_command(
-    command: list[str], profile: Optional[str] = None, config: Optional[str] = None
+    command: list[str], profile: Optional[str] = None, config: Optional[str] = None, env: Optional[str] = None
 ) -> None:
     """Execute a databricks CLI command with optional profile."""
     cmd = ["databricks"]
     if profile:
-        cmd.extend(["-p", profile])
+        cmd.extend(["--profile", profile])
+    if env:
+        cmd.extend(["--target", env])
     cmd.extend(command)
     if config:
         config_path = Path(config)
@@ -273,13 +282,14 @@ def handle_bundle_command(options: Namespace) -> None:
     logger.debug("Bundling configuration...")
     profile: Optional[str] = options.profile
     config: Optional[str] = options.config
+    env: Optional[str] = options.env
     if options.deploy:
         logger.info("Deploying Retail AI asset bundle...")
-        run_databricks_command(["bundle", "deploy"], profile, config)
+        run_databricks_command(["bundle", "deploy"], profile, config, env)
     if options.run:
         logger.info("Running Retail AI system with current configuration...")
         run_databricks_command(
-            ["bundle", "run", "deploy-retail-ai-job"], profile, config
+            ["bundle", "run", "deploy-retail-ai-job"], profile, config, env
         )
     else:
         logger.warning("No action specified. Use --deploy or --run flags.")
