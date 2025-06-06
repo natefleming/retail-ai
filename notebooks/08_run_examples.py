@@ -28,6 +28,10 @@ print(config_path)
 
 from typing import Sequence
 from importlib.metadata import version
+import sys
+
+
+sys.path.insert(0, "..")
 
 pip_requirements: Sequence[str] = (
     f"langgraph=={version('langgraph')}",

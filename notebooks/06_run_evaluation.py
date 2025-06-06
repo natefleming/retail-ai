@@ -20,13 +20,29 @@ print(config_path)
 
 # COMMAND ----------
 
+import sys
+
+sys.path.insert(0, "..")
+
+# COMMAND ----------
+
+from typing import Any, Dict, Optional, List
+
+from mlflow.models import ModelConfig
+from retail_ai.config import AppConfig, SchemaModel
+
+model_config_file: str = config_path
+model_config: ModelConfig = ModelConfig(development_config=model_config_file)
+config: AppConfig = AppConfig(**model_config.to_dict())
+
+
+# COMMAND ----------
+
 import mlflow
 from mlflow.models.model import ModelInfo
 from mlflow.entities.model_registry.model_version import ModelVersion
 from mlflow.models.evaluation import EvaluationResult
 import pandas as pd
-
-from agent_as_code import config
 
 
 model_info: mlflow.models.model.ModelInfo
