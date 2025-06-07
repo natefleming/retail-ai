@@ -26,7 +26,7 @@ FIND := $(shell which find)
 RM := rm -rf
 CD := cd
 
-.PHONY: all clean distclean dist format help 
+.PHONY: all clean distclean dist check format help 
 
 all: dist
 
@@ -40,8 +40,10 @@ depends:
 	@$(SYNC) 
 	@$(EXPORT) > $(REQUIREMENTS_FILE)
 
-format: depends
+check: 
 	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR) 
+
+format: check depends
 	$(RUFF_FORMAT) $(SRC_DIR) $(TEST_DIR) 
 
 clean: 
