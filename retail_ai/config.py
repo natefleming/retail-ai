@@ -519,7 +519,7 @@ class DatasetModel(BaseModel):
 
 
 class UnityCatalogFunctionSqlModel(BaseModel):
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    function: UnityCatalogFunctionModel
     ddl: str
 
 
@@ -547,7 +547,9 @@ class AppConfig(BaseModel):
     app: AppModel
     evaluation: Optional[EvaluationModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
-    unity_catalog_functions: Optional[list[UnityCatalogFunctionModel]] = Field(default_factory=list)
+    unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
+        default_factory=list
+    )
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

@@ -1100,6 +1100,23 @@
       "title": "UnityCatalogFunctionModel",
       "type": "object"
     },
+    "UnityCatalogFunctionSqlModel": {
+      "properties": {
+        "function": {
+          "$ref": "#/$defs/UnityCatalogFunctionModel"
+        },
+        "ddl": {
+          "title": "Ddl",
+          "type": "string"
+        }
+      },
+      "required": [
+        "function",
+        "ddl"
+      ],
+      "title": "UnityCatalogFunctionSqlModel",
+      "type": "object"
+    },
     "VectorSearchEndpoint": {
       "properties": {
         "name": {
@@ -1334,7 +1351,7 @@
       "anyOf": [
         {
           "items": {
-            "$ref": "#/$defs/UnityCatalogFunctionModel"
+            "$ref": "#/$defs/UnityCatalogFunctionSqlModel"
           },
           "type": "array"
         },

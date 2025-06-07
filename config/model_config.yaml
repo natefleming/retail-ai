@@ -918,6 +918,32 @@ app:
     #   model: *tool_calling_llm
     #   default_agent: *general
 
+unity_catalog_functions:
+  - function:
+      schema: *retail_schema
+      name: find_inventory_by_sku
+    ddl: ../functions/retail/find_inventory_by_sku.sql
+  - function:
+      schema: *retail_schema
+      name: find_inventory_by_upc
+    ddl: ../functions/retail/find_inventory_by_upc.sql
+  - function:
+      schema: *retail_schema
+      name: find_product_by_sku
+    ddl: ../functions/retail/find_product_by_sku.sql
+  - function:
+      schema: *retail_schema
+      name: find_product_by_upc
+    ddl: ../functions/retail/find_product_by_upc.sql
+  - function:
+      schema: *retail_schema
+      name: find_store_inventory_by_sku
+    ddl: ../functions/retail/find_store_inventory_by_sku.sql
+  - function:
+      schema: *retail_schema
+      name: find_store_inventory_by_upc
+    ddl: ../functions/retail/find_store_inventory_by_upc.sql
+ 
 evaluation:
   model: *judge_llm
   table:
