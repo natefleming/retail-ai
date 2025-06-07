@@ -566,7 +566,9 @@ sqlalchemy==2.0.41
     #   langchain-community
     #   mlflow
 sqlparse==0.5.3
-    # via mlflow-skinny
+    # via
+    #   mlflow-skinny
+    #   retail-ai
 sse-starlette==2.3.5
     # via mcp
 starlette==0.46.2

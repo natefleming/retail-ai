@@ -518,6 +518,11 @@ class DatasetModel(BaseModel):
     format: DatasetFormat
 
 
+class UnityCatalogFunctionSqlModel(BaseModel):
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    ddl: str
+
+
 class ResourcesModel(BaseModel):
     llms: dict[str, LLMModel] = Field(default_factory=dict)
     vector_stores: dict[str, VectorStoreModel] = Field(default_factory=dict)
@@ -542,6 +547,7 @@ class AppConfig(BaseModel):
     app: AppModel
     evaluation: Optional[EvaluationModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
+    unity_catalog_functions: Optional[list[UnityCatalogFunctionModel]] = Field(default_factory=list)
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

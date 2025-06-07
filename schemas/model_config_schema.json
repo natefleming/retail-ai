@@ -1329,6 +1329,20 @@
         }
       ],
       "title": "Datasets"
+    },
+    "unity_catalog_functions": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/UnityCatalogFunctionModel"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Unity Catalog Functions"
     }
   },
   "required": [
