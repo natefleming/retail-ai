@@ -215,7 +215,8 @@
         "delta",
         "json",
         "parquet",
-        "orc"
+        "orc",
+        "sql"
       ],
       "title": "DatasetFormat",
       "type": "string"

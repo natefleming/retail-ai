@@ -507,6 +507,7 @@ class DatasetFormat(str, Enum):
     JSON = "json"
     PARQUET = "parquet"
     ORC = "orc"
+    SQL = "sql"
 
 
 class DatasetModel(BaseModel):
