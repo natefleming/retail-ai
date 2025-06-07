@@ -89,7 +89,8 @@ for _, vector_store in vector_stores.items():
       pipeline_type="TRIGGERED",
       primary_key=vector_store.primary_key,
       embedding_source_column=vector_store.embedding_source_column, 
-      embedding_model_endpoint_name=vector_store.embedding_model.name 
+      embedding_model_endpoint_name=vector_store.embedding_model.name,
+      columns_to_sync=vector_store.columns
     )
   else:
     vsc.get_index(vector_store.endpoint.name, vector_store.index.full_name).sync()
