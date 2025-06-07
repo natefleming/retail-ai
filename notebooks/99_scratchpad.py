@@ -3,30 +3,34 @@
 # MAGIC
 # MAGIC import os
 # MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
-# MAGIC
+
+# COMMAND ----------
+
 # MAGIC %sh uv --project ../ sync
+
+# COMMAND ----------
+
 # MAGIC %restart_python
-# MAGIC
-# MAGIC # from typing import Sequence
-# MAGIC
-# MAGIC # pip_requirements: Sequence[str] = (
-# MAGIC #   "langgraph",
-# MAGIC #   "langchain",
-# MAGIC #   "databricks-langchain", 
-# MAGIC #   "databricks-sdk",
-# MAGIC #   "mlflow",
-# MAGIC #   "python-dotenv",
-# MAGIC #   "loguru",
-# MAGIC #   "langgraph-reflection",
-# MAGIC #   "openevals",
-# MAGIC #   "duckduckgo-search",
-# MAGIC #   "faker",
-# MAGIC # )
-# MAGIC
-# MAGIC # pip_requirements: str = " ".join(pip_requirements)
-# MAGIC
-# MAGIC # %pip install --quiet --upgrade {pip_requirements}
-# MAGIC # %restart_python
+
+# COMMAND ----------
+
+import sys
+sys.path.insert(0, "..")
+
+# COMMAND ----------
+
+from retail_ai.tools import create_genie_tool
+from retail_ai.config import GenieRoomModel
+from langchain_core.tools import BaseTool, tool, StructuredTool
+from rich import print
+
+tool: StructuredTool = create_genie_tool(name="my_genie_room_tool", description="get inventory info", genie_room=GenieRoomModel(name="Genie Room", description="descirption of genie room", space_id="01f01c91f1f414d59daaefd2b7ec82ea"))
+
+print(tool.description)
+
+# COMMAND ----------
+
+type(tool)
 
 # COMMAND ----------
 
