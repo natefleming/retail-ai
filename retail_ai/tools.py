@@ -374,7 +374,7 @@ def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
 
 
 def create_vector_search_tool(
-    retriever: dict[str, Any],
+    retriever: RetrieverModel | dict[str, Any],
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> BaseTool:
@@ -434,6 +434,8 @@ def create_vector_search_tool(
 
 def create_genie_tool(
     genie_room: GenieRoomModel | dict[str, Any],
+    name: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> Callable[[str], GenieResponse]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
@@ -460,25 +462,37 @@ def create_genie_tool(
         space_id=space_id,
     )
 
+    name: str = name if name else __name__
+    
+    default_description: str = """
+    This tool lets you have a conversation and chat with tabular data about <topic>. You should ask
+    questions about the data and the tool will try to answer them.
+    Please ask simple clear questions that can be answer by sql queries. If you need to do statistics or other forms of testing defer to using another tool.
+    Try to ask for aggregations on the data and ask very simple questions.
+    Prefer to call this tool multiple times rather than asking a complex question.
+    """
+    
+    if description is None:
+        description = default_description
+        
+    doc_signature: str = """
+    Args:
+        question (str): The question to ask to ask Genie
+
+    Returns:
+        response (GenieResponse): An object containing the Genie response
+    """
+    
+    doc: str = description + "\n" + doc_signature
+        
     @tool
     def genie_tool(question: str) -> GenieResponse:
-        """
-        This tool lets you have a conversation and chat with tabular data about <topic>. You should ask
-        questions about the data and the tool will try to answer them.
-        Please ask simple clear questions that can be answer by sql queries. If you need to do statistics or other forms of testing defer to using another tool.
-        Try to ask for aggregations on the data and ask very simple questions.
-        Prefer to call this tool multiple times rather than asking a complex question.
-
-        Args:
-            question (str): The question to ask to ask Genie
-
-        Returns:
-            response (GenieResponse): An object containing the Genie response
-        """
-        # Forward the question to Genie and return its response
         response: GenieResponse = genie.ask_question(question)
         return response
 
+    genie_tool.__doc__  = doc
+    genie_tool.__name__ = name
+    
     return genie_tool
 
 
