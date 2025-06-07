@@ -112,12 +112,18 @@ for dataset in datasets:
   data_path: Path = current_dir / Path(dataset.data)
   format: str = dataset.format
 
-  statements: Sequence[str] = [s for s in re.split(r"\s*;\s*",  ddl_path.read_text()) if s]
+  statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s]
   for statement in statements:
-    spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
-    spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
+      print(statement)
+      spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
 
-
+  if format == "sql":
+      data_statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", data_path.read_text()) if s]
+      for statement in data_statements:
+          print(statement)
+          spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
+  else:
+      spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
 
 # COMMAND ----------
 
