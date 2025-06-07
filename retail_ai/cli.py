@@ -225,7 +225,10 @@ def setup_logging(verbosity: int) -> None:
 
 
 def run_databricks_command(
-    command: list[str], profile: Optional[str] = None, config: Optional[str] = None, env: Optional[str] = None
+    command: list[str],
+    profile: Optional[str] = None,
+    config: Optional[str] = None,
+    env: Optional[str] = None,
 ) -> None:
     """Execute a databricks CLI command with optional profile."""
     cmd = ["databricks"]

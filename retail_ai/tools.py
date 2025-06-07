@@ -2,6 +2,7 @@ import asyncio
 import os
 from collections import OrderedDict
 from io import StringIO
+from textwrap import dedent
 from typing import Any, Callable, Literal, Optional, Sequence
 
 import mlflow
@@ -22,7 +23,7 @@ from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrie
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.tools import BaseTool, tool, StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool, tool
 from langchain_core.vectorstores.base import VectorStore
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
@@ -45,7 +46,7 @@ from retail_ai.config import (
     WarehouseModel,
 )
 from retail_ai.utils import load_function
-from textwrap import dedent
+
 
 def find_allowable_classifications(schema: SchemaModel) -> Sequence[str]:
     """
@@ -461,7 +462,7 @@ def create_genie_tool(
     genie: Genie = Genie(
         space_id=space_id,
     )
-    
+
     default_description: str = dedent("""
     This tool lets you have a conversation and chat with tabular data about <topic>. You should ask
     questions about the data and the tool will try to answer them.
@@ -469,10 +470,10 @@ def create_genie_tool(
     Try to ask for aggregations on the data and ask very simple questions.
     Prefer to call this tool multiple times rather than asking a complex question.
     """)
-    
+
     if description is None:
         description = default_description
-        
+
     doc_signature: str = dedent("""
     Args:
         question (str): The question to ask to ask Genie
@@ -480,17 +481,19 @@ def create_genie_tool(
     Returns:
         response (GenieResponse): An object containing the Genie response
     """)
-    
+
     doc: str = description + "\n" + doc_signature
 
     def genie_tool(question: str) -> GenieResponse:
         response: GenieResponse = genie.ask_question(question)
         return response
-    
+
     name: str = name if name else genie_tool.__name__
 
-    structured_tool: StructuredTool = StructuredTool.from_function(func=genie_tool, name=name, description=doc, parse_docstring=False)
-  
+    structured_tool: StructuredTool = StructuredTool.from_function(
+        func=genie_tool, name=name, description=doc, parse_docstring=False
+    )
+
     return structured_tool
 
 
