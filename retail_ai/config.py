@@ -523,6 +523,7 @@ class UnityCatalogFunctionSqlTestModel(BaseModel):
 
 
 class UnityCatalogFunctionSqlModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
     function: UnityCatalogFunctionModel
     ddl: str
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
