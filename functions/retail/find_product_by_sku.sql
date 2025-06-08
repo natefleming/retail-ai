@@ -1,7 +1,5 @@
-USE IDENTIFIER(:database);
-
 -- Function to find product details by SKU
-CREATE OR REPLACE FUNCTION find_product_by_sku(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_product_by_sku(
   sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -26,5 +24,5 @@ SELECT
   ,merchandise_class
   ,class_cd
   ,description
-FROM products 
+FROM {catalog_name}.{schema_name}.products 
 WHERE ARRAY_CONTAINS(find_product_by_sku.sku, sku);

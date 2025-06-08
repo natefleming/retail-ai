@@ -1,9 +1,7 @@
-USE IDENTIFIER(:database);
-
 -- Function to find store-specific inventory details by SKU
-CREATE OR REPLACE FUNCTION find_store_inventory_by_sku(
-  sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters',
-  store_input STRING COMMENT 'Store identifier to filter inventory by specific store location'
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_store_inventory_by_sku(
+  store STRING COMMENT 'Store identifier to filter inventory by specific store location',
+  sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -37,8 +35,8 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM inventory inventory
-JOIN products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS(find_store_inventory_by_sku.sku, products.sku)
-AND inventory.store = find_store_inventory_by_sku.store_input;
+AND inventory.store = find_store_inventory_by_sku.store;

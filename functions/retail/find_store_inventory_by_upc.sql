@@ -1,9 +1,7 @@
-USE IDENTIFIER(:database);
-
 -- Function to find store-specific inventory details by UPC
-CREATE OR REPLACE FUNCTION find_store_inventory_by_upc(
-  upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. UPC values are 12 numeric characters',
-  store_input STRING COMMENT 'Store identifier to filter inventory by specific store location'
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_store_inventory_by_upc(
+  store STRING COMMENT 'Store identifier to filter inventory by specific store location',
+  upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. UPC values are 12 numeric characters'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -37,8 +35,8 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM inventory inventory
-JOIN products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS(find_store_inventory_by_upc.upc, products.upc)
-AND inventory.store = find_store_inventory_by_upc.store_input;
+AND inventory.store = find_store_inventory_by_upc.store;

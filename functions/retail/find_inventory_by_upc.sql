@@ -1,7 +1,5 @@
-USE IDENTIFIER(:database);
-
 -- Function to find inventory details by UPC
-CREATE OR REPLACE FUNCTION find_inventory_by_upc(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_inventory_by_upc(
   upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. UPC values are 12 numeric characters'
 )
 RETURNS TABLE(
@@ -36,7 +34,7 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM inventory inventory
-JOIN products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS(find_inventory_by_upc.upc, products.upc);

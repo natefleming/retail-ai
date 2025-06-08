@@ -935,26 +935,46 @@ unity_catalog_functions:
       schema: *retail_schema
       name: find_inventory_by_sku
     ddl: ../functions/retail/find_inventory_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"] 
   - function:
       schema: *retail_schema
       name: find_inventory_by_upc
     ddl: ../functions/retail/find_inventory_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"]
   - function:
       schema: *retail_schema
       name: find_product_by_sku
     ddl: ../functions/retail/find_product_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"]
   - function:
       schema: *retail_schema
       name: find_product_by_upc
     ddl: ../functions/retail/find_product_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"] 
   - function:
       schema: *retail_schema
       name: find_store_inventory_by_sku
     ddl: ../functions/retail/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store: "35048"
+        sku: ["00176279"]
   - function:
       schema: *retail_schema
       name: find_store_inventory_by_upc
     ddl: ../functions/retail/find_store_inventory_by_upc.sql
+    test:
+      parameters:
+        store: "35048"
+        upc: ["0017627748017"]
  
 # =============================================================================
 # EVALUATION CONFIGURATION

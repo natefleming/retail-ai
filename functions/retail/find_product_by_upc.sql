@@ -1,7 +1,5 @@
-USE IDENTIFIER(:database);
-
 -- Function to find product details by UPC
-CREATE OR REPLACE FUNCTION find_product_by_upc(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_product_by_upc(
   upc ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -26,5 +24,5 @@ SELECT
   ,merchandise_class
   ,class_cd
   ,description
-FROM products 
+FROM {catalog_name}.{schema_name}.products 
 WHERE ARRAY_CONTAINS(find_product_by_upc.upc, upc);

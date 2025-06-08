@@ -1,7 +1,5 @@
-USE IDENTIFIER(:database);
-
 -- Function to find inventory details by SKU
-CREATE OR REPLACE FUNCTION find_inventory_by_sku(
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_inventory_by_sku(
   sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters'
 )
 RETURNS TABLE(
@@ -36,7 +34,7 @@ SELECT
   ,department
   ,aisle_location
   ,is_closeout
-FROM inventory inventory
-JOIN products products
+FROM {catalog_name}.{schema_name}.inventory inventory
+JOIN {catalog_name}.{schema_name}.products products
 ON inventory.product_id = products.product_id
 WHERE ARRAY_CONTAINS(find_inventory_by_sku.sku, products.sku);

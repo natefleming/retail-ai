@@ -518,10 +518,15 @@ class DatasetModel(BaseModel):
     format: DatasetFormat
 
 
+class UnityCatalogFunctionSqlTestModel(BaseModel):
+    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
+
+
 class UnityCatalogFunctionSqlModel(BaseModel):
     function: UnityCatalogFunctionModel
     ddl: str
-
+    test: Optional[UnityCatalogFunctionSqlTestModel] = None
+    
 
 class ResourcesModel(BaseModel):
     llms: dict[str, LLMModel] = Field(default_factory=dict)
