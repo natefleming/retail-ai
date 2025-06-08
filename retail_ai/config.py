@@ -265,7 +265,7 @@ class BaseFunctionModel(BaseModel):
     type: FunctionType
     name: str
 
-    @field_serializer('type')
+    @field_serializer("type")
     def serialize_type(self, value) -> str:
         # Handle both enum objects and already-converted strings
         if isinstance(value, FunctionType):
