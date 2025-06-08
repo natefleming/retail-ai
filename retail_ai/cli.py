@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import subprocess
 import sys
 from argparse import ArgumentParser, Namespace
@@ -81,7 +82,7 @@ Exit codes:
         """,
         epilog="""
 Examples:
-  retail-ai validate                                  # Validate default ../config/model_config.yaml
+  retail-ai validate                                  # Validate default ./config/model_config.yaml
   retail-ai validate -c config/production.yaml       # Validate specific config file
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -90,9 +91,9 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="../config/model_config.yaml",
+        default="config/model_config.yaml",
         metavar="FILE",
-        help="Path to the model configuration file to validate (default: ../config/model_config.yaml)",
+        help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
     )
 
     # Graph command
@@ -127,9 +128,9 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="../config/model_config.yaml",
+        default="./config/model_config.yaml",
         metavar="FILE",
-        help="Path to the model configuration file to visualize (default: ../config/model_config.yaml)",
+        help="Path to the model configuration file to visualize (default: ./config/model_config.yaml)",
     )
 
     bundle_parser: ArgumentParser = subparsers.add_parser(
@@ -158,9 +159,9 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="../config/model_config.yaml",
+        default="./config/model_config.yaml",
         metavar="FILE",
-        help="Path to the model configuration file for the bundle (default: ../config/model_config.yaml)",
+        help="Path to the model configuration file for the bundle (default: ./config/model_config.yaml)",
     )
     bundle_parser.add_argument(
         "-d",
@@ -180,6 +181,11 @@ Examples:
         type=str,
         default="dev",
         help="Environment for the bundle (default: dev)",
+    )
+    bundle_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Perform a dry run without executing the deployment or run commands",
     )
 
     options = parser.parse_args(args)
@@ -229,6 +235,7 @@ def run_databricks_command(
     profile: Optional[str] = None,
     config: Optional[str] = None,
     env: Optional[str] = None,
+    dry_run: bool = False,
 ) -> None:
     """Execute a databricks CLI command with optional profile."""
     cmd = ["databricks"]
@@ -239,22 +246,32 @@ def run_databricks_command(
     cmd.extend(command)
     if config:
         config_path = Path(config)
-        notebooks_dir = Path("notebooks")
 
-        if config_path.is_absolute():
-            config_path = config_path.relative_to(Path.cwd())
-
-        relative_config = notebooks_dir / config_path
-        if not relative_config.exists():
-            logger.error(f"Configuration file {relative_config} does not exist.")
+        if not config_path.exists():
+            logger.error(f"Configuration file {config_path} does not exist.")
             sys.exit(1)
 
-        relative_config = Path(
-            *relative_config.parts[1:]
-        )  # Skip the first part (notebooks directory)
+        # Always convert to path relative to notebooks directory
+        # Get absolute path of config file and current working directory
+        config_abs = config_path.resolve()
+        cwd = Path.cwd()
+        notebooks_dir = cwd / "notebooks"
+
+        # Calculate relative path from notebooks directory to config file
+        try:
+            relative_config = config_abs.relative_to(notebooks_dir)
+        except ValueError:
+            # Config file is outside notebooks directory, calculate relative path
+            # Use os.path.relpath to get the relative path from notebooks_dir to config file
+            relative_config = Path(os.path.relpath(config_abs, notebooks_dir))
+
         cmd.append(f'--var="config_path={relative_config}"')
 
     logger.debug(f"Executing command: {' '.join(cmd)}")
+
+    if dry_run:
+        return
+
     try:
         process = subprocess.Popen(
             cmd,
@@ -286,13 +303,20 @@ def handle_bundle_command(options: Namespace) -> None:
     profile: Optional[str] = options.profile
     config: Optional[str] = options.config
     env: Optional[str] = options.env
+    dry_run: bool = options.dry_run
     if options.deploy:
         logger.info("Deploying Retail AI asset bundle...")
-        run_databricks_command(["bundle", "deploy"], profile, config, env)
+        run_databricks_command(
+            ["bundle", "deploy"], profile, config, env, dry_run=dry_run
+        )
     if options.run:
         logger.info("Running Retail AI system with current configuration...")
         run_databricks_command(
-            ["bundle", "run", "deploy-retail-ai-job"], profile, config, env
+            ["bundle", "run", "deploy-retail-ai-job"],
+            profile,
+            config,
+            env,
+            dry_run=dry_run,
         )
     else:
         logger.warning("No action specified. Use --deploy or --run flags.")
