@@ -1100,6 +1100,52 @@
       "title": "UnityCatalogFunctionModel",
       "type": "object"
     },
+    "UnityCatalogFunctionSqlModel": {
+      "properties": {
+        "function": {
+          "$ref": "#/$defs/UnityCatalogFunctionModel"
+        },
+        "ddl": {
+          "title": "Ddl",
+          "type": "string"
+        },
+        "test": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnityCatalogFunctionSqlTestModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "function",
+        "ddl"
+      ],
+      "title": "UnityCatalogFunctionSqlModel",
+      "type": "object"
+    },
+    "UnityCatalogFunctionSqlTestModel": {
+      "properties": {
+        "parameters": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parameters"
+        }
+      },
+      "title": "UnityCatalogFunctionSqlTestModel",
+      "type": "object"
+    },
     "VectorSearchEndpoint": {
       "properties": {
         "name": {
@@ -1329,6 +1375,20 @@
         }
       ],
       "title": "Datasets"
+    },
+    "unity_catalog_functions": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/UnityCatalogFunctionSqlModel"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Unity Catalog Functions"
     }
   },
   "required": [

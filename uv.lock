@@ -2673,6 +2673,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "sqlparse" },
     { name = "unitycatalog-ai", extra = ["databricks"] },
 ]
 
@@ -2706,6 +2707,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=14.0.0" },
+    { name = "sqlparse", specifier = ">=0.5.3" },
     { name = "unitycatalog-ai", extras = ["databricks"], specifier = ">=0.3.0" },
 ]
 

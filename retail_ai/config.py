@@ -20,7 +20,7 @@ from mlflow.models.resources import (
     DatabricksUCConnection,
     DatabricksVectorSearchIndex,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 
 class HasFullName(ABC):
@@ -265,8 +265,15 @@ class BaseFunctionModel(BaseModel):
     type: FunctionType
     name: str
 
+    @field_serializer("type")
+    def serialize_type(self, value) -> str:
+        # Handle both enum objects and already-converted strings
+        if isinstance(value, FunctionType):
+            return value.value
+        return str(value)
 
-class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+
+class PythonFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.PYTHON
@@ -278,7 +285,7 @@ class PythonFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
         return self.name
 
 
-class FactoryFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
     args: dict[str, Any] = Field(default_factory=dict)
     type: FunctionType = FunctionType.FACTORY
@@ -293,7 +300,7 @@ class TransportType(str, Enum):
     STDIO = "stdio"
 
 
-class McpFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+class McpFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
     type: FunctionType = FunctionType.MCP
 
@@ -317,7 +324,7 @@ class McpFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
         return self
 
 
-class UnityCatalogFunctionModel(HasFullName, BaseFunctionModel, BaseModel):
+class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.UNITY_CATALOG
@@ -518,6 +525,17 @@ class DatasetModel(BaseModel):
     format: DatasetFormat
 
 
+class UnityCatalogFunctionSqlTestModel(BaseModel):
+    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
+
+
+class UnityCatalogFunctionSqlModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    function: UnityCatalogFunctionModel
+    ddl: str
+    test: Optional[UnityCatalogFunctionSqlTestModel] = None
+
+
 class ResourcesModel(BaseModel):
     llms: dict[str, LLMModel] = Field(default_factory=dict)
     vector_stores: dict[str, VectorStoreModel] = Field(default_factory=dict)
@@ -542,6 +560,9 @@ class AppConfig(BaseModel):
     app: AppModel
     evaluation: Optional[EvaluationModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
+    unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
+        default_factory=list
+    )
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

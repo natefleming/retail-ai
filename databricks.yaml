@@ -77,19 +77,20 @@ resources:
               config-path: ${var.config_path}
           libraries:
             - whl: ./dist/*.whl
-        # - task_key: create-monitor
-        #   depends_on:
-        #     - task_key: deploy-agents
-        #   job_cluster_key: common-cluster
-        #   notebook_task:
-        #     notebook_path: ./notebooks/07_create_monitor.py
-        #     base_parameters:
-        #       config-path: ${var.config_path}
-        #   libraries:
-        #     - whl: ./dist/*.whl
+        - task_key: create-monitor
+          depends_on:
+            - task_key: deploy-agents
+          job_cluster_key: common-cluster
+          notebook_task:
+            notebook_path: ./notebooks/07_create_monitor.py
+            base_parameters:
+              config-path: ${var.config_path}
+          libraries:
+            - whl: ./dist/*.whl
         - task_key: run-evaluation
           depends_on:
-        #    - task_key: create-monitor
+            - task_key: create-monitor
+            - task_key: deploy-agents
             - task_key: generate-evaluation-data
           job_cluster_key: common-cluster
           notebook_task:

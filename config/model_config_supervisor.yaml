@@ -1,57 +1,87 @@
 # yaml-language-server: $schema=../schemas/model_config_schema.json
 
+# =============================================================================
+# Multi-Agent AI Orchestration Framework Configuration
+# =============================================================================
+# This configuration file defines the complete setup for the multi-agent system
+# including schemas, resources, tools, agents, and orchestration patterns.
+
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+# Define Unity Catalog schemas where data and functions will be stored
 schemas:
   retail_schema: &retail_schema
-    catalog_name: nfleming
-    schema_name: retail_ai
-    permissions:
-      - principals: [users]
+    catalog_name: nfleming                    # Unity Catalog name
+    schema_name: retail_ai                    # Schema within the catalog
+    permissions:                              # Access permissions for the schema
+      - principals: [users]                   # Grant access to all users
         privileges:
-          - ALL_PRIVILEGES
+          - ALL_PRIVILEGES                    # Full permissions for demo purposes
+
+# =============================================================================
+# RESOURCES CONFIGURATION
+# =============================================================================
+# Define all resources needed by the multi-agent system including LLMs,
+# vector stores, databases, tables, and other Databricks resources
 
 resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS (LLMs)
+  # ---------------------------------------------------------------------------
+  # Configure different LLMs for various purposes in the agent system
   llms:
+    # Primary LLM for general tasks
     default_llm: &default_llm
+      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+
+    # LLM optimized for tool calling and function execution
+    tool_calling_llm: &tool_calling_llm
       name: databricks-meta-llama-3-3-70b-instruct
       temperature: 0.1
       max_tokens: 8192
+      fallbacks:                                     # Fallback models if primary fails
+        - databricks-claude-3-7-sonnet
 
-    tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-3-7-sonnet
-      temperature: 0.1
-      max_tokens: 8192
-      fallbacks:
-        - databricks-meta-llama-3-3-70b-instruct
-
+    # LLM for complex reasoning tasks
     reasoning_llm: &reasoning_llm
       name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 8192
 
+    # LLM for evaluating and judging responses (guardrails)
     judge_llm: &judge_llm
       name: databricks-claude-3-7-sonnet
-      temperature: 0.5
+      temperature: 0.5                              # Higher temperature for diverse judgments
       max_tokens: 8192
 
+    # Embedding model for vector search and semantic similarity
     embedding_model: &embedding_model
-      name: databricks-gte-large-en
+      name: databricks-gte-large-en                 # Text embedding model
 
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES
+  # ---------------------------------------------------------------------------
+  # Configure vector databases for semantic search and retrieval
   vector_stores:
+    # Product information vector store for similarity search
     products_vector_store: &products_vector_store
-      embedding_model: *embedding_model
-      endpoint:
-        name: one-env-shared-endpoint-12
-        type: STANDARD
-      index:
-        schema: *retail_schema
-        name: products_index
-      source_table:
+      embedding_model: *embedding_model             # Reference to embedding model above
+      endpoint:                                     # Vector search endpoint configuration
+        name: one-env-shared-endpoint-12            # Databricks vector search endpoint
+        type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
+      index:                                        # Vector search index configuration
+        schema: *retail_schema                      # Unity Catalog schema for the index
+        name: products_index                        # Index name
+      source_table:                                 # Table containing source data
         schema: *retail_schema
         name: products
-      primary_key: product_id
-      doc_uri: ~
-      embedding_source_column: description
-      columns:
+      primary_key: product_id                       # Primary key column
+      doc_uri: ~                                    # Optional document URI column (null in this case)
+      embedding_source_column: description          # Column to create embeddings from
+      columns:                                      # Columns to include in vector store
         - product_id
         - sku
         - upc
@@ -61,63 +91,105 @@ resources:
         - class_cd
         - description
 
+  # ---------------------------------------------------------------------------
+  # GENIE ROOMS
+  # ---------------------------------------------------------------------------
+  # Configure Databricks Genie spaces for natural language querying
   genie_rooms:
+    # Genie space for retail data queries
     retail_genie_room: &retail_genie_room
-      name: "Retail AI Genie Room"
-      description: "A room for Genie agents to interact"
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+      name: "Retail AI Genie Room"                  # Human-readable name
+      description: "A room for Genie agents to interact"  # Description
+      space_id: 01f01c91f1f414d59daaefd2b7ec82ea    # Databricks Genie space ID
 
+  # ---------------------------------------------------------------------------
+  # TABLES
+  # ---------------------------------------------------------------------------
+  # Define Unity Catalog tables used by the system
   tables:
+    # Product catalog table
     product_table: &product_table
-      schema: *retail_schema
-      name: products
+      schema: *retail_schema                        # Reference to schema defined above
+      name: products                                # Table name
+    
+    # Inventory tracking table
     inventory_table: &inventory_table
       schema: *retail_schema
       name: inventory
 
+  # ---------------------------------------------------------------------------
+  # VOLUMES
+  # ---------------------------------------------------------------------------
+  # Define Unity Catalog volumes for file storage
   volumes:
+    # Volume for retail AI assets and files
     retail_volume: &retail_volume
       schema: *retail_schema
       name: retail_ai
 
+  # ---------------------------------------------------------------------------
+  # FUNCTIONS
+  # ---------------------------------------------------------------------------
+  # Define Unity Catalog functions for data operations
   functions:
+    # Product lookup functions
     find_product_by_sku: &find_product_by_sku
       schema: *retail_schema
-      name: find_product_by_sku
+      name: find_product_by_sku                     # Function to find products by SKU
     find_product_by_upc: &find_product_by_upc
       schema: *retail_schema
-      name: find_product_by_upc
+      name: find_product_by_upc                     # Function to find products by UPC
+    
+    # Inventory lookup functions
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *retail_schema
-      name: find_inventory_by_sku
+      name: find_inventory_by_sku                   # Function to find inventory by SKU
     find_inventory_by_upc: &find_inventory_by_upc
       schema: *retail_schema
-      name: find_inventory_by_upc
+      name: find_inventory_by_upc                   # Function to find inventory by UPC
+    
+    # Store-specific inventory functions
     find_store_inventory_by_upc: &find_store_inventory_by_upc
       schema: *retail_schema
-      name: find_store_inventory_by_upc
+      name: find_store_inventory_by_upc             # Store-specific UPC inventory lookup
     find_store_inventory_by_sku: &find_store_inventory_by_sku
       schema: *retail_schema
-      name: find_store_inventory_by_sku
+      name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
 
+  # ---------------------------------------------------------------------------
+  # WAREHOUSES
+  # ---------------------------------------------------------------------------
+  # Define SQL warehouses for query execution
   warehouses:
+    # Shared warehouse for general query execution
     shared_endpoint_warehouse: &shared_endpoint_warehouse
-      name: "Shared Endpoint Warehouse"
-      description: "A warehouse for shared endpoints"
-      warehouse_id: 148ccb90800933a1
+      name: "Shared Endpoint Warehouse"             # Human-readable name
+      description: "A warehouse for shared endpoints"  # Description
+      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
 
+  # ---------------------------------------------------------------------------
+  # DATABASES
+  # ---------------------------------------------------------------------------
+  # Configure external databases (e.g., PostgreSQL for checkpoints and memory)
   databases:
+    # PostgreSQL database for agent memory and checkpoints
     retail_database: &retail_database
-      name: "Retail Database"
-      connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
-      connection_kwargs:
-        autocommit: True
-        prepare_threshold: 0
+      name: "Retail Database"                       # Human-readable name
+      #connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"  # Commented out - uses env vars
+      connection_kwargs:                            # Additional connection parameters
+        autocommit: True                            # Enable autocommit mode
+        prepare_threshold: 0                        # Disable prepared statements
+
+# =============================================================================
+# RETRIEVERS CONFIGURATION
+# =============================================================================
+# Configure retrieval systems for semantic search and information retrieval
 
 retrievers:
+  # Product information retriever using vector search
   products_retriever: &products_retriever
-    vector_store: *products_vector_store
-    columns:
+    vector_store: *products_vector_store            # Reference to vector store defined above
+    columns:                                        # Columns to return in search results
       - product_id
       - sku
       - upc
@@ -126,45 +198,64 @@ retrievers:
       - merchandise_class
       - class_cd
       - description
-    search_parameters:
-      num_results: 10
-      filters: {}
-      query_type: ANN
+    search_parameters:                              # Search configuration
+      num_results: 10                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# Define tools that agents can use to perform various tasks
+# Tools can be of different types: python, factory, unity_catalog, or mcp
 
 tools:
+  # ---------------------------------------------------------------------------
+  # MCP (Model Context Protocol) TOOLS
+  # ---------------------------------------------------------------------------
+  # External tools accessible via MCP protocol
   weather_tool_mcp: &weather_tool_mcp
-    name: weather
+    name: weather                                   # Tool name for agent reference
     function:
-      type: mcp
-      name: weather
-      transport: streamable_http
-      url: http://localhost:8000/mcp
+      type: mcp                                     # Tool type: MCP server
+      name: weather                                 # MCP function name
+      transport: streamable_http                    # Transport protocol
+      url: http://localhost:8000/mcp                # MCP server URL
 
+  # ---------------------------------------------------------------------------
+  # FACTORY TOOLS
+  # ---------------------------------------------------------------------------
+  # Tools created by factory functions - configured at runtime
+  
+  # Databricks Genie integration tool
   genie_tool: &genie_tool
     name: genie
     function:
-      type: factory
-      name: retail_ai.tools.create_genie_tool
-      args:
-        genie_room: *retail_genie_room
+      type: factory                                 # Tool type: factory function
+      name: retail_ai.tools.create_genie_tool       # Factory function path
+      args:                                         # Arguments passed to factory
+        genie_room: *retail_genie_room              # Reference to Genie room config
 
+  # Web search tool for general information
   search_tool: &search_tool
     name: search
     function:
       type: factory
-      name: retail_ai.tools.search_tool
-      args: {}
+      name: retail_ai.tools.search_tool             # Factory function for web search
+      args: {}                                      # No arguments needed
 
+  # Vector search tool for product similarity
   vector_search_tool: &vector_search_tool
     name: vector_search
     function:
       type: factory
       name: retail_ai.tools.create_vector_search_tool
       args:
-        retriever: *products_retriever
-        name: product_vector_search_tool
-        description: "Search for products using vector search"
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products using vector search"  # Tool description
 
+  # Product details search by description
   find_product_details_by_description_tool:
     &find_product_details_by_description_tool
     name: find_product_details_by_description
@@ -172,13 +263,19 @@ tools:
       type: factory
       name: retail_ai.tools.find_product_details_by_description_tool
       args:
-        retriever: *products_retriever
+        retriever: *products_retriever              # Uses product retriever for search
 
+  # ---------------------------------------------------------------------------
+  # UNITY CATALOG TOOLS
+  # ---------------------------------------------------------------------------
+  # Tools that directly call Unity Catalog functions
+  
+  # Product lookup tools using Unity Catalog functions
   find_product_by_sku_uc_tool: &find_product_by_sku_uc_tool
     name: find_product_by_sku_uc
     function:
-      type: unity_catalog
-      <<: *find_product_by_sku
+      type: unity_catalog                           # Tool type: Unity Catalog function
+      <<: *find_product_by_sku                      # Merge function configuration
 
   find_product_by_upc_uc_tool: &find_product_by_upc_uc_tool
     name: find_product_by_upc_uc
@@ -186,6 +283,7 @@ tools:
       type: unity_catalog
       <<: *find_product_by_upc
 
+  # Inventory lookup tools using Unity Catalog functions
   find_inventory_by_sku_uc_tool: &find_inventory_by_sku_uc_tool
     name: find_inventory_by_sku_uc
     function:
@@ -198,6 +296,7 @@ tools:
       type: unity_catalog
       <<: *find_inventory_by_upc
 
+  # Store-specific inventory tools using Unity Catalog functions
   find_store_inventory_by_sku_uc_tool: &find_store_inventory_by_sku_uc_tool
     name: find_store_inventory_by_sku_uc
     function:
@@ -210,14 +309,20 @@ tools:
       type: unity_catalog
       <<: *find_store_inventory_by_upc
 
+  # ---------------------------------------------------------------------------
+  # FACTORY TOOLS FOR DATA ACCESS
+  # ---------------------------------------------------------------------------
+  # Tools that wrap database functions with additional logic
+  
+  # Product lookup tools with enhanced functionality
   find_product_by_sku_tool: &find_product_by_sku_tool
     name: find_product_by_sku
     function:
       type: factory
       name: retail_ai.tools.create_find_product_by_sku_tool
       args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
+        schema: *retail_schema                      # Reference to schema configuration
+        warehouse: *shared_endpoint_warehouse       # Reference to warehouse configuration
 
   find_product_by_upc_tool: &find_product_by_upc_tool
     name: find_product_by_upc
@@ -228,6 +333,7 @@ tools:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
+  # Inventory lookup tools with enhanced functionality
   find_inventory_by_sku_tool: &find_inventory_by_sku_tool
     name: find_inventory_by_sku
     function:
@@ -246,6 +352,7 @@ tools:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
+  # Store-specific inventory tools with enhanced functionality
   find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
     name: find_store_inventory_by_sku
     function:
@@ -264,11 +371,17 @@ tools:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
 
+# =============================================================================
+# GUARDRAILS CONFIGURATION
+# =============================================================================
+# Define response quality and safety checks for agent outputs
+
 guardrails:
+  # LLM-based response evaluation guardrail
   llm_judge_guardrail: &llm_judge_guardrail
-    name: llm_judge
-    model: *judge_llm
-    prompt: |
+    name: llm_judge                                 # Guardrail identifier
+    model: *judge_llm                               # Reference to judge LLM defined above
+    prompt: |                                       # Evaluation prompt for the judge LLM
       You are an expert judge evaluating AI responses. Your task is to critique the AI assistant's latest response in the conversation below.
 
       Evaluate the response based on these criteria:
@@ -290,29 +403,48 @@ guardrails:
       ### Response:
       {outputs}
 
-memory: &memory
-  checkpointer: 
-    name: default_checkpointer
-    type: postgres
-    database: *retail_database
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# Configure persistent storage for agent conversations and context
 
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier
+    type: postgres                                  # Storage type (postgres or memory)
+    database: *retail_database                      # Reference to database configuration
+
+  # Long-term memory store for agent context
   store: 
-    name: default_store
-    embedding_model: *embedding_model
-    dims: 1536
+    name: default_store                             # Store identifier
+    type: memory                                    # Store type (memory or postgres)
+    embedding_model: *embedding_model               # Model for semantic memory
+    dims: 1536                                      # Embedding dimensions
+    database: *retail_database                      # Database for persistence (if needed)
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+# Define specialized agents for different aspects of customer service
+# Each agent has specific tools, capabilities, and responsibilities
 
 agents:
+  # ---------------------------------------------------------------------------
+  # GENERAL AGENT
+  # ---------------------------------------------------------------------------
+  # Handles general store information and basic inquiries
   general: &general
-    name: general
+    name: general                                   # Agent identifier
     description: "General retail store assistant for home improvement and hardware store inquiries"
-    model: *tool_calling_llm
-    tools:
+    model: *tool_calling_llm                       # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
       - *find_product_details_by_description_tool
-    guardrails:
+    guardrails:                                     # Quality checks (currently disabled)
       []
       #- *llm_judge_guardrail
-    memory: *memory
-    prompt: |
+    memory: *memory                                 # Reference to memory configuration
+    prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -349,15 +481,19 @@ agents:
       - Be transparent about limitations in your knowledge
 
       Remember: Search first, then respond with accurate, helpful information.
-    handoff_prompt: |
+    handoff_prompt: |                               # Conditions for routing to this agent
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
 
+  # ---------------------------------------------------------------------------
+  # ORDERS AGENT  
+  # ---------------------------------------------------------------------------
+  # Specializes in order tracking, delivery, and order management
   orders: &orders
     name: orders
     description: "Order management specialist for tracking orders, delivery status, and related inquiries"
     model: *tool_calling_llm
-    tools: []
+    tools: []                                       # No specific tools assigned (would be added as needed)
     guardrails: []
     memory: *memory
     prompt: |
@@ -404,16 +540,20 @@ agents:
       - Offer alternative contact methods for immediate assistance
 
       Remember: Search first for accurate, current order information, then provide helpful, actionable guidance.
-    handoff_prompt: |
+    handoff_prompt: |                               # Conditions for routing to this agent
       Questions about tracking orders, delivery status, scheduling deliveries or services, order modifications, cancellations, or returns
       Example: "When will my order arrive?" or "Can I schedule delivery for my new refrigerator?" or "I need to cancel my order"
 
+  # ---------------------------------------------------------------------------
+  # DIY AGENT
+  # ---------------------------------------------------------------------------
+  # Provides DIY advice, tutorials, and project guidance
   diy: &diy
     name: diy
     description: "DIY and home improvement expert providing how-to advice, project guidance, and tool recommendations"
     model: *tool_calling_llm
     tools:
-      - *find_product_details_by_description_tool
+      - *find_product_details_by_description_tool   # Can search for tools and materials
     guardrails:
       []
       # - *llm_judge_guardrail
@@ -749,34 +889,97 @@ agents:
       ### Response Guidelines
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
 
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+# Define the main application settings, registered model, endpoint configuration,
+# and agent orchestration patterns for the multi-agent system
+
 app:
-  log_level: INFO
-  registered_model:
-    schema: *retail_schema
-    name: retail_ai_agent
-  endpoint_name: retail_ai_agent
-  tags:
-    business: rcg
-    streaming: true
-  permissions:
-    - principals: [users]
+  log_level: INFO                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: retail_ai_agent                           # Model name in MLflow registry
+  endpoint_name: retail_ai_agent                    # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
       entitlements:
-        - CAN_MANAGE
-  agents:
-    - *orders
-    - *diy
-    - *product
-    - *inventory
-    - *comparison
-    - *recommendation
-    - *general
-  orchestration:
-    supervisor:
-      model: *tool_calling_llm
-      default_agent: *general
+        - CAN_MANAGE                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *orders                                       # Order management agent
+    - *diy                                          # DIY and tutorials agent
+    - *product                                      # Product information agent
+    - *inventory                                    # Inventory management agent
+    - *comparison                                   # Product comparison agent
+    - *recommendation                               # Product recommendation agent
+    - *general                                      # General purpose agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *tool_calling_llm                      # LLM for routing decisions
+      default_agent: *general                       # Default agent when no specific match
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS DEPLOYMENT
+# =============================================================================
+# Define Unity Catalog functions to be deployed from SQL DDL files
+# These functions provide data access capabilities for the agent tools
+
+unity_catalog_functions:
+  - function:
+      schema: *retail_schema
+      name: find_inventory_by_sku
+    ddl: ../functions/retail/find_inventory_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"] 
+  - function:
+      schema: *retail_schema
+      name: find_inventory_by_upc
+    ddl: ../functions/retail/find_inventory_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"]
+  - function:
+      schema: *retail_schema
+      name: find_product_by_sku
+    ddl: ../functions/retail/find_product_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"]
+  - function:
+      schema: *retail_schema
+      name: find_product_by_upc
+    ddl: ../functions/retail/find_product_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"] 
+  - function:
+      schema: *retail_schema
+      name: find_store_inventory_by_sku
+    ddl: ../functions/retail/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store: "35048"
+        sku: ["00176279"]
+  - function:
+      schema: *retail_schema
+      name: find_store_inventory_by_upc
+    ddl: ../functions/retail/find_store_inventory_by_upc.sql
+    test:
+      parameters:
+        store: "35048"
+        upc: ["0017627748017"]
+ 
+# =============================================================================
+# EVALUATION CONFIGURATION
+# =============================================================================
+# Configure automated evaluation settings for agent performance assessment
 
 evaluation:
   model: *judge_llm
@@ -784,6 +987,12 @@ evaluation:
     schema: *retail_schema
     name: evaluation
   num_evals: 25
+
+# =============================================================================
+# DATASETS CONFIGURATION
+# =============================================================================
+# Define source datasets for the system including table schemas, DDL files,
+# and data files for initial population of Unity Catalog tables
 
 datasets:
   - table: 

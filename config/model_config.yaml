@@ -889,34 +889,97 @@ agents:
       ### Response Guidelines
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
 
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+# Define the main application settings, registered model, endpoint configuration,
+# and agent orchestration patterns for the multi-agent system
+
 app:
-  log_level: INFO
-  registered_model:
-    schema: *retail_schema
-    name: retail_ai_agent
-  endpoint_name: retail_ai_agent
-  tags:
-    business: rcg
-    streaming: true
-  permissions:
-    - principals: [users]
+  log_level: INFO                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: retail_ai_agent                           # Model name in MLflow registry
+  endpoint_name: retail_ai_agent                    # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
       entitlements:
-        - CAN_MANAGE
-  agents:
-    - *orders
-    - *diy
-    - *product
-    - *inventory
-    - *comparison
-    - *recommendation
-    - *general
-  orchestration:
-    supervisor:
-      model: *tool_calling_llm
-      default_agent: *general
+        - CAN_MANAGE                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *orders                                       # Order management agent
+    - *diy                                          # DIY and tutorials agent
+    - *product                                      # Product information agent
+    - *inventory                                    # Inventory management agent
+    - *comparison                                   # Product comparison agent
+    - *recommendation                               # Product recommendation agent
+    - *general                                      # General purpose agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *tool_calling_llm                      # LLM for routing decisions
+      default_agent: *general                       # Default agent when no specific match
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS DEPLOYMENT
+# =============================================================================
+# Define Unity Catalog functions to be deployed from SQL DDL files
+# These functions provide data access capabilities for the agent tools
+
+unity_catalog_functions:
+  - function:
+      schema: *retail_schema
+      name: find_inventory_by_sku
+    ddl: ../functions/retail/find_inventory_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"] 
+  - function:
+      schema: *retail_schema
+      name: find_inventory_by_upc
+    ddl: ../functions/retail/find_inventory_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"]
+  - function:
+      schema: *retail_schema
+      name: find_product_by_sku
+    ddl: ../functions/retail/find_product_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"]
+  - function:
+      schema: *retail_schema
+      name: find_product_by_upc
+    ddl: ../functions/retail/find_product_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"] 
+  - function:
+      schema: *retail_schema
+      name: find_store_inventory_by_sku
+    ddl: ../functions/retail/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store: "35048"
+        sku: ["00176279"]
+  - function:
+      schema: *retail_schema
+      name: find_store_inventory_by_upc
+    ddl: ../functions/retail/find_store_inventory_by_upc.sql
+    test:
+      parameters:
+        store: "35048"
+        upc: ["0017627748017"]
+ 
+# =============================================================================
+# EVALUATION CONFIGURATION
+# =============================================================================
+# Configure automated evaluation settings for agent performance assessment
 
 evaluation:
   model: *judge_llm
@@ -924,6 +987,12 @@ evaluation:
     schema: *retail_schema
     name: evaluation
   num_evals: 25
+
+# =============================================================================
+# DATASETS CONFIGURATION
+# =============================================================================
+# Define source datasets for the system including table schemas, DDL files,
+# and data files for initial population of Unity Catalog tables
 
 datasets:
   - table: 

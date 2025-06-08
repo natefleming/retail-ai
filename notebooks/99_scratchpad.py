@@ -19,6 +19,26 @@ sys.path.insert(0, "..")
 
 # COMMAND ----------
 
+from mlflow.models import ModelConfig
+from retail_ai.config import AppConfig
+
+model_config_path: str = "../config/model_config.yaml"
+model_config: ModelConfig = ModelConfig(development_config=model_config_path)
+config: AppConfig = AppConfig(**model_config.to_dict())
+
+# COMMAND ----------
+
+import yaml
+
+
+yaml.safe_dump(config.model_dump())
+
+# COMMAND ----------
+
+**config.model_dump_json()
+
+# COMMAND ----------
+
 from retail_ai.tools import create_genie_tool
 from retail_ai.config import GenieRoomModel
 from langchain_core.tools import BaseTool, tool, StructuredTool

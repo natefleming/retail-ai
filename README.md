@@ -231,6 +231,97 @@ There are four types of tools supported:
    **Development:**
    Create the corresponding SQL function in your Databricks Unity Catalog using the specified schema and function name. The tool will automatically generate the appropriate function signature and documentation.
 
+### Developing Unity Catalog Functions
+
+Unity Catalog functions provide the backbone for data access in the multi-agent system. The framework automatically deploys these functions from SQL DDL files during system initialization.
+
+#### Function Deployment Configuration
+
+Unity Catalog functions are defined in the `unity_catalog_functions` section of [`model_config.yaml`](config/model_config.yaml). Each function specification includes:
+
+- **Function metadata**: Schema and name for Unity Catalog registration
+- **DDL file path**: Location of the SQL file containing the function definition
+- **Test parameters**: Optional test data for function validation
+
+**Configuration Example from [`model_config.yaml`](config/model_config.yaml):**
+```yaml
+unity_catalog_functions:
+  - function:
+      schema: *retail_schema               # Reference to schema configuration
+      name: find_product_by_sku           # Function name in Unity Catalog
+    ddl: ../functions/retail/find_product_by_sku.sql  # Path to SQL DDL file
+    test:                                 # Optional test configuration
+      parameters:
+        sku: ["00176279"]                 # Test parameters for validation
+  - function:
+      schema: *retail_schema
+      name: find_store_inventory_by_sku
+    ddl: ../functions/retail/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store: "35048"                    # Multiple parameters for complex functions
+        sku: ["00176279"]
+```
+
+#### SQL Function Structure
+
+SQL files should follow this structure for proper deployment:
+
+**File Structure Example** (`functions/retail/find_product_by_sku.sql`):
+```sql
+-- Function to find product details by SKU
+CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_product_by_sku(
+  sku ARRAY<STRING> COMMENT 'One or more unique identifiers for retrieve. SKU values are between 5-8 alpha numeric characters'
+)
+RETURNS TABLE(
+  product_id BIGINT COMMENT 'Unique identifier for each product in the catalog',
+  sku STRING COMMENT 'Stock Keeping Unit - unique internal product identifier code',
+  upc STRING COMMENT 'Universal Product Code - standardized barcode number for product identification',
+  brand_name STRING COMMENT 'Name of the manufacturer or brand that produces the product',
+  product_name STRING COMMENT 'Display name of the product as shown to customers',
+  -- ... additional columns
+)
+READS SQL DATA
+COMMENT 'Retrieves detailed information about a specific product by its SKU. This function is designed for product information retrieval in retail applications.'
+RETURN 
+SELECT 
+  product_id,
+  sku,
+  upc,
+  brand_name,
+  product_name
+  -- ... additional columns
+FROM products
+WHERE ARRAY_CONTAINS(find_product_by_sku.sku, products.sku);
+```
+
+**Key Requirements:**
+- Use `{catalog_name}.{schema_name}` placeholders - these are automatically replaced during deployment
+- Include comprehensive `COMMENT` attributes for all parameters and return columns
+- Provide a clear function-level comment describing purpose and use cases
+- Use `READS SQL DATA` for functions that query data
+- Follow consistent naming conventions for parameters and return values
+
+#### Test Configuration
+
+The optional `test` section allows you to define test parameters for automatic function validation:
+
+```yaml
+test:
+  parameters:
+    sku: ["00176279"]                     # Single parameter
+    # OR for multi-parameter functions:
+    store: "35048"                        # Multiple parameters
+    sku: ["00176279"]
+```
+
+**Test Benefits:**
+- **Validation**: Ensures functions work correctly after deployment
+- **Documentation**: Provides example usage for other developers
+- **CI/CD Integration**: Enables automated testing in deployment pipelines
+
+**Note**: Test parameters should use realistic data from your datasets to ensure meaningful validation. The framework will execute these tests automatically during deployment to verify function correctness.
+
 #### 4. MCP (Model Context Protocol) Tools (`type: mcp`)
    MCP tools allow interaction with external services that implement the Model Context Protocol, supporting both HTTP and stdio transports.
 
