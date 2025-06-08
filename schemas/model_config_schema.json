@@ -1108,6 +1108,17 @@
         "ddl": {
           "title": "Ddl",
           "type": "string"
+        },
+        "test": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnityCatalogFunctionSqlTestModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1115,6 +1126,24 @@
         "ddl"
       ],
       "title": "UnityCatalogFunctionSqlModel",
+      "type": "object"
+    },
+    "UnityCatalogFunctionSqlTestModel": {
+      "properties": {
+        "parameters": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parameters"
+        }
+      },
+      "title": "UnityCatalogFunctionSqlTestModel",
       "type": "object"
     },
     "VectorSearchEndpoint": {
