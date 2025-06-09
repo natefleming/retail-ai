@@ -77,8 +77,9 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
     for handoff_to_agent in agent_handoffs:
         if isinstance(handoff_to_agent, str):
             handoff_to_agent = next(
-                config.find_agents(lambda a: a.name == handoff_to_agent), None
+                iter(config.find_agents(lambda a: a.name == handoff_to_agent)), None
             )
+
         if handoff_to_agent is None:
             logger.warning(
                 f"Handoff agent {handoff_to_agent} not found in configuration for agent {agent.name}"
@@ -86,7 +87,9 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
             continue
         if agent.name == handoff_to_agent.name:
             continue
-        logger.debug(f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}")
+        logger.debug(
+            f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}"
+        )
         handoff_tools.append(
             create_handoff_tool(
                 agent_name=handoff_to_agent.name,
