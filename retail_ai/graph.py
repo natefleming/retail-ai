@@ -70,9 +70,9 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
     handoffs: dict[str, Sequence[AgentModel | str]] = (
         config.app.orchestration.swarm.handoffs or {}
     )
-    agent_handoffs: Sequence[AgentModel | str] = handoffs.get(
-        agent.name, config.app.agents
-    )
+    agent_handoffs: Sequence[AgentModel | str] = handoffs.get(agent.name)
+    if agent_handoffs is None:
+        agent_handoffs = config.app.agents
 
     for handoff_to_agent in agent_handoffs:
         if isinstance(handoff_to_agent, str):
