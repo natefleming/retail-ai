@@ -86,6 +86,7 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
             continue
         if agent.name == handoff_to_agent.name:
             continue
+        logger.debug(f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}")
         handoff_tools.append(
             create_handoff_tool(
                 agent_name=handoff_to_agent.name,
