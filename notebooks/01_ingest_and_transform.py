@@ -125,8 +125,3 @@ for dataset in datasets:
           spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
   else:
       spark.read.format(format).options(**read_options).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
-
-# COMMAND ----------
-
-for dataset in config.datasets:
-  display(spark.table(dataset.table.full_name))
