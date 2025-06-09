@@ -509,7 +509,7 @@ class AppModel(BaseModel):
     scale_to_zero: Optional[bool] = True
     environment_vars: Optional[dict[str, Any]] = Field(default_factory=dict)
     budget_policy_id: Optional[str] = None
-    workload_size: Optional[WorkloadSize] = WorkloadSize.SMALL
+    workload_size: Optional[WorkloadSize] = "Small"
     permissions: list[AppPermissionModel]
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
@@ -562,7 +562,7 @@ class ResourcesModel(BaseModel):
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(extra="allow", use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True)
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)

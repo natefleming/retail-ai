@@ -243,18 +243,23 @@ from databricks import agents
 from retail_ai.models import get_latest_model_version
 
 
-registered_model_name: str = config.app.registered_model.full_name
 endpoint_name: str = config.app.endpoint_name
+registered_model_name: str = config.app.registered_model.full_name
+scale_to_zero: bool = config.app.scale_to_zero
+environment_vars: dict[str, str] = config.app.environment_vars
+workload_size: str = config.app.workload_size
 tags: dict[str, str] = config.app.tags
+
+
 latest_version: int = get_latest_model_version(registered_model_name)
 
 agents.deploy(
+    endpoint_name=endpoint_name,
     model_name=registered_model_name,
     model_version=latest_version,
-    scale_to_zero=True,
-    environment_vars={},
-    workload_size="Small",
-    endpoint_name=endpoint_name,
+    scale_to_zero=scale_to_zero,
+    environment_vars=environment_vars,
+    workload_size=workload_size,
     tags=tags,
 )
 
