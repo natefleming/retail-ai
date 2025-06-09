@@ -1382,7 +1382,6 @@
       "type": "string"
     }
   },
-  "additionalProperties": true,
   "properties": {
     "schemas": {
       "additionalProperties": {

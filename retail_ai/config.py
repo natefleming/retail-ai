@@ -499,7 +499,7 @@ class WorkloadSize(str, Enum):
     MEDIUM = "Medium"
     LARGE = "Large"
 
-    
+
 class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     log_level: LogLevel
