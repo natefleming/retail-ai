@@ -107,10 +107,12 @@ class LLMModel(BaseModel, IsDatabricksResource):
 
     def as_chat_model(self) -> LanguageModelLike:
         chat_client: LanguageModelLike = ChatDatabricks(
-            model=self.name, temperature=self.temperature
+            model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
         fallbacks: Sequence[LanguageModelLike] = [
-            ChatDatabricks(model=f, temperature=self.temperature)
+            ChatDatabricks(
+                model=f, temperature=self.temperature, max_tokens=self.max_tokens
+            )
             for f in self.fallbacks
             if f != self.name
         ]
@@ -445,7 +447,9 @@ class SupervisorModel(BaseModel):
 class SwarmModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
-    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(default_factory=dict)
+    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
+        default_factory=dict
+    )
 
 
 class OrchestrationModel(BaseModel):
