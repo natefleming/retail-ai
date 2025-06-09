@@ -289,6 +289,18 @@
         },
         "format": {
           "$ref": "#/$defs/DatasetFormat"
+        },
+        "read_options": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read Options"
         }
       },
       "required": [
@@ -1048,14 +1060,17 @@
           "anyOf": [
             {
               "additionalProperties": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/AgentModel"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/AgentModel"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
               },
               "type": "object"
             },
