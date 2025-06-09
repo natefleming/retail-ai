@@ -536,6 +536,7 @@ class DatasetModel(BaseModel):
     ddl: str
     data: str
     format: DatasetFormat
+    read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
