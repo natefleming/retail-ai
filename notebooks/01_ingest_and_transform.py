@@ -111,6 +111,7 @@ for dataset in datasets:
   ddl_path: Path = Path(dataset.ddl)
   data_path: Path = current_dir / Path(dataset.data)
   format: str = dataset.format
+  read_options: dict[str, Any] = dataset.read_options or {}
 
   statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s]
   for statement in statements:
@@ -123,10 +124,9 @@ for dataset in datasets:
           print(statement)
           spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
   else:
-      spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
+      spark.read.format(format).options(**read_options).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
 
 # COMMAND ----------
-
 
 for dataset in config.datasets:
   display(spark.table(dataset.table.full_name))

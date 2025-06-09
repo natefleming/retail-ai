@@ -1,5 +1,6 @@
-from typing import Any, Callable, Sequence
+from typing import Callable, Sequence
 
+from langchain_core.tools import BaseTool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph_swarm import create_handoff_tool, create_swarm
@@ -63,22 +64,49 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     return workflow.compile()
 
 
+def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
+    handoff_tools: list[BaseTool] = []
+
+    handoffs: dict[str, Sequence[AgentModel | str]] = (
+        config.app.orchestration.swarm.handoffs or {}
+    )
+    agent_handoffs: Sequence[AgentModel | str] = handoffs.get(agent.name)
+    if agent_handoffs is None:
+        agent_handoffs = config.app.agents
+
+    for handoff_to_agent in agent_handoffs:
+        if isinstance(handoff_to_agent, str):
+            handoff_to_agent = next(
+                iter(config.find_agents(lambda a: a.name == handoff_to_agent)), None
+            )
+
+        if handoff_to_agent is None:
+            logger.warning(
+                f"Handoff agent {handoff_to_agent} not found in configuration for agent {agent.name}"
+            )
+            continue
+        if agent.name == handoff_to_agent.name:
+            continue
+        logger.debug(
+            f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}"
+        )
+        handoff_tools.append(
+            create_handoff_tool(
+                agent_name=handoff_to_agent.name,
+                description=f"Ask {handoff_to_agent.name} for help with: "
+                + handoff_to_agent.handoff_prompt,
+            )
+        )
+    return handoff_tools
+
+
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     logger.debug("Creating swarm graph")
     agents: list[CompiledStateGraph] = []
     for registered_agent in config.app.agents:
-        handoff_tools: list[Callable[..., Any]] = []
-        for handoff_to_agent in config.app.agents:
-            if registered_agent.name == handoff_to_agent.name:
-                continue
-            handoff_tools.append(
-                create_handoff_tool(
-                    agent_name=handoff_to_agent.name,
-                    description=f"Ask {handoff_to_agent.name} for help with: "
-                    + handoff_to_agent.handoff_prompt,
-                )
-            )
-        # Create agent directly using create_react_agent instead of create_agent_node
+        handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
+            agent=registered_agent, config=config
+        )
         agents.append(
             create_agent_node(agent=registered_agent, additional_tools=handoff_tools)
         )

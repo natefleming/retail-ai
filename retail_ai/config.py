@@ -445,7 +445,7 @@ class SupervisorModel(BaseModel):
 class SwarmModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
-    handoffs: Optional[dict[str, AgentModel | str]] = Field(default_factory=dict)
+    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(default_factory=dict)
 
 
 class OrchestrationModel(BaseModel):
@@ -536,6 +536,7 @@ class DatasetModel(BaseModel):
     ddl: str
     data: str
     format: DatasetFormat
+    read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
