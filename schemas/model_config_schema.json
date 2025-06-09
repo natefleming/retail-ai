@@ -1060,17 +1060,24 @@
           "anyOf": [
             {
               "additionalProperties": {
-                "items": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/AgentModel"
+                "anyOf": [
+                  {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/AgentModel"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
                     },
-                    {
-                      "type": "string"
-                    }
-                  ]
-                },
-                "type": "array"
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "type": "object"
             },

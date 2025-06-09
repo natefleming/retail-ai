@@ -920,15 +920,61 @@ app:
     # supervisor:                                     # Supervisor orchestration pattern
     #   model: *tool_calling_llm                      # LLM for routing decisions
     #   default_agent: *general                       # Default agent when no specific match
+    # SWARM ORCHESTRATION PATTERN
+    # ========================================================================
+    # Swarm orchestration enables agents to collaborate directly through 
+    # handoff tools, creating a more flexible agent-to-agent communication
+    # pattern compared to the supervisor model.
+    #
+    # Key Differences from Supervisor Pattern:
+    # - No central supervisor making routing decisions
+    # - Agents can directly hand off conversations to other agents
+    # - Each agent gets handoff tools based on the handoffs configuration
+    # - More autonomous agent behavior and peer-to-peer collaboration
+    #
+    # Implementation Details (see retail_ai/graph.py):
+    # - Uses LangGraph's create_swarm() function for orchestration
+    # - Each agent receives handoff tools via _handoffs_for_agent()
+    # - Handoff tools use each target agent's handoff_prompt as description
+    # - If no specific handoffs defined, agent can hand off to any agent
+    # ========================================================================
     swarm:
+      # LLM used for swarm coordination and agent decision-making
+      # This model powers the underlying swarm orchestration logic
       model: *tool_calling_llm
+      
+      # Starting agent for new conversations - acts as the entry point
+      # Users initially interact with this agent before potential handoffs
       default_agent: *general
+      
+      # Handoff configuration: defines which agents can transfer to which other agents
+      # Structure: {agent_name: [list_of_target_agents_or_null]}
+      # 
+      # Special Values:
+      # - ~ (null): Agent can hand off to ANY agent in the system
+      # - []: Empty list means agent has no specific handoff capabilities  
+      # - ["agent1", "agent2"]: Agent can only hand off to specified agents
+      #
+      # How Handoffs Work:
+      # 1. Each agent gets handoff tools created based on this configuration
+      # 2. Handoff tools use the target agent's handoff_prompt to describe when to transfer
+      # 3. Agents can invoke handoff tools to transfer conversations seamlessly
+      # 4. The receiving agent continues the conversation with full context
       handoffs:
+        # General agent can hand off to any agent (~ means null/any)
+        # This makes general agent the universal router for initial triage
         general: ~ 
+        
+        # DIY agent can hand off to specific product and recommendation agents
+        # This creates a focused workflow: DIY -> Product Info -> Inventory -> Recommendations
         diy: 
-          - "product"
-          - *inventory
-          - *recommendation
+          - "product"      # String reference to product agent
+          - *inventory     # YAML anchor reference to inventory agent  
+          - *recommendation # YAML anchor reference to recommendation agent
+        
+        # Inventory agent has no outbound handoffs (empty list)
+        # This makes inventory a "terminal" agent that completes conversations
+        # Users would need to start new conversations or other agents hand off elsewhere
         inventory: []
 
 # =============================================================================
