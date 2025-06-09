@@ -128,6 +128,5 @@ for dataset in datasets:
 
 # COMMAND ----------
 
-
 for dataset in config.datasets:
   display(spark.table(dataset.table.full_name))

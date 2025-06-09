@@ -445,7 +445,7 @@ class SupervisorModel(BaseModel):
 class SwarmModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
-    handoffs: Optional[dict[str, list[AgentModel | str]]] = Field(default_factory=dict)
+    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(default_factory=dict)
 
 
 class OrchestrationModel(BaseModel):
