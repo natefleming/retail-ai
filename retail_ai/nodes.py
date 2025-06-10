@@ -84,10 +84,10 @@ def create_agent_node(
         ]
 
     pre_agent_hook: RunnableLike = (
-        load_function(agent.pre_agent_hook) if agent.pre_agent_hook else None
+        load_function(agent.pre_agent_hook.full_name) if agent.pre_agent_hook else None
     )
     post_agent_hook: RunnableLike = (
-        load_function(agent.post_agent_hook) if agent.post_agent_hook else None
+        load_function(agent.post_agent_hook.full_name) if agent.post_agent_hook else None
     )
 
     compiled_agent: CompiledStateGraph = create_react_agent(
