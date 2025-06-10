@@ -277,13 +277,10 @@ class BaseFunctionModel(BaseModel):
 
 class PythonFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.PYTHON
 
     @property
     def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
 
