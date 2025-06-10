@@ -580,6 +580,7 @@ class AppConfig(BaseModel):
     unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
         default_factory=list
     )
+    providers: Optional[dict[type | str, Any]] = None
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from retail_ai.models import get_latest_model_version
 
 
@@ -11,12 +9,12 @@ def test_get_latest_model_version_single_version() -> None:
         # Mock model version
         mock_version = MagicMock()
         mock_version.version = "1"
-        
+
         mock_instance = mock_client.return_value
         mock_instance.search_model_versions.return_value = [mock_version]
-        
+
         result = get_latest_model_version("test_model")
-        
+
         assert result == 1
         mock_instance.search_model_versions.assert_called_once_with("name='test_model'")
 
@@ -30,12 +28,12 @@ def test_get_latest_model_version_multiple_versions() -> None:
             mock_version = MagicMock()
             mock_version.version = version
             mock_versions.append(mock_version)
-        
+
         mock_instance = mock_client.return_value
         mock_instance.search_model_versions.return_value = mock_versions
-        
+
         result = get_latest_model_version("test_model")
-        
+
         assert result == 5
         mock_instance.search_model_versions.assert_called_once_with("name='test_model'")
 
@@ -45,12 +43,14 @@ def test_get_latest_model_version_no_versions() -> None:
     with patch("retail_ai.models.MlflowClient") as mock_client:
         mock_instance = mock_client.return_value
         mock_instance.search_model_versions.return_value = []
-        
+
         result = get_latest_model_version("nonexistent_model")
-        
+
         # Should return 1 as default
         assert result == 1
-        mock_instance.search_model_versions.assert_called_once_with("name='nonexistent_model'")
+        mock_instance.search_model_versions.assert_called_once_with(
+            "name='nonexistent_model'"
+        )
 
 
 def test_get_latest_model_version_string_versions() -> None:
@@ -62,11 +62,11 @@ def test_get_latest_model_version_string_versions() -> None:
             mock_version = MagicMock()
             mock_version.version = version
             mock_versions.append(mock_version)
-        
+
         mock_instance = mock_client.return_value
         mock_instance.search_model_versions.return_value = mock_versions
-        
+
         result = get_latest_model_version("test_model")
-        
+
         # Should correctly identify 21 as the highest
         assert result == 21

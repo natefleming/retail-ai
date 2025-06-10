@@ -53,6 +53,36 @@
           ],
           "default": null,
           "title": "Handoff Prompt"
+        },
+        "pre_agent_hook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pre Agent Hook"
+        },
+        "post_agent_hook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Post Agent Hook"
         }
       },
       "required": [
@@ -746,17 +776,6 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
-        "schema": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SchemaModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -1495,6 +1514,19 @@
         }
       ],
       "title": "Unity Catalog Functions"
+    },
+    "providers": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Providers"
     }
   },
   "required": [

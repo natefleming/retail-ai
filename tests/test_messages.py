@@ -1,8 +1,6 @@
-import os
 from pathlib import Path
 from typing import Sequence
 
-import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from retail_ai.messages import message_with_images, remove_messages
@@ -15,9 +13,9 @@ def test_remove_messages_without_filter() -> None:
         AIMessage(content="Hi there"),
         ToolMessage(content="Tool result", tool_call_id="123"),
     ]
-    
+
     remove_list = remove_messages(messages)
-    
+
     assert len(remove_list) == 3
     assert all(hasattr(rm, "id") for rm in remove_list)
 
@@ -29,19 +27,19 @@ def test_remove_messages_with_filter() -> None:
         AIMessage(content="Hi there"),
         ToolMessage(content="Tool result", tool_call_id="123"),
     ]
-    
+
     # Filter to only include HumanMessage instances
     remove_list = remove_messages(messages, lambda m: isinstance(m, HumanMessage))
-    
+
     assert len(remove_list) == 1
 
 
 def test_remove_messages_empty_list() -> None:
     """Test removing messages from an empty list."""
     messages: Sequence[BaseMessage] = []
-    
+
     remove_list = remove_messages(messages)
-    
+
     assert len(remove_list) == 0
 
 
@@ -51,10 +49,10 @@ def test_remove_messages_filter_excludes_all() -> None:
         HumanMessage(content="Hello"),
         AIMessage(content="Hi there"),
     ]
-    
+
     # Filter that excludes all messages
     remove_list = remove_messages(messages, lambda m: isinstance(m, ToolMessage))
-    
+
     assert len(remove_list) == 0
 
 
@@ -63,12 +61,12 @@ def test_message_with_images_single_image(tmp_path: Path) -> None:
     # Create a temporary image file
     image_path = tmp_path / "test_image.png"
     image_path.write_bytes(b"fake image data")
-    
+
     message = HumanMessage(content="Look at this image")
-    
+
     # Test the function
     result = message_with_images(message, [image_path])
-    
+
     assert isinstance(result, BaseMessage)
     assert result.content != message.content  # Should be modified
 
@@ -80,12 +78,12 @@ def test_message_with_images_multiple_images(tmp_path: Path) -> None:
     image2 = tmp_path / "image2.jpg"
     image1.write_bytes(b"fake image data 1")
     image2.write_bytes(b"fake image data 2")
-    
+
     message = HumanMessage(content="Look at these images")
-    
+
     # Test the function
     result = message_with_images(message, [image1, image2])
-    
+
     assert isinstance(result, BaseMessage)
     assert result.content != message.content  # Should be modified
 
@@ -93,8 +91,8 @@ def test_message_with_images_multiple_images(tmp_path: Path) -> None:
 def test_message_with_images_empty_list() -> None:
     """Test adding no images to a message."""
     message = HumanMessage(content="No images here")
-    
+
     # Test with empty image list
     result = message_with_images(message, [])
-    
+
     assert isinstance(result, BaseMessage)

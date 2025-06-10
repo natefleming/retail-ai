@@ -13,12 +13,8 @@ def test_agent_config_creation() -> None:
 
 def test_agent_config_with_fields() -> None:
     """Test AgentConfig with custom fields."""
-    config = AgentConfig(
-        user_id="user123",
-        store_num="store456",
-        is_valid_config=True
-    )
-    
+    config = AgentConfig(user_id="user123", store_num="store456", is_valid_config=True)
+
     assert config["user_id"] == "user123"
     assert config["store_num"] == "store456"
     assert config["is_valid_config"] is True
@@ -27,7 +23,7 @@ def test_agent_config_with_fields() -> None:
 def test_agent_state_creation() -> None:
     """Test creating an AgentState instance."""
     test_document = Document(page_content="Test content", metadata={"source": "test"})
-    
+
     state = AgentState(
         messages=[HumanMessage(content="Hello")],
         context=[test_document],
@@ -35,9 +31,9 @@ def test_agent_state_creation() -> None:
         active_agent="product_agent",
         is_valid_config=True,
         user_id="user123",
-        store_num="store456"
+        store_num="store456",
     )
-    
+
     assert len(state["messages"]) == 1
     assert isinstance(state["messages"][0], HumanMessage)
     assert state["messages"][0].content == "Hello"
@@ -55,16 +51,16 @@ def test_agent_state_inherits_messages_state() -> None:
     state = AgentState(
         messages=[
             HumanMessage(content="First message"),
-            HumanMessage(content="Second message")
+            HumanMessage(content="Second message"),
         ],
         context=[],
         route="default",
         active_agent="main",
         is_valid_config=False,
         user_id="",
-        store_num=""
+        store_num="",
     )
-    
+
     # Should behave like a MessagesState
     assert "messages" in state
     assert len(state["messages"]) == 2
@@ -81,9 +77,9 @@ def test_agent_state_with_empty_context() -> None:
         active_agent="",
         is_valid_config=False,
         user_id="",
-        store_num=""
+        store_num="",
     )
-    
+
     assert len(state["context"]) == 0
     assert isinstance(state["context"], list)
 
@@ -93,9 +89,9 @@ def test_agent_state_with_multiple_documents() -> None:
     docs = [
         Document(page_content="Doc 1", metadata={"id": 1}),
         Document(page_content="Doc 2", metadata={"id": 2}),
-        Document(page_content="Doc 3", metadata={"id": 3})
+        Document(page_content="Doc 3", metadata={"id": 3}),
     ]
-    
+
     state = AgentState(
         messages=[],
         context=docs,
@@ -103,9 +99,9 @@ def test_agent_state_with_multiple_documents() -> None:
         active_agent="search_agent",
         is_valid_config=True,
         user_id="user789",
-        store_num="store123"
+        store_num="store123",
     )
-    
+
     assert len(state["context"]) == 3
     assert all(isinstance(doc, Document) for doc in state["context"])
     assert state["context"][0].metadata["id"] == 1
@@ -116,11 +112,9 @@ def test_agent_state_with_multiple_documents() -> None:
 def test_agent_config_integration_with_app_config(config: AppConfig) -> None:
     """Test that AgentConfig works with the existing config fixture."""
     agent_config = AgentConfig(
-        user_id="test_user",
-        store_num="store001",
-        is_valid_config=config is not None
+        user_id="test_user", store_num="store001", is_valid_config=config is not None
     )
-    
+
     # Should work with the existing config
     assert agent_config["is_valid_config"] is True
     assert agent_config["user_id"] == "test_user"
