@@ -11,7 +11,6 @@ from retail_ai.messages import has_image
 from retail_ai.nodes import (
     create_agent_node,
     message_validation_node,
-    process_images_node,
     supervisor_node,
 )
 from retail_ai.state import AgentConfig, AgentState
@@ -21,8 +20,6 @@ def route_message_validation(on_success: str) -> Callable:
     def _(state: AgentState) -> str:
         if not state["is_valid_config"]:
             return END
-        if has_image(state["messages"]):
-            return "process_images"
         return on_success
 
     return _
@@ -33,7 +30,6 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node("message_validation", message_validation_node(config=config))
-    workflow.add_node("process_images", process_images_node(config=config))
     workflow.add_node("supervisor", supervisor_node(config=config))
 
     agents: Sequence[AgentModel] = config.app.agents
@@ -45,12 +41,11 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         route_message_validation("supervisor"),
         {
             "supervisor": "supervisor",
-            "process_images": "process_images",
             END: END,
         },
     )
 
-    workflow.add_edge("process_images", "supervisor")
+    workflow.add_edge("message_validation", "supervisor")
 
     routes: dict[str, str] = {n: n for n in [agent.name for agent in agents]}
     workflow.add_conditional_edges(
@@ -131,7 +126,6 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node("message_validation", message_validation_node(config=config))
-    workflow.add_node("process_images", process_images_node(config=config))
     workflow.add_node("swarm", swarm_node)
 
     workflow.add_conditional_edges(
@@ -139,12 +133,11 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         route_message_validation("swarm"),
         {
             "swarm": "swarm",
-            "process_images": "process_images",
             END: END,
         },
     )
 
-    workflow.add_edge("process_images", "swarm")
+    workflow.add_edge("message_validation", "swarm")
 
     workflow.set_entry_point("message_validation")
 
