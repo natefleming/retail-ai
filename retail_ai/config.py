@@ -1,7 +1,7 @@
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Generic, Optional, Sequence, TypeVar
 
 from databricks_langchain import ChatDatabricks, DatabricksEmbeddings
 from langchain_core.embeddings.embeddings import Embeddings
@@ -28,6 +28,14 @@ class HasFullName(ABC):
     @abstractmethod
     def full_name(self) -> str:
         pass
+
+
+T = TypeVar("T")
+
+
+class IsFactory(ABC, Generic[T]):
+    @abstractmethod
+    def create(self, **kwargs: Any) -> T: ...
 
 
 class IsDatabricksResource(ABC):
@@ -164,7 +172,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 
 class GenieRoomModel(BaseModel, IsDatabricksResource):
     name: str
-    description: str
+    description: Optional[str] = None
     space_id: str
 
     def as_resource(self) -> DatabricksResource:
@@ -215,7 +223,7 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
 
 class WarehouseModel(BaseModel, IsDatabricksResource):
     name: str
-    description: str
+    description: Optional[str] = None
     warehouse_id: str
 
     def as_resource(self) -> DatabricksResource:
@@ -427,7 +435,7 @@ class MemoryModel(BaseModel):
 
 class AgentModel(BaseModel):
     name: str
-    description: str
+    description: Optional[str] = None
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
     guardrails: list[GuardrailsModel] = Field(default_factory=list)
