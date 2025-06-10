@@ -234,8 +234,6 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
         A sequence of BaseTool objects created from the provided configurations
     """
 
-    logger.debug("create_tools")
-
     tools: OrderedDict[str, BaseTool] = OrderedDict()
 
     for tool_config in tool_models:
@@ -261,9 +259,10 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
                 case _:
                     raise ValueError(f"Unknown tool type: {function_type}")
 
+            logger.debug(f"Registering tool: {tool_config}")
             tool_registry[name] = tool
         else:
-            logger.debug(f"Tool {name} already exists, reusing it.")
+            logger.debug(f"Tool {name} already registered.")
 
         tools[name] = tool
 
@@ -456,7 +455,6 @@ def create_genie_tool(
     Returns:
         A callable tool function that processes natural language queries through Genie
     """
-    logger.debug("create_genie_tool")
 
     if isinstance(genie_room, dict):
         genie_room = GenieRoomModel(**genie_room)
