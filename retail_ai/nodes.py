@@ -6,6 +6,7 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableConfig, RunnableSequence
+from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -22,6 +23,7 @@ from retail_ai.tools import (
     create_tools,
 )
 from retail_ai.types import AgentCallable
+from retail_ai.utils import load_function
 
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
@@ -81,11 +83,20 @@ def create_agent_node(
             create_search_memory_tool(namespace=("memory",)),
         ]
 
+    pre_agent_hook: RunnableLike = (
+        load_function(agent.pre_agent_hook) if agent.pre_agent_hook else None
+    )
+    post_agent_hook: RunnableLike = (
+        load_function(agent.post_agent_hook) if agent.post_agent_hook else None
+    )
+
     compiled_agent: CompiledStateGraph = create_react_agent(
         model=llm,
         prompt=make_prompt(agent.prompt),
         tools=tools,
         store=store,
+        pre_model_hook=pre_agent_hook,
+        post_model_hook=post_agent_hook,
     )
 
     for guardrail_definition in agent.guardrails:

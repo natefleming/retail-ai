@@ -437,6 +437,8 @@ class AgentModel(BaseModel):
     memory: Optional[MemoryModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
+    pre_agent_hook: Optional[PythonFunctionModel] = None
+    post_agent_hook: Optional[PythonFunctionModel] = None
 
 
 class SupervisorModel(BaseModel):
