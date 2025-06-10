@@ -285,7 +285,7 @@ def create_mcp_tool(
     Returns:
         A callable tool function that wraps the specified MCP function
     """
-    logger.debug(f"create_mcp_tool: {function.full_name}")
+    logger.debug(f"create_mcp_tool: {function}")
 
     connection: dict[str, Any]
     match function.transport:
@@ -319,7 +319,7 @@ def create_factory_tool(
     Returns:
         A callable tool function that wraps the specified factory function
     """
-    logger.debug(f"create_factory_tool: {function.full_name}")
+    logger.debug(f"create_factory_tool: {function}")
 
     factory: Callable[..., Any] = load_function(function_name=function.full_name)
     tool: Callable[..., Any] = factory(**function.args)
@@ -327,7 +327,7 @@ def create_factory_tool(
 
 
 def create_python_tool(
-    function: PythonFunctionModel,
+    function: PythonFunctionModel | str,
 ) -> Callable[..., Any]:
     """
     Create a Python tool from a Python function model.
@@ -338,14 +338,17 @@ def create_python_tool(
     Returns:
         A callable tool function that wraps the specified Python function
     """
-    logger.debug(f"create_python_tool: {function.full_name}")
+    logger.debug(f"create_python_tool: {function}")
+
+    if isinstance(function, PythonFunctionModel):
+        function = function.full_name
 
     # Load the Python function dynamically
-    tool: Callable[..., Any] = load_function(function_name=function.full_name)
+    tool: Callable[..., Any] = load_function(function_name=function)
     return tool
 
 
-def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
+def create_uc_tool(function: UnityCatalogFunctionModel | str) -> Sequence[BaseTool]:
     """
     Create LangChain tools from Unity Catalog functions.
 
@@ -360,14 +363,15 @@ def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
-    logger.debug(f"create_uc_tool: {function.full_name}")
+    logger.debug(f"create_uc_tool: {function}")
 
-    # set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
+    if isinstance(function, UnityCatalogFunctionModel):
+        function = function.full_name
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
     toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=[function.full_name], client=client
+        function_names=[function], client=client
     )
 
     tool = next(iter(toolkit.tools or []), None)

@@ -19,11 +19,8 @@ from retail_ai.config import AgentModel, AppConfig, SupervisorModel, ToolModel
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import (
-    create_tools,
-)
+from retail_ai.tools import create_python_tool, create_tools
 from retail_ai.types import AgentCallable
-from retail_ai.utils import load_function
 
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
@@ -84,10 +81,10 @@ def create_agent_node(
         ]
 
     pre_agent_hook: RunnableLike = (
-        load_function(agent.pre_agent_hook.full_name) if agent.pre_agent_hook else None
+        create_python_tool(agent.pre_agent_hook) if agent.pre_agent_hook else None
     )
     post_agent_hook: RunnableLike = (
-        load_function(agent.post_agent_hook.full_name) if agent.post_agent_hook else None
+        create_python_tool(agent.post_agent_hook) if agent.post_agent_hook else None
     )
 
     compiled_agent: CompiledStateGraph = create_react_agent(

@@ -484,6 +484,8 @@ agents:
     handoff_prompt: |                               # Conditions for routing to this agent
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
+    pre_agent_hook: "retail_ai.hooks.null_hook"
+    post_agent_hook: "retail_ai.hooks.null_hook"
 
   # ---------------------------------------------------------------------------
   # ORDERS AGENT  
