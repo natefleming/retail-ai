@@ -59,7 +59,7 @@ class DatabricksProvider(ServiceProvider):
             )
         return volume_info
 
-    def create_dataset(self, dataset: DatasetModel) -> DataFrame:
+    def create_dataset(self, dataset: DatasetModel) -> None:
         current_dir: Path = "file:///" / Path.cwd().relative_to("/")
 
         # Get or create Spark session
@@ -79,7 +79,7 @@ class DatabricksProvider(ServiceProvider):
         for statement in statements:
             logger.debug(statement)
             spark.sql(
-                statement, args={"database": dataset.table.schema_model.full_name}
+                str(statement), args={"database": dataset.table.schema_model.full_name}
             )
 
         if format == "sql":
@@ -87,7 +87,7 @@ class DatabricksProvider(ServiceProvider):
             for statement in data_statements:
                 logger.debug(statement)
                 spark.sql(
-                    statement, args={"database": dataset.table.schema_model.full_name}
+                    str(statement), args={"database": dataset.table.schema_model.full_name}
                 )
         else:
             logger.debug(f"Writing to: {table}")
@@ -95,4 +95,3 @@ class DatabricksProvider(ServiceProvider):
                 data_path.as_posix()
             ).write.mode("overwrite").saveAsTable(table)
 
-        return spark.table(table)
