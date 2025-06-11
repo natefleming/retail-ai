@@ -88,35 +88,3 @@ datasets: Sequence[DatasetModel] = config.datasets
 for dataset in datasets:
     dataset: DatasetModel
     dataset.create()
-
-# COMMAND ----------
-
-from typing import Any, Sequence
-import re
-from pathlib import Path
-from retail_ai.config import DatasetModel
-
-datasets: Sequence[DatasetModel] = config.datasets
-
-current_dir: Path = "file:///" / Path.cwd().relative_to("/")
-
-for dataset in datasets:
-  dataset: DatasetModel
-  table: str = dataset.table.full_name
-  ddl_path: Path = Path(dataset.ddl)
-  data_path: Path = current_dir / Path(dataset.data)
-  format: str = dataset.format
-  read_options: dict[str, Any] = dataset.read_options or {}
-
-  statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s]
-  for statement in statements:
-      print(statement)
-      spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
-
-  if format == "sql":
-      data_statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", data_path.read_text()) if s]
-      for statement in data_statements:
-          print(statement)
-          spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
-  else:
-      spark.read.format(format).options(**read_options).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
