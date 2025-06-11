@@ -1,12 +1,16 @@
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, TypeAlias
 
 from databricks.sdk import WorkspaceClient
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
-from databricks_langchain import ChatDatabricks, DatabricksEmbeddings
+from databricks_langchain import (
+    ChatDatabricks,
+    DatabricksEmbeddings,
+    DatabricksFunctionClient,
+)
 from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools.base import BaseTool
@@ -25,7 +29,7 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
-from databricks_langchain import DatabricksFunctionClient
+
 
 class HasFullName(ABC):
     @property
@@ -38,8 +42,11 @@ class IsDatabricksResource(ABC):
     on_behalf_of_user: Optional[bool] = False
 
     @abstractmethod
-    def as_resource(self) -> DatabricksResource:
-        pass
+    def as_resource(self) -> DatabricksResource: ...
+
+    @property
+    @abstractmethod
+    def api_scopes(self) -> Sequence[str]: ...
 
 
 class Privilege(str, Enum):
@@ -99,6 +106,10 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return []
+
     def as_resource(self) -> DatabricksResource:
         return DatabricksTable(
             table_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
@@ -110,6 +121,12 @@ class LLMModel(BaseModel, IsDatabricksResource):
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
     fallbacks: Optional[list[str]] = Field(default_factory=list)
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "serving.serving-endpoints",
+        ]
 
     def as_resource(self) -> DatabricksResource:
         return DatabricksServingEndpoint(
@@ -148,6 +165,12 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
     name: str
 
     @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "vectorsearch.vector-search-indexes",
+        ]
+
+    @property
     def full_name(self) -> str:
         if self.schema_model:
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
@@ -168,6 +191,12 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
     doc_uri: Optional[str] = None
     embedding_source_column: str
     columns: list[str]
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "vectorsearch.vector-search-endpoints",
+        ] + self.index.api_scopes
 
     def as_resource(self) -> DatabricksResource:
         return self.index.as_resource()
@@ -192,6 +221,12 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
     name: str
     description: Optional[str] = None
     space_id: str
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "dashboards.genie",
+        ]
 
     def as_resource(self) -> DatabricksResource:
         return DatabricksGenieSpace(
@@ -232,6 +267,10 @@ class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
             function_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
         )
 
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return ["sql.statement-execution"]
+
 
 class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
     name: str
@@ -239,6 +278,12 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
     @property
     def full_name(self) -> str:
         return self.name
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "catalog.connections",
+        ]
 
     def as_resource(self) -> DatabricksResource:
         return DatabricksUCConnection(
@@ -250,6 +295,12 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     name: str
     description: Optional[str] = None
     warehouse_id: str
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "sql.warehouses",
+        ]
 
     def as_resource(self) -> DatabricksResource:
         return DatabricksSQLWarehouse(
@@ -388,7 +439,7 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
         return create_uc_tool(self)
 
 
-type AnyTool = (
+AnyTool: TypeAlias = (
     PythonFunctionModel
     | FactoryFunctionModel
     | UnityCatalogFunctionModel
@@ -573,6 +624,7 @@ class AppModel(BaseModel):
     permissions: list[AppPermissionModel]
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
+    alias: Optional[str] = None
 
 
 class EvaluationModel(BaseModel):
@@ -616,7 +668,11 @@ class UnityCatalogFunctionSqlModel(BaseModel):
     ddl: str
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
 
-    def create(self, w: WorkspaceClient | None = None, dfs: DatabricksFunctionClient | None = None) -> None:
+    def create(
+        self,
+        w: WorkspaceClient | None = None,
+        dfs: DatabricksFunctionClient | None = None,
+    ) -> None:
         from retail_ai.providers.base import ServiceProvider
         from retail_ai.providers.databricks import DatabricksProvider
 
@@ -652,6 +708,33 @@ class AppConfig(BaseModel):
         default_factory=list
     )
     providers: Optional[dict[type | str, Any]] = None
+
+    def create_agent(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_agent(self)
+
+    def deploy_agent(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.deploy_agent(self)
+
+    def create_monitor(self, w: WorkspaceClient | None = None) -> None:
+        """
+        Create a monitor for the application configuration.
+
+        Args:
+            w: Optional WorkspaceClient instance for Databricks operations.
+        """
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_montior(self)
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

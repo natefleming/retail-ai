@@ -1,7 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from retail_ai.config import DatasetModel, SchemaModel, VectorStoreModel, VolumeModel, UnityCatalogFunctionSqlModel
+from retail_ai.config import (
+    AppModel,
+    DatasetModel,
+    SchemaModel,
+    UnityCatalogFunctionSqlModel,
+    VectorStoreModel,
+    VolumeModel,
+)
 
 
 class ServiceProvider(ABC):
@@ -22,6 +29,17 @@ class ServiceProvider(ABC):
 
     @abstractmethod
     def get_vector_index(self, vector_store: VectorStoreModel) -> Any: ...
-    
+
     @abstractmethod
-    def create_sql_function(self, unity_catalog_function: UnityCatalogFunctionSqlModel) -> Any: ...
+    def create_sql_function(
+        self, unity_catalog_function: UnityCatalogFunctionSqlModel
+    ) -> Any: ...
+
+    @abstractmethod
+    def create_agent(self, agent: AppModel) -> Any: ...
+
+    @abstractmethod
+    def deploy_agent(self, config: AppModel) -> Any: ...
+
+    @abstractmethod
+    def create_montior(self, config: AppModel) -> Any: ...

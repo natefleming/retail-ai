@@ -1,5 +1,35 @@
 import importlib
+import importlib.metadata
 from typing import Any, Callable
+
+
+def get_installed_packages() -> dict[str, str]:
+    """Get all installed packages with versions"""
+    from importlib.metadata import version
+    from typing import Sequence
+
+    packages: Sequence[str] = [
+        f"databricks-agents=={version('databricks-agents')}",
+        f"databricks-langchain=={version('databricks-langchain')}",
+        f"databricks-sdk=={version('databricks-sdk')}",
+        f"duckduckgo-search=={version('duckduckgo-search')}",
+        f"langchain=={version('langchain')}",
+        f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
+        f"langgraph=={version('langgraph')}",
+        f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
+        f"langgraph-reflection=={version('langgraph-reflection')}",
+        f"langgraph-supervisor=={version('langgraph-supervisor')}",
+        f"langgraph-swarm=={version('langgraph-swarm')}",
+        f"langmem=={version('langmem')}",
+        f"loguru=={version('loguru')}",
+        f"mlflow=={version('mlflow')}",
+        f"openevals=={version('openevals')}",
+        f"psycopg[binary,pool]=={version('psycopg')}",
+        f"pydantic=={version('pydantic')}",
+        f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
+        f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
+    ]
+    return packages
 
 
 def load_function(function_name: str) -> Callable[..., Any]:

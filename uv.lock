@@ -479,7 +479,7 @@ wheels = [
 
 [[package]]
 name = "databricks-connect"
-version = "16.3.3"
+version = "16.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "databricks-sdk" },
@@ -495,7 +495,7 @@ dependencies = [
     { name = "six" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/57/4992fec43b76ce9ed6bdaa1ddd48bc95eefd6e057b5726be6f3912071a35/databricks_connect-16.3.3-py2.py3-none-any.whl", hash = "sha256:597d19cd87620824696eb59cdf8850a570c6dc72ef4e42027ffc0a7f938e592a", size = 2425390, upload-time = "2025-05-20T09:06:22.644Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/05/43ba36325d0a11328580eaea5dbcd6e017c599230e72a43a71e49d5dc209/databricks_connect-16.4.0-py2.py3-none-any.whl", hash = "sha256:c643399dcbc549f7ce1d00c908893724ba7295b1bbd00ad4e2c2ff26d9d38057", size = 2445927, upload-time = "2025-05-15T17:14:34.593Z" },
 ]
 
 [[package]]
@@ -2334,11 +2334,11 @@ wheels = [
 
 [[package]]
 name = "py4j"
-version = "0.10.9.7"
+version = "0.10.9.9"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1e/f2/b34255180c72c36ff7097f7c2cdca02abcbd89f5eebf7c7c41262a9a0637/py4j-0.10.9.7.tar.gz", hash = "sha256:0b6e5315bb3ada5cf62ac651d107bb2ebc02def3dee9d9548e3baac644ea8dbb", size = 1508234, upload-time = "2022-08-12T22:49:09.792Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/31/0b210511177070c8d5d3059556194352e5753602fa64b85b7ab81ec1a009/py4j-0.10.9.9.tar.gz", hash = "sha256:f694cad19efa5bd1dee4f3e5270eb406613c974394035e5bfc4ec1aba870b879", size = 761089, upload-time = "2025-01-15T03:53:18.624Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/30/a58b32568f1623aaad7db22aa9eafc4c6c194b429ff35bdc55ca2726da47/py4j-0.10.9.7-py2.py3-none-any.whl", hash = "sha256:85defdfd2b2376eb3abf5ca6474b51ab7e0de341c75a02f46dc9b5976f5a5c1b", size = 200481, upload-time = "2022-08-12T22:49:07.05Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/db/ea0203e495be491c85af87b66e37acfd3bf756fd985f87e46fc5e3bf022c/py4j-0.10.9.9-py2.py3-none-any.whl", hash = "sha256:c7c26e4158defb37b0bb124933163641a2ff6e3a3913f7811b0ddbe07ed61533", size = 203008, upload-time = "2025-01-15T03:53:15.648Z" },
 ]
 
 [[package]]
@@ -3066,7 +3066,7 @@ wheels = [
 
 [[package]]
 name = "unitycatalog-ai"
-version = "0.3.1"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
@@ -3075,9 +3075,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "unitycatalog-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/a4/8ee13849b08d8bc50975d9d6f64763f92c1b8ba8c5898be105aa29dab10e/unitycatalog_ai-0.3.1.tar.gz", hash = "sha256:b7ac65f9ab7f033f48c9a349003c252a9c960db4161fe1dd1bcfd699785da668", size = 62379, upload-time = "2025-05-22T16:00:35.278Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/1e/17940d1291c6fadb5a1389667686650d6bdb789b40cbfd2952ad6a3fd550/unitycatalog_ai-0.3.0.tar.gz", hash = "sha256:d8ce20031a6aa83cdf8e70eac6f48f39f3fe09cc6efda910ade3926ebe60999c", size = 61173, upload-time = "2025-03-11T16:43:50.932Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7a/97/55a844549f3d82fdcbae7c184536cc109cb8531faf94270c6bf96d8adcad/unitycatalog_ai-0.3.1-py3-none-any.whl", hash = "sha256:191dc489fa34d88e3de462bd746604092e682ea6170556b46c5186e369e7a16a", size = 66997, upload-time = "2025-05-22T16:00:33.775Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/a3/09fdbf78731c54de5cfbc33680b21d067bafc826efc960966d92cd58dbc8/unitycatalog_ai-0.3.0-py3-none-any.whl", hash = "sha256:238687c9f424a713ceea0b71d7fb7e8c1554fc9ef436db1d13488ecd5d7cf7f0", size = 65223, upload-time = "2025-03-11T16:43:49.537Z" },
 ]
 
 [package.optional-dependencies]

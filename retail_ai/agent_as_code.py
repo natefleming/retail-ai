@@ -1,16 +1,15 @@
-import sys
 import os
+import sys
 
 import mlflow
-from mlflow.models import ModelConfig
-
 from langgraph.graph.state import CompiledStateGraph
-from mlflow.pyfunc import ChatModel
-from retail_ai.graph import create_retail_ai_graph
-from retail_ai.models import create_agent 
-from retail_ai.config import AppConfig
-
 from loguru import logger
+from mlflow.models import ModelConfig
+from mlflow.pyfunc import ChatModel
+
+from retail_ai.config import AppConfig
+from retail_ai.graph import create_retail_ai_graph
+from retail_ai.models import create_agent
 
 mlflow.langchain.autolog()
 

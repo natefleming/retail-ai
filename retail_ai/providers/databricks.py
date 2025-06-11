@@ -1,11 +1,15 @@
 from pathlib import Path
 from typing import Any, Sequence
 
+import mlflow
 import sqlparse
+from databricks import agents
+from databricks.agents import PermissionLevel, set_permissions
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.catalog import (
     CatalogInfo,
+    FunctionInfo,
     SchemaInfo,
     VolumeInfo,
     VolumeType,
@@ -13,27 +17,45 @@ from databricks.sdk.service.catalog import (
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from loguru import logger
+from mlflow import MlflowClient
+from mlflow.entities.model_registry.model_version import ModelVersion
+from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
+from mlflow.models.model import ModelInfo
+from mlflow.models.resources import (
+    DatabricksResource,
+)
 from pyspark.sql import SparkSession
+from unitycatalog.ai.core.base import FunctionExecutionResult
+from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
+import retail_ai
 from retail_ai.config import (
+    AppConfig,
+    ConnectionModel,
     DatasetModel,
+    FunctionModel,
+    GenieRoomModel,
+    IndexModel,
+    IsDatabricksResource,
+    LLMModel,
     SchemaModel,
+    TableModel,
+    UnityCatalogFunctionSqlModel,
     VectorStoreModel,
     VolumeModel,
-    UnityCatalogFunctionSqlModel, UnityCatalogFunctionSqlTestModel, FunctionModel
+    WarehouseModel,
 )
+from retail_ai.models import get_latest_model_version
 from retail_ai.providers.base import ServiceProvider
+from retail_ai.utils import get_installed_packages
 from retail_ai.vector_search import endpoint_exists, index_exists
-from unitycatalog.ai.core.databricks import DatabricksFunctionClient
-from databricks_langchain import DatabricksFunctionClient, UCFunctionToolkit
-from databricks.sdk.service.catalog import FunctionInfo
-from unitycatalog.ai.core.base import FunctionExecutionResult
+
 
 class DatabricksProvider(ServiceProvider):
     def __init__(
-        self, 
-        w: WorkspaceClient | None = None, 
-        vsc: VectorSearchClient | None = None, 
+        self,
+        w: WorkspaceClient | None = None,
+        vsc: VectorSearchClient | None = None,
         dfs: DatabricksFunctionClient | None = None,
     ) -> None:
         if w is None:
@@ -45,6 +67,198 @@ class DatabricksProvider(ServiceProvider):
         self.w = w
         self.vsc = vsc
         self.dfs = dfs
+
+    def create_agent(self, config: AppConfig) -> ModelInfo:
+        mlflow.set_registry_uri("databricks-uc")
+
+        llms: Sequence[LLMModel] = list(config.resources.llms.values())
+        vector_indexes: Sequence[IndexModel] = list(
+            config.resources.vector_stores.values()
+        )
+        warehouses: Sequence[WarehouseModel] = list(
+            config.resources.warehouses.values()
+        )
+        genie_rooms: Sequence[GenieRoomModel] = list(
+            config.resources.genie_rooms.values()
+        )
+        tables: Sequence[TableModel] = list(config.resources.tables.values())
+        functions: Sequence[FunctionModel] = list(config.resources.functions.values())
+        connections: Sequence[ConnectionModel] = list(
+            config.resources.connections.values()
+        )
+
+        resources: Sequence[IsDatabricksResource] = (
+            llms
+            + vector_indexes
+            + warehouses
+            + genie_rooms
+            + functions
+            + tables
+            + connections
+        )
+
+        all_resources: Sequence[DatabricksResource] = [
+            r.as_resource() for r in resources
+        ]
+
+        system_resources: Sequence[DatabricksResource] = [
+            r.as_resource() for r in resources if not r.on_behalf_of_user
+        ]
+        system_auth_policy: SystemAuthPolicy = SystemAuthPolicy(
+            resources=system_resources
+        )
+
+        api_scopes: Sequence[str] = list(
+            set([r.api_scopes for r in resources if r.on_behalf_of_user])
+        )
+        user_auth_policy: UserAuthPolicy = UserAuthPolicy(api_scopes=api_scopes)
+        logger.debug(f"system_auth_policy: {system_auth_policy}")
+
+        auth_policy: AuthPolicy = AuthPolicy(
+            system_auth_policy=system_auth_policy, user_auth_policy=user_auth_policy
+        )
+        logger.debug(f"auth_policy: {auth_policy}")
+
+        pip_requirements: Sequence[str] = get_installed_packages()
+
+        logger.debug(f"pip_requirements: {pip_requirements}")
+
+        retail_ai_dir: Path = Path(retail_ai.__file__).parent
+        cwd: Path = Path.cwd()
+        relative_retail_ai: Path = retail_ai_dir.relative_to(cwd)
+
+        python_model: str = (relative_retail_ai / "agent_as_code.py").as_posix()
+
+        logger.debug(f"python_model: {python_model}")
+
+        code_paths: Sequence[str] = [
+            relative_retail_ai.as_posix(),
+        ]
+
+        logger.debug(f"code_paths: {code_paths}")
+
+        with mlflow.start_run(run_name="agent"):
+            mlflow.set_tag("type", "agent")
+            logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
+                python_model=python_model,
+                code_paths=code_paths,
+                model_config=config.model_dump(),
+                artifact_path="agent",
+                pip_requirements=pip_requirements,
+                resources=all_resources,
+                # auth_policy=auth_policy,
+            )
+
+        registered_model_name: str = config.app.registered_model.full_name
+
+        model_version: ModelVersion = mlflow.register_model(
+            name=registered_model_name, model_uri=logged_agent_info.model_uri
+        )
+        logger.debug(
+            f"Registered model: {registered_model_name} with version: {model_version.version}"
+        )
+
+        if config.app.alias:
+            client: MlflowClient = MlflowClient()
+            client.set_registered_model_alias(
+                name=registered_model_name,
+                alias="Champion",
+                version=model_version.version,
+            )
+            aliased_model: ModelVersion = client.get_model_version_by_alias(
+                registered_model_name, config.app.alias
+            )
+            logger.debug(
+                f"Model {registered_model_name} aliased to {config.app.alias} with version: {aliased_model.version}"
+            )
+
+    def deploy_agent(self, config: AppConfig) -> None:
+        mlflow.set_registry_uri("databricks-uc")
+
+        endpoint_name: str = config.app.endpoint_name
+        registered_model_name: str = config.app.registered_model.full_name
+        scale_to_zero: bool = config.app.scale_to_zero
+        environment_vars: dict[str, str] = config.app.environment_vars
+        workload_size: str = config.app.workload_size
+        tags: dict[str, str] = config.app.tags
+
+        latest_version: int = get_latest_model_version(registered_model_name)
+
+        agents.deploy(
+            endpoint_name=endpoint_name,
+            model_name=registered_model_name,
+            model_version=latest_version,
+            scale_to_zero=scale_to_zero,
+            environment_vars=environment_vars,
+            workload_size=workload_size,
+            tags=tags,
+        )
+
+        registered_model_name: str = config.app.registered_model.full_name
+        permissions: Sequence[dict[str, Any]] = config.app.permissions
+
+        logger.debug(registered_model_name)
+        logger.debug(permissions)
+
+        for permission in permissions:
+            principals: Sequence[str] = permission.principals
+            entitlements: Sequence[str] = permission.entitlements
+
+            if not principals or not entitlements:
+                continue
+            for entitlement in entitlements:
+                set_permissions(
+                    model_name=registered_model_name,
+                    users=principals,
+                    permission_level=PermissionLevel[entitlement],
+                )
+
+    def create_montior(self, config: AppConfig) -> Any:
+        from databricks.agents.monitoring import (
+            AssessmentsSuiteConfig,
+            BuiltinJudge,
+            GuidelinesJudge,
+            create_monitor,
+            get_monitor,
+            update_monitor,
+        )
+        from databricks.rag_eval.monitoring.entities import Monitor
+
+        monitor: Monitor = get_monitor(endpoint_name=config.app.endpoint_name)
+
+        monitor_action = update_monitor if monitor else create_monitor
+
+        try:
+            monitor = monitor_action(
+                endpoint_name=config.app.endpoint_name,
+                assessments_config=AssessmentsSuiteConfig(
+                    sample=1.0,
+                    assessments=[
+                        BuiltinJudge(name="safety"),  # or {'name': 'safety'}
+                        BuiltinJudge(
+                            name="groundedness", sample_rate=0.4
+                        ),  # or {'name': 'groundedness', 'sample_rate': 0.4}
+                        BuiltinJudge(
+                            name="relevance_to_query"
+                        ),  # or {'name': 'relevance_to_query'}
+                        BuiltinJudge(
+                            name="chunk_relevance"
+                        ),  # or {'name': 'chunk_relevance'}
+                        # Create custom judges with the guidelines judge.
+                        GuidelinesJudge(
+                            guidelines={
+                                "english": ["The response must be in English"],
+                                "clarity": [
+                                    "The response must be clear, coherent, and concise"
+                                ],
+                            }
+                        ),
+                    ],
+                ),
+            )
+            logger.info(f"Monitor updated: {monitor}")
+        except Exception as e:
+            logger.error(f"Error updating monitor: {e}")
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo
@@ -161,13 +375,16 @@ class DatabricksProvider(ServiceProvider):
         )
         return index
 
-
-    def create_sql_function(self, unity_catalog_function: UnityCatalogFunctionSqlModel) -> None:
+    def create_sql_function(
+        self, unity_catalog_function: UnityCatalogFunctionSqlModel
+    ) -> None:
         function: FunctionModel = unity_catalog_function.function
         schema: SchemaModel = function.schema_model
         ddl_path: Path = Path(unity_catalog_function.ddl)
 
-        statements: Sequence[str] = [str(s) for s in sqlparse.parse(ddl_path.read_text())]
+        statements: Sequence[str] = [
+            str(s) for s in sqlparse.parse(ddl_path.read_text())
+        ]
         for sql in statements:
             sql = sql.replace("{catalog_name}", schema.catalog_name)
             sql = sql.replace("{schema_name}", schema.schema_name)
@@ -180,7 +397,7 @@ class DatabricksProvider(ServiceProvider):
 
                 result: FunctionExecutionResult = self.dfs.execute_function(
                     function_name=function.full_name,
-                    parameters=unity_catalog_function.test.parameters
+                    parameters=unity_catalog_function.test.parameters,
                 )
 
                 if result.error:
