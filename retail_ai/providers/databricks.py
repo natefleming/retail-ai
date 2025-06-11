@@ -20,22 +20,31 @@ from retail_ai.config import (
     SchemaModel,
     VectorStoreModel,
     VolumeModel,
+    UnityCatalogFunctionSqlModel, UnityCatalogFunctionSqlTestModel, FunctionModel
 )
 from retail_ai.providers.base import ServiceProvider
 from retail_ai.vector_search import endpoint_exists, index_exists
-
+from unitycatalog.ai.core.databricks import DatabricksFunctionClient
+from databricks_langchain import DatabricksFunctionClient, UCFunctionToolkit
+from databricks.sdk.service.catalog import FunctionInfo
+from unitycatalog.ai.core.base import FunctionExecutionResult
 
 class DatabricksProvider(ServiceProvider):
     def __init__(
-        self, w: WorkspaceClient | None = None, vsc: VectorSearchClient | None = None
+        self, 
+        w: WorkspaceClient | None = None, 
+        vsc: VectorSearchClient | None = None, 
+        dfs: DatabricksFunctionClient | None = None,
     ) -> None:
         if w is None:
             w = WorkspaceClient()
         if vsc is None:
             vsc = VectorSearchClient()
-
+        if dfs is None:
+            dfs = DatabricksFunctionClient(w=w)
         self.w = w
         self.vsc = vsc
+        self.dfs = dfs
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo
@@ -151,3 +160,31 @@ class DatabricksProvider(ServiceProvider):
             vector_store.endpoint.name, vector_store.index.full_name
         )
         return index
+
+
+    def create_sql_function(self, unity_catalog_function: UnityCatalogFunctionSqlModel) -> None:
+        function: FunctionModel = unity_catalog_function.function
+        schema: SchemaModel = function.schema_model
+        ddl_path: Path = Path(unity_catalog_function.ddl)
+
+        statements: Sequence[str] = [str(s) for s in sqlparse.parse(ddl_path.read_text())]
+        for sql in statements:
+            sql = sql.replace("{catalog_name}", schema.catalog_name)
+            sql = sql.replace("{schema_name}", schema.schema_name)
+
+            logger.info(function.name)
+            _: FunctionInfo = self.dfs.create_function(sql_function_body=sql)
+
+            if unity_catalog_function.test:
+                logger.info(unity_catalog_function.test.parameters)
+
+                result: FunctionExecutionResult = self.dfs.execute_function(
+                    function_name=function.full_name,
+                    parameters=unity_catalog_function.test.parameters
+                )
+
+                if result.error:
+                    logger.error(result.error)
+                else:
+                    logger.info(f"Function {function.full_name} executed successfully.")
+                    logger.info(f"Result: {result}")

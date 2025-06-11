@@ -91,32 +91,6 @@ from retail_ai.config import (
 
 unity_catalog_functions: Sequence[UnityCatalogFunctionSqlModel] = config.unity_catalog_functions
 
-
 for unity_catalog_function in unity_catalog_functions:
   unity_catalog_function: UnityCatalogFunctionSqlModel
-  function: FunctionModel = unity_catalog_function.function
-  schema: SchemaModel = function.schema_model
-  ddl_path: Path = Path(unity_catalog_function.ddl)
-
-  sql: str = ddl_path.read_text()
-  sql = sql.replace("{catalog_name}", schema.catalog_name)
-  sql = sql.replace("{schema_name}", schema.schema_name)
-
-  print(function.name)
-  _: FunctionInfo = client.create_function(sql_function_body=sql)
-
-  if unity_catalog_function.test:
-
-    print(unity_catalog_function.test.parameters)
-
-    result: FunctionExecutionResult = client.execute_function(
-        function_name=function.full_name,
-        parameters=unity_catalog_function.test.parameters
-    )
-
-    if result.error:
-      print(result.error)
-
-    pdf: pd.DataFrame = pd.read_csv(StringIO(result.value))
-    display(pdf)
-
+  unity_catalog_function.create()

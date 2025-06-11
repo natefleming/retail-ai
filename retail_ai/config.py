@@ -25,7 +25,7 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
-
+from databricks_langchain import DatabricksFunctionClient
 
 class HasFullName(ABC):
     @property
@@ -615,6 +615,13 @@ class UnityCatalogFunctionSqlModel(BaseModel):
     function: UnityCatalogFunctionModel
     ddl: str
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
+
+    def create(self, w: WorkspaceClient | None = None, dfs: DatabricksFunctionClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w, dfs=dfs)
+        provider.create_sql_function(self)
 
 
 class ResourcesModel(BaseModel):

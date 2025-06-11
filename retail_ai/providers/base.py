@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from retail_ai.config import DatasetModel, SchemaModel, VectorStoreModel, VolumeModel
+from retail_ai.config import DatasetModel, SchemaModel, VectorStoreModel, VolumeModel, UnityCatalogFunctionSqlModel
 
 
 class ServiceProvider(ABC):
@@ -22,3 +22,6 @@ class ServiceProvider(ABC):
 
     @abstractmethod
     def get_vector_index(self, vector_store: VectorStoreModel) -> Any: ...
+    
+    @abstractmethod
+    def create_sql_function(self, unity_catalog_function: UnityCatalogFunctionSqlModel) -> Any: ...
