@@ -58,7 +58,6 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 # COMMAND ----------
 
 from databricks.sdk import WorkspaceClient
-
 from retail_ai.config import SchemaModel, VolumeModel
 
 
@@ -75,25 +74,6 @@ for _, volume in config.resources.volumes.items():
   
   _ = volume.create(w=w)
   print(f"volume: {volume.full_name}")
-
-# COMMAND ----------
-
-import sqlparse
-
-from pyspark.sql import DataFrame
-from retail_ai.config import DatasetModel
-from pathlib import Path
-
-current_dir: Path = Path().absolute()
-datasets: Sequence[DatasetModel] = config.datasets
-
-for dataset in datasets:
-    dataset: DatasetModel
-    data_path: Path = current_dir / Path(dataset.data)
-    ddl_path: Path = current_dir / Path(dataset.ddl)
-    for s in sqlparse.parse(ddl_path.read_text()):
-      print(type(s))
-      print(s)
 
 # COMMAND ----------
 
