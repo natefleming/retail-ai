@@ -11,7 +11,7 @@ from databricks.sdk.service.catalog import (
     VolumeType,
 )
 from loguru import logger
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import SparkSession
 
 from retail_ai.config import DatasetModel, SchemaModel, VolumeModel
 from retail_ai.providers.base import ServiceProvider
@@ -87,11 +87,11 @@ class DatabricksProvider(ServiceProvider):
             for statement in data_statements:
                 logger.debug(statement)
                 spark.sql(
-                    str(statement), args={"database": dataset.table.schema_model.full_name}
+                    str(statement),
+                    args={"database": dataset.table.schema_model.full_name},
                 )
         else:
             logger.debug(f"Writing to: {table}")
             spark.read.format(format).options(**read_options).load(
                 data_path.as_posix()
             ).write.mode("overwrite").saveAsTable(table)
-
