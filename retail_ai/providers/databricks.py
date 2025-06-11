@@ -71,7 +71,7 @@ class DatabricksProvider(ServiceProvider):
 
         table: str = dataset.table.full_name
         ddl_path: Path = Path(dataset.ddl)
-        data_path: Path = current_dir / Path(dataset.data)
+        data_path: Path = Path(dataset.data)
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
 
@@ -83,7 +83,7 @@ class DatabricksProvider(ServiceProvider):
             )
 
         if format == "sql":
-            data_statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
+            data_statements: Sequence[str] = sqlparse.parse(data_path.read_text())
             for statement in data_statements:
                 logger.debug(statement)
                 spark.sql(
@@ -92,6 +92,7 @@ class DatabricksProvider(ServiceProvider):
                 )
         else:
             logger.debug(f"Writing to: {table}")
+            data_path = current_dir / data_path
             spark.read.format(format).options(**read_options).load(
                 data_path.as_posix()
             ).write.mode("overwrite").saveAsTable(table)
