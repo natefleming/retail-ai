@@ -587,7 +587,7 @@ class DatasetModel(BaseModel):
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_dataset(self)
-        
+
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
     parameters: Optional[dict[str, Any]] = Field(default_factory=dict)

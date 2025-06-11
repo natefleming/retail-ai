@@ -1,3 +1,7 @@
+import re
+from pathlib import Path
+from typing import Any, Sequence
+
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.catalog import (
@@ -6,16 +10,12 @@ from databricks.sdk.service.catalog import (
     VolumeInfo,
     VolumeType,
 )
-import re
-from pathlib import Path
-from typing import Any, Sequence
+from loguru import logger
+from pyspark.sql import DataFrame, SparkSession
 
-from retail_ai.config import SchemaModel, VolumeModel, DatasetModel
+from retail_ai.config import DatasetModel, SchemaModel, VolumeModel
 from retail_ai.providers.base import ServiceProvider
 
-from pyspark.sql import SparkSession, DataFrame
-
-from loguru import logger
 
 class DatabricksProvider(ServiceProvider):
     def __init__(self, w: WorkspaceClient | None = None) -> None:
@@ -60,34 +60,43 @@ class DatabricksProvider(ServiceProvider):
         return volume_info
 
     def create_dataset(self, dataset: DatasetModel) -> DataFrame:
-        from pyspark.sql import SparkSession
-        
         current_dir: Path = "file:///" / Path.cwd().relative_to("/")
 
         # Get or create Spark session
         spark: SparkSession = SparkSession.getActiveSession()
         if spark is None:
-            raise RuntimeError("No active Spark session found. This method requires Spark to be available.")
-        
+            raise RuntimeError(
+                "No active Spark session found. This method requires Spark to be available."
+            )
+
         table: str = dataset.table.full_name
         ddl_path: Path = Path(dataset.ddl)
         data_path: Path = current_dir / Path(dataset.data)
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
 
-        statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s]
+        statements: Sequence[str] = [
+            s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s
+        ]
         for statement in statements:
             logger.debug(statement)
-            spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
+            spark.sql(
+                statement, args={"database": dataset.table.schema_model.full_name}
+            )
 
         if format == "sql":
-            data_statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", data_path.read_text()) if s]
+            data_statements: Sequence[str] = [
+                s for s in re.split(r"\s*;\s*", data_path.read_text()) if s
+            ]
             for statement in data_statements:
                 logger.debug(statement)
-                spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
+                spark.sql(
+                    statement, args={"database": dataset.table.schema_model.full_name}
+                )
         else:
             logger.debug(f"Writing to: {table}")
-            spark.read.format(format).options(**read_options).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
+            spark.read.format(format).options(**read_options).load(
+                data_path.as_posix()
+            ).write.mode("overwrite").saveAsTable(table)
 
         return spark.table(table)
-        

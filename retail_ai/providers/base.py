@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from retail_ai.config import SchemaModel, VolumeModel, DatasetModel
+from retail_ai.config import DatasetModel, SchemaModel, VolumeModel
 
 
 class ServiceProvider(ABC):
@@ -13,6 +13,6 @@ class ServiceProvider(ABC):
 
     @abstractmethod
     def create_volume(self, schema: VolumeModel) -> Any: ...
-    
+
     @abstractmethod
     def create_dataset(self, dataset: DatasetModel) -> Any: ...
