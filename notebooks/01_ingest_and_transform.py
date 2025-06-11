@@ -84,5 +84,3 @@ datasets: Sequence[DatasetModel] = config.datasets
 for dataset in datasets:
     dataset: DatasetModel
     dataset.create()
-    display(spark.table(dataset.table.full_name))
-    
