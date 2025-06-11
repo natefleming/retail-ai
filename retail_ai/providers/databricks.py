@@ -1,7 +1,7 @@
-import re
 from pathlib import Path
 from typing import Any, Sequence
 
+import sqlparse
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.catalog import (
@@ -15,8 +15,7 @@ from pyspark.sql import DataFrame, SparkSession
 
 from retail_ai.config import DatasetModel, SchemaModel, VolumeModel
 from retail_ai.providers.base import ServiceProvider
-import sqlparse
-from sql_formatter.core import format_sql
+
 
 class DatabricksProvider(ServiceProvider):
     def __init__(self, w: WorkspaceClient | None = None) -> None:
@@ -76,10 +75,9 @@ class DatabricksProvider(ServiceProvider):
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
 
-
         statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
         for statement in statements:
-            logger.debug(format_sql(statement))
+            logger.debug(statement)
             spark.sql(
                 statement, args={"database": dataset.table.schema_model.full_name}
             )
@@ -87,7 +85,7 @@ class DatabricksProvider(ServiceProvider):
         if format == "sql":
             data_statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
             for statement in data_statements:
-                logger.debug(format_sql(statement))
+                logger.debug(statement)
                 spark.sql(
                     statement, args={"database": dataset.table.schema_model.full_name}
                 )

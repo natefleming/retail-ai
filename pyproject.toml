@@ -31,7 +31,6 @@ dependencies = [
     "python-dotenv>=1.1.0",
     "pyyaml>=6.0.2",
     "rich>=14.0.0",
-    "sql-formatter>=0.6.2",
     "sqlparse>=0.5.3",
     "unitycatalog-ai[databricks]>=0.3.0",
 ]
