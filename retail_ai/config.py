@@ -4,6 +4,8 @@ from enum import Enum
 from typing import Any, Callable, Optional, Sequence
 
 from databricks.sdk import WorkspaceClient
+from databricks.vector_search.client import VectorSearchClient
+from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import ChatDatabricks, DatabricksEmbeddings
 from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
@@ -169,6 +171,21 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 
     def as_resource(self) -> DatabricksResource:
         return self.index.as_resource()
+
+    def as_index(self, vsc: VectorSearchClient | None = None) -> VectorSearchIndex:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(vsc=vsc)
+        index: VectorSearchIndex = provider.get_vector_index(self)
+        return index
+
+    def create(self, vsc: VectorSearchClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(vsc=vsc)
+        provider.create_vector_store(self)
 
 
 class GenieRoomModel(BaseModel, IsDatabricksResource):

@@ -10,18 +10,32 @@ from databricks.sdk.service.catalog import (
     VolumeInfo,
     VolumeType,
 )
+from databricks.vector_search.client import VectorSearchClient
+from databricks.vector_search.index import VectorSearchIndex
 from loguru import logger
 from pyspark.sql import SparkSession
 
-from retail_ai.config import DatasetModel, SchemaModel, VolumeModel
+from retail_ai.config import (
+    DatasetModel,
+    SchemaModel,
+    VectorStoreModel,
+    VolumeModel,
+)
 from retail_ai.providers.base import ServiceProvider
+from retail_ai.vector_search import endpoint_exists, index_exists
 
 
 class DatabricksProvider(ServiceProvider):
-    def __init__(self, w: WorkspaceClient | None = None) -> None:
+    def __init__(
+        self, w: WorkspaceClient | None = None, vsc: VectorSearchClient | None = None
+    ) -> None:
         if w is None:
             w = WorkspaceClient()
+        if vsc is None:
+            vsc = VectorSearchClient()
+
         self.w = w
+        self.vsc = vsc
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo
@@ -96,3 +110,44 @@ class DatabricksProvider(ServiceProvider):
             spark.read.format(format).options(**read_options).load(
                 data_path.as_posix()
             ).write.mode("overwrite").saveAsTable(table)
+
+    def create_vector_store(self, vector_store: VectorStoreModel) -> None:
+        if not endpoint_exists(self.vsc, vector_store.endpoint.name):
+            self.vsc.create_endpoint_and_wait(
+                name=vector_store.endpoint.name,
+                endpoint_type=vector_store.endpoint.type,
+                verbose=True,
+            )
+
+        logger.debug(f"Endpoint named {vector_store.endpoint.name} is ready.")
+
+        if not index_exists(
+            self.vsc, vector_store.endpoint.name, vector_store.index.full_name
+        ):
+            logger.debug(
+                f"Creating index {vector_store.index.full_name} on endpoint {vector_store.endpoint.name}..."
+            )
+            self.vsc.create_delta_sync_index_and_wait(
+                endpoint_name=vector_store.endpoint.name,
+                index_name=vector_store.index.full_name,
+                source_table_name=vector_store.source_table.full_name,
+                pipeline_type="TRIGGERED",
+                primary_key=vector_store.primary_key,
+                embedding_source_column=vector_store.embedding_source_column,
+                embedding_model_endpoint_name=vector_store.embedding_model.name,
+                columns_to_sync=vector_store.columns,
+            )
+        else:
+            self.vsc.get_index(
+                vector_store.endpoint.name, vector_store.index.full_name
+            ).sync()
+
+        logger.debug(
+            f"index {vector_store.index.full_name} on table {vector_store.source_table.full_name} is ready"
+        )
+
+    def get_vector_index(self, vector_store: VectorStoreModel) -> None:
+        index: VectorSearchIndex = self.vsc.get_index(
+            vector_store.endpoint.name, vector_store.index.full_name
+        )
+        return index
