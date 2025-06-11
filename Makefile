@@ -19,6 +19,7 @@ SYNC := $(UV) sync
 BUILD := $(UV) build 
 PYTHON := $(UV) run python 
 EXPORT := $(UV) export --no-hashes --format requirements-txt 
+PUBLISH := $(UV) run twine upload
 PYTEST := $(UV) run pytest -v -s
 RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 
 RUFF_FORMAT := $(UV) run ruff format 
@@ -26,7 +27,7 @@ FIND := $(shell which find)
 RM := rm -rf
 CD := cd
 
-.PHONY: all clean distclean dist check format help 
+.PHONY: all clean distclean dist check format publish help 
 
 all: dist
 
@@ -45,6 +46,9 @@ check:
 
 format: check depends
 	$(RUFF_FORMAT) $(SRC_DIR) $(TEST_DIR) 
+
+publish: dist
+	$(PUBLISH) $(DIST_DIR)/*
 
 clean: 
 	$(FIND) $(SRC_DIR) $(TEST_DIR) -name \*.pyc -exec rm -f {} \;
@@ -68,7 +72,7 @@ help:
 	$(info TEST_DIR: $(TEST_DIR))
 	$(info DIST_DIR: $(DIST_DIR))
 	$(info )
-	$(info $$> make [all|dist|install|clean|distclean|format|depends|schema|test|help])
+	$(info $$> make [all|dist|install|clean|distclean|format|depends|publish|schema|test|help])
 	$(info )
 	$(info       all          - build library: [$(LIB)]. This is the default)
 	$(info       dist         - build library: [$(LIB)])
@@ -78,6 +82,7 @@ help:
 	$(info       distclean    - removes library)
 	$(info       format       - format source code)
 	$(info       depends      - installs library dependencies)
+	$(info       publish      - publish library)
 	$(info       schema       - print JSON schema for AppConfig)
 	$(info       test         - run tests)
 	$(info       help         - show this help message)

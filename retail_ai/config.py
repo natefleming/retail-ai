@@ -1,6 +1,8 @@
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
+from os import PathLike
+from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, TypeAlias
 
 from databricks.sdk import WorkspaceClient
@@ -18,6 +20,7 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from langgraph.store.postgres import PostgresStore
 from loguru import logger
+from mlflow.models import ModelConfig
 from mlflow.models.resources import (
     DatabricksFunction,
     DatabricksGenieSpace,
@@ -708,6 +711,19 @@ class AppConfig(BaseModel):
         default_factory=list
     )
     providers: Optional[dict[type | str, Any]] = None
+
+    @classmethod
+    def from_file(cls, path: PathLike) -> "AppConfig":
+        path = Path(path).as_posix()
+        os.environ["__APP_CONFIG_PATH__"] = path
+        model_config: ModelConfig = ModelConfig(development_config=path)
+        config: AppConfig = AppConfig(**model_config.to_dict())
+        return config
+
+    def display_graph(self) -> None:
+        from retail_ai.models import display_graph
+        from retail_ai.graph import create_retail_ai_graph
+        display_graph( create_retail_ai_graph(config=self))
 
     def create_agent(self, w: WorkspaceClient | None = None) -> None:
         from retail_ai.providers.base import ServiceProvider

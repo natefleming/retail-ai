@@ -15,7 +15,7 @@ from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from retail_ai.config import AgentModel, AppConfig, SupervisorModel, ToolModel
+from retail_ai.config import AgentModel, AppConfig, SupervisorModel, ToolModel, FactoryFunctionModel, PythonFunctionModel
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
@@ -80,12 +80,15 @@ def create_agent_node(
             create_search_memory_tool(namespace=("memory",)),
         ]
 
-    pre_agent_hook: RunnableLike = (
-        create_python_tool(agent.pre_agent_hook) if agent.pre_agent_hook else None
-    )
-    post_agent_hook: RunnableLike = (
-        create_python_tool(agent.post_agent_hook) if agent.post_agent_hook else None
-    )
+    def _create_hook(hook: PythonFunctionModel | FactoryFunctionModel | str) -> Callable[..., Any]:
+        if isinstance(hook, str):
+            hook = PythonFunctionModel(name=hook)
+        if hook:
+            hook = hook.as_tool()
+        return hook
+        
+    pre_agent_hook: Callable[..., Any] = _create_hook(agent.pre_agent_hook)
+    post_agent_hook: Callable[..., Any] =  _create_hook(agent.post_agent_hook)
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         model=llm,

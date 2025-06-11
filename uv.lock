@@ -2648,12 +2648,13 @@ wheels = [
 
 [[package]]
 name = "retail-ai"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-agents" },
     { name = "databricks-langchain" },
     { name = "databricks-sdk" },
+    { name = "databricks-vectorsearch" },
     { name = "duckduckgo-search" },
     { name = "grandalf" },
     { name = "langchain" },
@@ -2688,6 +2689,7 @@ requires-dist = [
     { name = "databricks-agents", specifier = ">=0.20.0" },
     { name = "databricks-langchain", specifier = ">=0.4.2" },
     { name = "databricks-sdk", specifier = ">=0.50.0" },
+    { name = "databricks-vectorsearch", specifier = ">=0.56" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
     { name = "grandalf", specifier = ">=0.8" },
     { name = "langchain", specifier = ">=0.3.24" },

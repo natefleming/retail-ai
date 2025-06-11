@@ -102,7 +102,9 @@ databricks-sdk==0.55.0
     #   retail-ai
     #   unitycatalog-ai
 databricks-vectorsearch==0.56
-    # via databricks-langchain
+    # via
+    #   databricks-langchain
+    #   retail-ai
 dataclasses-json==0.6.7
     # via
     #   databricks-agents

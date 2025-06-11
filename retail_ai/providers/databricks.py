@@ -123,27 +123,16 @@ class DatabricksProvider(ServiceProvider):
 
         logger.debug(f"pip_requirements: {pip_requirements}")
 
-        retail_ai_dir: Path = Path(retail_ai.__file__).parent
-        cwd: Path = Path.cwd()
-        relative_retail_ai: Path = retail_ai_dir.relative_to(cwd)
-
-        python_model: str = (relative_retail_ai / "agent_as_code.py").as_posix()
-
-        logger.debug(f"python_model: {python_model}")
-
-        code_paths: Sequence[str] = [
-            relative_retail_ai.as_posix(),
-        ]
-
-        logger.debug(f"code_paths: {code_paths}")
+        root_path: Path = Path(retail_ai.__file__).parent
+        model_path: Path = root_path / "agent_as_code.py"
 
         with mlflow.start_run(run_name="agent"):
             mlflow.set_tag("type", "agent")
             logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
-                python_model=python_model,
-                code_paths=code_paths,
+                python_model=model_path.as_posix(),
+                code_paths=[root_path.as_posix()],
                 model_config=config.model_dump(),
-                artifact_path="agent",
+                name="agent",
                 pip_requirements=pip_requirements,
                 resources=all_resources,
                 # auth_policy=auth_policy,
