@@ -581,6 +581,13 @@ class DatasetModel(BaseModel):
     format: DatasetFormat
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_dataset(self)
+        
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
     parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
