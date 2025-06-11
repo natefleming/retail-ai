@@ -772,6 +772,12 @@ display(inventory_df.join(product_df, on="product_id").where(F.col("product_id")
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC
+# MAGIC drop schema nfleming.retail_ai cascade;
+
+# COMMAND ----------
+
 from mlflow.tracking import MlflowClient
 from mlflow.exceptions import RestException
 
@@ -779,11 +785,6 @@ def delete_model_completely(model_name):
     client = MlflowClient()
     
     try:
-
-        
-
-        
-        # Now delete the entire model (this deletes all versions)
         client.delete_registered_model(model_name)
         print(f"Successfully deleted model '{model_name}' and all its versions")
         

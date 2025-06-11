@@ -64,7 +64,6 @@ from retail_ai.config import SchemaModel, VolumeModel
 
 w: WorkspaceClient = WorkspaceClient()
 
-
 for _, schema in config.schemas.items():
   schema: SchemaModel
   _ = schema.create(w=w)
@@ -72,11 +71,23 @@ for _, schema in config.schemas.items():
   print(f"schema: {schema.full_name}")
 
 for _, volume in config.resources.volumes.items():
-  print(volume.name)
   volume: VolumeModel
   
   _ = volume.create(w=w)
   print(f"volume: {volume.full_name}")
+
+# COMMAND ----------
+
+from typing import Any, Sequence
+import re
+from pathlib import Path
+from retail_ai.config import DatasetModel
+
+datasets: Sequence[DatasetModel] = config.datasets
+
+for dataset in datasets:
+    dataset: DatasetModel
+    dataset.create()
 
 # COMMAND ----------
 

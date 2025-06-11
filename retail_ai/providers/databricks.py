@@ -13,6 +13,8 @@ from typing import Any, Sequence
 from retail_ai.config import SchemaModel, VolumeModel, DatasetModel
 from retail_ai.providers.base import ServiceProvider
 
+from pyspark.sql import SparkSession, DataFrame
+
 from loguru import logger
 
 class DatabricksProvider(ServiceProvider):
@@ -57,65 +59,35 @@ class DatabricksProvider(ServiceProvider):
             )
         return volume_info
 
-    def create_dataset(self, dataset: DatasetModel) -> None:
+    def create_dataset(self, dataset: DatasetModel) -> DataFrame:
         from pyspark.sql import SparkSession
         
+        current_dir: Path = "file:///" / Path.cwd().relative_to("/")
+
         # Get or create Spark session
-        spark = SparkSession.getActiveSession()
+        spark: SparkSession = SparkSession.getActiveSession()
         if spark is None:
             raise RuntimeError("No active Spark session found. This method requires Spark to be available.")
         
         table: str = dataset.table.full_name
         ddl_path: Path = Path(dataset.ddl)
-        
-        current_dir: Path = Path.cwd()
         data_path: Path = current_dir / Path(dataset.data)
-        
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
-        
-        logger.info(f"Creating dataset: {table}")
-        logger.debug(f"DDL path: {ddl_path}")
-        logger.debug(f"Data path: {data_path}")
-        logger.debug(f"Format: {format}")
-        
-        # Execute DDL statements
-        if ddl_path.exists():
-            logger.debug(f"Reading DDL from: {ddl_path}")
-            ddl_content = ddl_path.read_text()
-            statements: Sequence[str] = [s.strip() for s in re.split(r"\s*;\s*", ddl_content) if s.strip()]
-            
-            for statement in statements:
-                logger.debug(f"Executing DDL: {statement}")
+
+        statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s]
+        for statement in statements:
+            logger.debug(statement)
+            spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
+
+        if format == "sql":
+            data_statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", data_path.read_text()) if s]
+            for statement in data_statements:
+                logger.debug(statement)
                 spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
         else:
-            logger.warning(f"DDL file not found: {ddl_path}")
-        
-        # Load data based on format
-        if format == "sql":
-            # Execute SQL statements for data loading
-            if data_path.exists():
-                logger.debug(f"Reading SQL data from: {data_path}")
-                data_content = data_path.read_text()
-                data_statements: Sequence[str] = [s.strip() for s in re.split(r"\s*;\s*", data_content) if s.strip()]
-                
-                for statement in data_statements:
-                    logger.debug(f"Executing SQL data statement: {statement}")
-                    spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
-            else:
-                logger.warning(f"SQL data file not found: {data_path}")
-        else:
-            if data_path.exists():
-                logger.debug(f"Loading {format} data from: {data_path}")
+            logger.debug(f"Writing to: {table}")
+            spark.read.format(format).options(**read_options).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
 
-                data_uri = data_path.as_uri() if data_path.is_absolute() else f"file:///{data_path.as_posix()}"
-                
-                df = spark.read.format(format).options(**read_options).load(data_uri)
-                df.write.mode("overwrite").saveAsTable(table)
-                
-                logger.info(f"Successfully loaded data into table: {table}")
-            else:
-                logger.warning(f"Data file not found: {data_path}")
-        
-        logger.info(f"Dataset creation completed: {table}")
+        return spark.table(table)
         
