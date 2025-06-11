@@ -10,6 +10,7 @@ from databricks.sdk.service.catalog import (
 from retail_ai.config import SchemaModel, VolumeModel
 from retail_ai.providers.base import ServiceProvider
 
+from loguru import logger
 
 class DatabricksProvider(ServiceProvider):
     def __init__(self, w: WorkspaceClient | None = None) -> None:
@@ -18,6 +19,7 @@ class DatabricksProvider(ServiceProvider):
         self.w = w
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
+        logger.debug(f"Creating catalog: {schema.catalog_name}")
         catalog_info: CatalogInfo
         try:
             catalog_info = self.w.catalogs.get(name=schema.catalog_name)
@@ -26,6 +28,7 @@ class DatabricksProvider(ServiceProvider):
         return catalog_info
 
     def create_schema(self, schema: SchemaModel) -> SchemaInfo:
+        logger.debug(f"Creating schema: {schema.full_name}")
         catalog_info: CatalogInfo = self.create_catalog(schema)
         schema_info: SchemaInfo
         try:
@@ -37,6 +40,7 @@ class DatabricksProvider(ServiceProvider):
         return schema_info
 
     def create_volume(self, volume: VolumeModel) -> VolumeInfo:
+        logger.debug(f"Creating volume: {volume.full_name}")
         schema_info: SchemaInfo = self.create_schema(volume.schema_model)
         volume_info: VolumeInfo
         try:
