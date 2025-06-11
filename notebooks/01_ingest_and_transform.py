@@ -58,17 +58,7 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 # COMMAND ----------
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.catalog import (
-  CatalogInfo, 
-  SchemaInfo, 
-  VolumeInfo, 
-  VolumeType
-)
-from retail_ai.catalog import (
-  get_or_create_catalog, 
-  get_or_create_database, 
-  get_or_create_volume
-)
+
 from retail_ai.config import SchemaModel, VolumeModel
 
 
@@ -77,22 +67,16 @@ w: WorkspaceClient = WorkspaceClient()
 
 for _, schema in config.schemas.items():
   schema: SchemaModel
-  catalog_info: CatalogInfo = get_or_create_catalog(name=schema.catalog_name, w=w)
-  schema_info: SchemaInfo = get_or_create_database(catalog=catalog_info, name=schema.schema_name, w=w)
+  _ = schema.create(w=w)
 
-  print(f"catalog: {catalog_info.full_name}")
-  print(f"schema: {schema_info.full_name}")
+  print(f"schema: {schema.full_name}")
 
 for _, volume in config.resources.volumes.items():
   print(volume.name)
   volume: VolumeModel
-  volume_info: VolumeInfo = get_or_create_volume(
-    catalog=catalog_info,
-    database=schema_info,
-    name=volume.name,
-    w=w
-  )
-  print(f"volume: {volume_info.full_name}")
+  
+  _ = volume.create(w=w)
+  print(f"volume: {volume.full_name}")
 
 # COMMAND ----------
 

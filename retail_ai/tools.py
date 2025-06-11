@@ -31,9 +31,8 @@ from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
 from retail_ai.config import (
-    BaseFunctionModel,
+    AnyTool,
     FactoryFunctionModel,
-    FunctionType,
     GenieRoomModel,
     McpFunctionModel,
     PythonFunctionModel,
@@ -244,21 +243,10 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
         tool: BaseTool = tool_registry.get(name)
         if tool is None:
             logger.debug(f"Creating tool: {name}...")
-            function: BaseFunctionModel = tool_config.function
-            function_type: FunctionType = function.type
-
-            match function_type:
-                case FunctionType.UNITY_CATALOG:
-                    tool = create_uc_tool(function)
-                case FunctionType.FACTORY:
-                    tool = create_factory_tool(function)
-                case FunctionType.PYTHON:
-                    tool = create_python_tool(function)
-                case FunctionType.MCP:
-                    tool = create_mcp_tool(function)
-                case _:
-                    raise ValueError(f"Unknown tool type: {function_type}")
-
+            function: AnyTool = tool_config.function
+            if isinstance(function, str):
+                function = PythonFunctionModel(name=function)
+            tool = function.as_tool()
             logger.debug(f"Registering tool: {tool_config}")
             tool_registry[name] = tool
         else:

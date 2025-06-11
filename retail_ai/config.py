@@ -1,11 +1,13 @@
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Callable, Generic, Optional, Sequence, TypeVar
+from typing import Any, Callable, Optional, Sequence
 
+from databricks.sdk import WorkspaceClient
 from databricks_langchain import ChatDatabricks, DatabricksEmbeddings
 from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.tools.base import BaseTool
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from langgraph.store.postgres import PostgresStore
@@ -28,14 +30,6 @@ class HasFullName(ABC):
     @abstractmethod
     def full_name(self) -> str:
         pass
-
-
-T = TypeVar("T")
-
-
-class IsFactory(ABC, Generic[T]):
-    @abstractmethod
-    def create(self, **kwargs: Any) -> T: ...
 
 
 class IsDatabricksResource(ABC):
@@ -84,6 +78,13 @@ class SchemaModel(BaseModel, HasFullName):
     @property
     def full_name(self) -> str:
         return f"{self.catalog_name}.{self.schema_name}"
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_schema(self)
 
 
 class TableModel(BaseModel, HasFullName, IsDatabricksResource):
@@ -191,6 +192,13 @@ class VolumeModel(BaseModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_volume(self)
+
 
 class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
@@ -291,6 +299,11 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
     def full_name(self) -> str:
         return self.name
 
+    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+        from retail_ai.tools import create_python_tool
+
+        return create_python_tool(self)
+
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
@@ -300,6 +313,11 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     @property
     def full_name(self) -> str:
         return self.name
+
+    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+        from retail_ai.tools import create_factory_tool
+
+        return create_factory_tool(self, **kwargs)
 
 
 class TransportType(str, Enum):
@@ -330,6 +348,11 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             raise ValueError("args must not be provided for STDIO transport")
         return self
 
+    def as_tool(self, **kwargs: Any) -> BaseTool:
+        from retail_ai.tools import create_mcp_tool
+
+        return create_mcp_tool(self)
+
 
 class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
@@ -342,15 +365,24 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
+    def as_tool(self, **kwargs: Any) -> BaseTool:
+        from retail_ai.tools import create_uc_tool
+
+        return create_uc_tool(self)
+
+
+type AnyTool = (
+    PythonFunctionModel
+    | FactoryFunctionModel
+    | UnityCatalogFunctionModel
+    | McpFunctionModel
+    | str
+)
+
 
 class ToolModel(BaseModel):
     name: str
-    function: (
-        PythonFunctionModel
-        | FactoryFunctionModel
-        | UnityCatalogFunctionModel
-        | McpFunctionModel
-    )
+    function: AnyTool
 
 
 class GuardrailsModel(BaseModel):
@@ -442,8 +474,8 @@ class AgentModel(BaseModel):
     memory: Optional[MemoryModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
-    pre_agent_hook: Optional[PythonFunctionModel | str] = None
-    post_agent_hook: Optional[PythonFunctionModel | str] = None
+    pre_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
+    post_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
 
 
 class SupervisorModel(BaseModel):

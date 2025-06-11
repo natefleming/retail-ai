@@ -7,8 +7,16 @@
           "type": "string"
         },
         "description": {
-          "title": "Description",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -60,6 +68,9 @@
               "$ref": "#/$defs/PythonFunctionModel"
             },
             {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
               "type": "string"
             },
             {
@@ -75,6 +86,9 @@
               "$ref": "#/$defs/PythonFunctionModel"
             },
             {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
               "type": "string"
             },
             {
@@ -87,12 +101,30 @@
       },
       "required": [
         "name",
-        "description",
         "model",
         "prompt"
       ],
       "title": "AgentModel",
       "type": "object"
+    },
+    "AnyTool": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PythonFunctionModel"
+        },
+        {
+          "$ref": "#/$defs/FactoryFunctionModel"
+        },
+        {
+          "$ref": "#/$defs/UnityCatalogFunctionModel"
+        },
+        {
+          "$ref": "#/$defs/McpFunctionModel"
+        },
+        {
+          "type": "string"
+        }
+      ]
     },
     "AppModel": {
       "properties": {
@@ -461,8 +493,16 @@
           "type": "string"
         },
         "description": {
-          "title": "Description",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
         "space_id": {
           "title": "Space Id",
@@ -471,7 +511,6 @@
       },
       "required": [
         "name",
-        "description",
         "space_id"
       ],
       "title": "GenieRoomModel",
@@ -1157,21 +1196,7 @@
           "type": "string"
         },
         "function": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PythonFunctionModel"
-            },
-            {
-              "$ref": "#/$defs/FactoryFunctionModel"
-            },
-            {
-              "$ref": "#/$defs/UnityCatalogFunctionModel"
-            },
-            {
-              "$ref": "#/$defs/McpFunctionModel"
-            }
-          ],
-          "title": "Function"
+          "$ref": "#/$defs/AnyTool"
         }
       },
       "required": [
@@ -1397,8 +1422,16 @@
           "type": "string"
         },
         "description": {
-          "title": "Description",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
         "warehouse_id": {
           "title": "Warehouse Id",
@@ -1407,7 +1440,6 @@
       },
       "required": [
         "name",
-        "description",
         "warehouse_id"
       ],
       "title": "WarehouseModel",

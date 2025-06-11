@@ -7,7 +7,6 @@ from langgraph_swarm import create_handoff_tool, create_swarm
 from loguru import logger
 
 from retail_ai.config import AgentModel, AppConfig, OrchestrationModel
-from retail_ai.messages import has_image
 from retail_ai.nodes import (
     create_agent_node,
     message_validation_node,
