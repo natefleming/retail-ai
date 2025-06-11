@@ -721,9 +721,10 @@ class AppConfig(BaseModel):
         return config
 
     def display_graph(self) -> None:
-        from retail_ai.models import display_graph
         from retail_ai.graph import create_retail_ai_graph
-        display_graph( create_retail_ai_graph(config=self))
+        from retail_ai.models import display_graph
+
+        display_graph(create_retail_ai_graph(config=self))
 
     def create_agent(self, w: WorkspaceClient | None = None) -> None:
         from retail_ai.providers.base import ServiceProvider
@@ -732,12 +733,22 @@ class AppConfig(BaseModel):
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_agent(self)
 
-    def deploy_agent(self, w: WorkspaceClient | None = None) -> None:
+    def deploy_agent(
+        self,
+        w: WorkspaceClient | None = None,
+        *,
+        additional_pip_reqs: Sequence[str] = [],
+        additional_code_paths: Sequence[str] = [],
+    ) -> None:
         from retail_ai.providers.base import ServiceProvider
         from retail_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
-        provider.deploy_agent(self)
+        provider.deploy_agent(
+            self,
+            additional_pip_reqs=additional_pip_reqs,
+            additional_code_paths=additional_code_paths,
+        )
 
     def create_monitor(self, w: WorkspaceClient | None = None) -> None:
         """

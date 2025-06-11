@@ -6,7 +6,6 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableConfig, RunnableSequence
-from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -15,11 +14,18 @@ from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from retail_ai.config import AgentModel, AppConfig, SupervisorModel, ToolModel, FactoryFunctionModel, PythonFunctionModel
+from retail_ai.config import (
+    AgentModel,
+    AppConfig,
+    FactoryFunctionModel,
+    PythonFunctionModel,
+    SupervisorModel,
+    ToolModel,
+)
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import create_python_tool, create_tools
+from retail_ai.tools import create_tools
 from retail_ai.types import AgentCallable
 
 
@@ -80,15 +86,17 @@ def create_agent_node(
             create_search_memory_tool(namespace=("memory",)),
         ]
 
-    def _create_hook(hook: PythonFunctionModel | FactoryFunctionModel | str) -> Callable[..., Any]:
+    def _create_hook(
+        hook: PythonFunctionModel | FactoryFunctionModel | str,
+    ) -> Callable[..., Any]:
         if isinstance(hook, str):
             hook = PythonFunctionModel(name=hook)
         if hook:
             hook = hook.as_tool()
         return hook
-        
+
     pre_agent_hook: Callable[..., Any] = _create_hook(agent.pre_agent_hook)
-    post_agent_hook: Callable[..., Any] =  _create_hook(agent.post_agent_hook)
+    post_agent_hook: Callable[..., Any] = _create_hook(agent.post_agent_hook)
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         model=llm,

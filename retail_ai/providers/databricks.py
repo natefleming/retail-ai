@@ -68,7 +68,13 @@ class DatabricksProvider(ServiceProvider):
         self.vsc = vsc
         self.dfs = dfs
 
-    def create_agent(self, config: AppConfig) -> ModelInfo:
+    def create_agent(
+        self,
+        config: AppConfig,
+        *,
+        additional_pip_reqs: Sequence[str] = [],
+        additional_code_paths: Sequence[str] = [],
+    ) -> ModelInfo:
         mlflow.set_registry_uri("databricks-uc")
 
         llms: Sequence[LLMModel] = list(config.resources.llms.values())
@@ -119,18 +125,22 @@ class DatabricksProvider(ServiceProvider):
         )
         logger.debug(f"auth_policy: {auth_policy}")
 
-        pip_requirements: Sequence[str] = get_installed_packages()
-
+        pip_requirements: Sequence[str] = (
+            get_installed_packages() + additional_code_paths
+        )
         logger.debug(f"pip_requirements: {pip_requirements}")
 
         root_path: Path = Path(retail_ai.__file__).parent
         model_path: Path = root_path / "agent_as_code.py"
 
+        code_paths: Sequence[str] = [root_path.as_posix()] + list(additional_code_paths)
+        logger.debug(f"code_paths: {code_paths}")
+
         with mlflow.start_run(run_name="agent"):
             mlflow.set_tag("type", "agent")
             logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
                 python_model=model_path.as_posix(),
-                code_paths=[root_path.as_posix()],
+                code_paths=code_paths,
                 model_config=config.model_dump(),
                 name="agent",
                 pip_requirements=pip_requirements,

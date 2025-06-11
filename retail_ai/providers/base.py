@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Sequence
 
 from retail_ai.config import (
     AppModel,
@@ -36,7 +36,12 @@ class ServiceProvider(ABC):
     ) -> Any: ...
 
     @abstractmethod
-    def create_agent(self, agent: AppModel) -> Any: ...
+    def create_agent(
+        self,
+        agent: AppModel,
+        additional_pip_reqs: Sequence[str],
+        additional_code_paths: Sequence[str],
+    ) -> Any: ...
 
     @abstractmethod
     def deploy_agent(self, config: AppModel) -> Any: ...
