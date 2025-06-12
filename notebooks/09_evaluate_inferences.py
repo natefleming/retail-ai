@@ -34,10 +34,20 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 from rich import print as pprint
 
-if config.evaluation.table is None:
-  dbutils.notebook.exit("Missing evaluation configuration")
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.serving import ServingEndpointDetailed, AiGatewayConfig, AiGatewayInferenceTableConfig
 
-payload_table: str = config.evaluation.table.full_name
+w: WorkspaceClient = WorkspaceClient()
+
+endpoint_config: ServingEndpointDetailed = w.serving_endpoints.get(config.app.endpoint_name)
+ai_gateway: AiGatewayConfig = endpoint_config.ai_gateway
+inference_table_config: AiGatewayInferenceTableConfig = ai_gateway.inference_table_config
+
+catalog_name: str = inference_table_config.catalog_name
+schema_name: str = inference_table_config.schema_name
+table_name_prefix: str = inference_table_config.table_name_prefix
+
+payload_table: str = f"{catalog_name}.{schema_name}.{table_name_prefix}_payload"
 
 pprint(payload_table)
 
@@ -57,9 +67,8 @@ model_uri: str = f"models:/{registered_model_name}@Current"
 model_version: ModelVersion = mlflow_client.get_model_version_by_alias(registered_model_name, "Current")
 
 loaded_agent = mlflow.pyfunc.load_model(model_uri)
-def predict_fn(messages: dict[str, Any]) -> str:
-  print(f"messages={messages}")
-  input = {"messages": messages}
+def predict_fn(request: str) -> str:
+  input = {"messages": [{"role": "user", "content": f"{request}"}]}
   response: dict[str, Any] = loaded_agent.predict(input)
   content: str = response["choices"][0]["message"]["content"]
   return content
@@ -130,41 +139,21 @@ def tool_call_efficiency(trace: Trace) -> Feedback:
 
 # COMMAND ----------
 
-import sys
-import mlflow
-from langgraph.graph.state import CompiledStateGraph
-from mlflow.pyfunc import ChatModel
-from retail_ai.graph import create_retail_ai_graph
-from retail_ai.models import create_agent 
-from retail_ai.config import AppConfig
-
-from loguru import logger
-
-mlflow.langchain.autolog()
-
-config: AppConfig = AppConfig.from_file(path=config_path)
-
-log_level: str = config.app.log_level
-
-logger.add(sys.stderr, level=log_level)
-
-graph: CompiledStateGraph = create_retail_ai_graph(config=config)
-
-app: ChatModel = create_agent(graph)
-
-# COMMAND ----------
-
 from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
 
 import pandas as pd
-import json
 
 
 df: DataFrame = spark.read.table(payload_table)
-df = df.select("request_id", "inputs", "expectations")
 
-eval_df: pd.DataFrame = df.toPandas()
+df = df.select("databricks_request_id", "request", "response")
+df = df.withColumns({
+    "inputs": F.struct(F.col("request").alias("request")),
+    "expectations": F.struct(F.col("response").alias("expected_response"))
+})
+
+eval_df: pd.DataFrame = df.select("databricks_request_id", "inputs", "expectations").toPandas()
 display(eval_df)
 
 # COMMAND ----------
@@ -181,7 +170,8 @@ evaluation_result: EvaluationResult
 
 registered_model_name: str = config.app.registered_model.full_name
 
-eval_df: pd.DataFrame = spark.read.table(payload_table).toPandas()
+if not config.evaluation:
+  dbutils.notebook.exit("Missing evaluation configuration")
 
 evaluation_table_name: str = config.evaluation.table.full_name
 
