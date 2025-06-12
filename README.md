@@ -142,6 +142,9 @@ retail-ai graph -o architecture.png
 
 # Deploy using Databricks Asset Bundles
 retail-ai bundle --deploy --run
+
+# Deploy using Databricks Asset Bundles with specific configuration
+retail-ai -vvvv bundle --deploy --run --env dev --config config/model_config.yaml --profile DEFAULT
 ```
 
 See the [Python API](#python-api) section for detailed programmatic usage, or [Command Line Interface](#command-line-interface) for CLI usage.
