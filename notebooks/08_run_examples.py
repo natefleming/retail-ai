@@ -69,10 +69,7 @@ retail_examples: dict[str, Any] = yaml.safe_load(retail_examples_path.read_text(
 # COMMAND ----------
 
 import sys
-
 import mlflow
-from mlflow.models import ModelConfig
-
 from langgraph.graph.state import CompiledStateGraph
 from mlflow.pyfunc import ChatModel
 from retail_ai.graph import create_retail_ai_graph

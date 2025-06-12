@@ -51,7 +51,7 @@ global_guidelines = {
 
 }
 
-model_uri: str = f"models:/{registered_model_name}@Champion"
+model_uri: str = f"models:/{registered_model_name}@Current"
 
 with mlflow.start_run():
     mlflow.set_tag("type", "evaluation")
