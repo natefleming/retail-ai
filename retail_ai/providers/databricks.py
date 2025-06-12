@@ -126,7 +126,7 @@ class DatabricksProvider(ServiceProvider):
         logger.debug(f"auth_policy: {auth_policy}")
 
         pip_requirements: Sequence[str] = (
-            get_installed_packages() + additional_code_paths
+            get_installed_packages() + additional_pip_reqs
         )
         logger.debug(f"pip_requirements: {pip_requirements}")
 
@@ -142,7 +142,7 @@ class DatabricksProvider(ServiceProvider):
                 python_model=model_path.as_posix(),
                 code_paths=code_paths,
                 model_config=config.model_dump(),
-                name="agent",
+                artifact_path="agent",
                 pip_requirements=pip_requirements,
                 resources=all_resources,
                 # auth_policy=auth_policy,
