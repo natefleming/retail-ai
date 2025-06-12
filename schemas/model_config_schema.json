@@ -109,6 +109,22 @@
     },
     "AppModel": {
       "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
         "log_level": {
           "$ref": "#/$defs/LogLevel"
         },
@@ -227,6 +243,7 @@
         }
       },
       "required": [
+        "name",
         "log_level",
         "registered_model",
         "endpoint_name",
@@ -1484,22 +1501,6 @@
     }
   },
   "properties": {
-    "name": {
-      "title": "Name",
-      "type": "string"
-    },
-    "description": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Description"
-    },
     "schemas": {
       "additionalProperties": {
         "$ref": "#/$defs/SchemaModel"
@@ -1606,7 +1607,6 @@
     }
   },
   "required": [
-    "name",
     "schemas",
     "resources",
     "app"

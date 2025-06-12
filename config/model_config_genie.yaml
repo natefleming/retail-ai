@@ -52,7 +52,6 @@ agents:
     handoff_prompt: |                               # Conditions for routing to this agent
       Answers all foobar questions
 
-
 app:
   name: genie_example                      # Application name  
   description: "Multi-agent system that talks to genie"

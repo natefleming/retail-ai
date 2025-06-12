@@ -21,6 +21,15 @@ This project implements a LangGraph-based multi-agent orchestration framework th
 
 The system uses Databricks Vector Search, Unity Catalog, and LLMs to provide accurate, context-aware responses across any domain.
 
+## Key Features
+
+- **Multi-Modal Interface**: CLI commands and Python API for development and deployment
+- **Agent Lifecycle Management**: Create, deploy, and monitor agents programmatically
+- **Vector Search Integration**: Built-in support for Databricks Vector Search with retrieval tools
+- **Configuration-Driven**: YAML-based configuration with validation and IDE support
+- **MLflow Integration**: Automatic model packaging, versioning, and deployment
+- **Monitoring & Evaluation**: Built-in assessment and monitoring capabilities
+
 ## Architecture
 
 ### Overview
@@ -97,6 +106,45 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 # Install dependencies using Makefile
 make install
 ```
+
+3. Configure Databricks CLI with appropriate workspace access
+
+## Quick Start
+
+### Option 1: Using Python API (Recommended for Development)
+
+```python
+from retail_ai.config import AppConfig
+
+# Load your configuration
+config = AppConfig.from_file("config/model_config.yaml")
+
+# Create vector search infrastructure
+for name, vector_store in config.resources.vector_stores.items():
+    vector_store.create()
+
+# Create and deploy your agent
+config.create_agent()
+config.deploy_agent()
+
+# Set up monitoring
+config.create_monitor()
+```
+
+### Option 2: Using CLI Commands
+
+```bash
+# Validate configuration
+retail-ai validate -c config/model_config.yaml
+
+# Generate workflow diagram
+retail-ai graph -o architecture.png
+
+# Deploy using Databricks Asset Bundles
+retail-ai bundle --deploy --run
+```
+
+See the [Python API](#python-api) section for detailed programmatic usage, or [Command Line Interface](#command-line-interface) for CLI usage.
 
 ## Command Line Interface
 
@@ -328,6 +376,21 @@ config.deploy_agent()
 
 For vector search examples, see [`notebooks/02_provision_vector_search.py`](notebooks/02_provision_vector_search.py).
 
+### Available Notebooks
+
+The framework includes several example notebooks demonstrating different aspects:
+
+| Notebook | Description | Key Methods Demonstrated |
+|----------|-------------|-------------------------|
+| [`01_ingest_and_transform.py`](notebooks/01_ingest_and_transform.py) | Data ingestion and transformation | Dataset creation and SQL execution |
+| [`02_provision_vector_search.py`](notebooks/02_provision_vector_search.py) | Vector search setup and usage | `vector_store.create()`, `as_index()` |
+| [`03_generate_evaluation_data.py`](notebooks/03_generate_evaluation_data.py) | Generate synthetic evaluation datasets | Data generation and evaluation setup |
+| [`04_unity_catalog_tools.py`](notebooks/04_unity_catalog_tools.py) | Unity Catalog function deployment | SQL function creation and testing |
+| [`05_agent_as_code_driver.py`](notebooks/05_agent_as_code_driver.py) | **Complete agent lifecycle** | `create_agent()`, `deploy_agent()` |
+| [`06_run_evaluation.py`](notebooks/06_run_evaluation.py) | Agent evaluation and testing | Evaluation framework usage |
+| [`07_create_monitor.py`](notebooks/07_create_monitor.py) | Monitoring setup | `create_monitor()` |
+| [`08_run_examples.py`](notebooks/08_run_examples.py) | End-to-end example queries | Agent interaction and testing |
+
 ## Configuration
 
 Configuration is managed through [`model_config.yaml`](config/model_config.yaml). This file defines all components of the Retail AI system, including resources, tools, agents, and the overall application setup.
@@ -357,6 +420,29 @@ app:
 
 # Other sections like guardrails, retrievers, evaluation, datasets
 ```
+
+### Loading and Using Configuration
+
+The configuration can be loaded and used programmatically through the `AppConfig` class:
+
+```python
+from retail_ai.config import AppConfig
+
+# Load configuration from file
+config = AppConfig.from_file("config/model_config.yaml")
+
+# Access different configuration sections
+print(f"Available agents: {list(config.agents.keys())}")
+print(f"Available tools: {list(config.tools.keys())}")
+print(f"Vector stores: {list(config.resources.vector_stores.keys())}")
+
+# Use configuration methods for deployment
+config.create_agent()          # Package as MLflow model
+config.deploy_agent()          # Deploy to serving endpoint
+config.create_monitor()        # Set up monitoring
+```
+
+The configuration supports both CLI and programmatic workflows, with the Python API providing more flexibility for complex deployment scenarios.
 
 ### Developing and Configuring Tools
 
