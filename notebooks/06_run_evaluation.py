@@ -44,23 +44,24 @@ evaluation_result: EvaluationResult
 
 registered_model_name: str = config.app.registered_model.full_name
 
-if config.evaluation:
-    
-    evaluation_table_name: str = config.evaluation.table.full_name
+if not config.evaluation:
+  dbutils.notebook.exit()
 
-    evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
+evaluation_table_name: str = config.evaluation.table.full_name
 
-    global_guidelines = {
+evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
 
-    }
+global_guidelines = {
 
-    model_uri: str = f"models:/{registered_model_name}@Current"
+}
 
-    with mlflow.start_run():
-        mlflow.set_tag("type", "evaluation")
-        eval_results = mlflow.evaluate(
-            data=evaluation_pdf,
-            model=model_uri,
-            model_type="databricks-agent",
-            evaluator_config={"databricks-agent": {"global_guidelines": global_guidelines}},
-        )
+model_uri: str = f"models:/{registered_model_name}@Current"
+
+with mlflow.start_run():
+    mlflow.set_tag("type", "evaluation")
+    eval_results = mlflow.evaluate(
+        data=evaluation_pdf,
+        model=model_uri,
+        model_type="databricks-agent",
+        evaluator_config={"databricks-agent": {"global_guidelines": global_guidelines}},
+    )
