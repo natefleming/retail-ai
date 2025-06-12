@@ -60,6 +60,9 @@ from databricks.agents.evals import generate_evals_df
 
 evaluation: EvaluationModel = config.evaluation
 
+if not evaluation:
+  return
+
 spark.sql(f"DROP TABLE IF EXISTS {evaluation.table.full_name}")
 
 for _, vector_store in config.resources.vector_stores.items():
