@@ -140,8 +140,16 @@
           "$ref": "#/$defs/RegisteredModelModel"
         },
         "endpoint_name": {
-          "title": "Endpoint Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint Name"
         },
         "tags": {
           "anyOf": [
@@ -253,7 +261,6 @@
       "required": [
         "name",
         "registered_model",
-        "endpoint_name",
         "permissions",
         "orchestration"
       ],
@@ -1121,14 +1128,17 @@
             },
             {
               "type": "string"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Default Agent"
         }
       },
       "required": [
-        "model",
-        "default_agent"
+        "model"
       ],
       "title": "SupervisorModel",
       "type": "object"
@@ -1145,8 +1155,12 @@
             },
             {
               "type": "string"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Default Agent"
         },
         "handoffs": {
@@ -1182,8 +1196,7 @@
         }
       },
       "required": [
-        "model",
-        "default_agent"
+        "model"
       ],
       "title": "SwarmModel",
       "type": "object"

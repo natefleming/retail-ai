@@ -551,12 +551,12 @@ class AgentModel(BaseModel):
 
 class SupervisorModel(BaseModel):
     model: LLMModel
-    default_agent: AgentModel | str
+    default_agent: Optional[AgentModel | str] = None
 
 
 class SwarmModel(BaseModel):
     model: LLMModel
-    default_agent: AgentModel | str
+    default_agent: Optional[AgentModel | str] = None
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
         default_factory=dict
     )
@@ -620,7 +620,7 @@ class AppModel(BaseModel):
     description: Optional[str] = None
     log_level: Optional[LogLevel] = "WARNING"
     registered_model: RegisteredModelModel
-    endpoint_name: str
+    endpoint_name: Optional[str] = None
     tags: Optional[dict[str, Any]] = Field(default_factory=dict)
     scale_to_zero: Optional[bool] = True
     environment_vars: Optional[dict[str, Any]] = Field(default_factory=dict)
@@ -636,6 +636,27 @@ class AppModel(BaseModel):
     def validate_agents_not_empty(self):
         if not self.agents:
             raise ValueError("agents must contain at least one item")
+        return self
+
+    @model_validator(mode="after")
+    def set_default_endpoint_name(self):
+        if self.endpoint_name is None:
+            self.endpoint_name = self.name
+        return self
+
+    @model_validator(mode="after")
+    def set_default_agent(self):
+        default_agent_name = self.agents[0].name
+
+        if self.orchestration.swarm and not self.orchestration.swarm.default_agent:
+            self.orchestration.swarm.default_agent = default_agent_name
+
+        if (
+            self.orchestration.supervisor
+            and not self.orchestration.supervisor.default_agent
+        ):
+            self.orchestration.supervisor.default_agent = default_agent_name
+
         return self
 
 
