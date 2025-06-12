@@ -733,6 +733,7 @@ class AppConfig(BaseModel):
         from retail_ai.graph import create_retail_ai_graph
         from retail_ai.models import save_image
 
+        logger.info(f"Saving image to {path}")
         save_image(create_retail_ai_graph(config=self), path=path)
 
     def create_agent(self, w: WorkspaceClient | None = None) -> None:
