@@ -32,7 +32,7 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
-from mlflow.models.model_config import _set_model_config
+
 
 class HasFullName(ABC):
     @property
@@ -616,6 +616,8 @@ class WorkloadSize(str, Enum):
 
 class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
+    name: str
+    description: Optional[str] = None
     log_level: LogLevel
     registered_model: RegisteredModelModel
     endpoint_name: str
@@ -712,7 +714,7 @@ class AppConfig(BaseModel):
         default_factory=list
     )
     providers: Optional[dict[type | str, Any]] = None
-    
+
     @classmethod
     def from_file(cls, path: PathLike) -> "AppConfig":
         path = Path(path).as_posix()
@@ -726,6 +728,12 @@ class AppConfig(BaseModel):
         from retail_ai.models import display_graph
 
         display_graph(create_retail_ai_graph(config=self))
+
+    def save_image(self, path: PathLike) -> None:
+        from retail_ai.graph import create_retail_ai_graph
+        from retail_ai.models import save_image
+
+        save_image(create_retail_ai_graph(config=self), path=path)
 
     def create_agent(self, w: WorkspaceClient | None = None) -> None:
         from retail_ai.providers.base import ServiceProvider

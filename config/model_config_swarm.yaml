@@ -896,6 +896,8 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
+  name: retai_ai_agent_swarm_example                      # Application name  
+  description: "Multi-agent system for retail customer service and product assistance"
   log_level: INFO                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered

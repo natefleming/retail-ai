@@ -74,11 +74,11 @@ config.display_graph()
 # COMMAND ----------
 
 from pathlib import Path
-from retail_ai.agent_as_code import app
-from retail_ai.models import save_image
 
-path: Path = Path.cwd().parent / Path("docs") / "architecture.png"
-save_image(app, path)
+
+path: Path = Path.cwd().parent / Path("docs") / f"{config.app.name}_architecture.png"
+
+config.save_image(path)
 
 # COMMAND ----------
 

@@ -54,6 +54,8 @@ agents:
 
 
 app:
+  name: genie_example                      # Application name  
+  description: "Multi-agent system that talks to genie"
   log_level: INFO                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered

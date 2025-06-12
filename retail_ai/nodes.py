@@ -117,26 +117,27 @@ def create_agent_node(
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:
-    
-    message_validator: PythonFunctionModel | FactoryFunctionModel | str = config.app.message_validator
+    message_validator: PythonFunctionModel | FactoryFunctionModel | str = (
+        config.app.message_validator
+    )
     if isinstance(message_validator, str):
         message_validator = PythonFunctionModel(name=message_validator)
-    
+
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "error": None}
         if message_validator:
             try:
-                message_validator = message_validator.as_tool() 
-                response |= message_validator(
+                validator_tool = message_validator.as_tool()
+                response |= validator_tool(
                     state=state,
                     config=config,
                 )
             except Exception as e:
                 logger.error(f"Message validation failed: {e}")
                 return {"is_valid": False, "validation_error": str(e)}
-        
+
         return response
 
     return message_validation
