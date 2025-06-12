@@ -32,7 +32,7 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
-
+from mlflow.models.model_config import _set_model_config
 
 class HasFullName(ABC):
     @property
@@ -712,6 +712,10 @@ class AppConfig(BaseModel):
         default_factory=list
     )
     providers: Optional[dict[type | str, Any]] = None
+    
+    def model_post_init(self, context) -> None:
+        _set_model_config(self.model_dump())
+        
 
     @classmethod
     def from_file(cls, path: PathLike) -> "AppConfig":
