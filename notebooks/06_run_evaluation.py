@@ -45,7 +45,7 @@ evaluation_result: EvaluationResult
 registered_model_name: str = config.app.registered_model.full_name
 
 if not config.evaluation:
-  dbutils.notebook.exit()
+  dbutils.notebook.exit("Missing evaluation configuration")
 
 evaluation_table_name: str = config.evaluation.table.full_name
 
