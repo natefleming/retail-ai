@@ -628,6 +628,7 @@ class AppModel(BaseModel):
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
     alias: Optional[str] = None
+    message_validator: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
 
 
 class EvaluationModel(BaseModel):

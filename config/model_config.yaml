@@ -922,6 +922,7 @@ app:
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
       default_agent: *general                       # Default agent when no specific match
+  message_validator: "retail_ai.hooks.null_hook"
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general

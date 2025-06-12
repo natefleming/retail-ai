@@ -107,25 +107,6 @@
       "title": "AgentModel",
       "type": "object"
     },
-    "AnyTool": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/PythonFunctionModel"
-        },
-        {
-          "$ref": "#/$defs/FactoryFunctionModel"
-        },
-        {
-          "$ref": "#/$defs/UnityCatalogFunctionModel"
-        },
-        {
-          "$ref": "#/$defs/McpFunctionModel"
-        },
-        {
-          "type": "string"
-        }
-      ]
-    },
     "AppModel": {
       "properties": {
         "log_level": {
@@ -213,6 +194,36 @@
         },
         "orchestration": {
           "$ref": "#/$defs/OrchestrationModel"
+        },
+        "alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alias"
+        },
+        "message_validator": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Validator"
         }
       },
       "required": [
@@ -1196,7 +1207,24 @@
           "type": "string"
         },
         "function": {
-          "$ref": "#/$defs/AnyTool"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/McpFunctionModel"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Function"
         }
       },
       "required": [

@@ -17,7 +17,7 @@ from retail_ai.state import AgentConfig, AgentState
 
 def route_message_validation(on_success: str) -> Callable:
     def _(state: AgentState) -> str:
-        if not state["is_valid_config"]:
+        if not state["is_valid"]:
             return END
         return on_success
 

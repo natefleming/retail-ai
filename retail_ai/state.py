@@ -40,7 +40,5 @@ class AgentState(MessagesState):
     route: str
     active_agent: str
 
-    is_valid_config: bool
-
-    user_id: str
-    store_num: str
+    is_valid: bool
+    validation_error: str

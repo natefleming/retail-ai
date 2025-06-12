@@ -37,11 +37,11 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
             base_system_prompt
         )
 
-        configurable: dict[str, Any] = config.get("configurable", {})
         params: dict[str, Any] = {
-            "user_id": configurable.get("user_id", ""),
-            "store_num": configurable.get("store_num", ""),
+            input_variable: "" for input_variable in prompt_template.input_variables
         }
+        params |= config.get("configurable", {})
+
         system_prompt: str = prompt_template.format(**params)
 
         messages: Sequence[BaseMessage] = state["messages"]
@@ -117,25 +117,27 @@ def create_agent_node(
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:
+    
+    message_validator: PythonFunctionModel | FactoryFunctionModel | str = config.app.message_validator
+    if isinstance(message_validator, str):
+        message_validator = PythonFunctionModel(name=message_validator)
+    
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
-        logger.debug(f"state: {state}")
-
-        configurable: dict[str, Any] = config.get("configurable", {})
-        validation_errors: list[str] = []
-
-        user_id: Optional[str] = configurable.get("user_id", "")
-        if not user_id:
-            validation_errors.append("user_id is required")
-
-        store_num: Optional[str] = configurable.get("store_num", "")
-        if not store_num:
-            validation_errors.append("store_num is required")
-
-        if validation_errors:
-            logger.warning(f"Validation errors: {validation_errors}")
-
-        return {"user_id": user_id, "store_num": store_num, "is_valid_config": True}
+        logger.debug("Running message validation")
+        response: dict[str, Any] = {"is_valid": True, "error": None}
+        if message_validator:
+            try:
+                message_validator = message_validator.as_tool() 
+                response |= message_validator(
+                    state=state,
+                    config=config,
+                )
+            except Exception as e:
+                logger.error(f"Message validation failed: {e}")
+                return {"is_valid": False, "validation_error": str(e)}
+        
+        return response
 
     return message_validation
 
