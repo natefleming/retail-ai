@@ -156,13 +156,13 @@ class DatabricksProvider(ServiceProvider):
         )
 
         client: MlflowClient = MlflowClient()
-        
+
         client.set_registered_model_alias(
             name=registered_model_name,
             alias="Current",
             version=model_version.version,
         )
-            
+
         if config.app.alias:
             client.set_registered_model_alias(
                 name=registered_model_name,

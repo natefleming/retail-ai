@@ -618,7 +618,7 @@ class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     name: str
     description: Optional[str] = None
-    log_level: LogLevel
+    log_level: Optional[LogLevel] = "WARNING"
     registered_model: RegisteredModelModel
     endpoint_name: str
     tags: Optional[dict[str, Any]] = Field(default_factory=dict)
@@ -631,6 +631,12 @@ class AppModel(BaseModel):
     orchestration: OrchestrationModel
     alias: Optional[str] = None
     message_validator: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
+
+    @model_validator(mode="after")
+    def validate_agents_not_empty(self):
+        if not self.agents:
+            raise ValueError("agents must contain at least one item")
+        return self
 
 
 class EvaluationModel(BaseModel):

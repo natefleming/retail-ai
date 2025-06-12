@@ -126,7 +126,15 @@
           "title": "Description"
         },
         "log_level": {
-          "$ref": "#/$defs/LogLevel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LogLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "WARNING"
         },
         "registered_model": {
           "$ref": "#/$defs/RegisteredModelModel"
@@ -244,7 +252,6 @@
       },
       "required": [
         "name",
-        "log_level",
         "registered_model",
         "endpoint_name",
         "permissions",
