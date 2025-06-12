@@ -13,8 +13,7 @@ from retail_ai.models import create_agent
 
 mlflow.langchain.autolog()
 
-model_config_path: str = os.getenv("__APP_CONFIG_PATH__", "../config/model_config.yaml")
-model_config: ModelConfig = ModelConfig(development_config=model_config_path)
+model_config: ModelConfig = ModelConfig()
 config: AppConfig = AppConfig(**model_config.to_dict())
 
 log_level: str = config.app.log_level

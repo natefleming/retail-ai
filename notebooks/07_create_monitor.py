@@ -41,13 +41,9 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-import mlflow
-from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
 
-development_config: str = config_path
-model_config: ModelConfig = ModelConfig(development_config=development_config)
-config: AppConfig = AppConfig(**model_config.to_dict())
+config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 

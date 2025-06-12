@@ -58,12 +58,9 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
-from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
 
-model_config_path: str = config_path
-model_config: ModelConfig = ModelConfig(development_config=model_config_path)
-config: AppConfig = AppConfig(**model_config.to_dict())
+config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
@@ -71,9 +68,8 @@ from langgraph.graph.state import CompiledStateGraph
 from retail_ai.models import display_graph
 from retail_ai.graph import create_retail_ai_graph
 
-graph: CompiledStateGraph = create_retail_ai_graph(config=config)
 
-display_graph(graph)
+config.display_graph()
 
 # COMMAND ----------
 

@@ -40,6 +40,12 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
+from retail_ai.config import AppConfig
+
+config: AppConfig = AppConfig.from_file(path=config_path)
+
+# COMMAND ----------
+
 from typing import Any, Dict, Optional, List
 
 from mlflow.models import ModelConfig
@@ -50,9 +56,6 @@ import pandas as pd
 from pyspark.sql import DataFrame
 from databricks.agents.evals import generate_evals_df
 
-development_config: str = config_path
-model_config: ModelConfig = ModelConfig(development_config=development_config)
-config: AppConfig = AppConfig(**model_config.to_dict())
 
 
 evaluation: EvaluationModel = config.evaluation

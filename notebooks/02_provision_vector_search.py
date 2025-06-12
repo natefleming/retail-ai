@@ -46,20 +46,13 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-from typing import Any, Sequence
+from retail_ai.config import AppConfig
 
-from mlflow.models import ModelConfig
-from retail_ai.config import AppConfig, VectorStoreModel
-from databricks.sdk import WorkspaceClient
-from databricks.vector_search.index import VectorSearchIndex
-from retail_ai.vector_search import index_exists, endpoint_exists
-from databricks.vector_search.client import VectorSearchClient
+config: AppConfig = AppConfig.from_file(path=config_path)
 
+# COMMAND ----------
 
-model_config_file: str = config_path
-model_config: ModelConfig = ModelConfig(development_config=model_config_file)
-config: AppConfig = AppConfig(**model_config.to_dict())
-
+from retail_ai.config import VectorStoreModel
 
 vector_stores: dict[str, VectorStoreModel] = config.resources.vector_stores
 
@@ -97,37 +90,11 @@ for name, retriever in config.retrievers.items():
 
 # COMMAND ----------
 
-import asyncio
-import os
-from collections import OrderedDict
-from io import StringIO
-from typing import Any, Callable, Literal, Optional, Sequence
+from typing import Sequence
 
-import mlflow
-import pandas as pd
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import (
-    StatementResponse,
-    StatementState,
-)
-from databricks_ai_bridge.genie import GenieResponse
-from databricks_langchain import (
-    DatabricksFunctionClient,
-    DatabricksVectorSearch,
-    UCFunctionToolkit,
-)
-from databricks_langchain.genie import Genie
-from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
-from langchain_community.tools import DuckDuckGoSearchRun
+from databricks_langchain import DatabricksVectorSearch
 from langchain_core.documents import Document
-from langchain_core.language_models import LanguageModelLike
-from langchain_core.tools import BaseTool, tool
 from langchain_core.vectorstores.base import VectorStore
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from loguru import logger
-from pydantic import BaseModel, Field
-from unitycatalog.ai.core.base import FunctionExecutionResult
-
 
 content = "What grills do you have in stock?"
 for name, retriever in config.retrievers.items():

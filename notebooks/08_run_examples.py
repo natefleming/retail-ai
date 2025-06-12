@@ -83,9 +83,7 @@ from loguru import logger
 
 mlflow.langchain.autolog()
 
-model_config_path: str = config_path
-model_config: ModelConfig = ModelConfig(development_config=model_config_path)
-config: AppConfig = AppConfig(**model_config.to_dict())
+config: AppConfig = AppConfig.from_file(path=config_path)
 
 log_level: str = config.app.log_level
 

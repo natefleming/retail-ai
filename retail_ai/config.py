@@ -713,14 +713,10 @@ class AppConfig(BaseModel):
     )
     providers: Optional[dict[type | str, Any]] = None
     
-    def model_post_init(self, context) -> None:
-        _set_model_config(self.model_dump())
-        
-
     @classmethod
     def from_file(cls, path: PathLike) -> "AppConfig":
         path = Path(path).as_posix()
-        os.environ["__APP_CONFIG_PATH__"] = path
+        logger.debug(f"Loading config from {path}")
         model_config: ModelConfig = ModelConfig(development_config=path)
         config: AppConfig = AppConfig(**model_config.to_dict())
         return config
