@@ -144,6 +144,190 @@ retail-ai bundle --deploy --run --profile my-profile
 ### Verbose Output
 Add `-v`, `-vv`, `-vvv`, or `-vvvv` flags for increasing levels of verbosity (ERROR, WARNING, INFO, DEBUG, TRACE).
 
+## Python API
+
+The framework provides a comprehensive Python API for programmatic access to all functionality. The main entry point is the `AppConfig` class, which provides methods for agent lifecycle management, vector search operations, and configuration utilities.
+
+### Quick Start
+
+```python
+from retail_ai.config import AppConfig
+
+# Load configuration from file
+config = AppConfig.from_file(path="config/model_config.yaml")
+```
+
+### Agent Lifecycle Management
+
+#### Creating Agents
+Package and register your multi-agent system as an MLflow model:
+
+```python
+# Create agent with default settings
+config.create_agent()
+
+# Create agent with additional requirements and code paths
+config.create_agent(
+    additional_pip_reqs=["custom-package==1.0.0"],
+    additional_code_paths=["./custom_modules"]
+)
+```
+
+#### Deploying Agents
+Deploy your registered agent to a Databricks serving endpoint:
+
+```python
+# Deploy agent to serving endpoint
+config.deploy_agent()
+```
+
+The deployment process:
+1. Retrieves the latest model version from MLflow
+2. Creates or updates a Databricks model serving endpoint
+3. Configures scaling, environment variables, and permissions
+4. Sets up proper authentication and resource access
+
+#### Monitoring Agents
+Set up monitoring and evaluation for your deployed agent:
+
+```python
+# Create monitoring with built-in assessments
+config.create_monitor()
+```
+
+This configures:
+- Safety, groundedness, and relevance assessments
+- Custom guideline judges
+- Automated evaluation pipelines
+
+### Vector Search Operations
+
+#### Creating Vector Search Infrastructure
+Create vector search endpoints and indexes from your configuration:
+
+```python
+# Access vector stores from configuration
+vector_stores = config.resources.vector_stores
+
+# Create all vector stores
+for name, vector_store in vector_stores.items():
+    print(f"Creating vector store: {name}")
+    vector_store.create()
+```
+
+#### Using Vector Search
+Query your vector search indexes for retrieval-augmented generation:
+
+```python
+# Method 1: Direct index access
+from retail_ai.config import RetrieverModel
+
+question = "What products do you have in stock?"
+
+for name, retriever in config.retrievers.items():
+    # Get the vector search index
+    index = retriever.vector_store.as_index()
+    
+    # Perform similarity search
+    results = index.similarity_search(
+        query_text=question,
+        columns=retriever.columns,
+        **retriever.search_parameters.model_dump()
+    )
+    
+    chunks = results.get('result', {}).get('data_array', [])
+    print(f"Found {len(chunks)} relevant results")
+```
+
+```python
+# Method 2: LangChain integration
+from databricks_langchain import DatabricksVectorSearch
+
+for name, retriever in config.retrievers.items():
+    # Create LangChain vector store
+    vector_search = DatabricksVectorSearch(
+        endpoint=retriever.vector_store.endpoint.name,
+        index_name=retriever.vector_store.index.full_name,
+        columns=retriever.columns,
+    )
+    
+    # Search using LangChain interface
+    documents = vector_search.similarity_search(
+        query=question,
+        **retriever.search_parameters.model_dump()
+    )
+    
+    print(f"Found {len(documents)} documents")
+```
+
+### Configuration Utilities
+
+The `AppConfig` class provides helper methods to find and filter configuration components:
+
+#### Finding Agents
+```python
+# Get all agents
+all_agents = config.find_agents()
+
+# Find agents with specific criteria
+def has_vector_search(agent):
+    return any("vector_search" in tool.name.lower() for tool in agent.tools)
+
+vector_agents = config.find_agents(predicate=has_vector_search)
+```
+
+#### Finding Tools and Guardrails
+```python
+# Get all tools
+all_tools = config.find_tools()
+
+# Get all guardrails
+all_guardrails = config.find_guardrails()
+
+# Find tools by type
+def is_python_tool(tool):
+    return tool.function.type == "python"
+
+python_tools = config.find_tools(predicate=is_python_tool)
+```
+
+### Visualization
+
+Generate and save workflow diagrams:
+
+```python
+# Display graph in notebook
+config.display_graph()
+
+# Save architecture diagram
+config.save_image("docs/my_architecture.png")
+```
+
+### Complete Example
+
+See [`notebooks/05_agent_as_code_driver.py`](notebooks/05_agent_as_code_driver.py) for a complete example:
+
+```python
+from retail_ai.config import AppConfig
+from pathlib import Path
+
+# Load configuration
+config = AppConfig.from_file("config/model_config.yaml")
+
+# Visualize the workflow
+config.display_graph()
+
+# Save architecture diagram
+path = Path("docs") / f"{config.app.name}_architecture.png"
+config.save_image(path)
+
+# Create and deploy the agent
+config.create_agent()
+config.deploy_agent()
+```
+
+For vector search examples, see [`notebooks/02_provision_vector_search.py`](notebooks/02_provision_vector_search.py).
+
 ## Configuration
 
 Configuration is managed through [`model_config.yaml`](config/model_config.yaml). This file defines all components of the Retail AI system, including resources, tools, agents, and the overall application setup.
