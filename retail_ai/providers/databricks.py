@@ -125,9 +125,7 @@ class DatabricksProvider(ServiceProvider):
         )
         logger.debug(f"auth_policy: {auth_policy}")
 
-        pip_requirements: Sequence[str] = (
-            get_installed_packages() + additional_pip_reqs
-        )
+        pip_requirements: Sequence[str] = get_installed_packages() + additional_pip_reqs
         logger.debug(f"pip_requirements: {pip_requirements}")
 
         root_path: Path = Path(retail_ai.__file__).parent

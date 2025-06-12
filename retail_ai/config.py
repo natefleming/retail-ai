@@ -736,14 +736,7 @@ class AppConfig(BaseModel):
         logger.info(f"Saving image to {path}")
         save_image(create_retail_ai_graph(config=self), path=path)
 
-    def create_agent(self, w: WorkspaceClient | None = None) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
-
-        provider: ServiceProvider = DatabricksProvider(w=w)
-        provider.create_agent(self)
-
-    def deploy_agent(
+    def create_agent(
         self,
         w: WorkspaceClient | None = None,
         *,
@@ -754,11 +747,21 @@ class AppConfig(BaseModel):
         from retail_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
-        provider.deploy_agent(
+        provider.create_agent(
             self,
             additional_pip_reqs=additional_pip_reqs,
             additional_code_paths=additional_code_paths,
         )
+
+    def deploy_agent(
+        self,
+        w: WorkspaceClient | None = None,
+    ) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.deploy_agent(self)
 
     def create_monitor(self, w: WorkspaceClient | None = None) -> None:
         """
