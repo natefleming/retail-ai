@@ -47,4 +47,8 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
-config.create_monitor()
+try:
+  config.create_monitor()
+except Exception as e:
+  print(f"Failed to create monitor: {e}")
+

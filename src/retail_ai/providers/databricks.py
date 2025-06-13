@@ -233,41 +233,38 @@ class DatabricksProvider(ServiceProvider):
         )
         from databricks.rag_eval.monitoring.entities import Monitor
 
-        try:
-            monitor: Monitor = get_monitor(endpoint_name=config.app.endpoint_name)
+        monitor: Monitor = get_monitor(endpoint_name=config.app.endpoint_name)
 
-            monitor_action = update_monitor if monitor else create_monitor
-        
-            monitor = monitor_action(
-                endpoint_name=config.app.endpoint_name,
-                assessments_config=AssessmentsSuiteConfig(
-                    sample=1.0,
-                    assessments=[
-                        BuiltinJudge(name="safety"),  # or {'name': 'safety'}
-                        BuiltinJudge(
-                            name="groundedness", sample_rate=0.4
-                        ),  # or {'name': 'groundedness', 'sample_rate': 0.4}
-                        BuiltinJudge(
-                            name="relevance_to_query"
-                        ),  # or {'name': 'relevance_to_query'}
-                        BuiltinJudge(
-                            name="chunk_relevance"
-                        ),  # or {'name': 'chunk_relevance'}
-                        # Create custom judges with the guidelines judge.
-                        GuidelinesJudge(
-                            guidelines={
-                                "english": ["The response must be in English"],
-                                "clarity": [
-                                    "The response must be clear, coherent, and concise"
-                                ],
-                            }
-                        ),
-                    ],
-                ),
-            )
-            logger.info(f"Monitor updated: {monitor}")
-        except Exception as e:
-            logger.error(f"Error updating monitor: {e}")
+        monitor_action = update_monitor if monitor else create_monitor
+    
+        monitor = monitor_action(
+            endpoint_name=config.app.endpoint_name,
+            assessments_config=AssessmentsSuiteConfig(
+                sample=1.0,
+                assessments=[
+                    BuiltinJudge(name="safety"),  # or {'name': 'safety'}
+                    BuiltinJudge(
+                        name="groundedness", sample_rate=0.4
+                    ),  # or {'name': 'groundedness', 'sample_rate': 0.4}
+                    BuiltinJudge(
+                        name="relevance_to_query"
+                    ),  # or {'name': 'relevance_to_query'}
+                    BuiltinJudge(
+                        name="chunk_relevance"
+                    ),  # or {'name': 'chunk_relevance'}
+                    # Create custom judges with the guidelines judge.
+                    GuidelinesJudge(
+                        guidelines={
+                            "english": ["The response must be in English"],
+                            "clarity": [
+                                "The response must be clear, coherent, and concise"
+                            ],
+                        }
+                    ),
+                ],
+            ),
+        )
+        logger.info(f"Monitor updated: {monitor}")
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo
