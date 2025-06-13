@@ -44,7 +44,7 @@ def create_vector_search_tool(
 
     index_name: str = vector_store.index.full_name
     columns: Sequence[str] = retriever.columns
-    search_parameters: dict[str, Any] = retriever.search_parameters
+    search_parameters: dict[str, Any] = retriever.search_parameters.model_dump()
     primary_key: str = vector_store.primary_key
     doc_uri: str = vector_store.doc_uri
     text_column: str = vector_store.embedding_source_column
