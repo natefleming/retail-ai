@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from os import PathLike
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence, TypeAlias
+from typing import Any, Callable, Optional, Sequence, TypeAlias, Union
 
 from databricks.sdk import WorkspaceClient
 from databricks.vector_search.client import VectorSearchClient
@@ -123,7 +123,7 @@ class LLMModel(BaseModel, IsDatabricksResource):
     name: str
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
-    fallbacks: Optional[list[str]] = Field(default_factory=list)
+    fallbacks: Optional[list[Union[str, "LLMModel"]]] = Field(default_factory=list)
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -140,15 +140,23 @@ class LLMModel(BaseModel, IsDatabricksResource):
         chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
-        fallbacks: Sequence[LanguageModelLike] = [
-            ChatDatabricks(
-                model=f, temperature=self.temperature, max_tokens=self.max_tokens
-            )
-            for f in self.fallbacks
-            if f != self.name
-        ]
+        fallbacks: Sequence[LanguageModelLike] = []
+        for fallback in self.fallbacks:
+            fallback: str | LLMModel
+            if isinstance(fallback, str):
+                fallback = LLMModel(
+                    name=fallback,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+            if fallback.name == self.name:
+                continue
+            fallback_model: LanguageModelLike = fallback.as_chat_model()
+            fallbacks.append(fallback_model)
+
         if fallbacks:
             chat_client = chat_client.with_fallbacks(fallbacks)
+            
         return chat_client
 
 

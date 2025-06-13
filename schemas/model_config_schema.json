@@ -662,7 +662,14 @@
           "anyOf": [
             {
               "items": {
-                "type": "string"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/LLMModel"
+                  }
+                ]
               },
               "type": "array"
             },
