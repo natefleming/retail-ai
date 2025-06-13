@@ -33,11 +33,14 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 # COMMAND ----------
 
 from rich import print as pprint
+from retail_ai.config import EvaluationModel
 
-if config.evaluation.table is None:
+evaluation: EvaluationModel = config.evaluation
+
+if not evaluation:
   dbutils.notebook.exit("Missing evaluation configuration")
-
-payload_table: str = config.evaluation.table.full_name
+  
+payload_table: str = evaluation.table.full_name
 
 pprint(payload_table)
 
