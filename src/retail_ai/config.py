@@ -156,7 +156,7 @@ class LLMModel(BaseModel, IsDatabricksResource):
 
         if fallbacks:
             chat_client = chat_client.with_fallbacks(fallbacks)
-            
+
         return chat_client
 
 

@@ -40,7 +40,8 @@ dependencies = [
 retail-ai = "retail_ai.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["retail_ai"]
+packages = ["src/retail_ai"]
+sources = ["src"]
 
 [tool.hatch.build]
 exclude = [

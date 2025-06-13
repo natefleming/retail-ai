@@ -1,5 +1,5 @@
 TOP_DIR := .
-SRC_DIR := $(TOP_DIR)/retail_ai
+SRC_DIR := $(TOP_DIR)/src
 TEST_DIR := $(TOP_DIR)/tests
 DIST_DIR := $(TOP_DIR)/dist
 REQUIREMENTS_FILE := $(TOP_DIR)/requirements.txt

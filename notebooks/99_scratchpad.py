@@ -15,7 +15,7 @@
 # COMMAND ----------
 
 import sys
-sys.path.insert(0, "..")
+sys.path.insert(0, "../src")
 
 # COMMAND ----------
 
@@ -32,10 +32,6 @@ import yaml
 
 
 yaml.safe_dump(config.model_dump())
-
-# COMMAND ----------
-
-**config.model_dump_json()
 
 # COMMAND ----------
 

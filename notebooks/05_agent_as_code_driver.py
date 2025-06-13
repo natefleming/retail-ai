@@ -25,7 +25,7 @@ from typing import Sequence
 from importlib.metadata import version
 from pkg_resources import get_distribution
 
-sys.path.insert(0, "..")
+sys.path.insert(0, "../src")
 
 pip_requirements: Sequence[str] = [
     f"databricks-agents=={version('databricks-agents')}",

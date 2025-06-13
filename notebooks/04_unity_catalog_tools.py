@@ -25,7 +25,7 @@ import sys
 from typing import Sequence
 from importlib.metadata import version
 
-sys.path.insert(0, "..")
+sys.path.insert(0, "../src")
 
 pip_requirements: Sequence[str] = (
     f"langgraph=={version('langgraph')}",
