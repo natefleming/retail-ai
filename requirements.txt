@@ -40,11 +40,11 @@ azure-storage-file-datalake==12.20.0
     #   mlflow-skinny
 blinker==1.9.0
     # via flask
-boto3==1.38.35
+boto3==1.38.36
     # via
     #   mlflow
     #   mlflow-skinny
-botocore==1.38.35
+botocore==1.38.36
     # via
     #   boto3
     #   mlflow
@@ -125,7 +125,7 @@ distro==1.9.0
     #   openai
 docker==7.1.0
     # via mlflow
-duckduckgo-search==8.0.3
+duckduckgo-search==8.0.4
     # via retail-ai
 dydantic==0.0.8
     # via trustcall
@@ -133,7 +133,7 @@ fastapi==0.115.12
     # via mlflow-skinny
 flask==3.1.1
     # via mlflow
-fonttools==4.58.2
+fonttools==4.58.3
     # via matplotlib
 frozenlist==1.7.0
     # via
@@ -143,7 +143,7 @@ gitdb==4.0.12
     # via gitpython
 gitpython==3.1.44
     # via mlflow-skinny
-google-api-core==2.25.0
+google-api-core==2.25.1
     # via
     #   google-cloud-core
     #   google-cloud-storage
@@ -278,7 +278,7 @@ langchain-core==0.3.65
     #   langmem
 langchain-mcp-adapters==0.1.7
     # via retail-ai
-langchain-openai==0.3.22
+langchain-openai==0.3.23
     # via
     #   langmem
     #   openevals
@@ -461,7 +461,7 @@ pyasn1-modules==0.4.2
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.11.5
+pydantic==2.11.6
     # via
     #   anthropic
     #   databricks-agents
