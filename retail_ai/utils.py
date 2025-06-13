@@ -1,12 +1,20 @@
 import importlib
 import importlib.metadata
-from typing import Any, Callable
+import re
+from importlib.metadata import version
+from typing import Any, Callable, Sequence
+
+from loguru import logger
+
+
+def normalize_name(name: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9_]", "_", name).lower()
+    normalized = re.sub(r"_+", "_", normalized)
+    return normalized.strip("_")
 
 
 def get_installed_packages() -> dict[str, str]:
     """Get all installed packages with versions"""
-    from importlib.metadata import version
-    from typing import Sequence
 
     packages: Sequence[str] = [
         f"databricks-agents=={version('databricks-agents')}",
@@ -57,6 +65,7 @@ def load_function(function_name: str) -> Callable[..., Any]:
         >>> func = callable_from_fqn("retail_ai.models.get_latest_model_version")
         >>> version = func("my_model")
     """
+    logger.debug(f"Loading function: {function_name}")
     try:
         # Split the FQN into module path and function name
         module_path, func_name = function_name.rsplit(".", 1)

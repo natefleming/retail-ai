@@ -17,11 +17,14 @@ variables:
   node_type: 
     description: The job compute node type
     default: Standard_D4ads_v5
-    
+  app_name: 
+    description: The job name
+    default: deploy-retail-ai-job   
+  
 resources:
   jobs:
-    deploy-retail-ai-job:
-      name: deploy-retail-ai-job
+    deploy-end-to-end:
+      name: ${var.app_name}
       job_clusters:
         - job_cluster_key: common-cluster
           new_cluster:

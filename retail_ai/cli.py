@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from loguru import logger
-from mlflow.models import ModelConfig
 
 from retail_ai.config import AppConfig
 from retail_ai.graph import create_retail_ai_graph
 from retail_ai.models import save_image
+from retail_ai.utils import normalize_name
 
 logger.remove()
 logger.add(sys.stderr, level="ERROR")
@@ -91,7 +91,7 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="config/model_config.yaml",
+        required=True,
         metavar="FILE",
         help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
     )
@@ -128,7 +128,7 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="./config/model_config.yaml",
+        required=True,
         metavar="FILE",
         help="Path to the model configuration file to visualize (default: ./config/model_config.yaml)",
     )
@@ -159,7 +159,7 @@ Examples:
         "-c",
         "--config",
         type=str,
-        default="./config/model_config.yaml",
+        required=True,
         metavar="FILE",
         help="Path to the model configuration file for the bundle (default: ./config/model_config.yaml)",
     )
@@ -170,14 +170,19 @@ Examples:
         help="Deploy the Retail AI asset bundle",
     )
     bundle_parser.add_argument(
+        "--destroy",
+        action="store_true",
+        help="Destroy the Retail AI asset bundle",
+    )
+    bundle_parser.add_argument(
         "-r",
         "--run",
         action="store_true",
         help="Run the Retail AI system with the current configuration",
     )
     bundle_parser.add_argument(
-        "-e",
-        "--env",
+        "-t",
+        "--target",
         type=str,
         default="dev",
         help="Environment for the bundle (default: dev)",
@@ -200,8 +205,7 @@ def handle_schema_command(options: Namespace) -> None:
 
 def handle_graph_command(options: Namespace) -> None:
     logger.debug("Generating graph representation...")
-    model_config: ModelConfig = ModelConfig(development_config=options.config)
-    config: AppConfig = AppConfig(**model_config.to_dict())
+    config: AppConfig = AppConfig.from_file(options.config)
     app = create_retail_ai_graph(config)
     save_image(app, options.output)
 
@@ -209,8 +213,8 @@ def handle_graph_command(options: Namespace) -> None:
 def handle_validate_command(options: Namespace) -> None:
     logger.debug(f"Validating configuration from {options.config}...")
     try:
-        model_config: ModelConfig = ModelConfig(development_config=options.config)
-        _: AppConfig = AppConfig(**model_config.to_dict())
+        config: AppConfig = AppConfig.from_file(options.config)
+        _ = create_retail_ai_graph(config)
         sys.exit(0)
     except Exception as e:
         logger.error(f"Configuration validation failed: {e}")
@@ -234,15 +238,15 @@ def run_databricks_command(
     command: list[str],
     profile: Optional[str] = None,
     config: Optional[str] = None,
-    env: Optional[str] = None,
+    target: Optional[str] = None,
     dry_run: bool = False,
 ) -> None:
     """Execute a databricks CLI command with optional profile."""
     cmd = ["databricks"]
     if profile:
         cmd.extend(["--profile", profile])
-    if env:
-        cmd.extend(["--target", env])
+    if target:
+        cmd.extend(["--target", target])
     cmd.extend(command)
     if config:
         config_path = Path(config)
@@ -250,6 +254,8 @@ def run_databricks_command(
         if not config_path.exists():
             logger.error(f"Configuration file {config_path} does not exist.")
             sys.exit(1)
+
+        app_config: AppConfig = AppConfig.from_file(config_path)
 
         # Always convert to path relative to notebooks directory
         # Get absolute path of config file and current working directory
@@ -266,6 +272,9 @@ def run_databricks_command(
             relative_config = Path(os.path.relpath(config_abs, notebooks_dir))
 
         cmd.append(f'--var="config_path={relative_config}"')
+
+        normalized_name: str = normalize_name(app_config.app.name)
+        cmd.append(f'--var="app_name={normalized_name}"')
 
     logger.debug(f"Executing command: {' '.join(cmd)}")
 
@@ -302,20 +311,29 @@ def handle_bundle_command(options: Namespace) -> None:
     logger.debug("Bundling configuration...")
     profile: Optional[str] = options.profile
     config: Optional[str] = options.config
-    env: Optional[str] = options.env
+    target: Optional[str] = options.target
     dry_run: bool = options.dry_run
     if options.deploy:
         logger.info("Deploying Retail AI asset bundle...")
         run_databricks_command(
-            ["bundle", "deploy"], profile, config, env, dry_run=dry_run
+            ["bundle", "deploy"], profile, config, target, dry_run=dry_run
         )
     if options.run:
         logger.info("Running Retail AI system with current configuration...")
         run_databricks_command(
-            ["bundle", "run", "deploy-retail-ai-job"],
+            ["bundle", "run", "deploy-end-to-end"],
             profile,
             config,
-            env,
+            target,
+            dry_run=dry_run,
+        )
+    if options.destroy:
+        logger.info("Destroying Retail AI system with current configuration...")
+        run_databricks_command(
+            ["bundle", "destroy", "--auto-approve"],
+            profile,
+            config,
+            target,
             dry_run=dry_run,
         )
     else:

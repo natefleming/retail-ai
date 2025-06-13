@@ -261,7 +261,7 @@ tools:
     name: find_product_details_by_description
     function:
       type: factory
-      name: retail_ai.tools.find_product_details_by_description_tool
+      name: retail_ai.tools.retail.find_product_details_by_description_tool
       args:
         retriever: *products_retriever              # Uses product retriever for search
 
@@ -319,7 +319,7 @@ tools:
     name: find_product_by_sku
     function:
       type: factory
-      name: retail_ai.tools.create_find_product_by_sku_tool
+      name: retail_ai.tools.retail.create_find_product_by_sku_tool
       args:
         schema: *retail_schema                      # Reference to schema configuration
         warehouse: *shared_endpoint_warehouse       # Reference to warehouse configuration
@@ -328,7 +328,7 @@ tools:
     name: find_product_by_upc
     function:
       type: factory
-      name: retail_ai.tools.create_find_product_by_upc_tool
+      name: retail_ai.tools.retail.create_find_product_by_upc_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -338,7 +338,7 @@ tools:
     name: find_inventory_by_sku
     function:
       type: factory
-      name: retail_ai.tools.create_find_inventory_by_sku_tool
+      name: retail_ai.tools.retail.create_find_inventory_by_sku_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -347,7 +347,7 @@ tools:
     name: find_inventory_by_upc
     function:
       type: factory
-      name: retail_ai.tools.create_find_inventory_by_upc_tool
+      name: retail_ai.tools.retail.create_find_inventory_by_upc_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -357,7 +357,7 @@ tools:
     name: find_store_inventory_by_sku
     function:
       type: factory
-      name: retail_ai.tools.create_find_store_inventory_by_sku_tool
+      name: retail_ai.tools.retail.create_find_store_inventory_by_sku_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -366,7 +366,7 @@ tools:
     name: find_store_inventory_by_upc
     function:
       type: factory
-      name: retail_ai.tools.create_find_store_inventory_by_upc_tool
+      name: retail_ai.tools.retail.create_find_store_inventory_by_upc_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
