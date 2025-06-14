@@ -1,6 +1,9 @@
+import pytest
+
 from retail_ai.hooks import null_hook
 
 
+@pytest.mark.key("unit")
 def test_null_hook_returns_empty_dict() -> None:
     """Test that null_hook returns an empty dictionary."""
     state = {"messages": ["test"], "route": "search"}
@@ -12,6 +15,7 @@ def test_null_hook_returns_empty_dict() -> None:
     assert isinstance(result, dict)
 
 
+@pytest.mark.key("unit")
 def test_null_hook_with_empty_inputs() -> None:
     """Test null_hook with empty state and config."""
     result = null_hook({}, {})
@@ -20,6 +24,7 @@ def test_null_hook_with_empty_inputs() -> None:
     assert isinstance(result, dict)
 
 
+@pytest.mark.key("unit")
 def test_null_hook_with_none_values() -> None:
     """Test null_hook with None values in inputs."""
     state = {"key": None, "other": "value"}
@@ -31,6 +36,7 @@ def test_null_hook_with_none_values() -> None:
     assert isinstance(result, dict)
 
 
+@pytest.mark.key("unit")
 def test_null_hook_does_not_modify_inputs() -> None:
     """Test that null_hook doesn't modify the input dictionaries."""
     original_state = {"messages": ["test"], "route": "search"}
@@ -47,6 +53,7 @@ def test_null_hook_does_not_modify_inputs() -> None:
     assert result == {}
 
 
+@pytest.mark.key("unit")
 def test_null_hook_with_complex_data_types() -> None:
     """Test null_hook with complex data types in state and config."""
     state = {

@@ -1,5 +1,6 @@
 import sys
 
+import pytest
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow.models import ModelConfig
@@ -11,6 +12,7 @@ logger.remove()
 logger.add(sys.stderr, level="INFO")
 
 
+@pytest.mark.key("unit")
 def test_create_retail_ai_graph(model_config: ModelConfig) -> None:
     """
     Test the creation of the retail AI graph with a valid model configuration.

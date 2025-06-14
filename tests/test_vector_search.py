@@ -5,6 +5,7 @@ import pytest
 from retail_ai.vector_search import endpoint_exists, index_exists
 
 
+@pytest.mark.key("unit")
 def test_endpoint_exists_with_matching_endpoint() -> None:
     """Test endpoint_exists when the endpoint exists in the list."""
     mock_vsc = Mock()
@@ -22,6 +23,7 @@ def test_endpoint_exists_with_matching_endpoint() -> None:
     mock_vsc.list_endpoints.assert_called_once()
 
 
+@pytest.mark.key("unit")
 def test_endpoint_exists_with_no_matching_endpoint() -> None:
     """Test endpoint_exists when the endpoint doesn't exist in the list."""
     mock_vsc = Mock()
@@ -39,6 +41,7 @@ def test_endpoint_exists_with_no_matching_endpoint() -> None:
     mock_vsc.list_endpoints.assert_called_once()
 
 
+@pytest.mark.key("unit")
 def test_endpoint_exists_with_empty_endpoints() -> None:
     """Test endpoint_exists when no endpoints are returned."""
     mock_vsc = Mock()
@@ -50,6 +53,7 @@ def test_endpoint_exists_with_empty_endpoints() -> None:
     mock_vsc.list_endpoints.assert_called_once()
 
 
+@pytest.mark.key("unit")
 def test_endpoint_exists_with_rate_limit_error() -> None:
     """Test endpoint_exists handles rate limit errors gracefully."""
     mock_vsc = Mock()
@@ -66,6 +70,7 @@ def test_endpoint_exists_with_rate_limit_error() -> None:
     )
 
 
+@pytest.mark.key("unit")
 def test_endpoint_exists_with_other_exception() -> None:
     """Test endpoint_exists re-raises non-rate-limit exceptions."""
     mock_vsc = Mock()
@@ -75,6 +80,7 @@ def test_endpoint_exists_with_other_exception() -> None:
         endpoint_exists(mock_vsc, "any_endpoint")
 
 
+@pytest.mark.key("unit")
 def test_endpoint_exists_with_missing_endpoints_key() -> None:
     """Test endpoint_exists when the response doesn't have endpoints key."""
     mock_vsc = Mock()
@@ -85,6 +91,7 @@ def test_endpoint_exists_with_missing_endpoints_key() -> None:
     assert result is False
 
 
+@pytest.mark.key("unit")
 def test_index_exists_when_index_exists() -> None:
     """Test index_exists when the index exists and describe succeeds."""
     mock_vsc = Mock()
@@ -99,6 +106,7 @@ def test_index_exists_when_index_exists() -> None:
     mock_index.describe.assert_called_once()
 
 
+@pytest.mark.key("unit")
 def test_index_exists_when_index_does_not_exist() -> None:
     """Test index_exists when the index doesn't exist."""
     mock_vsc = Mock()
@@ -117,6 +125,7 @@ def test_index_exists_when_index_does_not_exist() -> None:
     mock_index.describe.assert_called_once()
 
 
+@pytest.mark.key("unit")
 def test_index_exists_with_permission_error() -> None:
     """Test index_exists with permission errors."""
     mock_vsc = Mock()
@@ -133,6 +142,7 @@ def test_index_exists_with_permission_error() -> None:
     )
 
 
+@pytest.mark.key("unit")
 def test_index_exists_with_other_unexpected_error() -> None:
     """Test index_exists with other unexpected errors."""
     mock_vsc = Mock()
@@ -149,6 +159,7 @@ def test_index_exists_with_other_unexpected_error() -> None:
     )
 
 
+@pytest.mark.key("unit")
 def test_index_exists_get_index_failure() -> None:
     """Test index_exists when get_index itself fails."""
     mock_vsc = Mock()

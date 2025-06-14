@@ -1,11 +1,13 @@
 from pathlib import Path
 from typing import Sequence
 
+import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from retail_ai.messages import message_with_images, remove_messages
 
 
+@pytest.mark.key("unit")
 def test_remove_messages_without_filter() -> None:
     """Test removing all messages without a filter."""
     messages = [
@@ -20,6 +22,7 @@ def test_remove_messages_without_filter() -> None:
     assert all(hasattr(rm, "id") for rm in remove_list)
 
 
+@pytest.mark.key("unit")
 def test_remove_messages_with_filter() -> None:
     """Test removing messages with a filter function."""
     messages = [
@@ -34,6 +37,7 @@ def test_remove_messages_with_filter() -> None:
     assert len(remove_list) == 1
 
 
+@pytest.mark.key("unit")
 def test_remove_messages_empty_list() -> None:
     """Test removing messages from an empty list."""
     messages: Sequence[BaseMessage] = []
@@ -43,6 +47,7 @@ def test_remove_messages_empty_list() -> None:
     assert len(remove_list) == 0
 
 
+@pytest.mark.key("unit")
 def test_remove_messages_filter_excludes_all() -> None:
     """Test removing messages when filter excludes all messages."""
     messages = [
@@ -56,6 +61,7 @@ def test_remove_messages_filter_excludes_all() -> None:
     assert len(remove_list) == 0
 
 
+@pytest.mark.key("unit")
 def test_message_with_images_single_image(tmp_path: Path) -> None:
     """Test adding a single image to a message."""
     # Create a temporary image file
@@ -71,6 +77,7 @@ def test_message_with_images_single_image(tmp_path: Path) -> None:
     assert result.content != message.content  # Should be modified
 
 
+@pytest.mark.key("unit")
 def test_message_with_images_multiple_images(tmp_path: Path) -> None:
     """Test adding multiple images to a message."""
     # Create temporary image files
@@ -88,6 +95,7 @@ def test_message_with_images_multiple_images(tmp_path: Path) -> None:
     assert result.content != message.content  # Should be modified
 
 
+@pytest.mark.key("unit")
 def test_message_with_images_empty_list() -> None:
     """Test adding no images to a message."""
     message = HumanMessage(content="No images here")

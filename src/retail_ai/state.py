@@ -31,12 +31,13 @@ class AgentState(MessagesState):
     passed between nodes in the agent graph and modified during execution.
 
     Attributes:
-        context: Retrieved documents providing relevant product/inventory information
+        documents: Retrieved documents providing relevant product/inventory information
         route: The current routing decision (which specialized agent to use)
         remaining_steps: Counter to limit reasoning steps and prevent infinite loops
     """
 
-    context: Sequence[Document]  # Documents retrieved from vector search
+    documents: Sequence[Document]  # Documents retrieved from vector search
+    context: str
     route: str
     active_agent: str
 

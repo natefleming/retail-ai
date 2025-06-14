@@ -1,5 +1,7 @@
 from typing import Sequence
 
+import pytest
+
 from retail_ai.config import AppConfig, FunctionType, ToolModel
 from retail_ai.tools import create_tools
 
@@ -10,6 +12,7 @@ excluded_tools: Sequence[str] = [
 ]
 
 
+@pytest.mark.key("unit")
 def test_create_tools(config: AppConfig) -> None:
     tool_models: list[ToolModel] = config.find_tools(
         lambda tool: not any(excluded in tool.name for excluded in excluded_tools)

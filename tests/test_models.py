@@ -1,8 +1,11 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from retail_ai.models import get_latest_model_version
 
 
+@pytest.mark.key("unit")
 def test_get_latest_model_version_single_version() -> None:
     """Test getting latest version when only one version exists."""
     with patch("retail_ai.models.MlflowClient") as mock_client:
@@ -19,6 +22,7 @@ def test_get_latest_model_version_single_version() -> None:
         mock_instance.search_model_versions.assert_called_once_with("name='test_model'")
 
 
+@pytest.mark.key("unit")
 def test_get_latest_model_version_multiple_versions() -> None:
     """Test getting latest version when multiple versions exist."""
     with patch("retail_ai.models.MlflowClient") as mock_client:
@@ -38,6 +42,7 @@ def test_get_latest_model_version_multiple_versions() -> None:
         mock_instance.search_model_versions.assert_called_once_with("name='test_model'")
 
 
+@pytest.mark.key("unit")
 def test_get_latest_model_version_no_versions() -> None:
     """Test getting latest version when no versions exist."""
     with patch("retail_ai.models.MlflowClient") as mock_client:
@@ -53,6 +58,7 @@ def test_get_latest_model_version_no_versions() -> None:
         )
 
 
+@pytest.mark.key("unit")
 def test_get_latest_model_version_string_versions() -> None:
     """Test getting latest version with version numbers as strings."""
     with patch("retail_ai.models.MlflowClient") as mock_client:
