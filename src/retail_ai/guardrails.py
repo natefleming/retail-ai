@@ -1,4 +1,3 @@
-from databricks_langchain import ChatDatabricks
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.graph.state import END, START, CompiledStateGraph, StateGraph
@@ -22,10 +21,7 @@ def with_guardrails(
 
 def judge_node(guardrails: GuardrailModel) -> AgentCallable:
     def judge(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
-        llm: LanguageModelLike = ChatDatabricks(
-            model=guardrails.model.name,
-            temperature=guardrails.model.temperature,
-        )
+        llm: LanguageModelLike = guardrails.model.as_chat_model()
 
         evaluator = create_llm_as_judge(
             prompt=guardrails.prompt,
