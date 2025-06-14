@@ -878,7 +878,7 @@ class AppConfig(BaseModel):
 
     def find_tools(
         self, predicate: Callable[[ToolModel], bool] | None = None
-    ) -> Sequence[AgentModel]:
+    ) -> Sequence[ToolModel]:
         """
         Find agents in the configuration that match a given predicate.
 
@@ -899,7 +899,7 @@ class AppConfig(BaseModel):
 
     def find_guardrails(
         self, predicate: Callable[[GuardrailsModel], bool] | None = None
-    ) -> Sequence[AgentModel]:
+    ) -> Sequence[GuardrailsModel]:
         """
         Find agents in the configuration that match a given predicate.
 
