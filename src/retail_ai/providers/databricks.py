@@ -45,10 +45,9 @@ from retail_ai.config import (
     VolumeModel,
     WarehouseModel,
 )
-from retail_ai.utils import normalize_name
 from retail_ai.models import get_latest_model_version
 from retail_ai.providers.base import ServiceProvider
-from retail_ai.utils import get_installed_packages
+from retail_ai.utils import get_installed_packages, normalize_name
 from retail_ai.vector_search import endpoint_exists, index_exists
 
 
@@ -138,7 +137,7 @@ class DatabricksProvider(ServiceProvider):
         run_name: str = normalize_name(config.app.name)
         logger.debug(f"run_name: {run_name}")
         logger.debug(f"model_path: {model_path.as_posix()}")
-        
+
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("type", "agent")
             logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
@@ -236,7 +235,7 @@ class DatabricksProvider(ServiceProvider):
         monitor: Monitor = get_monitor(endpoint_name=config.app.endpoint_name)
 
         monitor_action = update_monitor if monitor else create_monitor
-    
+
         monitor = monitor_action(
             endpoint_name=config.app.endpoint_name,
             assessments_config=AssessmentsSuiteConfig(

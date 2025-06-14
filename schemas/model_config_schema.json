@@ -297,16 +297,30 @@
           "type": "string"
         },
         "type": {
-          "$ref": "#/$defs/StorageType"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StorageType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "memory"
         },
         "database": {
-          "$ref": "#/$defs/DatabaseModel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabaseModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
-        "name",
-        "type",
-        "database"
+        "name"
       ],
       "title": "CheckpointerModel",
       "type": "object"

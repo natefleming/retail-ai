@@ -7,9 +7,10 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableConfig, RunnableSequence
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
-from langgraph.store.memory import InMemoryStore
+from langgraph.store.base import BaseStore
 from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -78,13 +79,17 @@ def create_agent_node(
         additional_tools = []
     tools: Sequence[BaseTool] = create_tools(tool_models) + additional_tools
 
-    store: InMemoryStore = None
+    store: BaseStore = None
     if agent.memory and agent.memory.store:
         store = agent.memory.store.as_store()
         tools += [
             create_manage_memory_tool(namespace=("memory",)),
             create_search_memory_tool(namespace=("memory",)),
         ]
+
+    checkpointer: BaseCheckpointSaver = None
+    if agent.memory and agent.memory.checkpointer:
+        checkpointer = agent.memory.checkpointer.as_checkpointer()
 
     def _create_hook(
         hook: PythonFunctionModel | FactoryFunctionModel | str,
@@ -103,6 +108,7 @@ def create_agent_node(
         prompt=make_prompt(agent.prompt),
         tools=tools,
         store=store,
+        checkpointer=checkpointer,
         pre_model_hook=pre_agent_hook,
         post_model_hook=post_agent_hook,
     )

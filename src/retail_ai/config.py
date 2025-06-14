@@ -16,6 +16,8 @@ from databricks_langchain import (
 from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools.base import BaseTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from langgraph.store.postgres import PostgresStore
@@ -478,8 +480,40 @@ class StorageType(str, Enum):
 class CheckpointerModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     name: str
-    type: StorageType
-    database: DatabaseModel
+    type: Optional[StorageType] = StorageType.MEMORY
+    database: Optional[DatabaseModel] = None
+
+    @model_validator(mode="after")
+    def validate_postgres_requires_database(self):
+        if self.type == StorageType.POSTGRES and not self.database:
+            raise ValueError("Database must be provided when storage type is POSTGRES")
+        return self
+
+    def as_checkpointer(self) -> BaseCheckpointSaver:
+        saver: BaseCheckpointSaver = (
+            self._as_postgres_checkpointer()
+            if self.type == StorageType.POSTGRES
+            else self._as_in_memory_checkpoiner()
+        )
+        return saver
+
+    def _as_in_memory_checkpoiner(self) -> BaseCheckpointSaver:
+        logger.debug("Creating InMemory saver")
+        checkpointer: BaseCheckpointSaver = InMemoryStore()
+        return checkpointer
+
+    def _as_postgres_checkpointer(self) -> BaseCheckpointSaver:
+        logger.debug("Creating Postgres saver")
+        if not self.database:
+            raise ValueError("Database must be provided for Postgres saver")
+
+        logger.debug(f"connection_url: {self.database.connection_url}")
+        with PostgresSaver.from_conn_string(
+            conn_string=self.database.connection_url
+        ) as checkpointer:
+            checkpointer.setup()
+
+        return checkpointer
 
 
 class StoreModel(BaseModel):
@@ -489,6 +523,12 @@ class StoreModel(BaseModel):
     type: Optional[StorageType] = StorageType.MEMORY
     dims: Optional[int] = 1536
     database: Optional[DatabaseModel] = None
+
+    @model_validator(mode="after")
+    def validate_postgres_requires_database(self):
+        if self.type == StorageType.POSTGRES and not self.database:
+            raise ValueError("Database must be provided when storage type is POSTGRES")
+        return self
 
     def as_store(self) -> BaseStore:
         store: BaseStore = (
@@ -501,16 +541,20 @@ class StoreModel(BaseModel):
 
     def _as_in_memory_store(self) -> BaseStore:
         logger.debug("Creating InMemory store")
-        embeddings: Embeddings = DatabricksEmbeddings(
-            endpoint=self.embedding_model.name
-        )
 
-        def embed_texts(texts: list[str]) -> list[list[float]]:
-            return embeddings.embed_documents(texts)
+        index: dict[str, Any] = None
 
-        store: BaseStore = InMemoryStore(
-            index={"dims": self.dims, "embed": embed_texts}
-        )
+        if self.embedding_model:
+            embeddings: Embeddings = DatabricksEmbeddings(
+                endpoint=self.embedding_model.name
+            )
+
+            def embed_texts(texts: list[str]) -> list[list[float]]:
+                return embeddings.embed_documents(texts)
+
+            index = {"dims": self.dims, "embed": embed_texts}
+
+        store: BaseStore = InMemoryStore(index=index)
 
         return store
 
