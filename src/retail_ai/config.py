@@ -466,7 +466,7 @@ class ToolModel(BaseModel):
     function: AnyTool
 
 
-class GuardrailsModel(BaseModel):
+class GuardrailModel(BaseModel):
     name: str
     model: LLMModel
     prompt: str
@@ -593,7 +593,7 @@ class AgentModel(BaseModel):
     description: Optional[str] = None
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
-    guardrails: list[GuardrailsModel] = Field(default_factory=list)
+    guardrails: list[GuardrailModel] = Field(default_factory=list)
     memory: Optional[MemoryModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
@@ -783,7 +783,7 @@ class AppConfig(BaseModel):
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
     tools: dict[str, ToolModel] = Field(default_factory=dict)
-    guardrails: dict[str, GuardrailsModel] = Field(default_factory=dict)
+    guardrails: dict[str, GuardrailModel] = Field(default_factory=dict)
     memory: Optional[MemoryModel] = None
     agents: dict[str, AgentModel] = Field(default_factory=dict)
     app: AppModel
@@ -898,8 +898,8 @@ class AppConfig(BaseModel):
         return [tool for tool in self.tools.values() if predicate(tool)]
 
     def find_guardrails(
-        self, predicate: Callable[[GuardrailsModel], bool] | None = None
-    ) -> Sequence[GuardrailsModel]:
+        self, predicate: Callable[[GuardrailModel], bool] | None = None
+    ) -> Sequence[GuardrailModel]:
         """
         Find agents in the configuration that match a given predicate.
 
@@ -911,7 +911,7 @@ class AppConfig(BaseModel):
         """
         if predicate is None:
 
-            def _null_predicate(guardrails: GuardrailsModel) -> bool:
+            def _null_predicate(guardrails: GuardrailModel) -> bool:
                 return True
 
             predicate = _null_predicate
