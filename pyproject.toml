@@ -19,7 +19,6 @@ dependencies = [
     "langchain-mcp-adapters>=0.1.4",
     "langgraph>=0.3.31",
     "langgraph-checkpoint-postgres>=2.0.21",
-    "langgraph-reflection>=0.0.1",
     "langgraph-supervisor>=0.0.27",
     "langgraph-swarm>=0.0.11",
     "langmem>=0.0.27",

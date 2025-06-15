@@ -251,7 +251,6 @@ langchain==0.3.25
     # via
     #   databricks-langchain
     #   langchain-community
-    #   langgraph-reflection
     #   langmem
     #   openevals
     #   retail-ai
@@ -286,7 +285,6 @@ langchain-text-splitters==0.3.8
     # via langchain
 langgraph==0.4.8
     # via
-    #   langgraph-reflection
     #   langgraph-supervisor
     #   langgraph-swarm
     #   langmem
@@ -304,8 +302,6 @@ langgraph-prebuilt==0.2.2
     # via
     #   langgraph
     #   langgraph-supervisor
-langgraph-reflection==0.0.1
-    # via retail-ai
 langgraph-sdk==0.1.70
     # via langgraph
 langgraph-supervisor==0.0.27
@@ -360,12 +356,8 @@ multidict==6.4.4
     # via
     #   aiohttp
     #   yarl
-mypy==1.16.0
-    # via langgraph-reflection
 mypy-extensions==1.1.0
-    # via
-    #   mypy
-    #   typing-inspect
+    # via typing-inspect
 nest-asyncio==1.6.0
     # via unitycatalog-ai
 numpy==1.26.4
@@ -415,8 +407,6 @@ pandas==2.3.0
     #   databricks-connect
     #   mlflow
     #   unitycatalog-ai
-pathspec==0.12.1
-    # via mypy
 pillow==11.2.1
     # via matplotlib
 pluggy==1.6.0
@@ -616,7 +606,6 @@ typing-extensions==4.14.0
     #   graphene
     #   langchain-core
     #   mlflow-skinny
-    #   mypy
     #   openai
     #   opentelemetry-api
     #   opentelemetry-sdk

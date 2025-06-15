@@ -30,7 +30,7 @@
         },
         "guardrails": {
           "items": {
-            "$ref": "#/$defs/GuardrailsModel"
+            "$ref": "#/$defs/GuardrailModel"
           },
           "title": "Guardrails",
           "type": "array"
@@ -572,7 +572,7 @@
       "title": "GenieRoomModel",
       "type": "object"
     },
-    "GuardrailsModel": {
+    "GuardrailModel": {
       "properties": {
         "name": {
           "title": "Name",
@@ -584,6 +584,18 @@
         "prompt": {
           "title": "Prompt",
           "type": "string"
+        },
+        "num_retries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 3,
+          "title": "Num Retries"
         }
       },
       "required": [
@@ -591,7 +603,7 @@
         "model",
         "prompt"
       ],
-      "title": "GuardrailsModel",
+      "title": "GuardrailModel",
       "type": "object"
     },
     "IndexModel": {
@@ -1568,7 +1580,7 @@
     },
     "guardrails": {
       "additionalProperties": {
-        "$ref": "#/$defs/GuardrailsModel"
+        "$ref": "#/$defs/GuardrailModel"
       },
       "title": "Guardrails",
       "type": "object"

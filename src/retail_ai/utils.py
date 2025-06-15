@@ -25,7 +25,6 @@ def get_installed_packages() -> dict[str, str]:
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
         f"langgraph=={version('langgraph')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
-        f"langgraph-reflection=={version('langgraph-reflection')}",
         f"langgraph-supervisor=={version('langgraph-supervisor')}",
         f"langgraph-swarm=={version('langgraph-swarm')}",
         f"langmem=={version('langmem')}",

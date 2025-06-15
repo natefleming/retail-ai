@@ -1,7 +1,10 @@
+from typing import Any, Literal, Optional, Type
+
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langgraph.graph.state import END, START, CompiledStateGraph, StateGraph
-from langgraph_reflection import create_reflection_graph
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.managed import RemainingSteps
 from loguru import logger
 from openevals.llm import create_llm_as_judge
 
@@ -11,9 +14,55 @@ from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
 
 
+class MessagesWithSteps(MessagesState):
+    remaining_steps: RemainingSteps
+
+
+def end_or_reflect(state: MessagesWithSteps) -> Literal[END, "graph"]:
+    if state["remaining_steps"] < 2:
+        return END
+    if len(state["messages"]) == 0:
+        return END
+    last_message = state["messages"][-1]
+    if isinstance(last_message, HumanMessage):
+        return "graph"
+    else:
+        return END
+
+
+def create_reflection_graph(
+    graph: CompiledStateGraph,
+    reflection: CompiledStateGraph,
+    state_schema: Optional[Type[Any]] = None,
+    config_schema: Optional[Type[Any]] = None,
+) -> StateGraph:
+    logger.debug("Creating reflection graph")
+    _state_schema = state_schema or graph.builder.schema
+
+    if "remaining_steps" in _state_schema.__annotations__:
+        raise ValueError(
+            "Has key 'remaining_steps' in state_schema, this shadows a built in key"
+        )
+
+    if "messages" not in _state_schema.__annotations__:
+        raise ValueError("Missing required key 'messages' in state_schema")
+
+    class StateSchema(_state_schema):
+        remaining_steps: RemainingSteps
+
+    rgraph = StateGraph(StateSchema, config_schema=config_schema)
+    rgraph.add_node("graph", graph)
+    rgraph.add_node("reflection", reflection)
+    rgraph.add_edge(START, "graph")
+    rgraph.add_edge("graph", "reflection")
+    rgraph.add_conditional_edges("reflection", end_or_reflect)
+    return rgraph
+
+
 def with_guardrails(
     graph: CompiledStateGraph, guardrail: CompiledStateGraph
 ) -> CompiledStateGraph:
+    logger.debug("Creating graph with guardrails")
     return create_reflection_graph(
         graph, guardrail, state_schema=AgentState, config_schema=AgentConfig
     ).compile()
@@ -38,6 +87,7 @@ def judge_node(guardrails: GuardrailModel) -> AgentCallable:
 
         if eval_result["score"]:
             logger.debug("✅ Response approved by judge")
+            logger.debug(f"Judge's comment: {eval_result['comment']}")
             return
         else:
             # Otherwise, return the judge's critique as a new user message

@@ -470,6 +470,7 @@ class GuardrailModel(BaseModel):
     name: str
     model: LLMModel
     prompt: str
+    num_retries: Optional[int] = 3
 
 
 class StorageType(str, Enum):
