@@ -53,7 +53,7 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
     return prompt
 
 
-def _create_hook(
+def create_hook(
     hook: PythonFunctionModel | FactoryFunctionModel | str,
 ) -> Callable[..., Any]:
     if isinstance(hook, str):
@@ -83,7 +83,7 @@ def create_agent_node(
     logger.debug(f"Creating agent node for {agent.name}")
 
     if agent.create_agent_hook:
-        agent_hook = _create_hook(agent.create_agent_hook)
+        agent_hook = create_hook(agent.create_agent_hook)
         return agent_hook
 
     llm: LanguageModelLike = agent.model.as_chat_model()
@@ -105,8 +105,8 @@ def create_agent_node(
     if agent.memory and agent.memory.checkpointer:
         checkpointer = agent.memory.checkpointer.as_checkpointer()
 
-    pre_agent_hook: Callable[..., Any] = _create_hook(agent.pre_agent_hook)
-    post_agent_hook: Callable[..., Any] = _create_hook(agent.post_agent_hook)
+    pre_agent_hook: Callable[..., Any] = create_hook(agent.pre_agent_hook)
+    post_agent_hook: Callable[..., Any] = create_hook(agent.post_agent_hook)
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         model=llm,
@@ -128,20 +128,17 @@ def create_agent_node(
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:
-    message_validator: PythonFunctionModel | FactoryFunctionModel | str = (
+    message_validation_hook: Callable[..., Any] = create_hook(
         config.app.message_validation_hook
     )
-    if isinstance(message_validator, str):
-        message_validator = PythonFunctionModel(name=message_validator)
 
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "error": None}
-        if message_validator:
+        if message_validation_hook:
             try:
-                validator_tool = message_validator.as_tool()
-                response |= validator_tool(
+                response |= message_validation_hook(
                     state=state,
                     config=config,
                 )
