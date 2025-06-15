@@ -370,7 +370,6 @@ class FunctionType(str, Enum):
     FACTORY = "factory"
     UNITY_CATALOG = "unity_catalog"
     MCP = "mcp"
-    AGENT_ENDPOINT = "agent_endpoint"
 
 
 class BaseFunctionModel(BaseModel):
@@ -466,27 +465,11 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
         return create_uc_tool(self)
 
 
-class AgentEndpointFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: FunctionType = FunctionType.AGENT_ENDPOINT
-    model: LLMModel
-
-    @property
-    def full_name(self) -> str:
-        return self.name
-
-    def as_tool(self, **kwargs: Any) -> BaseTool:
-        from retail_ai.tools import create_agent_endpoint_tool
-
-        return create_agent_endpoint_tool(self, **kwargs)
-
-
 AnyTool: TypeAlias = (
     PythonFunctionModel
     | FactoryFunctionModel
     | UnityCatalogFunctionModel
     | McpFunctionModel
-    | AgentEndpointFunctionModel
     | str
 )
 

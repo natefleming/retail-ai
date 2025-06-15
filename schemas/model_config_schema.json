@@ -1,27 +1,5 @@
 {
   "$defs": {
-    "AgentEndpointFunctionModel": {
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "$ref": "#/$defs/FunctionType",
-          "default": "agent_endpoint"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "model": {
-          "$ref": "#/$defs/LLMModel"
-        }
-      },
-      "required": [
-        "name",
-        "model"
-      ],
-      "title": "AgentEndpointFunctionModel",
-      "type": "object"
-    },
     "AgentModel": {
       "additionalProperties": false,
       "properties": {
@@ -575,8 +553,7 @@
         "python",
         "factory",
         "unity_catalog",
-        "mcp",
-        "agent_endpoint"
+        "mcp"
       ],
       "title": "FunctionType",
       "type": "string"
@@ -1359,9 +1336,6 @@
             },
             {
               "$ref": "#/$defs/McpFunctionModel"
-            },
-            {
-              "$ref": "#/$defs/AgentEndpointFunctionModel"
             },
             {
               "type": "string"

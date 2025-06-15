@@ -1,5 +1,5 @@
+from retail_ai.tools.agent import create_agent_endpoint_tool
 from retail_ai.tools.core import (
-    create_agent_endpoint_tool,
     create_factory_tool,
     create_mcp_tool,
     create_python_tool,

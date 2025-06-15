@@ -7,14 +7,11 @@ from databricks_langchain import (
     UCFunctionToolkit,
 )
 from langchain_community.tools import DuckDuckGoSearchRun
-from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
 
 from retail_ai.config import (
-    AgentEndpointFunctionModel,
     AnyTool,
     FactoryFunctionModel,
     McpFunctionModel,
@@ -172,21 +169,6 @@ def create_uc_tool(function: UnityCatalogFunctionModel | str) -> Sequence[BaseTo
 
     tool = next(iter(toolkit.tools or []), None)
     return tool
-
-
-def create_agent_endpoint_tool(
-    function: AgentEndpointFunctionModel,
-) -> Callable[..., Any]:
-    logger.debug(f"create_agent_endpoint_tool: {function}")
-
-    def agent_endpoint(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-        logger.debug(f"agent_endpoint: {function}, state: {state}, config: {config}")
-        messages: Sequence[BaseMessage] = state["messages"]
-        model: LanguageModelLike = function.model.as_chat_model()
-        response: AIMessage = model.invoke(messages, config)
-        return {"messages": [response]}
-
-    return agent_endpoint
 
 
 def search_tool() -> BaseTool:
