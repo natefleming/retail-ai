@@ -1,6 +1,29 @@
 {
   "$defs": {
+    "AgentEndpointFunctionModel": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/FunctionType",
+          "default": "agent_endpoint"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "model": {
+          "$ref": "#/$defs/LLMModel"
+        }
+      },
+      "required": [
+        "name",
+        "model"
+      ],
+      "title": "AgentEndpointFunctionModel",
+      "type": "object"
+    },
     "AgentModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -126,6 +149,7 @@
       "type": "object"
     },
     "AppModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -286,6 +310,7 @@
       "type": "object"
     },
     "AppPermissionModel": {
+      "additionalProperties": false,
       "properties": {
         "principals": {
           "items": {
@@ -309,6 +334,7 @@
       "type": "object"
     },
     "CheckpointerModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -344,6 +370,7 @@
       "type": "object"
     },
     "ConnectionModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -369,6 +396,7 @@
       "type": "object"
     },
     "DatabaseModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -411,6 +439,7 @@
       "type": "string"
     },
     "DatasetModel": {
+      "additionalProperties": false,
       "properties": {
         "table": {
           "$ref": "#/$defs/TableModel"
@@ -460,6 +489,7 @@
       "type": "string"
     },
     "EvaluationModel": {
+      "additionalProperties": false,
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -481,6 +511,7 @@
       "type": "object"
     },
     "FactoryFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
           "$ref": "#/$defs/FunctionType",
@@ -503,6 +534,7 @@
       "type": "object"
     },
     "FunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -543,12 +575,14 @@
         "python",
         "factory",
         "unity_catalog",
-        "mcp"
+        "mcp",
+        "agent_endpoint"
       ],
       "title": "FunctionType",
       "type": "string"
     },
     "GenieRoomModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -591,6 +625,7 @@
       "type": "object"
     },
     "GuardrailModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -625,6 +660,7 @@
       "type": "object"
     },
     "IndexModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -661,6 +697,7 @@
       "type": "object"
     },
     "LLMModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -742,6 +779,7 @@
       "type": "string"
     },
     "McpFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
           "$ref": "#/$defs/FunctionType",
@@ -794,6 +832,7 @@
       "type": "object"
     },
     "MemoryModel": {
+      "additionalProperties": false,
       "properties": {
         "checkpointer": {
           "anyOf": [
@@ -822,6 +861,7 @@
       "type": "object"
     },
     "OrchestrationModel": {
+      "additionalProperties": false,
       "properties": {
         "supervisor": {
           "anyOf": [
@@ -850,6 +890,7 @@
       "type": "object"
     },
     "PermissionModel": {
+      "additionalProperties": false,
       "properties": {
         "principals": {
           "items": {
@@ -900,6 +941,7 @@
       "type": "string"
     },
     "PythonFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
           "$ref": "#/$defs/FunctionType",
@@ -917,6 +959,7 @@
       "type": "object"
     },
     "RegisteredModelModel": {
+      "additionalProperties": false,
       "properties": {
         "schema": {
           "anyOf": [
@@ -941,6 +984,7 @@
       "type": "object"
     },
     "ResourcesModel": {
+      "additionalProperties": false,
       "properties": {
         "llms": {
           "additionalProperties": {
@@ -1010,6 +1054,7 @@
       "type": "object"
     },
     "RetrieverModel": {
+      "additionalProperties": false,
       "properties": {
         "vector_store": {
           "$ref": "#/$defs/VectorStoreModel"
@@ -1034,6 +1079,7 @@
       "type": "object"
     },
     "SchemaModel": {
+      "additionalProperties": false,
       "properties": {
         "catalog_name": {
           "title": "Catalog Name",
@@ -1060,6 +1106,7 @@
       "type": "object"
     },
     "SearchParametersModel": {
+      "additionalProperties": false,
       "properties": {
         "num_results": {
           "anyOf": [
@@ -1110,6 +1157,7 @@
       "type": "string"
     },
     "StoreModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -1168,6 +1216,7 @@
       "type": "object"
     },
     "SupervisorModel": {
+      "additionalProperties": false,
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -1195,6 +1244,7 @@
       "type": "object"
     },
     "SwarmModel": {
+      "additionalProperties": false,
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -1253,6 +1303,7 @@
       "type": "object"
     },
     "TableModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1289,6 +1340,7 @@
       "type": "object"
     },
     "ToolModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -1307,6 +1359,9 @@
             },
             {
               "$ref": "#/$defs/McpFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/AgentEndpointFunctionModel"
             },
             {
               "type": "string"
@@ -1331,6 +1386,7 @@
       "type": "string"
     },
     "UnityCatalogFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
           "$ref": "#/$defs/FunctionType",
@@ -1359,6 +1415,7 @@
       "type": "object"
     },
     "UnityCatalogFunctionSqlModel": {
+      "additionalProperties": false,
       "properties": {
         "function": {
           "$ref": "#/$defs/UnityCatalogFunctionModel"
@@ -1387,6 +1444,7 @@
       "type": "object"
     },
     "UnityCatalogFunctionSqlTestModel": {
+      "additionalProperties": false,
       "properties": {
         "parameters": {
           "anyOf": [
@@ -1405,6 +1463,7 @@
       "type": "object"
     },
     "VectorSearchEndpoint": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -1430,6 +1489,7 @@
       "type": "string"
     },
     "VectorStoreModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1496,6 +1556,7 @@
       "type": "object"
     },
     "VolumeModel": {
+      "additionalProperties": false,
       "properties": {
         "schema": {
           "anyOf": [
@@ -1520,6 +1581,7 @@
       "type": "object"
     },
     "WarehouseModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1571,6 +1633,7 @@
       "type": "string"
     }
   },
+  "additionalProperties": false,
   "properties": {
     "schemas": {
       "additionalProperties": {

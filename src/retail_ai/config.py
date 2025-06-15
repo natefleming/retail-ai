@@ -79,12 +79,13 @@ class Privilege(str, Enum):
 
 
 class PermissionModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     principals: list[str] = Field(default_factory=list)
     privileges: list[Privilege]
 
 
 class SchemaModel(BaseModel, HasFullName):
+    model_config = ConfigDict(extra="forbid")
     catalog_name: str
     schema_name: str
     permissions: list[PermissionModel]
@@ -102,6 +103,7 @@ class SchemaModel(BaseModel, HasFullName):
 
 
 class TableModel(BaseModel, HasFullName, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -122,6 +124,7 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
 
 
 class LLMModel(BaseModel, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     name: str
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
@@ -168,12 +171,13 @@ class VectorSearchEndpointType(str, Enum):
 
 
 class VectorSearchEndpoint(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     type: VectorSearchEndpointType
 
 
 class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -196,6 +200,7 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
 
 
 class VectorStoreModel(BaseModel, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     embedding_model: LLMModel
     endpoint: VectorSearchEndpoint
     index: IndexModel
@@ -231,6 +236,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 
 
 class GenieRoomModel(BaseModel, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     name: str
     description: Optional[str] = None
     space_id: str
@@ -248,6 +254,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
 
 
 class VolumeModel(BaseModel, HasFullName):
+    model_config = ConfigDict(extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -266,6 +273,7 @@ class VolumeModel(BaseModel, HasFullName):
 
 
 class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -286,6 +294,7 @@ class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
 
 
 class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     name: str
 
     @property
@@ -305,6 +314,7 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
 
 
 class WarehouseModel(BaseModel, IsDatabricksResource):
+    model_config = ConfigDict(extra="forbid")
     name: str
     description: Optional[str] = None
     warehouse_id: str
@@ -322,6 +332,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 
 
 class DatabaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str
     connection_url: Optional[str] = None
     connection_kwargs: dict[str, Any] = Field(default_factory=dict)
@@ -341,12 +352,14 @@ class DatabaseModel(BaseModel):
 
 
 class SearchParametersModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     num_results: Optional[int] = 10
     filters: Optional[dict[str, Any]] = Field(default_factory=dict)
     query_type: Optional[str] = "ANN"
 
 
 class RetrieverModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     vector_store: VectorStoreModel
     columns: list[str]
     search_parameters: SearchParametersModel
@@ -357,10 +370,11 @@ class FunctionType(str, Enum):
     FACTORY = "factory"
     UNITY_CATALOG = "unity_catalog"
     MCP = "mcp"
+    AGENT_ENDPOINT = "agent_endpoint"
 
 
 class BaseFunctionModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: FunctionType
     name: str
 
@@ -373,7 +387,7 @@ class BaseFunctionModel(BaseModel):
 
 
 class PythonFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: FunctionType = FunctionType.PYTHON
 
     @property
@@ -387,7 +401,7 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
 
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     args: dict[str, Any] = Field(default_factory=dict)
     type: FunctionType = FunctionType.FACTORY
 
@@ -407,7 +421,7 @@ class TransportType(str, Enum):
 
 
 class McpFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: FunctionType = FunctionType.MCP
 
     transport: TransportType
@@ -436,7 +450,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
 
 
 class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.UNITY_CATALOG
 
@@ -452,21 +466,39 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
         return create_uc_tool(self)
 
 
+class AgentEndpointFunctionModel(BaseFunctionModel, HasFullName):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: FunctionType = FunctionType.AGENT_ENDPOINT
+    model: LLMModel
+
+    @property
+    def full_name(self) -> str:
+        return self.name
+
+    def as_tool(self, **kwargs: Any) -> BaseTool:
+        from retail_ai.tools import create_agent_endpoint_tool
+
+        return create_agent_endpoint_tool(self, **kwargs)
+
+
 AnyTool: TypeAlias = (
     PythonFunctionModel
     | FactoryFunctionModel
     | UnityCatalogFunctionModel
     | McpFunctionModel
+    | AgentEndpointFunctionModel
     | str
 )
 
 
 class ToolModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str
     function: AnyTool
 
 
 class GuardrailModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str
     model: LLMModel
     prompt: str
@@ -479,7 +511,7 @@ class StorageType(str, Enum):
 
 
 class CheckpointerModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     type: Optional[StorageType] = StorageType.MEMORY
     database: Optional[DatabaseModel] = None
@@ -518,7 +550,7 @@ class CheckpointerModel(BaseModel):
 
 
 class StoreModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     embedding_model: Optional[LLMModel] = None
     type: Optional[StorageType] = StorageType.MEMORY
@@ -585,11 +617,13 @@ class StoreModel(BaseModel):
 
 
 class MemoryModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     checkpointer: Optional[CheckpointerModel] = None
     store: Optional[StoreModel] = None
 
 
 class AgentModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str
     description: Optional[str] = None
     model: LLMModel
@@ -604,11 +638,13 @@ class AgentModel(BaseModel):
 
 
 class SupervisorModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     model: LLMModel
     default_agent: Optional[AgentModel | str] = None
 
 
 class SwarmModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     model: LLMModel
     default_agent: Optional[AgentModel | str] = None
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
@@ -617,6 +653,7 @@ class SwarmModel(BaseModel):
 
 
 class OrchestrationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     supervisor: Optional[SupervisorModel] = None
     swarm: Optional[SwarmModel] = None
 
@@ -630,6 +667,7 @@ class OrchestrationModel(BaseModel):
 
 
 class RegisteredModelModel(BaseModel, HasFullName):
+    model_config = ConfigDict(extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -649,7 +687,7 @@ class Entitlement(str, Enum):
 
 
 class AppPermissionModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     principals: list[str] = Field(default_factory=list)
     entitlements: list[Entitlement]
 
@@ -669,7 +707,7 @@ class WorkloadSize(str, Enum):
 
 
 class AppModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
     log_level: Optional[LogLevel] = "WARNING"
@@ -717,6 +755,7 @@ class AppModel(BaseModel):
 
 
 class EvaluationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     model: LLMModel
     table: TableModel
     num_evals: int
@@ -732,7 +771,7 @@ class DatasetFormat(str, Enum):
 
 
 class DatasetModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     table: TableModel
     ddl: str
     data: str
@@ -748,11 +787,12 @@ class DatasetModel(BaseModel):
 
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
 
 
 class UnityCatalogFunctionSqlModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     function: UnityCatalogFunctionModel
     ddl: str
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
@@ -770,6 +810,7 @@ class UnityCatalogFunctionSqlModel(BaseModel):
 
 
 class ResourcesModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     llms: dict[str, LLMModel] = Field(default_factory=dict)
     vector_stores: dict[str, VectorStoreModel] = Field(default_factory=dict)
     genie_rooms: dict[str, GenieRoomModel] = Field(default_factory=dict)
@@ -782,7 +823,7 @@ class ResourcesModel(BaseModel):
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)

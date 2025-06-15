@@ -1,4 +1,5 @@
 from retail_ai.tools.core import (
+    create_agent_endpoint_tool,
     create_factory_tool,
     create_mcp_tool,
     create_python_tool,
@@ -18,4 +19,5 @@ __all__ = [
     "create_uc_tool",
     "create_genie_tool",
     "create_vector_search_tool",
+    "create_agent_endpoint_tool",
 ]
