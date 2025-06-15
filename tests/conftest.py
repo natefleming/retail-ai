@@ -31,6 +31,18 @@ sys.path.insert(0, str(src_dir.resolve()))
 _ = load_dotenv(find_dotenv())
 
 
+def pytest_configure(config):
+    """Configure custom pytest markers."""
+    markers: Sequence[str] = [
+        "unit: mark test as a unit test (fast, isolated, no external dependencies)",
+        "system: mark test as a system test (slower, may use external resources)",
+        "integration: mark test as integration test (tests component interactions)",
+        "slow: mark test as slow running (> 1 second)",
+    ]
+    for marker in markers:
+        config.addinivalue_line("markers", marker)
+
+
 def has_databricks_env() -> bool:
     required_vars: Sequence[str] = [
         "DATABRICKS_TOKEN",

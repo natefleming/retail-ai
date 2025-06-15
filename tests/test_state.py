@@ -6,14 +6,14 @@ from retail_ai.config import AppConfig
 from retail_ai.state import AgentConfig, AgentState
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_config_creation() -> None:
     """Test creating an AgentConfig instance."""
     config = AgentConfig()
     assert isinstance(config, dict)
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_config_with_fields() -> None:
     """Test AgentConfig with custom fields."""
     config = AgentConfig(user_id="user123", store_num="store456", is_valid_config=True)
@@ -23,7 +23,7 @@ def test_agent_config_with_fields() -> None:
     assert config["is_valid_config"] is True
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_state_creation() -> None:
     """Test creating an AgentState instance."""
     test_document = Document(page_content="Test content", metadata={"source": "test"})
@@ -50,7 +50,7 @@ def test_agent_state_creation() -> None:
     assert state["is_valid_config"] is True
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_state_inherits_messages_state() -> None:
     """Test that AgentState properly inherits from MessagesState."""
     state = AgentState(
@@ -73,7 +73,7 @@ def test_agent_state_inherits_messages_state() -> None:
     assert state["messages"][1].content == "Second message"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_state_with_empty_context() -> None:
     """Test AgentState with empty context list."""
     state = AgentState(
@@ -90,7 +90,7 @@ def test_agent_state_with_empty_context() -> None:
     assert isinstance(state["context"], list)
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_state_with_multiple_documents() -> None:
     """Test AgentState with multiple documents in context."""
     docs = [
@@ -116,7 +116,7 @@ def test_agent_state_with_multiple_documents() -> None:
     assert state["context"][2].metadata["id"] == 3
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_config_integration_with_app_config(config: AppConfig) -> None:
     """Test that AgentConfig works with the existing config fixture."""
     agent_config = AgentConfig(

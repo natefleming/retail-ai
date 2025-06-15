@@ -598,6 +598,7 @@ class AgentModel(BaseModel):
     memory: Optional[MemoryModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
+    create_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
     pre_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
     post_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
 
@@ -683,7 +684,9 @@ class AppModel(BaseModel):
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
     alias: Optional[str] = None
-    message_validator: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
+    message_validation_hook: Optional[
+        PythonFunctionModel | FactoryFunctionModel | str
+    ] = None
 
     @model_validator(mode="after")
     def validate_agents_not_empty(self):

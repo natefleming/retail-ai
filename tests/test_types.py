@@ -5,7 +5,7 @@ from retail_ai.state import AgentConfig, AgentState
 from retail_ai.types import AgentCallable
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_callable_type_signature(config: AppConfig) -> None:
     """Test that AgentCallable type works as expected."""
 
@@ -27,7 +27,7 @@ def test_agent_callable_type_signature(config: AppConfig) -> None:
     assert result["route"] == "test_route"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_agent_callable_return_type_flexibility() -> None:
     """Test that AgentCallable allows flexible return types."""
 

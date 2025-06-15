@@ -12,7 +12,7 @@ excluded_tools: Sequence[str] = [
 ]
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_create_tools(config: AppConfig) -> None:
     tool_models: list[ToolModel] = config.find_tools(
         lambda tool: not any(excluded in tool.name for excluded in excluded_tools)

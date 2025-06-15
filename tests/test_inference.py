@@ -9,7 +9,8 @@ from mlflow.pyfunc import ChatModel
 from retail_ai.models import process_messages
 
 
-@pytest.mark.key("system")
+@pytest.mark.system
+@pytest.mark.slow
 @pytest.mark.skipif(
     not has_databricks_env(), reason="Missing Databricks environment variables"
 )

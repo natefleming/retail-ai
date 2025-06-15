@@ -7,7 +7,7 @@ from databricks.sdk.service.catalog import VolumeInfo
 from retail_ai.catalog import _volume_as_path, full_name
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_volume_as_path() -> None:
     """Test the _volume_as_path function."""
     # Create a mock VolumeInfo object
@@ -23,7 +23,7 @@ def test_volume_as_path() -> None:
     assert str(result) == "/Volumes/test_catalog/test_schema/test_volume"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_volume_info_monkey_patch() -> None:
     """Test that VolumeInfo has the as_path method after monkey patching."""
     # Test that the method exists on the class
@@ -42,7 +42,7 @@ def test_volume_info_monkey_patch() -> None:
     assert str(result) == "/Volumes/my_catalog/my_schema/my_volume"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_with_catalog_and_schema() -> None:
     """Test full_name with both catalog and schema."""
     schema_info = {"catalog_name": "production", "schema_name": "retail"}
@@ -52,7 +52,7 @@ def test_full_name_with_catalog_and_schema() -> None:
     assert result == "production.retail.products"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_with_catalog_only() -> None:
     """Test full_name with catalog only."""
     schema_info = {"catalog_name": "production"}
@@ -62,7 +62,7 @@ def test_full_name_with_catalog_only() -> None:
     assert result == "production.my_schema"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_with_no_catalog() -> None:
     """Test full_name with no catalog or schema."""
     result = full_name("simple_name")
@@ -70,7 +70,7 @@ def test_full_name_with_no_catalog() -> None:
     assert result == "simple_name"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_with_empty_schema() -> None:
     """Test full_name with empty schema dictionary."""
     result = full_name("table_name", schema={})
@@ -78,7 +78,7 @@ def test_full_name_with_empty_schema() -> None:
     assert result == "table_name"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_with_none_values() -> None:
     """Test full_name with None values in schema."""
     schema_info = {"catalog_name": None, "schema_name": None}
@@ -88,7 +88,7 @@ def test_full_name_with_none_values() -> None:
     assert result == "entity"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_with_partial_schema() -> None:
     """Test full_name with only schema_name but no catalog_name."""
     schema_info = {"schema_name": "my_schema"}
@@ -98,7 +98,7 @@ def test_full_name_with_partial_schema() -> None:
     assert result == "my_table"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_with_kwargs() -> None:
     """Test full_name with additional kwargs (should be ignored)."""
     schema_info = {"catalog_name": "test_catalog", "schema_name": "test_schema"}
@@ -108,7 +108,7 @@ def test_full_name_with_kwargs() -> None:
     assert result == "test_catalog.test_schema.entity"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_full_name_edge_cases() -> None:
     """Test full_name with edge cases."""
     # Empty strings should be treated as falsy
@@ -119,7 +119,7 @@ def test_full_name_edge_cases() -> None:
     assert result == "entity"
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_volume_as_path_with_special_characters() -> None:
     """Test _volume_as_path with special characters in names."""
     volume = Mock(spec=VolumeInfo)

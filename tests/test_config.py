@@ -7,20 +7,20 @@ from mlflow.models import ModelConfig
 from retail_ai.config import AppConfig
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_app_config(model_config: ModelConfig) -> None:
     app_config = AppConfig(**model_config.to_dict())
     print(app_config.model_dump_json(indent=2), file=sys.stderr)
     assert app_config is not None
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_app_config_should_serialize(config: AppConfig) -> None:
     yaml.safe_dump(config.model_dump())
     assert True
 
 
-@pytest.mark.key("unit")
+@pytest.mark.unit
 def test_app_config_tools_should_be_correct_type(
     model_config: ModelConfig, config: AppConfig
 ) -> None:

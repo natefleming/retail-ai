@@ -62,6 +62,24 @@
           "default": null,
           "title": "Handoff Prompt"
         },
+        "create_agent_hook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Create Agent Hook"
+        },
         "pre_agent_hook": {
           "anyOf": [
             {
@@ -239,7 +257,7 @@
           "default": null,
           "title": "Alias"
         },
-        "message_validator": {
+        "message_validation_hook": {
           "anyOf": [
             {
               "$ref": "#/$defs/PythonFunctionModel"
@@ -255,7 +273,7 @@
             }
           ],
           "default": null,
-          "title": "Message Validator"
+          "title": "Message Validation Hook"
         }
       },
       "required": [
