@@ -91,7 +91,9 @@ class CheckpointManager:
                     checkpointer_model.name
                 )
                 if checkpointer_manager is None:
-                    checkpointer_manager = InMemoryCheckpointerManager(checkpointer_model)
+                    checkpointer_manager = InMemoryCheckpointerManager(
+                        checkpointer_model
+                    )
                     cls.checkpoint_managers[checkpointer_model.name] = (
                         checkpointer_manager
                     )

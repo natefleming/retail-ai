@@ -44,7 +44,7 @@ Usage:
 """
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -62,8 +62,8 @@ from retail_ai.memory.base import (
 
 
 class PostgresPoolManager:
-    _pools: Dict[str, AsyncConnectionPool] = {}
-    _lock = asyncio.Lock()
+    _pools: dict[str, AsyncConnectionPool] = {}
+    _lock: asyncio.Lock = asyncio.Lock()
 
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
@@ -83,7 +83,7 @@ class PostgresPoolManager:
                 "autocommit": True,
             } | database.connection_kwargs or {}
 
-            pool = AsyncConnectionPool(
+            pool: AsyncConnectionPool = AsyncConnectionPool(
                 conninfo=database.connection_url,
                 max_size=database.max_pool_size,
                 open=False,

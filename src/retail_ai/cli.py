@@ -7,6 +7,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Optional, Sequence
 
+from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
 from retail_ai.config import AppConfig
@@ -16,6 +17,12 @@ from retail_ai.utils import normalize_name
 
 logger.remove()
 logger.add(sys.stderr, level="ERROR")
+
+
+env_path: str = find_dotenv()
+if env_path:
+    logger.info(f"Loading environment variables from: {env_path}")
+    _ = load_dotenv(env_path)
 
 
 def parse_args(args: Sequence[str]) -> Namespace:
@@ -337,7 +344,7 @@ def handle_bundle_command(options: Namespace) -> None:
             dry_run=dry_run,
         )
     else:
-        logger.warning("No action specified. Use --deploy or --run flags.")
+        logger.warning("No action specified. Use --deploy, --run or --destroy flags.")
 
 
 def main() -> None:

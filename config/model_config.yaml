@@ -412,15 +412,15 @@ memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
     name: default_checkpointer                      # Checkpointer identifier
-    #type: postgres                                    # Store type (memory or postgres)
-    type: memory
+    type: postgres                                    # Store type (memory or postgres)
+    #type: memory
     database: *retail_database                     # Reference to database configuration
 
   # Long-term memory store for agent context
   store: 
     name: default_store                             # Store identifier
-    #type: postgres                                    # Store type (memory or postgres)
-    type: memory
+    type: postgres                                    # Store type (memory or postgres)
+    #type: memory
     embedding_model: *embedding_model               # Model for semantic memory
     dims: 1536                                      # Embedding dimensions
     database: *retail_database                      # Database for persistence (if needed)
