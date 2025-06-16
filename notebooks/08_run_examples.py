@@ -41,7 +41,6 @@ pip_requirements: Sequence[str] = (
     f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
     f"duckduckgo-search=={version('duckduckgo-search')}",
     f"databricks-sdk=={version('databricks-sdk')}",
-    f"langgraph-reflection=={version('langgraph-reflection')}",
     f"openevals=={version('openevals')}",
     f"mlflow=={version('mlflow')}",
     f"psycopg[binary,pool]=={version('psycopg')}",

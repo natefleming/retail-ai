@@ -66,7 +66,6 @@ pip_requirements: Sequence[str] = (
   f"mlflow=={version('mlflow')}",
   f"python-dotenv=={version('python-dotenv')}",
   f"loguru=={version('loguru')}",
-  f"langgraph-reflection=={version('langgraph-reflection')}",
   f"openevals=={version('openevals')}",
   f"duckduckgo-search=={version('duckduckgo-search')}",
   f"faker=={version('faker')}",
