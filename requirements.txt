@@ -3,7 +3,7 @@
 -e .
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.12.12
+aiohttp==3.12.13
     # via
     #   aiohttp-retry
     #   langchain-community
@@ -54,7 +54,7 @@ cachetools==5.5.2
     # via
     #   google-auth
     #   mlflow-skinny
-certifi==2025.4.26
+certifi==2025.6.15
     # via
     #   httpcore
     #   httpx
@@ -133,7 +133,7 @@ fastapi==0.115.12
     # via mlflow-skinny
 flask==3.1.1
     # via mlflow
-fonttools==4.58.3
+fonttools==4.58.4
     # via matplotlib
 frozenlist==1.7.0
     # via
@@ -451,7 +451,7 @@ pyasn1-modules==0.4.2
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.11.6
+pydantic==2.11.7
     # via
     #   anthropic
     #   databricks-agents

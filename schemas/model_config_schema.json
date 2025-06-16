@@ -396,6 +396,30 @@
           "additionalProperties": true,
           "title": "Connection Kwargs",
           "type": "object"
+        },
+        "max_pool_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 10,
+          "title": "Max Pool Size"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 5,
+          "title": "Timeout"
         }
       },
       "required": [
@@ -1184,6 +1208,18 @@
             }
           ],
           "default": null
+        },
+        "namespace": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Namespace"
         }
       },
       "required": [

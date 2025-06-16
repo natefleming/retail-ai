@@ -10,17 +10,12 @@ from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
     ChatDatabricks,
-    DatabricksEmbeddings,
     DatabricksFunctionClient,
 )
-from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools.base import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.base import BaseStore
-from langgraph.store.memory import InMemoryStore
-from langgraph.store.postgres import PostgresStore
 from loguru import logger
 from mlflow.models import ModelConfig
 from mlflow.models.resources import (
@@ -336,6 +331,8 @@ class DatabaseModel(BaseModel):
     name: str
     connection_url: Optional[str] = None
     connection_kwargs: dict[str, Any] = Field(default_factory=dict)
+    max_pool_size: Optional[int] = 10
+    timeout: Optional[int] = 5
 
     def model_post_init(self, context) -> None:
         if not self.connection_url:
@@ -344,7 +341,7 @@ class DatabaseModel(BaseModel):
             else:
                 pg_host: str = os.getenv("PGHOST", "localhost")
                 pg_port: str = os.getenv("PGPORT", "5432")
-                pg_database: str = os.getenv("PGDATABASE", "postgres")
+                pg_database: str = os.getenv("PGDATABASE", "databricks_postgres")
                 pg_user: str = os.getenv("PGUSER", "postgres")
                 pg_password: str = os.getenv("PGPASSWORD", "")
 
@@ -506,28 +503,11 @@ class CheckpointerModel(BaseModel):
         return self
 
     def as_checkpointer(self) -> BaseCheckpointSaver:
-        saver: BaseCheckpointSaver = (
-            self._as_postgres_checkpointer()
-            if self.type == StorageType.POSTGRES
-            else self._as_in_memory_checkpoiner()
-        )
-        return saver
+        from retail_ai.memory import CheckpointManager
 
-    def _as_in_memory_checkpoiner(self) -> BaseCheckpointSaver:
-        logger.debug("Creating InMemory saver")
-        checkpointer: BaseCheckpointSaver = InMemoryStore()
-        return checkpointer
-
-    def _as_postgres_checkpointer(self) -> BaseCheckpointSaver:
-        logger.debug("Creating Postgres saver")
-        if not self.database:
-            raise ValueError("Database must be provided for Postgres saver")
-
-        logger.debug(f"connection_url: {self.database.connection_url}")
-        with PostgresSaver.from_conn_string(
-            conn_string=self.database.connection_url
-        ) as checkpointer:
-            checkpointer.setup()
+        checkpointer: BaseCheckpointSaver = CheckpointManager.instance(
+            self
+        ).checkpointer()
 
         return checkpointer
 
@@ -539,6 +519,7 @@ class StoreModel(BaseModel):
     type: Optional[StorageType] = StorageType.MEMORY
     dims: Optional[int] = 1536
     database: Optional[DatabaseModel] = None
+    namespace: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_postgres_requires_database(self):
@@ -547,55 +528,9 @@ class StoreModel(BaseModel):
         return self
 
     def as_store(self) -> BaseStore:
-        store: BaseStore = (
-            self._as_postgres_store()
-            if self.type == StorageType.POSTGRES
-            else self._as_in_memory_store()
-        )
+        from retail_ai.memory import StoreManager
 
-        return store
-
-    def _as_in_memory_store(self) -> BaseStore:
-        logger.debug("Creating InMemory store")
-
-        index: dict[str, Any] = None
-
-        if self.embedding_model:
-            embeddings: Embeddings = DatabricksEmbeddings(
-                endpoint=self.embedding_model.name
-            )
-
-            def embed_texts(texts: list[str]) -> list[list[float]]:
-                return embeddings.embed_documents(texts)
-
-            index = {"dims": self.dims, "embed": embed_texts}
-
-        store: BaseStore = InMemoryStore(index=index)
-
-        return store
-
-    def _as_postgres_store(self) -> BaseStore:
-        logger.debug("Creating Postgres store")
-        if not self.database:
-            raise ValueError("Database must be provided for Postgres store")
-
-        index: dict[str, Any] = {}
-        if self.embedding_model:
-            embeddings: Embeddings = DatabricksEmbeddings(
-                endpoint=self.embedding_model.name
-            )
-
-            def embed_texts(texts: list[str]) -> list[list[float]]:
-                return embeddings.embed_documents(texts)
-
-            index = {"dims": self.dims, "embed": embed_texts}
-
-        logger.debug(f"connection_url: {self.database.connection_url}")
-        with PostgresStore.from_conn_string(
-            conn_string=self.database.connection_url, index=index
-        ) as store:
-            store.setup()
-
+        store: BaseStore = StoreManager.instance(self).store()
         return store
 
 

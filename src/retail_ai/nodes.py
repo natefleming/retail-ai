@@ -96,9 +96,12 @@ def create_agent_node(
     store: BaseStore = None
     if agent.memory and agent.memory.store:
         store = agent.memory.store.as_store()
+        namespace: tuple[str, ...] = ("memory",)
+        if agent.memory.store.namespace:
+            namespace = namespace + (agent.memory.store.namespace,)
         tools += [
-            create_manage_memory_tool(namespace=("memory",)),
-            create_search_memory_tool(namespace=("memory",)),
+            create_manage_memory_tool(namespace=namespace),
+            create_search_memory_tool(namespace=namespace),
         ]
 
     checkpointer: BaseCheckpointSaver = None

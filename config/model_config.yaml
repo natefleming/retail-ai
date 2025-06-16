@@ -175,7 +175,7 @@ resources:
     # PostgreSQL database for agent memory and checkpoints
     retail_database: &retail_database
       name: "Retail Database"                       # Human-readable name
-      connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"  # Commented out - uses env vars
+      #connection_url: postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}?sslmode=require  # Commented out - uses env vars
       connection_kwargs:                            # Additional connection parameters
         autocommit: True                            # Enable autocommit mode
         prepare_threshold: 0                        # Disable prepared statements
@@ -412,16 +412,19 @@ memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
     name: default_checkpointer                      # Checkpointer identifier
-    type: memory                                    # Storage type (postgres or memory)
-    #database: *retail_database                     # Reference to database configuration
+    #type: postgres                                    # Store type (memory or postgres)
+    type: memory
+    database: *retail_database                     # Reference to database configuration
 
   # Long-term memory store for agent context
   store: 
     name: default_store                             # Store identifier
-    type: memory                                    # Store type (memory or postgres)
+    #type: postgres                                    # Store type (memory or postgres)
+    type: memory
     embedding_model: *embedding_model               # Model for semantic memory
     dims: 1536                                      # Embedding dimensions
-    #database: *retail_database                      # Database for persistence (if needed)
+    database: *retail_database                      # Database for persistence (if needed)
+    namespace: "{user_id}"
 
 # =============================================================================
 # AGENTS CONFIGURATION

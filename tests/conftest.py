@@ -28,7 +28,9 @@ config_dir: Path = root_dir / "config"
 sys.path.insert(0, str(test_dir.resolve()))
 sys.path.insert(0, str(src_dir.resolve()))
 
-_ = load_dotenv(find_dotenv())
+env_path: str = find_dotenv()
+logger.info(f"Loading environment variables from: {env_path}")
+_ = load_dotenv(env_path)
 
 
 def pytest_configure(config):
@@ -52,6 +54,19 @@ def has_databricks_env() -> bool:
         "MLFLOW_EXPERIMENT_ID",
     ]
     return all(var in os.environ for var in required_vars)
+
+
+def has_postgres_env() -> bool:
+    required_vars: Sequence[str] = [
+        "PG_HOST",
+        "PG_PORT",
+        "PG_USER",
+        "PG_PASSWORD",
+        "PG_DATABASE",
+    ]
+    return "PG_CONNECTION_STRING" in os.environ or all(
+        var in os.environ for var in required_vars
+    )
 
 
 @pytest.fixture
