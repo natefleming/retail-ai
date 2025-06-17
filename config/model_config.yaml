@@ -199,6 +199,7 @@ resources:
         - scope: retail_ai
           secret: PGDATABASE
 
+
       # Traditional PostgreSQL authentication (commented out)
       # Uncomment and configure if using direct database auth instead of OAuth2
       # user: 
@@ -967,7 +968,7 @@ agents:
 app:
   name: retai_ai_agent_example                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
-  log_level: INFO                                   # Logging level for the application
+  log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: retail_ai_agent                           # Model name in MLflow registry
@@ -997,6 +998,16 @@ app:
       model: *tool_calling_llm                      # LLM for routing decisions
       default_agent: *general                       # Default agent when no specific match
   message_validation_hook: "retail_ai.hooks.null_hook"
+  input_example:
+      messages:
+        - role: user
+          content: Can you recommend a lamp to match my oak side tables?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: my_user_id
+          store_num: 87887
+
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general

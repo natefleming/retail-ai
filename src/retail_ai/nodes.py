@@ -97,17 +97,19 @@ def create_agent_node(
     if agent.memory and agent.memory.store:
         store = agent.memory.store.as_store()
         namespace: tuple[str, ...] = ("memory",)
+        logger.debug(f"Using memory store: {store}") 
+        logger.debug(f"Memory store namespace: {namespace}")
         if agent.memory.store.namespace:
             namespace = namespace + (agent.memory.store.namespace,)
         tools += [
-            create_manage_memory_tool(namespace=namespace),
-            create_search_memory_tool(namespace=namespace),
+            create_manage_memory_tool(namespace=namespace, store=store),
+            create_search_memory_tool(namespace=namespace, store=store),
         ]
 
     checkpointer: BaseCheckpointSaver = None
     if agent.memory and agent.memory.checkpointer:
         checkpointer = agent.memory.checkpointer.as_checkpointer()
-
+        logger.debug(f"Using memory checkpointer: {checkpointer}")
     pre_agent_hook: Callable[..., Any] = create_hook(agent.pre_agent_hook)
     post_agent_hook: Callable[..., Any] = create_hook(agent.post_agent_hook)
 

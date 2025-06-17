@@ -69,7 +69,6 @@ class EnvironmentVariableModel(BaseModel, HasValue):
     def as_value(self) -> Any:
         logger.debug(f"Fetching environment variable: {self.env}")
         value: Any = os.environ.get(self.env, self.default_value)
-        logger.debug(f"Value for {self.env}: {value}")
         return value
 
     def __str__(self) -> str:
@@ -90,7 +89,6 @@ class SecretVariableModel(BaseModel, HasValue):
 
         provider: DatabricksProvider = DatabricksProvider()
         value: Any = provider.get_secret(self.scope, self.secret, self.default_value)
-        logger.debug(f"Value for secret {self.scope}/{self.secret}: {value}")
         return value
 
     def __str__(self) -> str:
@@ -105,7 +103,6 @@ class PrimitiveVariableModel(BaseModel, HasValue):
     value: Union[str, int, float, bool]
 
     def as_value(self) -> Any:
-        logger.debug(f"Using primitive value: {self.value}")
         return self.value
 
     @field_serializer("value")
@@ -801,10 +798,25 @@ class WorkloadSize(str, Enum):
     LARGE = "Large"
 
 
+class MessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class Message(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    role: MessageRole
+    content: str
+
+
+class ChatPayload(BaseModel):
+    messages: list[Message]
+    custom_inputs: dict
+
+
 class AppModel(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
     log_level: Optional[LogLevel] = "WARNING"
@@ -822,6 +834,7 @@ class AppModel(BaseModel):
     message_validation_hook: Optional[
         PythonFunctionModel | FactoryFunctionModel | str
     ] = None
+    input_example: Optional[ChatPayload] = None
 
     @model_validator(mode="after")
     def validate_agents_not_empty(self):
@@ -924,9 +937,7 @@ class ResourcesModel(BaseModel):
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)

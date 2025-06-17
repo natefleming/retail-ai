@@ -159,7 +159,13 @@ class DatabricksProvider(ServiceProvider):
             logger.warning(
                 f"Secret {secret_key} not found in scope {secret_scope}, using default value"
             )
-            return default_value
+        except Exception as e:
+            logger.error(
+                f"Error retrieving secret {secret_key} from scope {secret_scope}: {e}"
+            )
+
+        logger.debug(f"Using default value for secret {secret_key}: {default_value}")
+        return default_value
 
     def create_agent(
         self,
@@ -231,6 +237,12 @@ class DatabricksProvider(ServiceProvider):
         logger.debug(f"run_name: {run_name}")
         logger.debug(f"model_path: {model_path.as_posix()}")
 
+        input_example: dict[str, Any] = None
+        if config.app.input_example:
+            input_example = config.app.input_example.model_dump()
+
+        logger.debug(f"input_example: {input_example}")
+
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("type", "agent")
             logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
@@ -239,6 +251,7 @@ class DatabricksProvider(ServiceProvider):
                 model_config=config.model_dump(),
                 artifact_path="agent",
                 pip_requirements=pip_requirements,
+                input_example=input_example,
                 resources=all_resources,
                 # auth_policy=auth_policy,
             )

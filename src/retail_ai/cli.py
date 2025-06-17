@@ -200,6 +200,30 @@ Examples:
         help="Perform a dry run without executing the deployment or run commands",
     )
 
+    # Deploy command
+    deploy_parser: ArgumentParser = subparsers.add_parser(
+        "deploy",
+        help="Deploy configuration file syntax and semantics",
+        description="""
+Deploy the Retail AI system using the specified configuration file.
+This command validates the configuration and deploys the Retail AI agents, tools, and models to the
+        """,
+        epilog="""
+Examples:
+  retail-ai deploy                                  # Validate default ./config/model_config.yaml
+  retail-ai deploy -c config/production.yaml       # Validate specific config file
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    deploy_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
+    )
+
     options = parser.parse_args(args)
 
     return options
@@ -215,6 +239,18 @@ def handle_graph_command(options: Namespace) -> None:
     config: AppConfig = AppConfig.from_file(options.config)
     app = create_retail_ai_graph(config)
     save_image(app, options.output)
+
+
+def handle_deploy_command(options: Namespace) -> None:
+    logger.debug(f"Validating configuration from {options.config}...")
+    try:
+        config: AppConfig = AppConfig.from_file(options.config)
+        config.create_agent()
+        config.deploy_agent()
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Deployment failed: {e}")
+        sys.exit(1)
 
 
 def handle_validate_command(options: Namespace) -> None:
@@ -359,6 +395,8 @@ def main() -> None:
             handle_graph_command(options)
         case "bundle":
             handle_bundle_command(options)
+        case "deploy":
+            handle_deploy_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")
             sys.exit(1)

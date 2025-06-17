@@ -104,13 +104,23 @@ resources:
             - whl: ./dist/*.whl
 
 targets:
-  dev:
+  azure:
     default: True
     workspace:
       host: https://adb-984752964297111.11.azuredatabricks.net
-  prd:
-    default: True
+  aws:
     workspace:
       host: https://e2-demo-field-eng.cloud.databricks.com
     variables:
       node_type: i3.xlarge
+  gcp:
+    workspace:
+      host: https://416411475796958.8.gcp.databricks.com/
+    variables:
+      node_type: n2-highmem-4
+  retail:
+    workspace:
+      host: https://adb-6447127900489650.10.azuredatabricks.net/
+
+
+
