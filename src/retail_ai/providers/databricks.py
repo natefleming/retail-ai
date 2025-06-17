@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -51,7 +52,7 @@ from retail_ai.models import get_latest_model_version
 from retail_ai.providers.base import ServiceProvider
 from retail_ai.utils import get_installed_packages, normalize_name
 from retail_ai.vector_search import endpoint_exists, index_exists
-import base64
+
 
 def _workspace_client(
     pat: str | None = None,
