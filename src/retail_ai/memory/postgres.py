@@ -73,7 +73,10 @@ class PostgresPoolManager:
 
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
-        connection_key: str = f"{database.connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
+        connection_url: str = database.connection_url
+        connection_key: str = (
+            f"{connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
+        )
 
         async with cls._lock:
             if connection_key in cls._pools:
@@ -88,7 +91,7 @@ class PostgresPoolManager:
             } | database.connection_kwargs or {}
 
             pool: AsyncConnectionPool = AsyncConnectionPool(
-                conninfo=database.connection_url,
+                conninfo=connection_url,
                 max_size=database.max_pool_size,
                 open=False,
                 timeout=database.timeout_seconds,

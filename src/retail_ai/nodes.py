@@ -224,7 +224,7 @@ def supervisor_node(config: AppConfig) -> AgentCallable:
         last_message: BaseMessage = last_human_message(messages)
 
         # Invoke the chain to determine the appropriate route
-        response = chain.invoke([last_message])
+        response: Router = chain.invoke([last_message])
 
         # Return the route decision to update the agent state
         return {"route": response.route}

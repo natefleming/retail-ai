@@ -14,6 +14,8 @@ from databricks.sdk.service.catalog import (
     VolumeInfo,
     VolumeType,
 )
+from databricks.sdk.service.iam import CurrentUserAPI
+from databricks.sdk.service.workspace import GetSecretResponse
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from loguru import logger
@@ -49,6 +51,58 @@ from retail_ai.models import get_latest_model_version
 from retail_ai.providers.base import ServiceProvider
 from retail_ai.utils import get_installed_packages, normalize_name
 from retail_ai.vector_search import endpoint_exists, index_exists
+import base64
+
+def _workspace_client(
+    pat: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    workspace_host: str | None = None,
+) -> WorkspaceClient:
+    """
+    Create a WorkspaceClient instance with the provided parameters.
+    If no parameters are provided, it will use the default configuration.
+    """
+    if client_id and client_secret and workspace_host:
+        return WorkspaceClient(
+            host=workspace_host,
+            client_id=client_id,
+            client_secret=client_secret,
+            auth_type="oauth-m2m",
+        )
+    elif pat:
+        return WorkspaceClient(host=workspace_host, token=pat, auth_type="pat")
+    else:
+        return WorkspaceClient()
+
+
+def _vector_search_client(
+    pat: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    workspace_host: str | None = None,
+) -> VectorSearchClient:
+    """
+    Create a VectorSearchClient instance with the provided parameters.
+    If no parameters are provided, it will use the default configuration.
+    """
+    if client_id and client_secret and workspace_host:
+        return VectorSearchClient(
+            workspace_url=workspace_host,
+            service_principal_client_id=client_id,
+            service_principal_client_secret=client_secret,
+        )
+    elif pat and workspace_host:
+        return VectorSearchClient(
+            workspace_url=workspace_host,
+            personal_access_token=pat,
+        )
+    else:
+        return VectorSearchClient()
+
+
+def _function_client(w: WorkspaceClient | None = None) -> DatabricksFunctionClient:
+    return DatabricksFunctionClient(w=w)
 
 
 class DatabricksProvider(ServiceProvider):
@@ -57,16 +111,54 @@ class DatabricksProvider(ServiceProvider):
         w: WorkspaceClient | None = None,
         vsc: VectorSearchClient | None = None,
         dfs: DatabricksFunctionClient | None = None,
+        pat: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        workspace_host: str | None = None,
     ) -> None:
         if w is None:
-            w = WorkspaceClient()
+            w = _workspace_client(
+                pat=pat,
+                client_id=client_id,
+                client_secret=client_secret,
+                workspace_host=workspace_host,
+            )
         if vsc is None:
-            vsc = VectorSearchClient()
+            vsc = _vector_search_client(
+                pat=pat,
+                client_id=client_id,
+                client_secret=client_secret,
+                workspace_host=workspace_host,
+            )
         if dfs is None:
-            dfs = DatabricksFunctionClient(w=w)
+            dfs = _function_client(w=w)
         self.w = w
         self.vsc = vsc
         self.dfs = dfs
+
+    def create_token(self) -> str:
+        current_user: CurrentUserAPI = self.w.current_user.me()
+        logger.debug(f"Authenticated to Databricks as {current_user}")
+        headers: dict[str, str] = self.w.config.authenticate()
+        token: str = headers["Authorization"].replace("Bearer ", "")
+        return token
+
+    def get_secret(
+        self, secret_scope: str, secret_key: str, default_value: str | None = None
+    ) -> str:
+        try:
+            secret_response: GetSecretResponse = self.w.secrets.get_secret(
+                secret_scope, secret_key
+            )
+            logger.debug(f"Retrieved secret {secret_key} from scope {secret_scope}")
+            encoded_secret: str = secret_response.value
+            decoded_secret: str = base64.b64decode(encoded_secret).decode("utf-8")
+            return decoded_secret
+        except NotFound:
+            logger.warning(
+                f"Secret {secret_key} not found in scope {secret_scope}, using default value"
+            )
+            return default_value
 
     def create_agent(
         self,

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, TypeAlias, Union
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.iam import CurrentUserAPI
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -32,11 +31,21 @@ from mlflow.models.resources import (
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 
+class HasValue(ABC):
+    @abstractmethod
+    def as_value(self) -> Any: ...
+
+
+def value_of(value: HasValue | str | int | float | bool) -> Any:
+    if isinstance(value, HasValue):
+        value = value.as_value()
+    return value
+
+
 class HasFullName(ABC):
     @property
     @abstractmethod
-    def full_name(self) -> str:
-        pass
+    def full_name(self) -> str: ...
 
 
 class IsDatabricksResource(ABC):
@@ -48,6 +57,103 @@ class IsDatabricksResource(ABC):
     @property
     @abstractmethod
     def api_scopes(self) -> Sequence[str]: ...
+
+
+class EnvironmentVariableModel(BaseModel, HasValue):
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
+    env: str
+    default_value: Optional[Any] = None
+
+    def as_value(self) -> Any:
+        logger.debug(f"Fetching environment variable: {self.env}")
+        value: Any = os.environ.get(self.env, self.default_value)
+        logger.debug(f"Value for {self.env}: {value}")
+        return value
+
+    def __str__(self) -> str:
+        return self.env
+
+
+class SecretVariableModel(BaseModel, HasValue):
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
+    scope: str
+    secret: str
+    default_value: Optional[Any] = None
+
+    def as_value(self) -> Any:
+        logger.debug(f"Fetching secret: {self.scope}/{self.secret}")
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: DatabricksProvider = DatabricksProvider()
+        value: Any = provider.get_secret(self.scope, self.secret, self.default_value)
+        logger.debug(f"Value for secret {self.scope}/{self.secret}: {value}")
+        return value
+
+    def __str__(self) -> str:
+        return "{{secrets/" + f"{self.scope}/{self.secret}" + "}}"
+
+
+class PrimitiveVariableModel(BaseModel, HasValue):
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
+
+    value: Union[str, int, float, bool]
+
+    def as_value(self) -> Any:
+        logger.debug(f"Using primitive value: {self.value}")
+        return self.value
+
+    @field_serializer("value")
+    def serialize_value(self, value: Any) -> str:
+        return str(value)
+
+    @model_validator(mode="after")
+    def validate_value(self) -> "PrimitiveVariableModel":
+        if not isinstance(self.as_value(), (str, int, float, bool)):
+            raise ValueError("Value must be a primitive type (str, int, float, bool)")
+        return self
+
+
+class CompositeVariableModel(BaseModel, HasValue):
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
+    default_value: Optional[Any] = None
+    variables: list[
+        EnvironmentVariableModel
+        | SecretVariableModel
+        | PrimitiveVariableModel
+        | str
+        | int
+        | float
+        | bool
+    ] = Field(default_factory=list)
+
+    def as_value(self) -> Any:
+        logger.debug("Evaluating composite variable...")
+        value: Any = None
+        for v in self.variables:
+            value = value_of(v)
+            if value is not None:
+                return value
+        return self.default_value
+
+
+type AnyVariable = (
+    CompositeVariableModel
+    | EnvironmentVariableModel
+    | SecretVariableModel
+    | PrimitiveVariableModel
+    | str
+    | int
+    | float
+    | bool
+)
 
 
 class Privilege(str, Enum):
@@ -335,17 +441,17 @@ class DatabaseModel(BaseModel):
     model_config = ConfigDict()
     name: str
     description: Optional[str] = None
-    host: Optional[str] = None
-    database: Optional[str] = None
-    port: Optional[int] = None
-    connection_kwargs: dict[str, Any] = Field(default_factory=dict)
+    host: Optional[AnyVariable]
+    database: Optional[AnyVariable] = "databricks_postgres"
+    port: Optional[AnyVariable] = 5432
+    connection_kwargs: Optional[dict[str, Any]] = Field(default_factory=dict)
     max_pool_size: Optional[int] = 10
     timeout_seconds: Optional[int] = 5
-    user: Optional[str] = None
-    password: Optional[str] = None
-    client_id: Optional[str] = None
-    client_secret: Optional[str] = None
-    workspace_host: Optional[str] = None
+    user: Optional[AnyVariable] = None
+    password: Optional[AnyVariable] = None
+    client_id: Optional[AnyVariable] = None
+    client_secret: Optional[AnyVariable] = None
+    workspace_host: Optional[AnyVariable] = None
 
     @model_validator(mode="after")
     def validate_auth_methods(self):
@@ -374,55 +480,33 @@ class DatabaseModel(BaseModel):
 
         return self
 
-    def model_post_init(self, context: Any) -> None:
-        if not self.host:
-            self.host = os.getenv("PGHOST", "localhost")
-        if not self.port or self.port <= 0:
-            self.port = int(os.getenv("PGPORT", 5432))
-        if not self.database:
-            self.database = os.getenv("PGDATABASE", "databricks_postgres")
-
-        if not self.user:
-            self.user = os.getenv("PGUSER", None)
-        if not self.password:
-            self.password = os.getenv("PGPASSWORD", None)
-
-        if not self.workspace_host:
-            self.workspace_host = os.getenv("DATABRICKS_HOST", None)
-        if not self.client_id:
-            self.client_id = os.getenv("DATABRICKS_CLIENT_ID", None)
-        if not self.client_secret:
-            self.client_secret = os.getenv("DATABRICKS_CLIENT_SECRET", None)
-
     @property
     def connection_url(self) -> str:
-        w: WorkspaceClient | None = None
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
         username: str | None = None
 
         if self.client_id and self.client_secret and self.workspace_host:
-            w = WorkspaceClient(
-                host=self.workspace_host,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                auth_type="oauth-m2m",
-            )
-            username = self.client_id
+            username = value_of(self.client_id)
         else:
-            w = WorkspaceClient(
-                host=self.workspace_host,
-                token=self.password,
-                auth_type="pat",
-            )
-            username = self.user
+            username = value_of(self.user)
 
-        current_user: CurrentUserAPI = w.current_user.me()
-        logger.debug(
-            f"Authenticated to Databricks workspace at {self.workspace_host} as {current_user}"
+        host: str = value_of(self.host)
+        port: int = value_of(self.port)
+        database: str = value_of(self.database)
+
+        provider: ServiceProvider = DatabricksProvider(
+            client_id=value_of(self.client_id),
+            client_secret=value_of(self.client_secret),
+            workspace_host=value_of(self.workspace_host),
+            pat=value_of(self.password),
         )
-        headers: dict[str, str] = w.config.authenticate()
-        token: str = headers["Authorization"].replace("Bearer ", "")
+        token: str = provider.create_token()
 
-        return f"postgresql://{username}:{token}@{self.host}:{self.port}/{self.database}?sslmode=require"
+        return (
+            f"postgresql://{username}:{token}@{host}:{port}/{database}?sslmode=require"
+        )
 
 
 class SearchParametersModel(BaseModel):

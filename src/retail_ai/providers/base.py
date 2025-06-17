@@ -13,6 +13,14 @@ from retail_ai.config import (
 
 class ServiceProvider(ABC):
     @abstractmethod
+    def create_token(self) -> str: ...
+
+    @abstractmethod
+    def get_secret(
+        self, secret_scope: str, secret_key: str, default_value: str | None = None
+    ) -> str: ...
+
+    @abstractmethod
     def create_catalog(self, schema: SchemaModel) -> Any: ...
 
     @abstractmethod

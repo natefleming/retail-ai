@@ -125,6 +125,34 @@
       "title": "AgentModel",
       "type": "object"
     },
+    "AnyVariable": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CompositeVariableModel"
+        },
+        {
+          "$ref": "#/$defs/EnvironmentVariableModel"
+        },
+        {
+          "$ref": "#/$defs/SecretVariableModel"
+        },
+        {
+          "$ref": "#/$defs/PrimitiveVariableModel"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
     "AppModel": {
       "properties": {
         "name": {
@@ -343,6 +371,51 @@
       "title": "CheckpointerModel",
       "type": "object"
     },
+    "CompositeVariableModel": {
+      "properties": {
+        "default_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "variables": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EnvironmentVariableModel"
+              },
+              {
+                "$ref": "#/$defs/SecretVariableModel"
+              },
+              {
+                "$ref": "#/$defs/PrimitiveVariableModel"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Variables",
+          "type": "array"
+        }
+      },
+      "title": "CompositeVariableModel",
+      "type": "object"
+    },
     "ConnectionModel": {
       "properties": {
         "on_behalf_of_user": {
@@ -389,67 +462,46 @@
         "host": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AnyVariable"
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "title": "Host"
-        },
-        "port": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Port"
+          ]
         },
         "database": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AnyVariable"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Database"
+          "default": "databricks_postgres"
         },
-        "user": {
+        "port": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AnyVariable"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "User"
-        },
-        "password": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Password"
+          "default": 5432
         },
         "connection_kwargs": {
-          "additionalProperties": true,
-          "title": "Connection Kwargs",
-          "type": "object"
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Connection Kwargs"
         },
         "max_pool_size": {
           "anyOf": [
@@ -463,7 +515,7 @@
           "default": 10,
           "title": "Max Pool Size"
         },
-        "timeout": {
+        "timeout_seconds": {
           "anyOf": [
             {
               "type": "integer"
@@ -473,47 +525,67 @@
             }
           ],
           "default": 5,
-          "title": "Timeout"
+          "title": "Timeout Seconds"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnyVariable"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "password": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnyVariable"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "client_id": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AnyVariable"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Client Id"
+          "default": null
         },
         "client_secret": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AnyVariable"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Client Secret"
+          "default": null
         },
         "workspace_host": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AnyVariable"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Workspace Host"
+          "default": null
         }
       },
       "required": [
-        "name"
+        "name",
+        "host"
       ],
       "title": "DatabaseModel",
       "type": "object"
@@ -578,6 +650,29 @@
       ],
       "title": "Entitlement",
       "type": "string"
+    },
+    "EnvironmentVariableModel": {
+      "properties": {
+        "env": {
+          "title": "Env",
+          "type": "string"
+        },
+        "default_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "title": "EnvironmentVariableModel",
+      "type": "object"
     },
     "EvaluationModel": {
       "properties": {
@@ -992,6 +1087,32 @@
       "title": "PermissionModel",
       "type": "object"
     },
+    "PrimitiveVariableModel": {
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "PrimitiveVariableModel",
+      "type": "object"
+    },
     "Privilege": {
       "enum": [
         "ALL_PRIVILEGES",
@@ -1219,6 +1340,34 @@
         }
       },
       "title": "SearchParametersModel",
+      "type": "object"
+    },
+    "SecretVariableModel": {
+      "properties": {
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "secret": {
+          "title": "Secret",
+          "type": "string"
+        },
+        "default_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        }
+      },
+      "required": [
+        "scope",
+        "secret"
+      ],
+      "title": "SecretVariableModel",
       "type": "object"
     },
     "StorageType": {
