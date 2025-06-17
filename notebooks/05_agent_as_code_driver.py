@@ -57,6 +57,11 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+import nest_asyncio
+nest_asyncio.apply()
+
+# COMMAND ----------
+
 from retail_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)

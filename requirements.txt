@@ -359,7 +359,9 @@ multidict==6.4.4
 mypy-extensions==1.1.0
     # via typing-inspect
 nest-asyncio==1.6.0
-    # via unitycatalog-ai
+    # via
+    #   retail-ai
+    #   unitycatalog-ai
 numpy==1.26.4
     # via
     #   contourpy

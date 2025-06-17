@@ -9,11 +9,17 @@ Key Features:
   will share the same AsyncConnectionPool, reducing resource usage.
 - Lazy initialization: Connection pools and stores/checkpointers are created only
   when first accessed via store() or checkpointer() methods.
-- Event loop safe: Handles synchronous interface requirements while managing
-  async PostgreSQL operations internally.
+- Notebook compatible: Works in Databricks notebooks when nest_asyncio is applied.
 - Resource management: Provides cleanup methods for proper resource disposal.
 
-Usage:
+Usage in Databricks Notebooks:
+    # First, enable nested event loops at the top of your notebook
+    import nest_asyncio
+    nest_asyncio.apply()
+
+    # Then use normally
+    from src.retail_ai.memory.postgres import PostgresStoreManager, PostgresCheckpointerManager
+
     # Create database configuration
     db_config = DatabaseModel(
         name="my_db",
@@ -67,9 +73,7 @@ class PostgresPoolManager:
 
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
-        connection_key: str = (
-            f"{database.connection_url}#{database.max_pool_size}#{database.timeout}"
-        )
+        connection_key: str = f"{database.connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
 
         async with cls._lock:
             if connection_key in cls._pools:
@@ -87,12 +91,12 @@ class PostgresPoolManager:
                 conninfo=database.connection_url,
                 max_size=database.max_pool_size,
                 open=False,
-                timeout=database.timeout,
+                timeout=database.timeout_seconds,
                 kwargs=kwargs,
             )
 
             try:
-                await pool.open(wait=True, timeout=database.timeout)
+                await pool.open(wait=True, timeout=database.timeout_seconds)
                 cls._pools[connection_key] = pool
                 return pool
             except Exception as e:
@@ -103,12 +107,7 @@ class PostgresPoolManager:
 
     @classmethod
     async def close_pool(cls, database: DatabaseModel):
-        """
-        Close a specific pool. Usually called during cleanup.
-        """
-        connection_key = (
-            f"{database.connection_url}#{database.max_pool_size}#{database.timeout}"
-        )
+        connection_key = f"{database.connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
 
         async with cls._lock:
             if connection_key in cls._pools:
@@ -118,9 +117,6 @@ class PostgresPoolManager:
 
     @classmethod
     async def close_all_pools(cls):
-        """
-        Close all managed pools. Usually called during application shutdown.
-        """
         async with cls._lock:
             for connection_key, pool in cls._pools.items():
                 try:
@@ -143,9 +139,6 @@ class PostgresStoreManager(StoreManagerBase):
         self._setup_complete = False
 
     def store(self) -> BaseStore:
-        """
-        Get the initialized store. Sets up the store if not already done.
-        """
         if not self._setup_complete or not self._store:
             self._setup()
 
@@ -155,29 +148,11 @@ class PostgresStoreManager(StoreManagerBase):
         return self._store
 
     def _setup(self):
-        """
-        Run the async setup in a synchronous context.
-        """
-        try:
-            # Try to get the current event loop
-            _ = asyncio.get_running_loop()
-            # If we're in an async context, we can't block with run_until_complete
-            raise RuntimeError(
-                "PostgresStore setup cannot be called from within an async context. "
-                "Please call setup() from a synchronous context first."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e):
-                # No event loop is running, safe to create one
-                asyncio.run(self._async_setup())
-            else:
-                # Re-raise the original error about async context
-                raise
+        if self._setup_complete:
+            return
+        asyncio.run(self._async_setup())
 
     async def _async_setup(self):
-        """
-        Async version of setup for internal use.
-        """
         if self._setup_complete:
             return
 
@@ -227,23 +202,13 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
 
     def _setup(self):
         """
-        Run the async setup in a synchronous context.
+        Run the async setup. Works in both sync and async contexts when nest_asyncio is applied.
         """
-        try:
-            # Try to get the current event loop
-            _ = asyncio.get_running_loop()
-            # If we're in an async context, we can't block with run_until_complete
-            raise RuntimeError(
-                "PostgresSaver setup cannot be called from within an async context. "
-                "Please call setup() from a synchronous context first."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e):
-                # No event loop is running, safe to create one
-                asyncio.run(self._async_setup())
-            else:
-                # Re-raise the original error about async context
-                raise
+        if self._setup_complete:
+            return
+
+        # With nest_asyncio applied in notebooks, asyncio.run() works everywhere
+        asyncio.run(self._async_setup())
 
     async def _async_setup(self):
         """

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, TypeAlias, Union
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.iam import CurrentUserAPI
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -333,40 +334,95 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 class DatabaseModel(BaseModel):
     model_config = ConfigDict()
     name: str
+    description: Optional[str] = None
     host: Optional[str] = None
-    port: Optional[int] = None
     database: Optional[str] = None
-    user: Optional[str] = None
-    password: Optional[str] = None
+    port: Optional[int] = None
     connection_kwargs: dict[str, Any] = Field(default_factory=dict)
     max_pool_size: Optional[int] = 10
-    timeout: Optional[int] = 5
+    timeout_seconds: Optional[int] = 5
+    user: Optional[str] = None
+    password: Optional[str] = None
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
     workspace_host: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_auth_methods(self):
+        oauth_fields: Sequence[Any] = [
+            self.workspace_host,
+            self.client_id,
+            self.client_secret,
+        ]
+        has_oauth: bool = all(field is not None for field in oauth_fields)
+
+        pat_fields: Sequence[Any] = [self.user, self.password]
+        has_user_auth: bool = all(field is not None for field in pat_fields)
+
+        if has_oauth and has_user_auth:
+            raise ValueError(
+                "Cannot use both OAuth and user authentication methods. "
+                "Please provide either OAuth credentials or user credentials."
+            )
+
+        if not has_oauth and not has_user_auth:
+            raise ValueError(
+                "At least one authentication method must be provided: "
+                "either OAuth credentials (workspace_host, client_id, client_secret) "
+                "or user credentials (user, password)."
+            )
+
         return self
 
-    def model_post_init(self, context):
+    def model_post_init(self, context: Any) -> None:
         if not self.host:
             self.host = os.getenv("PGHOST", "localhost")
         if not self.port or self.port <= 0:
             self.port = int(os.getenv("PGPORT", 5432))
         if not self.database:
             self.database = os.getenv("PGDATABASE", "databricks_postgres")
+
         if not self.user:
-            self.user = os.getenv("PGUSER", "postgres")
+            self.user = os.getenv("PGUSER", None)
         if not self.password:
             self.password = os.getenv("PGPASSWORD", None)
 
+        if not self.workspace_host:
+            self.workspace_host = os.getenv("DATABRICKS_HOST", None)
+        if not self.client_id:
+            self.client_id = os.getenv("DATABRICKS_CLIENT_ID", None)
+        if not self.client_secret:
+            self.client_secret = os.getenv("DATABRICKS_CLIENT_SECRET", None)
+
     @property
     def connection_url(self) -> str:
-        if self.host and self.port and self.database and self.user and self.password:
-            return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}?sslmode=require"
+        w: WorkspaceClient | None = None
+        username: str | None = None
 
-        return os.getenv("PGCONNECTION_STRING", "")
+        if self.client_id and self.client_secret and self.workspace_host:
+            w = WorkspaceClient(
+                host=self.workspace_host,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                auth_type="oauth-m2m",
+            )
+            username = self.client_id
+        else:
+            w = WorkspaceClient(
+                host=self.workspace_host,
+                token=self.password,
+                auth_type="pat",
+            )
+            username = self.user
+
+        current_user: CurrentUserAPI = w.current_user.me()
+        logger.debug(
+            f"Authenticated to Databricks workspace at {self.workspace_host} as {current_user}"
+        )
+        headers: dict[str, str] = w.config.authenticate()
+        token: str = headers["Authorization"].replace("Bearer ", "")
+
+        return f"postgresql://{username}:{token}@{self.host}:{self.port}/{self.database}?sslmode=require"
 
 
 class SearchParametersModel(BaseModel):

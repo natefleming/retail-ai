@@ -53,6 +53,11 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+import nest_asyncio
+nest_asyncio.apply()
+
+# COMMAND ----------
+
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
 
