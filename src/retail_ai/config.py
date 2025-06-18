@@ -712,6 +712,9 @@ class MemoryModel(BaseModel):
     store: Optional[StoreModel] = None
 
 
+FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
+
+
 class AgentModel(BaseModel):
     model_config = ConfigDict()
     name: str
@@ -722,9 +725,9 @@ class AgentModel(BaseModel):
     memory: Optional[MemoryModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
-    create_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
-    pre_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
-    post_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
+    create_agent_hook: Optional[FunctionHook] = None
+    pre_agent_hook: Optional[FunctionHook] = None
+    post_agent_hook: Optional[FunctionHook] = None
 
 
 class SupervisorModel(BaseModel):
@@ -831,9 +834,7 @@ class AppModel(BaseModel):
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
     alias: Optional[str] = None
-    message_validation_hook: Optional[
-        PythonFunctionModel | FactoryFunctionModel | str
-    ] = None
+    message_validation_hook: Optional[FunctionHook] = None
     input_example: Optional[ChatPayload] = None
 
     @model_validator(mode="after")

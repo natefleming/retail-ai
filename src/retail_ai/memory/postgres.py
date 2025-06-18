@@ -67,7 +67,7 @@ from retail_ai.memory.base import (
 )
 
 
-class PostgresPoolManager:
+class AsyncPostgresPoolManager:
     _pools: dict[str, AsyncConnectionPool] = {}
     _lock: asyncio.Lock = asyncio.Lock()
 
@@ -130,7 +130,7 @@ class PostgresPoolManager:
             cls._pools.clear()
 
 
-class PostgresStoreManager(StoreManagerBase):
+class AsyncPostgresStoreManager(StoreManagerBase):
     """
     Manager for PostgresStore that uses shared connection pools.
     """
@@ -164,7 +164,9 @@ class PostgresStoreManager(StoreManagerBase):
 
         try:
             # Get shared pool
-            self.pool = await PostgresPoolManager.get_pool(self.store_model.database)
+            self.pool = await AsyncPostgresPoolManager.get_pool(
+                self.store_model.database
+            )
 
             # Create store with the shared pool
             self._store = AsyncPostgresStore(conn=self.pool)
@@ -180,7 +182,7 @@ class PostgresStoreManager(StoreManagerBase):
             raise
 
 
-class PostgresCheckpointerManager(CheckpointManagerBase):
+class AsyncPostgresCheckpointerManager(CheckpointManagerBase):
     """
     Manager for PostgresSaver that uses shared connection pools.
     """
@@ -225,7 +227,7 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
 
         try:
             # Get shared pool
-            self.pool = await PostgresPoolManager.get_pool(
+            self.pool = await AsyncPostgresPoolManager.get_pool(
                 self.checkpointer_model.database
             )
 

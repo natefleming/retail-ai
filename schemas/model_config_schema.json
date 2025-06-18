@@ -154,6 +154,7 @@
       ]
     },
     "AppModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -302,6 +303,17 @@
           ],
           "default": null,
           "title": "Message Validation Hook"
+        },
+        "input_example": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChatPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -334,6 +346,28 @@
         "entitlements"
       ],
       "title": "AppPermissionModel",
+      "type": "object"
+    },
+    "ChatPayload": {
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "custom_inputs": {
+          "additionalProperties": true,
+          "title": "Custom Inputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "messages",
+        "custom_inputs"
+      ],
+      "title": "ChatPayload",
       "type": "object"
     },
     "CheckpointerModel": {
@@ -1035,6 +1069,33 @@
       },
       "title": "MemoryModel",
       "type": "object"
+    },
+    "Message": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/MessageRole"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "title": "Message",
+      "type": "object"
+    },
+    "MessageRole": {
+      "enum": [
+        "user",
+        "assistant",
+        "system"
+      ],
+      "title": "MessageRole",
+      "type": "string"
     },
     "OrchestrationModel": {
       "properties": {
@@ -1852,6 +1913,7 @@
       "type": "string"
     }
   },
+  "additionalProperties": false,
   "properties": {
     "schemas": {
       "additionalProperties": {

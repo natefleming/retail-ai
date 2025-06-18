@@ -96,11 +96,13 @@ def create_agent_node(
     store: BaseStore = None
     if agent.memory and agent.memory.store:
         store = agent.memory.store.as_store()
+        logger.debug(f"Using memory store: {store}")
+
         namespace: tuple[str, ...] = ("memory",)
-        logger.debug(f"Using memory store: {store}") 
-        logger.debug(f"Memory store namespace: {namespace}")
         if agent.memory.store.namespace:
             namespace = namespace + (agent.memory.store.namespace,)
+        logger.debug(f"Memory store namespace: {namespace}")
+
         tools += [
             create_manage_memory_tool(namespace=namespace, store=store),
             create_search_memory_tool(namespace=namespace, store=store),

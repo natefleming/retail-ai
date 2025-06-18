@@ -67,11 +67,11 @@ class StoreManager:
                     store_manager = InMemoryStoreManager(store_model)
                     cls.store_managers[store_model.name] = store_manager
             case StorageType.POSTGRES:
-                from retail_ai.memory.postgres import PostgresStoreManager
+                from retail_ai.memory.postgres import AsyncPostgresStoreManager
 
                 store_manager = cls.store_managers.get(store_model.database.name)
                 if store_manager is None:
-                    store_manager = PostgresStoreManager(store_model)
+                    store_manager = AsyncPostgresStoreManager(store_model)
                     cls.store_managers[store_model.database.name] = store_manager
             case _:
                 raise ValueError(f"Unknown store type: {store_model.type}")
@@ -98,13 +98,13 @@ class CheckpointManager:
                         checkpointer_manager
                     )
             case StorageType.POSTGRES:
-                from retail_ai.memory.postgres import PostgresCheckpointerManager
+                from retail_ai.memory.postgres import AsyncPostgresCheckpointerManager
 
                 checkpointer_manager = cls.checkpoint_managers.get(
                     checkpointer_model.database.name
                 )
                 if checkpointer_manager is None:
-                    checkpointer_manager = PostgresCheckpointerManager(
+                    checkpointer_manager = AsyncPostgresCheckpointerManager(
                         checkpointer_model
                     )
                     cls.checkpoint_managers[checkpointer_model.database.name] = (

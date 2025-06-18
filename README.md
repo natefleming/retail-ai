@@ -806,6 +806,31 @@ response = client.predict(
 print(response["message"]["content"])
 ```
 
+### Advanced Configuration
+
+You can also pass additional configuration parameters to customize the agent's behavior:
+
+```python
+response = client.predict(
+  endpoint="retail_ai_agent",
+  inputs={
+    "messages": [
+      {"role": "user", "content": "Can you recommend a lamp for my oak side tables?"}
+    ],
+    "configurable": {
+      "thread_id": "1",
+      "user_id": "my_user_id", 
+      "store_num": 87887
+    }
+  }
+)
+```
+
+The `configurable` section supports:
+- **`thread_id`**: Unique identifier for conversation threading and state management
+- **`user_id`**: User identifier for personalization and tracking
+- **`store_num`**: Store number for location-specific recommendations and inventory
+
 ## Customization
 
 To customize the agent:
