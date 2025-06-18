@@ -22,6 +22,7 @@ from retail_ai.config import (
     PythonFunctionModel,
     SupervisorModel,
     ToolModel,
+    FunctionHook,
 )
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
@@ -135,23 +136,31 @@ def create_agent_node(
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:
-    message_validation_hook: Callable[..., Any] = create_hook(
-        config.app.message_validation_hook
-    )
+    
+    message_validation_hooks: Sequence[Callable[..., Any]] = []
+    hook: FunctionHook = config.app.message_validation_hook
+    if hook:
+        message_validation_hooks.append(create_hook(hook))
 
     @mlflow.trace()
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "error": None}
-        if message_validation_hook:
-            try:
-                response |= message_validation_hook(
-                    state=state,
-                    config=config,
-                )
-            except Exception as e:
-                logger.error(f"Message validation failed: {e}")
-                return {"is_valid": False, "validation_error": str(e)}
+        
+        for message_validation_hook in message_validation_hooks:
+            if message_validation_hook:
+                try:
+                    hook_response: dict[str, Any] = message_validation_hook(
+                        state=state,
+                        config=config,
+                    )
+                    response.update(hook_response)
+                    logger.debug(f"Hook response: {hook_response}")
+                    if not response.get("is_valid", True):
+                        break
+                except Exception as e:
+                    logger.error(f"Message validation failed: {e}")
+                    return {"is_valid": False, "error": str(e)}
 
         return response
 
