@@ -175,7 +175,12 @@ resources:
     # PostgreSQL database for agent memory and checkpoints
     retail_database: &retail_database
       name: "Retail Database"                       # Human-readable name
-      #connection_url: "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"  # Commented out - uses env vars
+      host:                                                 
+        default_value: localhost                                             
+        variables:
+          - env: PGHOST
+          - scope: retail_ai
+            secret: PGHOST
       connection_kwargs:                            # Additional connection parameters
         autocommit: True                            # Enable autocommit mode
         prepare_threshold: 0                        # Disable prepared statements
@@ -924,7 +929,8 @@ app:
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
       default_agent: *general                       # Default agent when no specific match
-  message_validation_hook: "retail_ai.hooks.null_hook"
+  message_hooks: 
+    - "retail_ai.hooks.null_hook"
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general

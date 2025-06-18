@@ -1,71 +1,5 @@
-"""
-PostgreSQL-based Store and Checkpointer Managers with Shared Connection Pools
-
-This module provides both synchronous and asynchronous PostgreSQL implementations
-of StoreManager and CheckpointerManager that share connection pools when using
-the same database configuration.
-
-Key Features:
-- Shared connection pools: Multiple managers using the same database configuration
-  will share the same ConnectionPool (sync) or A# Aliases for backward compatibility and convenience
-# Sync versions (default)
-# PostgresStoreManager and PostgresCheckpointerManager are the sync versions
-
-# Async versions (explicit)
-# AsyncPostgresStoreManager and AsyncPostgresCheckpointerManager are the async versionsonnectionPool (async), reducing resource usage.
-- Lazy initialization: Connection pools and stores/checkpointers are created only
-  when first accessed via store() or checkpointer() methods.
-- Both sync and async: Choose the appropriate version for your use case.
-- Notebook compatible: Async versions work in Databricks notebooks when nest_asyncio is applied.
-- Resource management: Provides cleanup methods for proper resource disposal.
-
-Synchronous Usage:
-    from src.retail_ai.memory.postgres import PostgresStoreManager, PostgresCheckpointerManager
-
-    # Create database configuration
-    db_config = DatabaseModel(
-        name="my_db",
-        connection_url="postgresql://user:pass@localhost:5432/db",
-        max_pool_size=20,
-        timeout=5
-    )
-
-    # Create managers - they will share the same connection pool
-    store_manager = PostgresStoreManager(StoreModel(
-        name="my_store",
-        type=StorageType.POSTGRES,
-        database=db_config
-    ))
-
-    checkpointer_manager = PostgresCheckpointerManager(CheckpointerModel(
-        name="my_checkpointer",
-        type=StorageType.POSTGRES,
-        database=db_config
-    ))
-
-    # Use them - pools will be created automatically
-    store = store_manager.store()
-    checkpointer = checkpointer_manager.checkpointer()
-
-    # Cleanup when done (optional)
-    PostgresPoolManager.close_all_pools()
-
-Asynchronous Usage in Databricks Notebooks:
-    # First, enable nested event loops at the top of your notebook
-    import nest_asyncio
-    nest_asyncio.apply()
-
-    # Then use async versions
-    from src.retail_ai.memory.postgres import AsyncPostgresStoreManager, AsyncPostgresCheckpointerManager
-
-    # Create managers and use them the same way
-    # ...
-
-    # Cleanup when done (optional)
-    await AsyncPostgresPoolManager.close_all_pools()
-"""
-
 import asyncio
+import atexit
 import threading
 from typing import Any, Optional
 
@@ -426,3 +360,8 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
         except Exception as e:
             logger.error(f"Error setting up PostgresSaver: {e}")
             raise
+
+
+# Register shutdown hooks to cleanup pools on exit
+atexit.register(PostgresPoolManager.close_all_pools)
+atexit.register(AsyncPostgresPoolManager.close_all_pools)

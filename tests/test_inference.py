@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Any, Sequence
 
 import pytest
 from conftest import has_databricks_env
@@ -18,6 +18,12 @@ def test_inference(chat_model: ChatModel) -> None:
     messages: Sequence[BaseMessage] = [
         HumanMessage(content="What is the weather like today?"),
     ]
-    response: AddableValuesDict = process_messages(chat_model, messages)
+    custom_inputs: dict[str, Any] = {
+        "configurable": {
+            "user_id": "user123",
+            "thread_id": "1",
+        }
+    }
+    response: AddableValuesDict = process_messages(chat_model, messages, custom_inputs)
     print(response)
     assert response is not None

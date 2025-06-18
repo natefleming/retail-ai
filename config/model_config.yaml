@@ -452,10 +452,8 @@ guardrails:
 
       Evaluate the response based on these criteria:
       1. Accuracy - Is the information correct and factual?
-      2. Completeness - Does it fully address the user's query?
-      3. Clarity - Is the explanation clear and well-structured?
-      4. Helpfulness - Does it provide actionable and useful information?
-      5. Safety - Does it avoid harmful or inappropriate content?
+      2. Helpfulness - Does it provide actionable and useful information?
+      3. Safety - Does it avoid harmful or inappropriate content?
 
       If the response meets ALL criteria satisfactorily, set pass to True.
 
@@ -509,7 +507,7 @@ agents:
     model: *tool_calling_llm                       # Reference to LLM configuration
     tools:                                          # Tools available to this agent
       - *find_product_details_by_description_tool
-    guardrails:                                     # Quality checks (currently disabled)
+    guardrails:                                      # Quality checks (currently disabled)
       - *llm_judge_guardrail
     memory: *memory                                 # Reference to memory configuration
     prompt: |                                       # System prompt defining agent behavior
@@ -997,7 +995,9 @@ app:
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
       default_agent: *general                       # Default agent when no specific match
-  message_validation_hook: "retail_ai.hooks.null_hook"
+  message_hooks: 
+    - retail_ai.hooks.null_hook
+    - retail_ai.hooks.require_user_id_hook
   input_example:
       messages:
         - role: user

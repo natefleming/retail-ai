@@ -834,7 +834,9 @@ class AppModel(BaseModel):
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
     alias: Optional[str] = None
-    message_validation_hook: Optional[FunctionHook] = None
+    message_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
+        default_factory=list
+    )
     input_example: Optional[ChatPayload] = None
 
     @model_validator(mode="after")

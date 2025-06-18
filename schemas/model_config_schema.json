@@ -286,7 +286,7 @@
           "default": null,
           "title": "Alias"
         },
-        "message_validation_hook": {
+        "message_hooks": {
           "anyOf": [
             {
               "$ref": "#/$defs/PythonFunctionModel"
@@ -298,11 +298,26 @@
               "type": "string"
             },
             {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PythonFunctionModel"
+                  },
+                  {
+                    "$ref": "#/$defs/FactoryFunctionModel"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Message Validation Hook"
+          "title": "Message Hooks"
         },
         "input_example": {
           "anyOf": [
