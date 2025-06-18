@@ -9,13 +9,13 @@ from loguru import logger
 from retail_ai.config import AgentModel, AppConfig, OrchestrationModel
 from retail_ai.nodes import (
     create_agent_node,
-    message_validation_node,
+    message_hook_node,
     supervisor_node,
 )
 from retail_ai.state import AgentConfig, AgentState
 
 
-def route_message_validation(on_success: str) -> Callable:
+def route_message_hook(on_success: str) -> Callable:
     def _(state: AgentState) -> str:
         if not state["is_valid"]:
             return END
@@ -28,7 +28,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     logger.debug("Creating supervisor graph")
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
-    workflow.add_node("message_validation", message_validation_node(config=config))
+    workflow.add_node("message_hook", message_hook_node(config=config))
     workflow.add_node("supervisor", supervisor_node(config=config))
 
     agents: Sequence[AgentModel] = config.app.agents
@@ -36,15 +36,15 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         workflow.add_node(agent.name, create_agent_node(agent=agent))
 
     workflow.add_conditional_edges(
-        "message_validation",
-        route_message_validation("supervisor"),
+        "message_hook",
+        route_message_hook("supervisor"),
         {
             "supervisor": "supervisor",
             END: END,
         },
     )
 
-    workflow.add_edge("message_validation", "supervisor")
+    workflow.add_edge("message_hook", "supervisor")
 
     routes: dict[str, str] = {n: n for n in [agent.name for agent in agents]}
     workflow.add_conditional_edges(
@@ -53,7 +53,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         routes,
     )
 
-    workflow.set_entry_point("message_validation")
+    workflow.set_entry_point("message_hook")
 
     return workflow.compile()
 
@@ -124,21 +124,21 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
-    workflow.add_node("message_validation", message_validation_node(config=config))
+    workflow.add_node("message_hook", message_hook_node(config=config))
     workflow.add_node("swarm", swarm_node)
 
     workflow.add_conditional_edges(
-        "message_validation",
-        route_message_validation("swarm"),
+        "message_hook",
+        route_message_hook("swarm"),
         {
             "swarm": "swarm",
             END: END,
         },
     )
 
-    workflow.add_edge("message_validation", "swarm")
+    workflow.add_edge("message_hook", "swarm")
 
-    workflow.set_entry_point("message_validation")
+    workflow.set_entry_point("message_hook")
 
     return workflow.compile()
 

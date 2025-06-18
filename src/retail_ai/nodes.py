@@ -135,13 +135,13 @@ def create_agent_node(
     return compiled_agent
 
 
-def message_validation_node(config: AppConfig) -> AgentCallable:
+def message_hook_node(config: AppConfig) -> AgentCallable:
     message_hooks: Sequence[Callable[..., Any]] = [
         create_hook(hook) for hook in config.app.message_hooks
     ]
 
     @mlflow.trace()
-    def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
+    def message_hook(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "error": None}
 
@@ -163,7 +163,7 @@ def message_validation_node(config: AppConfig) -> AgentCallable:
 
         return response
 
-    return message_validation
+    return message_hook
 
 
 def _supervisor_prompt(agents: Sequence[AgentModel]) -> str:
