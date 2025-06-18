@@ -159,10 +159,13 @@ def message_hook_node(config: AppConfig) -> AgentCallable:
                         break
                 except Exception as e:
                     logger.error(f"Message validation failed: {e}")
+                    response_messages: Sequence[BaseMessage] = [
+                        AIMessage(content=str(e))
+                    ]
                     return {
                         "is_valid": False,
                         "message_error": str(e),
-                        "messages": [AIMessage(content=str(e))],
+                        "messages": response_messages,
                     }
 
         return response

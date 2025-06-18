@@ -44,8 +44,6 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         },
     )
 
-    # workflow.add_edge("message_hook", "supervisor")
-
     routes: dict[str, str] = {n: n for n in [agent.name for agent in agents]}
     workflow.add_conditional_edges(
         "supervisor",
