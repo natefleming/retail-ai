@@ -2,6 +2,7 @@ from typing import Sequence, TypedDict
 
 from langchain_core.documents.base import Document
 from langgraph.graph import MessagesState
+from langgraph.managed import RemainingSteps
 
 
 class AgentConfig(TypedDict):
@@ -41,5 +42,6 @@ class AgentState(MessagesState):
     route: str
     active_agent: str
 
+    remaining_steps: RemainingSteps
     is_valid: bool
     message_error: str

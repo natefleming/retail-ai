@@ -1,16 +1,27 @@
 from typing import Callable, Sequence
 
+from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph_swarm import create_handoff_tool, create_swarm
+from langgraph.store.base import BaseStore
+from langgraph_supervisor import create_handoff_tool as supervisor_handoff_tool
+from langgraph_supervisor import create_supervisor
+from langgraph_swarm import create_handoff_tool as swarm_handoff_tool
+from langgraph_swarm import create_swarm
 from loguru import logger
 
-from retail_ai.config import AgentModel, AppConfig, OrchestrationModel
+from retail_ai.config import (
+    AgentModel,
+    AppConfig,
+    OrchestrationModel,
+    SupervisorModel,
+    SwarmModel,
+)
 from retail_ai.nodes import (
     create_agent_node,
     message_hook_node,
-    supervisor_node,
 )
 from retail_ai.state import AgentConfig, AgentState
 
@@ -22,38 +33,6 @@ def route_message_hook(on_success: str) -> Callable:
         return on_success
 
     return route_message
-
-
-def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
-    logger.debug("Creating supervisor graph")
-    workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
-
-    workflow.add_node("message_hook", message_hook_node(config=config))
-    workflow.add_node("supervisor", supervisor_node(config=config))
-
-    agents: Sequence[AgentModel] = config.app.agents
-    for agent in agents:
-        workflow.add_node(agent.name, create_agent_node(agent=agent))
-
-    workflow.add_conditional_edges(
-        "message_hook",
-        route_message_hook("supervisor"),
-        {
-            "supervisor": "supervisor",
-            END: END,
-        },
-    )
-
-    routes: dict[str, str] = {n: n for n in [agent.name for agent in agents]}
-    workflow.add_conditional_edges(
-        "supervisor",
-        lambda state: state["route"],
-        routes,
-    )
-
-    workflow.set_entry_point("message_hook")
-
-    return workflow.compile()
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -83,13 +62,68 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
             f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}"
         )
         handoff_tools.append(
-            create_handoff_tool(
+            swarm_handoff_tool(
                 agent_name=handoff_to_agent.name,
                 description=f"Ask {handoff_to_agent.name} for help with: "
                 + handoff_to_agent.handoff_prompt,
             )
         )
     return handoff_tools
+
+
+def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
+    logger.debug("Creating supervisor graph")
+    agents: list[CompiledStateGraph] = []
+    handoffs: Sequence[BaseTool] = []
+    for registered_agent in config.app.agents:
+        agents.append(create_agent_node(agent=registered_agent, additional_tools=[]))
+        handoffs.append(
+            supervisor_handoff_tool(
+                agent_name=registered_agent.name,
+                description=registered_agent.handoff_prompt,
+            )
+        )
+
+    supervisor: SupervisorModel = config.app.orchestration.supervisor
+    model: LanguageModelLike = supervisor.model.as_chat_model()
+    supervisor_workflow: StateGraph = create_supervisor(
+        supervisor_name="triage",
+        agents=agents,
+        model=model,
+        tools=handoffs,
+        state_schema=AgentState,
+        config_schema=AgentConfig,
+    )
+
+    store: BaseStore = None
+    if supervisor.memory and supervisor.memory.store:
+        store = supervisor.memory.store.as_store()
+
+    checkpointer: BaseCheckpointSaver = None
+    if supervisor.memory and supervisor.memory.checkpointer:
+        checkpointer = supervisor.memory.checkpointer()
+
+    supervisor_node: CompiledStateGraph = supervisor_workflow.compile(
+        checkpointer=checkpointer, store=store
+    )
+
+    workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
+
+    workflow.add_node("message_hook", message_hook_node(config=config))
+    workflow.add_node("supervisor", supervisor_node)
+
+    workflow.add_conditional_edges(
+        "message_hook",
+        route_message_hook("supervisor"),
+        {
+            "supervisor": "supervisor",
+            END: END,
+        },
+    )
+
+    workflow.set_entry_point("message_hook")
+
+    return workflow.compile()
 
 
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
@@ -103,7 +137,9 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             create_agent_node(agent=registered_agent, additional_tools=handoff_tools)
         )
 
-    default_agent: AgentModel = config.app.orchestration.swarm.default_agent
+    swarm: SwarmModel = config.app.orchestration.swarm
+
+    default_agent: AgentModel = swarm.default_agent
     if isinstance(default_agent, AgentModel):
         default_agent = default_agent.name
 
@@ -114,8 +150,14 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         config_schema=AgentConfig,
     )
 
-    checkpointer = None  # InMemorySaver()
-    store = None  # InMemoryStore()
+    store: BaseStore = None
+    if swarm.memory and swarm.memory.store:
+        store = swarm.memory.store.as_store()
+
+    checkpointer: BaseCheckpointSaver = None
+    if swarm.memory and swarm.memory.checkpointer:
+        checkpointer = swarm.memory.checkpointer()
+
     swarm_node: CompiledStateGraph = swarm_workflow.compile(
         checkpointer=checkpointer, store=store
     )

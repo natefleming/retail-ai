@@ -1,11 +1,11 @@
-from typing import Any, Callable, Literal, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import mlflow
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.modifier import RemoveMessage
-from langchain_core.runnables import RunnableConfig, RunnableSequence
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
@@ -21,7 +21,6 @@ from retail_ai.config import (
     FactoryFunctionModel,
     FunctionHook,
     PythonFunctionModel,
-    SupervisorModel,
     ToolModel,
 )
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
@@ -171,84 +170,6 @@ def message_hook_node(config: AppConfig) -> AgentCallable:
         return response
 
     return message_hook
-
-
-def _supervisor_prompt(agents: Sequence[AgentModel]) -> str:
-    prompt_result: str = "Analyze the user question and select ONE specific route from the allowed options:\n\n"
-
-    for agent in agents:
-        route: str = agent.name
-        handoff_prompt: str = agent.handoff_prompt
-        prompt_result += f"  - Route to '{route}': {handoff_prompt}\n"
-
-    prompt_result += (
-        "\n Choose exactly ONE route that BEST matches the user's primary intent."
-    )
-
-    return prompt_result
-
-
-def supervisor_node(config: AppConfig) -> AgentCallable:
-    """
-    Create a node that routes questions to the appropriate specialized agent.
-
-    This factory function returns a callable that uses a language model to analyze
-    the latest user message and determine which agent should handle it based on content.
-    The routing decision is structured through the Router Pydantic model.
-
-    Args:
-        model_name: Name of the language model to use for routing decisions
-
-    Returns:
-        An agent callable function that updates the state with the routing decision
-    """
-    logger.debug("Creating supervisor node")
-    agents: Sequence[AgentModel] = config.app.agents
-
-    supervisor_model: SupervisorModel = config.app.orchestration.supervisor
-
-    prompt: str = _supervisor_prompt(agents=agents)
-    logger.debug(f"Supervisor prompt: {prompt}")
-    allowed_routes: Sequence[str] = list(set([a.name for a in agents]))
-    model: str = supervisor_model.model.name
-    temperature: float = supervisor_model.model.temperature
-    default_route: str | AgentModel = supervisor_model.default_agent
-
-    if isinstance(default_route, AgentModel):
-        default_route = default_route.name
-
-    logger.debug(
-        f"Creating supervisor node with model={model}, temperature={temperature}, "
-        f"default_route={default_route}, allowed_routes={allowed_routes}"
-    )
-
-    @mlflow.trace()
-    def supervisor(state: AgentState, config: AgentConfig) -> dict[str, str]:
-        llm: LanguageModelLike = supervisor_model.model.as_chat_model()
-
-        class Router(BaseModel):
-            route: Literal[tuple(allowed_routes)] = Field(
-                default=default_route,
-                description=f"The route to take. Must be one of {allowed_routes}",
-            )
-
-        Router.__doc__ = prompt
-
-        chain: RunnableSequence = llm.with_structured_output(Router)
-
-        # Extract all messages from the current state
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        # Get the most recent message from the human user
-        last_message: BaseMessage = last_human_message(messages)
-
-        # Invoke the chain to determine the appropriate route
-        response: Router = chain.invoke([last_message])
-
-        # Return the route decision to update the agent state
-        return {"route": response.route}
-
-    return supervisor
 
 
 def process_images_node(config: AppConfig) -> AgentCallable:

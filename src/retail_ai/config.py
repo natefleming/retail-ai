@@ -737,7 +737,7 @@ class AgentModel(BaseModel):
 class SupervisorModel(BaseModel):
     model_config = ConfigDict()
     model: LLMModel
-    default_agent: Optional[AgentModel | str] = None
+    memory: Optional[MemoryModel] = None
 
 
 class SwarmModel(BaseModel):
@@ -747,6 +747,7 @@ class SwarmModel(BaseModel):
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
         default_factory=dict
     )
+    memory: Optional[MemoryModel] = None
 
 
 class OrchestrationModel(BaseModel):
@@ -861,12 +862,6 @@ class AppModel(BaseModel):
 
         if self.orchestration.swarm and not self.orchestration.swarm.default_agent:
             self.orchestration.swarm.default_agent = default_agent_name
-
-        if (
-            self.orchestration.supervisor
-            and not self.orchestration.supervisor.default_agent
-        ):
-            self.orchestration.supervisor.default_agent = default_agent_name
 
         return self
 
