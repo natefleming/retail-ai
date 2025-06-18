@@ -3,7 +3,7 @@ SRC_DIR := $(TOP_DIR)/src
 TEST_DIR := $(TOP_DIR)/tests
 DIST_DIR := $(TOP_DIR)/dist
 REQUIREMENTS_FILE := $(TOP_DIR)/requirements.txt
-LIB_NAME := retail_ai
+LIB_NAME := dao_ai
 LIB_VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
 LIB := $(LIB_NAME)-$(LIB_VERSION)-py3-none-any.whl
 TARGET := $(DIST_DIR)/$(LIB)
@@ -61,7 +61,7 @@ distclean: clean
 	$(FIND) $(SRC_DIR) $(TEST_DIR) \( -name __pycache__ -a -type d \) -prune -exec rm -rf {} \;
 
 schema: depends
-	@$(PYTHON) -c "from retail_ai.config import AppConfig; import json; print(json.dumps(AppConfig.model_json_schema(), indent=2))"
+	@$(PYTHON) -c "from dao_ai.config import AppConfig; import json; print(json.dumps(AppConfig.model_json_schema(), indent=2))"
 
 test: 
 	$(PYTEST) $(TEST_DIR)

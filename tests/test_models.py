@@ -8,7 +8,7 @@ from dao_ai.models import get_latest_model_version
 @pytest.mark.unit
 def test_get_latest_model_version_single_version() -> None:
     """Test getting latest version when only one version exists."""
-    with patch("retail_ai.models.MlflowClient") as mock_client:
+    with patch("dao_ai.models.MlflowClient") as mock_client:
         # Mock model version
         mock_version = MagicMock()
         mock_version.version = "1"
@@ -25,7 +25,7 @@ def test_get_latest_model_version_single_version() -> None:
 @pytest.mark.unit
 def test_get_latest_model_version_multiple_versions() -> None:
     """Test getting latest version when multiple versions exist."""
-    with patch("retail_ai.models.MlflowClient") as mock_client:
+    with patch("dao_ai.models.MlflowClient") as mock_client:
         # Mock multiple model versions
         mock_versions = []
         for version in ["1", "3", "2", "5"]:
@@ -45,7 +45,7 @@ def test_get_latest_model_version_multiple_versions() -> None:
 @pytest.mark.unit
 def test_get_latest_model_version_no_versions() -> None:
     """Test getting latest version when no versions exist."""
-    with patch("retail_ai.models.MlflowClient") as mock_client:
+    with patch("dao_ai.models.MlflowClient") as mock_client:
         mock_instance = mock_client.return_value
         mock_instance.search_model_versions.return_value = []
 
@@ -61,7 +61,7 @@ def test_get_latest_model_version_no_versions() -> None:
 @pytest.mark.unit
 def test_get_latest_model_version_string_versions() -> None:
     """Test getting latest version with version numbers as strings."""
-    with patch("retail_ai.models.MlflowClient") as mock_client:
+    with patch("dao_ai.models.MlflowClient") as mock_client:
         # Mock model versions with string version numbers
         mock_versions = []
         for version in ["10", "2", "21", "1"]:
