@@ -1,23 +1,25 @@
 """
 PostgreSQL-based Store and Checkpointer Managers with Shared Connection Pools
 
-This module provides PostgreSQL implementations of StoreManager and CheckpointerManager
-that share connection pools when using the same database configuration.
+This module provides both synchronous and asynchronous PostgreSQL implementations
+of StoreManager and CheckpointerManager that share connection pools when using
+the same database configuration.
 
 Key Features:
 - Shared connection pools: Multiple managers using the same database configuration
-  will share the same AsyncConnectionPool, reducing resource usage.
+  will share the same ConnectionPool (sync) or A# Aliases for backward compatibility and convenience
+# Sync versions (default)
+# PostgresStoreManager and PostgresCheckpointerManager are the sync versions
+
+# Async versions (explicit)
+# AsyncPostgresStoreManager and AsyncPostgresCheckpointerManager are the async versionsonnectionPool (async), reducing resource usage.
 - Lazy initialization: Connection pools and stores/checkpointers are created only
   when first accessed via store() or checkpointer() methods.
-- Notebook compatible: Works in Databricks notebooks when nest_asyncio is applied.
+- Both sync and async: Choose the appropriate version for your use case.
+- Notebook compatible: Async versions work in Databricks notebooks when nest_asyncio is applied.
 - Resource management: Provides cleanup methods for proper resource disposal.
 
-Usage in Databricks Notebooks:
-    # First, enable nested event loops at the top of your notebook
-    import nest_asyncio
-    nest_asyncio.apply()
-
-    # Then use normally
+Synchronous Usage:
     from src.retail_ai.memory.postgres import PostgresStoreManager, PostgresCheckpointerManager
 
     # Create database configuration
@@ -46,19 +48,36 @@ Usage in Databricks Notebooks:
     checkpointer = checkpointer_manager.checkpointer()
 
     # Cleanup when done (optional)
-    await PostgresPoolManager.close_all_pools()
+    PostgresPoolManager.close_all_pools()
+
+Asynchronous Usage in Databricks Notebooks:
+    # First, enable nested event loops at the top of your notebook
+    import nest_asyncio
+    nest_asyncio.apply()
+
+    # Then use async versions
+    from src.retail_ai.memory.postgres import AsyncPostgresStoreManager, AsyncPostgresCheckpointerManager
+
+    # Create managers and use them the same way
+    # ...
+
+    # Cleanup when done (optional)
+    await AsyncPostgresPoolManager.close_all_pools()
 """
 
 import asyncio
+import threading
 from typing import Any, Optional
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.store.base import BaseStore
+from langgraph.store.postgres import PostgresStore
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from loguru import logger
 from psycopg.rows import dict_row
-from psycopg_pool import AsyncConnectionPool
+from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
 from retail_ai.config import CheckpointerModel, DatabaseModel, StoreModel
 from retail_ai.memory.base import (
@@ -234,6 +253,170 @@ class AsyncPostgresCheckpointerManager(CheckpointManagerBase):
             # Create checkpointer with the shared pool
             self._checkpointer = AsyncPostgresSaver(conn=self.pool)
             await self._checkpointer.setup()
+
+            self._setup_complete = True
+            logger.debug(
+                f"PostgresSaver initialized successfully for {self.checkpointer_model.name}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error setting up PostgresSaver: {e}")
+            raise
+
+
+class PostgresPoolManager:
+    """
+    Synchronous PostgreSQL connection pool manager that shares pools
+    based on database configuration.
+    """
+
+    _pools: dict[str, ConnectionPool] = {}
+    _lock: threading.Lock = threading.Lock()
+
+    @classmethod
+    def get_pool(cls, database: DatabaseModel) -> ConnectionPool:
+        connection_url: str = database.connection_url
+        connection_key: str = (
+            f"{connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
+        )
+
+        with cls._lock:
+            if connection_key in cls._pools:
+                logger.debug(f"Reusing existing PostgreSQL pool for {database.name}")
+                return cls._pools[connection_key]
+
+            logger.debug(f"Creating new PostgreSQL pool for {database.name}")
+
+            kwargs: dict[str, Any] = {
+                "row_factory": dict_row,
+                "autocommit": True,
+            } | database.connection_kwargs or {}
+
+            pool: ConnectionPool = ConnectionPool(
+                conninfo=connection_url,
+                max_size=database.max_pool_size,
+                open=False,
+                timeout=database.timeout_seconds,
+                kwargs=kwargs,
+            )
+
+            try:
+                pool.open(wait=True, timeout=database.timeout_seconds)
+                cls._pools[connection_key] = pool
+                return pool
+            except Exception as e:
+                logger.error(
+                    f"Failed to create PostgreSQL pool for {database.name}: {e}"
+                )
+                raise e
+
+    @classmethod
+    def close_pool(cls, database: DatabaseModel):
+        connection_key = f"{database.connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
+
+        with cls._lock:
+            if connection_key in cls._pools:
+                pool = cls._pools.pop(connection_key)
+                pool.close()
+                logger.debug(f"Closed PostgreSQL pool for {database.name}")
+
+    @classmethod
+    def close_all_pools(cls):
+        with cls._lock:
+            for connection_key, pool in cls._pools.items():
+                try:
+                    pool.close()
+                    logger.debug(f"Closed PostgreSQL pool: {connection_key}")
+                except Exception as e:
+                    logger.error(f"Error closing pool {connection_key}: {e}")
+            cls._pools.clear()
+
+
+class PostgresStoreManager(StoreManagerBase):
+    """
+    Synchronous manager for PostgresStore that uses shared connection pools.
+    """
+
+    def __init__(self, store_model: StoreModel):
+        self.store_model = store_model
+        self.pool: Optional[ConnectionPool] = None
+        self._store: Optional[PostgresStore] = None
+        self._setup_complete = False
+
+    def store(self) -> BaseStore:
+        if not self._setup_complete or not self._store:
+            self._setup()
+
+        if not self._store:
+            raise RuntimeError("PostgresStore initialization failed")
+
+        return self._store
+
+    def _setup(self):
+        if self._setup_complete:
+            return
+
+        if not self.store_model.database:
+            raise ValueError("Database configuration is required for PostgresStore")
+
+        try:
+            # Get shared pool
+            self.pool = PostgresPoolManager.get_pool(self.store_model.database)
+
+            # Create store with the shared pool
+            self._store = PostgresStore(conn=self.pool)
+            self._store.setup()
+
+            self._setup_complete = True
+            logger.debug(
+                f"PostgresStore initialized successfully for {self.store_model.name}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error setting up PostgresStore: {e}")
+            raise
+
+
+class PostgresCheckpointerManager(CheckpointManagerBase):
+    """
+    Synchronous manager for PostgresSaver that uses shared connection pools.
+    """
+
+    def __init__(self, checkpointer_model: CheckpointerModel):
+        self.checkpointer_model = checkpointer_model
+        self.pool: Optional[ConnectionPool] = None
+        self._checkpointer: Optional[PostgresSaver] = None
+        self._setup_complete = False
+
+    def checkpointer(self) -> BaseCheckpointSaver:
+        """
+        Get the initialized checkpointer. Sets up the checkpointer if not already done.
+        """
+        if not self._setup_complete or not self._checkpointer:
+            self._setup()
+
+        if not self._checkpointer:
+            raise RuntimeError("PostgresSaver initialization failed")
+
+        return self._checkpointer
+
+    def _setup(self):
+        """
+        Set up the checkpointer synchronously.
+        """
+        if self._setup_complete:
+            return
+
+        if not self.checkpointer_model.database:
+            raise ValueError("Database configuration is required for PostgresSaver")
+
+        try:
+            # Get shared pool
+            self.pool = PostgresPoolManager.get_pool(self.checkpointer_model.database)
+
+            # Create checkpointer with the shared pool
+            self._checkpointer = PostgresSaver(conn=self.pool)
+            self._checkpointer.setup()
 
             self._setup_complete = True
             logger.debug(

@@ -19,10 +19,10 @@ from retail_ai.config import (
     AgentModel,
     AppConfig,
     FactoryFunctionModel,
+    FunctionHook,
     PythonFunctionModel,
     SupervisorModel,
     ToolModel,
-    FunctionHook,
 )
 from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
@@ -136,7 +136,6 @@ def create_agent_node(
 
 
 def message_validation_node(config: AppConfig) -> AgentCallable:
-    
     message_validation_hooks: Sequence[Callable[..., Any]] = []
     hook: FunctionHook = config.app.message_validation_hook
     if hook:
@@ -146,7 +145,7 @@ def message_validation_node(config: AppConfig) -> AgentCallable:
     def message_validation(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "error": None}
-        
+
         for message_validation_hook in message_validation_hooks:
             if message_validation_hook:
                 try:
