@@ -4,7 +4,7 @@ from typing import Sequence
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from retail_ai.messages import message_with_images, remove_messages
+from dao_ai.messages import message_with_images, remove_messages
 
 
 @pytest.mark.unit

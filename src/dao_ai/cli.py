@@ -10,10 +10,10 @@ from typing import Optional, Sequence
 from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
-from retail_ai.config import AppConfig
-from retail_ai.graph import create_retail_ai_graph
-from retail_ai.models import save_image
-from retail_ai.utils import normalize_name
+from dao_ai.config import AppConfig
+from dao_ai.graph import create_dao_ai_graph
+from dao_ai.models import save_image
+from dao_ai.utils import normalize_name
 
 logger.remove()
 logger.add(sys.stderr, level="ERROR")
@@ -27,15 +27,15 @@ if env_path:
 
 def parse_args(args: Sequence[str]) -> Namespace:
     parser: ArgumentParser = ArgumentParser(
-        prog="retail-ai",
-        description="Retail AI Agent Command Line Interface - A comprehensive tool for managing, validating, and visualizing multi-agent retail AI systems",
+        prog="dao-ai",
+        description="DAO AI Agent Command Line Interface - A comprehensive tool for managing, validating, and visualizing multi-agent DAO AI systems",
         epilog="""
 Examples:
-  retail-ai schema                                          # Generate JSON schema for configuration validation
-  retail-ai validate -c config/model_config.yaml            # Validate a specific configuration file
-  retail-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
-  retail-ai validate                                        # Validate with detailed logging
-  retail-ai bundle --deploy                                 # Deploy the Retail AI asset bundle
+  dao-ai schema                                          # Generate JSON schema for configuration validation
+  dao-ai validate -c config/model_config.yaml            # Validate a specific configuration file
+  dao-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
+  dao-ai validate                                        # Validate with detailed logging
+  dao-ai bundle --deploy                                 # Deploy the DAO AI asset bundle
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -50,7 +50,7 @@ Examples:
     subparsers = parser.add_subparsers(
         dest="command",
         required=True,
-        help="Available commands for managing the Retail AI system",
+        help="Available commands for managing the DAO AI system",
         metavar="COMMAND",
     )
 
@@ -59,12 +59,12 @@ Examples:
         "schema",
         help="Generate JSON schema for configuration validation",
         description="""
-Generate the JSON schema definition for the Retail AI configuration format.
+Generate the JSON schema definition for the DAO AI configuration format.
 This schema can be used for IDE autocompletion, validation tools, and documentation.
 The output is a complete JSON Schema that describes all valid configuration options,
 including agents, tools, models, orchestration patterns, and guardrails.
         """,
-        epilog="Example: retail-ai schema > config_schema.json",
+        epilog="Example: dao-ai schema > config_schema.json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -73,7 +73,7 @@ including agents, tools, models, orchestration patterns, and guardrails.
         "validate",
         help="Validate configuration file syntax and semantics",
         description="""
-Validate a Retail AI configuration file for correctness and completeness.
+Validate a DAO AI configuration file for correctness and completeness.
 This command checks:
 - YAML syntax and structure
 - Required fields and data types
@@ -89,8 +89,8 @@ Exit codes:
         """,
         epilog="""
 Examples:
-  retail-ai validate                                  # Validate default ./config/model_config.yaml
-  retail-ai validate -c config/production.yaml       # Validate specific config file
+  dao-ai validate                                  # Validate default ./config/model_config.yaml
+  dao-ai validate -c config/production.yaml       # Validate specific config file
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -108,7 +108,7 @@ Examples:
         "graph",
         help="Generate visual representation of the agent workflow",
         description="""
-Generate a visual graph representation of the configured Retail AI system.
+Generate a visual graph representation of the configured DAO AI system.
 This creates a diagram showing:
 - Agent nodes and their relationships
 - Orchestration flow (supervisor or swarm patterns)
@@ -118,8 +118,8 @@ This creates a diagram showing:
         """,
         epilog="""
 Examples:
-  retail-ai graph -o architecture.png                # Generate PNG diagram
-  retail-ai graph -o workflow.png -c prod.yaml       # Generate PNG from specific config
+  dao-ai graph -o architecture.png                # Generate PNG diagram
+  dao-ai graph -o workflow.png -c prod.yaml       # Generate PNG from specific config
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -144,15 +144,15 @@ Examples:
         "bundle",
         help="Bundle configuration for deployment",
         description="""
-Perform operations on the Retail AI asset bundle.
+Perform operations on the DAO AI asset bundle.
 This command prepares the configuration for deployment by:
-- Deploying Retail AI as an asset bundle
-- Running the Retail AI system with the current configuration
+- Deploying DAO AI as an asset bundle
+- Running the DAO AI system with the current configuration
 """,
         epilog="""
 Examples:
-    retail-ai bundle --deploy
-    retail-ai bundle --run
+    dao-ai bundle --deploy
+    dao-ai bundle --run
 """,
     )
 
@@ -174,18 +174,18 @@ Examples:
         "-d",
         "--deploy",
         action="store_true",
-        help="Deploy the Retail AI asset bundle",
+        help="Deploy the DAO AI asset bundle",
     )
     bundle_parser.add_argument(
         "--destroy",
         action="store_true",
-        help="Destroy the Retail AI asset bundle",
+        help="Destroy the DAO AI asset bundle",
     )
     bundle_parser.add_argument(
         "-r",
         "--run",
         action="store_true",
-        help="Run the Retail AI system with the current configuration",
+        help="Run the DAO AI system with the current configuration",
     )
     bundle_parser.add_argument(
         "-t",
@@ -205,13 +205,13 @@ Examples:
         "deploy",
         help="Deploy configuration file syntax and semantics",
         description="""
-Deploy the Retail AI system using the specified configuration file.
-This command validates the configuration and deploys the Retail AI agents, tools, and models to the
+Deploy the DAO AI system using the specified configuration file.
+This command validates the configuration and deploys the DAO AI agents, tools, and models to the
         """,
         epilog="""
 Examples:
-  retail-ai deploy                                  # Validate default ./config/model_config.yaml
-  retail-ai deploy -c config/production.yaml       # Validate specific config file
+  dao-ai deploy                                  # Validate default ./config/model_config.yaml
+  dao-ai deploy -c config/production.yaml       # Validate specific config file
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -237,7 +237,7 @@ def handle_schema_command(options: Namespace) -> None:
 def handle_graph_command(options: Namespace) -> None:
     logger.debug("Generating graph representation...")
     config: AppConfig = AppConfig.from_file(options.config)
-    app = create_retail_ai_graph(config)
+    app = create_dao_ai_graph(config)
     save_image(app, options.output)
 
 
@@ -257,7 +257,7 @@ def handle_validate_command(options: Namespace) -> None:
     logger.debug(f"Validating configuration from {options.config}...")
     try:
         config: AppConfig = AppConfig.from_file(options.config)
-        _ = create_retail_ai_graph(config)
+        _ = create_dao_ai_graph(config)
         sys.exit(0)
     except Exception as e:
         logger.error(f"Configuration validation failed: {e}")
@@ -357,12 +357,12 @@ def handle_bundle_command(options: Namespace) -> None:
     target: Optional[str] = options.target
     dry_run: bool = options.dry_run
     if options.deploy:
-        logger.info("Deploying Retail AI asset bundle...")
+        logger.info("Deploying DAO AI asset bundle...")
         run_databricks_command(
             ["bundle", "deploy"], profile, config, target, dry_run=dry_run
         )
     if options.run:
-        logger.info("Running Retail AI system with current configuration...")
+        logger.info("Running DAO AI system with current configuration...")
         run_databricks_command(
             ["bundle", "run", "deploy-end-to-end"],
             profile,
@@ -371,7 +371,7 @@ def handle_bundle_command(options: Namespace) -> None:
             dry_run=dry_run,
         )
     if options.destroy:
-        logger.info("Destroying Retail AI system with current configuration...")
+        logger.info("Destroying DAO AI system with current configuration...")
         run_databricks_command(
             ["bundle", "destroy", "--auto-approve"],
             profile,

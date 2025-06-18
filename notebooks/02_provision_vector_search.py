@@ -46,13 +46,13 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-from retail_ai.config import AppConfig
+from dao_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
-from retail_ai.config import VectorStoreModel
+from dao_ai.config import VectorStoreModel
 
 vector_stores: dict[str, VectorStoreModel] = config.resources.vector_stores
 
@@ -68,7 +68,7 @@ for _, vector_store in vector_stores.items():
 from typing import Dict, Any, List
 
 from databricks.vector_search.index import VectorSearchIndex
-from retail_ai.config import RetrieverModel
+from dao_ai.config import RetrieverModel
 
 
 question: str = "How many grills do we have in stock?"

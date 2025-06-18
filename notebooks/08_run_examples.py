@@ -76,9 +76,9 @@ import sys
 import mlflow
 from langgraph.graph.state import CompiledStateGraph
 from mlflow.pyfunc import ChatModel
-from retail_ai.graph import create_retail_ai_graph
-from retail_ai.models import create_agent 
-from retail_ai.config import AppConfig
+from dao_ai.graph import create_dao_ai_graph
+from dao_ai.models import create_agent 
+from dao_ai.config import AppConfig
 
 from loguru import logger
 
@@ -90,7 +90,7 @@ log_level: str = config.app.log_level
 
 logger.add(sys.stderr, level=log_level)
 
-graph: CompiledStateGraph = create_retail_ai_graph(config=config)
+graph: CompiledStateGraph = create_dao_ai_graph(config=config)
 
 app: ChatModel = create_agent(graph)
 
@@ -99,7 +99,7 @@ app: ChatModel = create_agent(graph)
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 # store num
 input_example: dict[str, Any] = {
@@ -126,7 +126,7 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 # store num
 input_example: dict[str, Any] = {
@@ -153,7 +153,7 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 # store num
 input_example: dict[str, Any] = {
@@ -180,7 +180,7 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 # store num
 input_example: dict[str, Any] = {
@@ -212,7 +212,7 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("recommendation_example")
@@ -223,7 +223,7 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from retail_ai.models import process_messages_stream
+from dao_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("recommendation_example")
@@ -242,7 +242,7 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("inventory_example")
@@ -254,7 +254,7 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from retail_ai.models import process_messages_stream
+from dao_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("inventory_example")
@@ -272,7 +272,7 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("comparison_example")
@@ -284,7 +284,7 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from retail_ai.models import process_messages_stream
+from dao_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("comparison_example")
@@ -300,8 +300,8 @@ from rich import print as pprint
 
 from pathlib import Path
 from langchain_core.messages import HumanMessage, convert_to_messages
-from retail_ai.models import process_messages
-from retail_ai.messages import convert_to_langchain_messages
+from dao_ai.models import process_messages
+from dao_ai.messages import convert_to_langchain_messages
 
 
 examples: dict[str, Any] = retail_examples.get("examples")
@@ -327,7 +327,7 @@ process_messages(
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("comparison_image_example")
@@ -339,7 +339,7 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from retail_ai.models import process_messages_stream
+from dao_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("general_example")
@@ -357,7 +357,7 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("diy_example")
@@ -369,7 +369,7 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from retail_ai.models import process_messages_stream
+from dao_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("diy_example")
@@ -387,7 +387,7 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("orders_example")
@@ -399,7 +399,7 @@ pprint(response)
 # COMMAND ----------
 
 from typing import Any
-from retail_ai.models import process_messages_stream
+from dao_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("orders_example")
@@ -417,7 +417,7 @@ for event in process_messages_stream(app=app, **input_example):
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("product_example")
@@ -430,7 +430,7 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
-from retail_ai.models import process_messages_stream
+from dao_ai.models import process_messages_stream
 
 examples: dict[str, Any] = retail_examples.get("examples")
 input_example: dict[str, Any] = examples.get("product_example")
@@ -446,8 +446,8 @@ from rich import print as pprint
 
 from pathlib import Path
 from langchain_core.messages import HumanMessage, convert_to_messages
-from retail_ai.models import process_messages
-from retail_ai.messages import convert_to_langchain_messages
+from dao_ai.models import process_messages
+from dao_ai.messages import convert_to_langchain_messages
 
 
 examples: dict[str, Any] = retail_examples.get("examples")

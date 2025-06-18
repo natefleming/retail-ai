@@ -31,8 +31,8 @@ from pyspark.sql import SparkSession
 from unitycatalog.ai.core.base import FunctionExecutionResult
 from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
-import retail_ai
-from retail_ai.config import (
+import dao_ai
+from dao_ai.config import (
     AppConfig,
     ConnectionModel,
     DatasetModel,
@@ -48,10 +48,10 @@ from retail_ai.config import (
     VolumeModel,
     WarehouseModel,
 )
-from retail_ai.models import get_latest_model_version
-from retail_ai.providers.base import ServiceProvider
-from retail_ai.utils import get_installed_packages, normalize_name
-from retail_ai.vector_search import endpoint_exists, index_exists
+from dao_ai.models import get_latest_model_version
+from dao_ai.providers.base import ServiceProvider
+from dao_ai.utils import get_installed_packages, normalize_name
+from dao_ai.vector_search import endpoint_exists, index_exists
 
 
 def _workspace_client(
@@ -226,7 +226,7 @@ class DatabricksProvider(ServiceProvider):
         pip_requirements: Sequence[str] = get_installed_packages() + additional_pip_reqs
         logger.debug(f"pip_requirements: {pip_requirements}")
 
-        root_path: Path = Path(retail_ai.__file__).parent
+        root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = root_path / "agent_as_code.py"
 
         code_paths: Sequence[str] = [root_path.as_posix()] + list(additional_code_paths)

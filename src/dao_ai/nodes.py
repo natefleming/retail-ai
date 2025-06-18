@@ -15,7 +15,7 @@ from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from retail_ai.config import (
+from dao_ai.config import (
     AgentModel,
     AppConfig,
     FactoryFunctionModel,
@@ -23,11 +23,11 @@ from retail_ai.config import (
     PythonFunctionModel,
     ToolModel,
 )
-from retail_ai.guardrails import reflection_guardrail, with_guardrails
-from retail_ai.messages import last_human_message
-from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import create_tools
-from retail_ai.types import AgentCallable
+from dao_ai.guardrails import reflection_guardrail, with_guardrails
+from dao_ai.messages import last_human_message
+from dao_ai.state import AgentConfig, AgentState
+from dao_ai.tools import create_tools
+from dao_ai.types import AgentCallable
 
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:

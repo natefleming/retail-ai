@@ -4,7 +4,7 @@ import pytest
 import yaml
 from mlflow.models import ModelConfig
 
-from retail_ai.config import AppConfig
+from dao_ai.config import AppConfig
 
 
 @pytest.mark.unit

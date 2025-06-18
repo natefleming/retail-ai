@@ -2,7 +2,7 @@
 
 
 bundle:
-  name: retail-ai-bundle
+  name: dao-ai-bundle
 
 artifacts:
   default:
@@ -19,7 +19,7 @@ variables:
     default: Standard_D4ads_v5
   app_name: 
     description: The job name
-    default: deploy-retail-ai-job   
+    default: deploy-dao-ai-job   
   
 resources:
   jobs:

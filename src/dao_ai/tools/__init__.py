@@ -1,5 +1,5 @@
-from retail_ai.tools.agent import create_agent_endpoint_tool
-from retail_ai.tools.core import (
+from dao_ai.tools.agent import create_agent_endpoint_tool
+from dao_ai.tools.core import (
     create_factory_tool,
     create_mcp_tool,
     create_python_tool,
@@ -7,8 +7,8 @@ from retail_ai.tools.core import (
     create_uc_tool,
     search_tool,
 )
-from retail_ai.tools.genie import create_genie_tool
-from retail_ai.tools.vector_search import create_vector_search_tool
+from dao_ai.tools.genie import create_genie_tool
+from dao_ai.tools.vector_search import create_vector_search_tool
 
 __all__ = [
     "search_tool",

@@ -2,8 +2,8 @@ import pytest
 from langchain_core.documents.base import Document
 from langchain_core.messages import HumanMessage
 
-from retail_ai.config import AppConfig
-from retail_ai.state import AgentConfig, AgentState
+from dao_ai.config import AppConfig
+from dao_ai.state import AgentConfig, AgentState
 
 
 @pytest.mark.unit

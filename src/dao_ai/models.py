@@ -18,8 +18,8 @@ from mlflow.types.llm import (  # Non-streaming helper classes; Helper classes f
     ChatParams,
 )
 
-from retail_ai.messages import has_langchain_messages, has_mlflow_messages
-from retail_ai.state import AgentConfig, AgentState
+from dao_ai.messages import has_langchain_messages, has_mlflow_messages
+from dao_ai.state import AgentConfig, AgentState
 
 
 def get_latest_model_version(model_name: str) -> int:

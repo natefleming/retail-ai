@@ -20,7 +20,7 @@ sys.path.insert(0, "../src")
 # COMMAND ----------
 
 from mlflow.models import ModelConfig
-from retail_ai.config import AppConfig
+from dao_ai.config import AppConfig
 
 model_config_path: str = "../config/model_config.yaml"
 model_config: ModelConfig = ModelConfig(development_config=model_config_path)
@@ -35,8 +35,8 @@ yaml.safe_dump(config.model_dump())
 
 # COMMAND ----------
 
-from retail_ai.tools import create_genie_tool
-from retail_ai.config import GenieRoomModel
+from dao_ai.tools import create_genie_tool
+from dao_ai.config import GenieRoomModel
 from langchain_core.tools import BaseTool, tool, StructuredTool
 from rich import print
 
@@ -192,8 +192,8 @@ vector_search_retriever_tool: BaseTool = (
 
 from langgraph.prebuilt import create_react_agent
 from databricks_langchain import ChatDatabricks
-from retail_ai.tools import create_vector_search_tool
-from retail_ai.state import AgentState, AgentConfig
+from dao_ai.tools import create_vector_search_tool
+from dao_ai.state import AgentState, AgentConfig
 
 
 vs_tool = create_vector_search_tool(
@@ -216,7 +216,7 @@ vector_search_agent = create_react_agent(
 # COMMAND ----------
 
 from databricks.sdk import WorkspaceClient
-from retail_ai.tools import find_allowable_classifications
+from dao_ai.tools import find_allowable_classifications
 
 w: WorkspaceClient = WorkspaceClient()
 
@@ -227,7 +227,7 @@ allowable_classifications = find_allowable_classifications(w=w, catalog_name=cat
 from databricks_langchain import ChatDatabricks
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent, chat_agent_executor
-from retail_ai.tools import create_product_classification_tool
+from dao_ai.tools import create_product_classification_tool
 
 
 model_name: str = "databricks-meta-llama-3-3-70b-instruct"
@@ -256,7 +256,7 @@ agent.invoke(
 
 # COMMAND ----------
 
-from retail_ai.tools import create_find_product_details_by_description
+from dao_ai.tools import create_find_product_details_by_description
 
 
 find_product_details_by_description = create_find_product_details_by_description(
@@ -292,7 +292,7 @@ agent.invoke(
 from databricks_langchain import ChatDatabricks
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
-from retail_ai.tools import create_sku_extraction_tool
+from dao_ai.tools import create_sku_extraction_tool
 
 
 model_name: str = "databricks-meta-llama-3-3-70b-instruct"
@@ -334,7 +334,7 @@ space_id
 
 # COMMAND ----------
 
-from retail_ai.tools import create_genie_tool
+from dao_ai.tools import create_genie_tool
 
 genie_tool= create_genie_tool(
     space_id=space_id
@@ -384,8 +384,8 @@ from loguru import logger
 from mlflow.models import ModelConfig
 from langchain_core.prompts import PromptTemplate
 
-from retail_ai.state import AgentConfig, AgentState
-from retail_ai.tools import create_genie_tool, create_vector_search_tool
+from dao_ai.state import AgentConfig, AgentState
+from dao_ai.tools import create_genie_tool, create_vector_search_tool
 
 from langchain_core.messages import HumanMessage
 

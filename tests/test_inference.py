@@ -6,7 +6,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.pregel.io import AddableValuesDict
 from mlflow.pyfunc import ChatModel
 
-from retail_ai.models import process_messages
+from dao_ai.models import process_messages
 
 
 @pytest.mark.system

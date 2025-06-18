@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from retail_ai.models import get_latest_model_version
+from dao_ai.models import get_latest_model_version
 
 
 @pytest.mark.unit

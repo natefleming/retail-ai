@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 from databricks.sdk.service.catalog import VolumeInfo
 
-from retail_ai.catalog import _volume_as_path, full_name
+from dao_ai.catalog import _volume_as_path, full_name
 
 
 @pytest.mark.unit

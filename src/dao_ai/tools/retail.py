@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 
-from retail_ai.config import (
+from dao_ai.config import (
     RetrieverModel,
     SchemaModel,
     WarehouseModel,

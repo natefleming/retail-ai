@@ -6,7 +6,7 @@ from databricks_ai_bridge.genie import GenieResponse
 from databricks_langchain.genie import Genie
 from langchain_core.tools import StructuredTool
 
-from retail_ai.config import (
+from dao_ai.config import (
     GenieRoomModel,
 )
 

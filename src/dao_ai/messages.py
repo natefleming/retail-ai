@@ -155,7 +155,7 @@ def last_human_message(messages: Sequence[BaseMessage]) -> Optional[HumanMessage
     Find the last message from a human user in the message history.
 
     This is a specialized wrapper around last_message that filters for HumanMessage objects.
-    Used to retrieve the most recent user input for processing by the retail AI agent.
+    Used to retrieve the most recent user input for processing by the DAO AI agent.
 
     Args:
         messages: A sequence of LangChain message objects to search through

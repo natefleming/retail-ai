@@ -87,7 +87,7 @@ class SecretVariableModel(BaseModel, HasValue):
 
     def as_value(self) -> Any:
         logger.debug(f"Fetching secret: {self.scope}/{self.secret}")
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: DatabricksProvider = DatabricksProvider()
         value: Any = provider.get_secret(self.scope, self.secret, self.default_value)
@@ -200,8 +200,8 @@ class SchemaModel(BaseModel, HasFullName):
         return f"{self.catalog_name}.{self.schema_name}"
 
     def create(self, w: WorkspaceClient | None = None) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_schema(self)
@@ -327,16 +327,16 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
         return self.index.as_resource()
 
     def as_index(self, vsc: VectorSearchClient | None = None) -> VectorSearchIndex:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(vsc=vsc)
         index: VectorSearchIndex = provider.get_vector_index(self)
         return index
 
     def create(self, vsc: VectorSearchClient | None = None) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(vsc=vsc)
         provider.create_vector_store(self)
@@ -372,8 +372,8 @@ class VolumeModel(BaseModel, HasFullName):
         return self.name
 
     def create(self, w: WorkspaceClient | None = None) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_volume(self)
@@ -483,8 +483,8 @@ class DatabaseModel(BaseModel):
 
     @property
     def connection_url(self) -> str:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         username: str | None = None
 
@@ -557,7 +557,7 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
         return self.name
 
     def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
-        from retail_ai.tools import create_python_tool
+        from dao_ai.tools import create_python_tool
 
         return create_python_tool(self)
 
@@ -574,7 +574,7 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
         return self.name
 
     def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
-        from retail_ai.tools import create_factory_tool
+        from dao_ai.tools import create_factory_tool
 
         return create_factory_tool(self, **kwargs)
 
@@ -610,7 +610,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
         return self
 
     def as_tool(self, **kwargs: Any) -> BaseTool:
-        from retail_ai.tools import create_mcp_tool
+        from dao_ai.tools import create_mcp_tool
 
         return create_mcp_tool(self)
 
@@ -629,7 +629,7 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
         return self.name
 
     def as_tool(self, **kwargs: Any) -> BaseTool:
-        from retail_ai.tools import create_uc_tool
+        from dao_ai.tools import create_uc_tool
 
         return create_uc_tool(self)
 
@@ -677,7 +677,7 @@ class CheckpointerModel(BaseModel):
         return self
 
     def as_checkpointer(self) -> BaseCheckpointSaver:
-        from retail_ai.memory import CheckpointManager
+        from dao_ai.memory import CheckpointManager
 
         checkpointer: BaseCheckpointSaver = CheckpointManager.instance(
             self
@@ -704,7 +704,7 @@ class StoreModel(BaseModel):
         return self
 
     def as_store(self) -> BaseStore:
-        from retail_ai.memory import StoreManager
+        from dao_ai.memory import StoreManager
 
         store: BaseStore = StoreManager.instance(self).store()
         return store
@@ -893,8 +893,8 @@ class DatasetModel(BaseModel):
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
     def create(self, w: WorkspaceClient | None = None) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_dataset(self)
@@ -918,8 +918,8 @@ class UnityCatalogFunctionSqlModel(BaseModel):
         w: WorkspaceClient | None = None,
         dfs: DatabricksFunctionClient | None = None,
     ) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w, dfs=dfs)
         provider.create_sql_function(self)
@@ -964,17 +964,17 @@ class AppConfig(BaseModel):
         return config
 
     def display_graph(self) -> None:
-        from retail_ai.graph import create_retail_ai_graph
-        from retail_ai.models import display_graph
+        from dao_ai.graph import create_dao_ai_graph
+        from dao_ai.models import display_graph
 
-        display_graph(create_retail_ai_graph(config=self))
+        display_graph(create_dao_ai_graph(config=self))
 
     def save_image(self, path: PathLike) -> None:
-        from retail_ai.graph import create_retail_ai_graph
-        from retail_ai.models import save_image
+        from dao_ai.graph import create_dao_ai_graph
+        from dao_ai.models import save_image
 
         logger.info(f"Saving image to {path}")
-        save_image(create_retail_ai_graph(config=self), path=path)
+        save_image(create_dao_ai_graph(config=self), path=path)
 
     def create_agent(
         self,
@@ -983,8 +983,8 @@ class AppConfig(BaseModel):
         additional_pip_reqs: Sequence[str] = [],
         additional_code_paths: Sequence[str] = [],
     ) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_agent(
@@ -997,8 +997,8 @@ class AppConfig(BaseModel):
         self,
         w: WorkspaceClient | None = None,
     ) -> None:
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.deploy_agent(self)
@@ -1010,8 +1010,8 @@ class AppConfig(BaseModel):
         Args:
             w: Optional WorkspaceClient instance for Databricks operations.
         """
-        from retail_ai.providers.base import ServiceProvider
-        from retail_ai.providers.databricks import DatabricksProvider
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_montior(self)

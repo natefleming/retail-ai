@@ -4,7 +4,7 @@ import mlflow
 from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
 from langchain_core.tools import BaseTool
 
-from retail_ai.config import (
+from dao_ai.config import (
     RetrieverModel,
     VectorStoreModel,
 )

@@ -41,7 +41,7 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-from retail_ai.config import AppConfig
+from dao_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 

@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from retail_ai.vector_search import endpoint_exists, index_exists
+from dao_ai.vector_search import endpoint_exists, index_exists
 
 
 @pytest.mark.unit

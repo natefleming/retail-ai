@@ -47,14 +47,14 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-from retail_ai.config import AppConfig
+from dao_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
 from databricks.sdk import WorkspaceClient
-from retail_ai.config import SchemaModel, VolumeModel
+from dao_ai.config import SchemaModel, VolumeModel
 
 
 w: WorkspaceClient = WorkspaceClient()
@@ -73,7 +73,7 @@ for _, volume in config.resources.volumes.items():
 
 # COMMAND ----------
 
-from retail_ai.config import DatasetModel
+from dao_ai.config import DatasetModel
 
 datasets: Sequence[DatasetModel] = config.datasets
 

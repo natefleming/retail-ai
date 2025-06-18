@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.tools import StructuredTool
 from loguru import logger
 
-from retail_ai.config import LLMModel
+from dao_ai.config import LLMModel
 
 
 def create_agent_endpoint_tool(
