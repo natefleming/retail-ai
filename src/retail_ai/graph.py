@@ -10,6 +10,7 @@ from langgraph_supervisor import create_handoff_tool as supervisor_handoff_tool
 from langgraph_supervisor import create_supervisor
 from langgraph_swarm import create_handoff_tool as swarm_handoff_tool
 from langgraph_swarm import create_swarm
+from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 
 from retail_ai.config import (
@@ -74,10 +75,10 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
 def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     logger.debug("Creating supervisor graph")
     agents: list[CompiledStateGraph] = []
-    handoffs: Sequence[BaseTool] = []
+    tools: Sequence[BaseTool] = []
     for registered_agent in config.app.agents:
         agents.append(create_agent_node(agent=registered_agent, additional_tools=[]))
-        handoffs.append(
+        tools.append(
             supervisor_handoff_tool(
                 agent_name=registered_agent.name,
                 description=registered_agent.handoff_prompt,
@@ -85,23 +86,34 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         )
 
     supervisor: SupervisorModel = config.app.orchestration.supervisor
+
+    store: BaseStore = None
+    if supervisor.memory and supervisor.memory.store:
+        store = supervisor.memory.store.as_store()
+        logger.debug(f"Using memory store: {store}")
+        namespace: tuple[str, ...] = ("memory",)
+
+        if supervisor.memory.store.namespace:
+            namespace = namespace + (supervisor.memory.store.namespace,)
+            logger.debug(f"Memory store namespace: {namespace}")
+            tools += [
+                create_manage_memory_tool(namespace=namespace, store=store),
+                create_search_memory_tool(namespace=namespace, store=store),
+            ]
+
+    checkpointer: BaseCheckpointSaver = None
+    if supervisor.memory and supervisor.memory.checkpointer:
+        checkpointer = supervisor.memory.checkpointer.as_checkpointer()
+
     model: LanguageModelLike = supervisor.model.as_chat_model()
     supervisor_workflow: StateGraph = create_supervisor(
         supervisor_name="triage",
         agents=agents,
         model=model,
-        tools=handoffs,
+        tools=tools,
         state_schema=AgentState,
         config_schema=AgentConfig,
     )
-
-    store: BaseStore = None
-    if supervisor.memory and supervisor.memory.store:
-        store = supervisor.memory.store.as_store()
-
-    checkpointer: BaseCheckpointSaver = None
-    if supervisor.memory and supervisor.memory.checkpointer:
-        checkpointer = supervisor.memory.checkpointer()
 
     supervisor_node: CompiledStateGraph = supervisor_workflow.compile(
         checkpointer=checkpointer, store=store

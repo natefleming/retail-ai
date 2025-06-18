@@ -994,6 +994,7 @@ app:
   orchestration:                                    # Agent orchestration configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
+      memory: *memory                            # Memory store for conversation context
   message_hooks: 
     - retail_ai.hooks.null_hook
     - retail_ai.hooks.require_user_id_hook
