@@ -61,6 +61,7 @@ class IsDatabricksResource(ABC):
 
 class EnvironmentVariableModel(BaseModel, HasValue):
     model_config = ConfigDict(
+        frozen=True,
         use_enum_values=True,
     )
     env: str
@@ -77,6 +78,7 @@ class EnvironmentVariableModel(BaseModel, HasValue):
 
 class SecretVariableModel(BaseModel, HasValue):
     model_config = ConfigDict(
+        frozen=True,
         use_enum_values=True,
     )
     scope: str
@@ -97,6 +99,7 @@ class SecretVariableModel(BaseModel, HasValue):
 
 class PrimitiveVariableModel(BaseModel, HasValue):
     model_config = ConfigDict(
+        frozen=True,
         use_enum_values=True,
     )
 
@@ -118,6 +121,7 @@ class PrimitiveVariableModel(BaseModel, HasValue):
 
 class CompositeVariableModel(BaseModel, HasValue):
     model_config = ConfigDict(
+        frozen=True,
         use_enum_values=True,
     )
     default_value: Optional[Any] = None
@@ -435,7 +439,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 
 
 class DatabaseModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(frozen=True)
     name: str
     description: Optional[str] = None
     host: Optional[AnyVariable]

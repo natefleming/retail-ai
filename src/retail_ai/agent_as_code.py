@@ -17,6 +17,7 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 
 log_level: str = config.app.log_level
 
+logger.remove()
 logger.add(sys.stderr, level=log_level)
 
 graph: CompiledStateGraph = create_retail_ai_graph(config=config)

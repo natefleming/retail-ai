@@ -27,3 +27,22 @@ def test_inference(chat_model: ChatModel) -> None:
     response: AddableValuesDict = process_messages(chat_model, messages, custom_inputs)
     print(response)
     assert response is not None
+
+
+@pytest.mark.system
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not has_databricks_env(), reason="Missing Databricks environment variables"
+)
+def test_inference_missing_user_id(chat_model: ChatModel) -> None:
+    messages: Sequence[BaseMessage] = [
+        HumanMessage(content="What is the weather like today?"),
+    ]
+    custom_inputs: dict[str, Any] = {
+        "configurable": {
+            "thread_id": "1",
+        }
+    }
+    response: AddableValuesDict = process_messages(chat_model, messages, custom_inputs)
+    print(response)
+    assert response is not None

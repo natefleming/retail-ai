@@ -42,4 +42,4 @@ class AgentState(MessagesState):
     active_agent: str
 
     is_valid: bool
-    validation_error: str
+    message_error: str

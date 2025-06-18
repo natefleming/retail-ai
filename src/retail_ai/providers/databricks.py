@@ -164,7 +164,6 @@ class DatabricksProvider(ServiceProvider):
                 f"Error retrieving secret {secret_key} from scope {secret_scope}: {e}"
             )
 
-        logger.debug(f"Using default value for secret {secret_key}: {default_value}")
         return default_value
 
     def create_agent(

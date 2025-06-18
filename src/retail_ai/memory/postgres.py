@@ -26,10 +26,8 @@ class AsyncPostgresPoolManager:
 
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
+        connection_key: str = database.name
         connection_url: str = database.connection_url
-        connection_key: str = (
-            f"{connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
-        )
 
         async with cls._lock:
             if connection_key in cls._pools:
@@ -63,7 +61,7 @@ class AsyncPostgresPoolManager:
 
     @classmethod
     async def close_pool(cls, database: DatabaseModel):
-        connection_key = f"{database.connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
+        connection_key: str = database.name
 
         async with cls._lock:
             if connection_key in cls._pools:
@@ -209,10 +207,8 @@ class PostgresPoolManager:
 
     @classmethod
     def get_pool(cls, database: DatabaseModel) -> ConnectionPool:
+        connection_key: str = str(database.name)
         connection_url: str = database.connection_url
-        connection_key: str = (
-            f"{connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
-        )
 
         with cls._lock:
             if connection_key in cls._pools:
@@ -246,7 +242,7 @@ class PostgresPoolManager:
 
     @classmethod
     def close_pool(cls, database: DatabaseModel):
-        connection_key = f"{database.connection_url}#{database.max_pool_size}#{database.timeout_seconds}"
+        connection_key: str = database.name
 
         with cls._lock:
             if connection_key in cls._pools:

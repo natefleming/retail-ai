@@ -3,7 +3,7 @@ from typing import Any, Callable, Literal, Optional, Sequence
 import mlflow
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.runnables import RunnableConfig, RunnableSequence
 from langchain_core.tools import BaseTool
@@ -143,7 +143,7 @@ def message_hook_node(config: AppConfig) -> AgentCallable:
     @mlflow.trace()
     def message_hook(state: AgentState, config: AgentConfig) -> dict[str, Any]:
         logger.debug("Running message validation")
-        response: dict[str, Any] = {"is_valid": True, "error": None}
+        response: dict[str, Any] = {"is_valid": True, "message_error": None}
 
         for message_hook in message_hooks:
             message_hook: FunctionHook
@@ -159,7 +159,11 @@ def message_hook_node(config: AppConfig) -> AgentCallable:
                         break
                 except Exception as e:
                     logger.error(f"Message validation failed: {e}")
-                    return {"is_valid": False, "error": str(e)}
+                    return {
+                        "is_valid": False,
+                        "message_error": str(e),
+                        "messages": [AIMessage(content=str(e))],
+                    }
 
         return response
 

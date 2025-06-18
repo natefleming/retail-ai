@@ -16,12 +16,12 @@ from retail_ai.state import AgentConfig, AgentState
 
 
 def route_message_hook(on_success: str) -> Callable:
-    def _(state: AgentState) -> str:
+    def route_message(state: AgentState) -> str:
         if not state["is_valid"]:
             return END
         return on_success
 
-    return _
+    return route_message
 
 
 def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
@@ -44,7 +44,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         },
     )
 
-    workflow.add_edge("message_hook", "supervisor")
+    # workflow.add_edge("message_hook", "supervisor")
 
     routes: dict[str, str] = {n: n for n in [agent.name for agent in agents]}
     workflow.add_conditional_edges(
