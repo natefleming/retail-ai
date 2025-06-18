@@ -362,6 +362,23 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
             raise
 
 
-# Register shutdown hooks to cleanup pools on exit
-atexit.register(PostgresPoolManager.close_all_pools)
-atexit.register(AsyncPostgresPoolManager.close_all_pools)
+def _shutdown_pools():
+    try:
+        PostgresPoolManager.close_all_pools()
+        logger.debug("Successfully closed all synchronous PostgreSQL pools")
+    except Exception as e:
+        logger.error(f"Error closing synchronous PostgreSQL pools during shutdown: {e}")
+
+
+def _shutdown_async_pools():
+    try:
+        asyncio.run(AsyncPostgresPoolManager.close_all_pools())
+        logger.debug("Successfully closed all asynchronous PostgreSQL pools")
+    except Exception as e:
+        logger.error(
+            f"Error closing asynchronous PostgreSQL pools during shutdown: {e}"
+        )
+
+
+atexit.register(_shutdown_pools)
+atexit.register(_shutdown_async_pools)
