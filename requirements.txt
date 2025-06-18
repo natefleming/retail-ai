@@ -89,9 +89,9 @@ cycler==0.12.1
     # via matplotlib
 databricks-agents==1.0.1
     # via
+    #   dao-ai
     #   mlflow
     #   mlflow-skinny
-    #   retail-ai
 databricks-ai-bridge==0.5.1
     # via databricks-langchain
 databricks-connect==16.3.4
@@ -100,19 +100,19 @@ databricks-connect==16.3.4
     #   databricks-langchain
     #   unitycatalog-ai
 databricks-langchain==0.5.1
-    # via retail-ai
+    # via dao-ai
 databricks-sdk==0.55.0
     # via
+    #   dao-ai
     #   databricks-agents
     #   databricks-ai-bridge
     #   databricks-connect
     #   mlflow-skinny
-    #   retail-ai
     #   unitycatalog-ai
 databricks-vectorsearch==0.56
     # via
+    #   dao-ai
     #   databricks-langchain
-    #   retail-ai
 dataclasses-json==0.6.7
     # via
     #   databricks-agents
@@ -126,7 +126,7 @@ distro==1.9.0
 docker==7.1.0
     # via mlflow
 duckduckgo-search==8.0.4
-    # via retail-ai
+    # via dao-ai
 dydantic==0.0.8
     # via trustcall
 fastapi==0.115.12
@@ -171,7 +171,7 @@ googleapis-common-protos==1.70.0
     #   google-api-core
     #   grpcio-status
 grandalf==0.8
-    # via retail-ai
+    # via dao-ai
 graphene==3.4.3
     # via mlflow
 graphql-core==3.2.6
@@ -249,11 +249,11 @@ kiwisolver==1.4.8
     # via matplotlib
 langchain==0.3.25
     # via
+    #   dao-ai
     #   databricks-langchain
     #   langchain-community
     #   langmem
     #   openevals
-    #   retail-ai
     #   unitycatalog-langchain
 langchain-anthropic==0.3.15
     # via langmem
@@ -276,7 +276,7 @@ langchain-core==0.3.65
     #   langgraph-swarm
     #   langmem
 langchain-mcp-adapters==0.1.7
-    # via retail-ai
+    # via dao-ai
 langchain-openai==0.3.23
     # via
     #   langmem
@@ -285,10 +285,10 @@ langchain-text-splitters==0.3.8
     # via langchain
 langgraph==0.4.8
     # via
+    #   dao-ai
     #   langgraph-supervisor
     #   langgraph-swarm
     #   langmem
-    #   retail-ai
     #   trustcall
 langgraph-checkpoint==2.0.26
     # via
@@ -297,7 +297,7 @@ langgraph-checkpoint==2.0.26
     #   langgraph-prebuilt
     #   langmem
 langgraph-checkpoint-postgres==2.0.21
-    # via retail-ai
+    # via dao-ai
 langgraph-prebuilt==0.2.2
     # via
     #   langgraph
@@ -305,11 +305,11 @@ langgraph-prebuilt==0.2.2
 langgraph-sdk==0.1.70
     # via langgraph
 langgraph-supervisor==0.0.27
-    # via retail-ai
+    # via dao-ai
 langgraph-swarm==0.0.11
-    # via retail-ai
+    # via dao-ai
 langmem==0.0.27
-    # via retail-ai
+    # via dao-ai
 langsmith==0.3.45
     # via
     #   langchain
@@ -318,7 +318,7 @@ langsmith==0.3.45
     #   langmem
     #   openevals
 loguru==0.7.3
-    # via retail-ai
+    # via dao-ai
 lxml==5.4.0
     # via duckduckgo-search
 mako==1.3.10
@@ -337,15 +337,15 @@ matplotlib==3.10.3
     # via mlflow
 mcp==1.9.4
     # via
+    #   dao-ai
     #   langchain-mcp-adapters
-    #   retail-ai
 mdurl==0.1.2
     # via markdown-it-py
 mlflow==3.1.0
     # via
+    #   dao-ai
     #   databricks-agents
     #   databricks-langchain
-    #   retail-ai
 mlflow-skinny==3.1.0
     # via
     #   databricks-agents
@@ -360,7 +360,7 @@ mypy-extensions==1.1.0
     # via typing-inspect
 nest-asyncio==1.6.0
     # via
-    #   retail-ai
+    #   dao-ai
     #   unitycatalog-ai
 numpy==1.26.4
     # via
@@ -375,7 +375,7 @@ numpy==1.26.4
 openai==1.86.0
     # via langchain-openai
 openevals==0.1.0
-    # via retail-ai
+    # via dao-ai
 opentelemetry-api==1.34.1
     # via
     #   mlflow-skinny
@@ -431,8 +431,8 @@ protobuf==5.29.5
     #   proto-plus
 psycopg==3.2.9
     # via
+    #   dao-ai
     #   langgraph-checkpoint-postgres
-    #   retail-ai
 psycopg-binary==3.2.9 ; implementation_name != 'pypy'
     # via psycopg
 psycopg-pool==3.2.6
@@ -456,6 +456,7 @@ pycparser==2.22
 pydantic==2.11.7
     # via
     #   anthropic
+    #   dao-ai
     #   databricks-agents
     #   databricks-ai-bridge
     #   databricks-langchain
@@ -470,7 +471,6 @@ pydantic==2.11.7
     #   mlflow-skinny
     #   openai
     #   pydantic-settings
-    #   retail-ai
     #   unitycatalog-ai
     #   unitycatalog-client
 pydantic-core==2.33.2
@@ -497,8 +497,8 @@ python-dateutil==2.9.0.post0
     #   unitycatalog-client
 python-dotenv==1.1.0
     # via
+    #   dao-ai
     #   pydantic-settings
-    #   retail-ai
 python-multipart==0.0.20
     # via mcp
 pytz==2025.2
@@ -507,11 +507,11 @@ pywin32==310 ; sys_platform == 'win32'
     # via docker
 pyyaml==6.0.2
     # via
+    #   dao-ai
     #   langchain
     #   langchain-community
     #   langchain-core
     #   mlflow-skinny
-    #   retail-ai
 regex==2024.11.6
     # via tiktoken
 requests==2.32.4
@@ -532,8 +532,8 @@ requests-toolbelt==1.0.0
     # via langsmith
 rich==14.0.0
     # via
+    #   dao-ai
     #   openevals
-    #   retail-ai
 rsa==4.9.1
     # via google-auth
 ruff==0.11.13
@@ -567,8 +567,8 @@ sqlalchemy==2.0.41
     #   mlflow
 sqlparse==0.5.3
     # via
+    #   dao-ai
     #   mlflow-skinny
-    #   retail-ai
 sse-starlette==2.3.6
     # via mcp
 starlette==0.46.2
@@ -633,7 +633,7 @@ tzdata==2025.2
     #   psycopg
 unitycatalog-ai==0.3.1
     # via
-    #   retail-ai
+    #   dao-ai
     #   unitycatalog-langchain
 unitycatalog-client==0.3.0
     # via unitycatalog-ai

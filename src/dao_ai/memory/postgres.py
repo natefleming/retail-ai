@@ -13,8 +13,8 @@ from loguru import logger
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
-from retail_ai.config import CheckpointerModel, DatabaseModel, StoreModel
-from retail_ai.memory.base import (
+from dao_ai.config import CheckpointerModel, DatabaseModel, StoreModel
+from dao_ai.memory.base import (
     CheckpointManagerBase,
     StoreManagerBase,
 )

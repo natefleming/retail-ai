@@ -1,6 +1,6 @@
 import pytest
 
-from retail_ai.utils import load_function
+from dao_ai.utils import load_function
 
 
 @pytest.mark.unit

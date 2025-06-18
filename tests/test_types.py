@@ -1,8 +1,8 @@
 import pytest
 
-from retail_ai.config import AppConfig
-from retail_ai.state import AgentConfig, AgentState
-from retail_ai.types import AgentCallable
+from dao_ai.config import AppConfig
+from dao_ai.state import AgentConfig, AgentState
+from dao_ai.types import AgentCallable
 
 
 @pytest.mark.unit

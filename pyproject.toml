@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "retail-ai"
-version = "0.2.3"
-description = "Retail AI Agent: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
+name = "dao-ai"
+version = "0.0.1"
+description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -37,10 +37,10 @@ dependencies = [
 ]
 
 [project.scripts]
-retail-ai = "retail_ai.cli:main"
+dao-ai = "dao_ai.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/retail_ai"]
+packages = ["src/dao_ai"]
 sources = ["src"]
 
 [tool.hatch.build]

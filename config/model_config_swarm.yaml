@@ -237,7 +237,7 @@ tools:
     name: genie
     function:
       type: factory                                 # Tool type: factory function
-      name: retail_ai.tools.create_genie_tool       # Factory function path
+      name: dao_ai.tools.create_genie_tool       # Factory function path
       args:                                         # Arguments passed to factory
         genie_room: *retail_genie_room              # Reference to Genie room config
 
@@ -246,7 +246,7 @@ tools:
     name: search
     function:
       type: factory
-      name: retail_ai.tools.search_tool             # Factory function for web search
+      name: dao_ai.tools.search_tool             # Factory function for web search
       args: {}                                      # No arguments needed
 
   # Vector search tool for product similarity
@@ -254,7 +254,7 @@ tools:
     name: vector_search
     function:
       type: factory
-      name: retail_ai.tools.create_vector_search_tool
+      name: dao_ai.tools.create_vector_search_tool
       args:
         retriever: *products_retriever              # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name
@@ -266,7 +266,7 @@ tools:
     name: find_product_details_by_description
     function:
       type: factory
-      name: retail_ai.tools.retail.find_product_details_by_description_tool
+      name: dao_ai.tools.retail.find_product_details_by_description_tool
       args:
         retriever: *products_retriever              # Uses product retriever for search
 
@@ -324,7 +324,7 @@ tools:
     name: find_product_by_sku
     function:
       type: factory
-      name: retail_ai.tools.retail.create_find_product_by_sku_tool
+      name: dao_ai.tools.retail.create_find_product_by_sku_tool
       args:
         schema: *retail_schema                      # Reference to schema configuration
         warehouse: *shared_endpoint_warehouse       # Reference to warehouse configuration
@@ -333,7 +333,7 @@ tools:
     name: find_product_by_upc
     function:
       type: factory
-      name: retail_ai.tools.retail.create_find_product_by_upc_tool
+      name: dao_ai.tools.retail.create_find_product_by_upc_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -343,7 +343,7 @@ tools:
     name: find_inventory_by_sku
     function:
       type: factory
-      name: retail_ai.tools.retail.create_find_inventory_by_sku_tool
+      name: dao_ai.tools.retail.create_find_inventory_by_sku_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -352,7 +352,7 @@ tools:
     name: find_inventory_by_upc
     function:
       type: factory
-      name: retail_ai.tools.retail.create_find_inventory_by_upc_tool
+      name: dao_ai.tools.retail.create_find_inventory_by_upc_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -362,7 +362,7 @@ tools:
     name: find_store_inventory_by_sku
     function:
       type: factory
-      name: retail_ai.tools.retail.create_find_store_inventory_by_sku_tool
+      name: dao_ai.tools.retail.create_find_store_inventory_by_sku_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse
@@ -371,7 +371,7 @@ tools:
     name: find_store_inventory_by_upc
     function:
       type: factory
-      name: retail_ai.tools.retail.create_find_store_inventory_by_upc_tool
+      name: dao_ai.tools.retail.create_find_store_inventory_by_upc_tool
       args:
         schema: *retail_schema
         warehouse: *shared_endpoint_warehouse

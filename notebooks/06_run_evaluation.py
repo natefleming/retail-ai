@@ -31,14 +31,14 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-from retail_ai.config import AppConfig
+from dao_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
 from rich import print as pprint
-from retail_ai.config import EvaluationModel
+from dao_ai.config import EvaluationModel
 
 evaluation: EvaluationModel = config.evaluation
 
@@ -142,9 +142,9 @@ import sys
 import mlflow
 from langgraph.graph.state import CompiledStateGraph
 from mlflow.pyfunc import ChatModel
-from retail_ai.graph import create_retail_ai_graph
-from retail_ai.models import create_agent 
-from retail_ai.config import AppConfig
+from dao_ai.graph import create_dao_ai_graph
+from dao_ai.models import create_agent 
+from dao_ai.config import AppConfig
 
 from loguru import logger
 
@@ -156,7 +156,7 @@ log_level: str = config.app.log_level
 
 logger.add(sys.stderr, level=log_level)
 
-graph: CompiledStateGraph = create_retail_ai_graph(config=config)
+graph: CompiledStateGraph = create_dao_ai_graph(config=config)
 
 app: ChatModel = create_agent(graph)
 

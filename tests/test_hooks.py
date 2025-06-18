@@ -1,6 +1,6 @@
 import pytest
 
-from retail_ai.hooks import null_hook
+from dao_ai.hooks import null_hook
 
 
 @pytest.mark.unit

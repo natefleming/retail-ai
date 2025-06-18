@@ -11,7 +11,7 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
 
-from retail_ai.config import (
+from dao_ai.config import (
     AnyTool,
     FactoryFunctionModel,
     McpFunctionModel,
@@ -20,7 +20,7 @@ from retail_ai.config import (
     TransportType,
     UnityCatalogFunctionModel,
 )
-from retail_ai.utils import load_function
+from dao_ai.utils import load_function
 
 tool_registry: dict[str, BaseTool] = {}
 

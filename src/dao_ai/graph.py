@@ -13,18 +13,18 @@ from langgraph_swarm import create_swarm
 from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 
-from retail_ai.config import (
+from dao_ai.config import (
     AgentModel,
     AppConfig,
     OrchestrationModel,
     SupervisorModel,
     SwarmModel,
 )
-from retail_ai.nodes import (
+from dao_ai.nodes import (
     create_agent_node,
     message_hook_node,
 )
-from retail_ai.state import AgentConfig, AgentState
+from dao_ai.state import AgentConfig, AgentState
 
 
 def route_message_hook(on_success: str) -> Callable:
@@ -195,7 +195,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     return workflow.compile()
 
 
-def create_retail_ai_graph(config: AppConfig) -> CompiledStateGraph:
+def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
     orchestration: OrchestrationModel = config.app.orchestration
     if orchestration.supervisor:
         return _create_supervisor_graph(config)

@@ -6,9 +6,9 @@ from loguru import logger
 from mlflow.models import ModelConfig
 from mlflow.pyfunc import ChatModel
 
-from retail_ai.config import AppConfig
-from retail_ai.graph import create_retail_ai_graph
-from retail_ai.models import create_agent
+from dao_ai.config import AppConfig
+from dao_ai.graph import create_dao_ai_graph
+from dao_ai.models import create_agent
 
 mlflow.langchain.autolog()
 
@@ -20,7 +20,7 @@ log_level: str = config.app.log_level
 logger.remove()
 logger.add(sys.stderr, level=log_level)
 
-graph: CompiledStateGraph = create_retail_ai_graph(config=config)
+graph: CompiledStateGraph = create_dao_ai_graph(config=config)
 
 app: ChatModel = create_agent(graph)
 

@@ -438,6 +438,79 @@ wheels = [
 ]
 
 [[package]]
+name = "dao-ai"
+version = "0.0.1"
+source = { editable = "." }
+dependencies = [
+    { name = "databricks-agents" },
+    { name = "databricks-langchain" },
+    { name = "databricks-sdk" },
+    { name = "databricks-vectorsearch" },
+    { name = "duckduckgo-search" },
+    { name = "grandalf" },
+    { name = "langchain" },
+    { name = "langchain-mcp-adapters" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint-postgres" },
+    { name = "langgraph-supervisor" },
+    { name = "langgraph-swarm" },
+    { name = "langmem" },
+    { name = "loguru" },
+    { name = "mcp" },
+    { name = "mlflow" },
+    { name = "nest-asyncio" },
+    { name = "openevals" },
+    { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "sqlparse" },
+    { name = "unitycatalog-ai", extra = ["databricks"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "databricks-agents", specifier = ">=0.20.0" },
+    { name = "databricks-langchain", specifier = ">=0.4.2" },
+    { name = "databricks-sdk", specifier = ">=0.50.0" },
+    { name = "databricks-vectorsearch", specifier = ">=0.56" },
+    { name = "duckduckgo-search", specifier = ">=8.0.2" },
+    { name = "grandalf", specifier = ">=0.8" },
+    { name = "langchain", specifier = ">=0.3.24" },
+    { name = "langchain-mcp-adapters", specifier = ">=0.1.4" },
+    { name = "langgraph", specifier = ">=0.3.31" },
+    { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.21" },
+    { name = "langgraph-supervisor", specifier = ">=0.0.27" },
+    { name = "langgraph-swarm", specifier = ">=0.0.11" },
+    { name = "langmem", specifier = ">=0.0.27" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "mcp", specifier = ">=1.9.1" },
+    { name = "mlflow", specifier = ">=3.1.0" },
+    { name = "nest-asyncio", specifier = ">=1.6.0" },
+    { name = "openevals", specifier = ">=0.0.19" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.6" },
+    { name = "pydantic", specifier = ">=2.11.3" },
+    { name = "python-dotenv", specifier = ">=1.1.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "rich", specifier = ">=14.0.0" },
+    { name = "sqlparse", specifier = ">=0.5.3" },
+    { name = "unitycatalog-ai", extras = ["databricks"], specifier = ">=0.3.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "ruff", specifier = ">=0.11.11" },
+]
+
+[[package]]
 name = "databricks-agents"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2584,79 +2657,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f3/61/d7545dafb7ac2230c70d38d31cbfe4cc64f7144dc41f6e4e4b78ecd9f5bb/requests-toolbelt-1.0.0.tar.gz", hash = "sha256:7681a0a3d047012b5bdc0ee37d7f8f07ebe76ab08caeccfc3921ce23c88d5bc6", size = 206888, upload-time = "2023-05-01T04:11:33.229Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl", hash = "sha256:cccfdd665f0a24fcf4726e690f65639d272bb0637b9b92dfd91a5568ccf6bd06", size = 54481, upload-time = "2023-05-01T04:11:28.427Z" },
-]
-
-[[package]]
-name = "retail-ai"
-version = "0.2.3"
-source = { editable = "." }
-dependencies = [
-    { name = "databricks-agents" },
-    { name = "databricks-langchain" },
-    { name = "databricks-sdk" },
-    { name = "databricks-vectorsearch" },
-    { name = "duckduckgo-search" },
-    { name = "grandalf" },
-    { name = "langchain" },
-    { name = "langchain-mcp-adapters" },
-    { name = "langgraph" },
-    { name = "langgraph-checkpoint-postgres" },
-    { name = "langgraph-supervisor" },
-    { name = "langgraph-swarm" },
-    { name = "langmem" },
-    { name = "loguru" },
-    { name = "mcp" },
-    { name = "mlflow" },
-    { name = "nest-asyncio" },
-    { name = "openevals" },
-    { name = "psycopg", extra = ["binary", "pool"] },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "rich" },
-    { name = "sqlparse" },
-    { name = "unitycatalog-ai", extra = ["databricks"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "databricks-agents", specifier = ">=0.20.0" },
-    { name = "databricks-langchain", specifier = ">=0.4.2" },
-    { name = "databricks-sdk", specifier = ">=0.50.0" },
-    { name = "databricks-vectorsearch", specifier = ">=0.56" },
-    { name = "duckduckgo-search", specifier = ">=8.0.2" },
-    { name = "grandalf", specifier = ">=0.8" },
-    { name = "langchain", specifier = ">=0.3.24" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.4" },
-    { name = "langgraph", specifier = ">=0.3.31" },
-    { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.21" },
-    { name = "langgraph-supervisor", specifier = ">=0.0.27" },
-    { name = "langgraph-swarm", specifier = ">=0.0.11" },
-    { name = "langmem", specifier = ">=0.0.27" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "mcp", specifier = ">=1.9.1" },
-    { name = "mlflow", specifier = ">=3.1.0" },
-    { name = "nest-asyncio", specifier = ">=1.6.0" },
-    { name = "openevals", specifier = ">=0.0.19" },
-    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.6" },
-    { name = "pydantic", specifier = ">=2.11.3" },
-    { name = "python-dotenv", specifier = ">=1.1.0" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "rich", specifier = ">=14.0.0" },
-    { name = "sqlparse", specifier = ">=0.5.3" },
-    { name = "unitycatalog-ai", extras = ["databricks"], specifier = ">=0.3.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "ruff", specifier = ">=0.11.11" },
 ]
 
 [[package]]

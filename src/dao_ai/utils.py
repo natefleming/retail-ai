@@ -61,7 +61,7 @@ def load_function(function_name: str) -> Callable[..., Any]:
         TypeError: If the resolved object is not callable
 
     Example:
-        >>> func = callable_from_fqn("retail_ai.models.get_latest_model_version")
+        >>> func = callable_from_fqn("dao_ai.models.get_latest_model_version")
         >>> version = func("my_model")
     """
     logger.debug(f"Loading function: {function_name}")

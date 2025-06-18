@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Sequence
 
-from retail_ai.config import (
+from dao_ai.config import (
     AppModel,
     DatasetModel,
     SchemaModel,

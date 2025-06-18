@@ -2,8 +2,8 @@ from typing import Sequence
 
 import pytest
 
-from retail_ai.config import AppConfig, FunctionType, ToolModel
-from retail_ai.tools import create_tools
+from dao_ai.config import AppConfig, FunctionType, ToolModel
+from dao_ai.tools import create_tools
 
 excluded_tools: Sequence[str] = [
     "vector_search",

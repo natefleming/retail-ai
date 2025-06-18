@@ -9,13 +9,13 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from loguru import logger
 
-from retail_ai.config import (
+from dao_ai.config import (
     CheckpointerModel,
     LLMModel,
     StorageType,
     StoreModel,
 )
-from retail_ai.memory.base import (
+from dao_ai.memory.base import (
     CheckpointManagerBase,
     StoreManagerBase,
 )
@@ -67,7 +67,7 @@ class StoreManager:
                     store_manager = InMemoryStoreManager(store_model)
                     cls.store_managers[store_model.name] = store_manager
             case StorageType.POSTGRES:
-                from retail_ai.memory.postgres import PostgresStoreManager
+                from dao_ai.memory.postgres import PostgresStoreManager
 
                 store_manager = cls.store_managers.get(store_model.database.name)
                 if store_manager is None:
@@ -98,7 +98,7 @@ class CheckpointManager:
                         checkpointer_manager
                     )
             case StorageType.POSTGRES:
-                from retail_ai.memory.postgres import PostgresCheckpointerManager
+                from dao_ai.memory.postgres import PostgresCheckpointerManager
 
                 checkpointer_manager = cls.checkpoint_managers.get(
                     checkpointer_model.database.name

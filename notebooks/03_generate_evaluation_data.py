@@ -40,7 +40,7 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-from retail_ai.config import AppConfig
+from dao_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
@@ -49,7 +49,7 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 from typing import Any, Dict, Optional, List
 
 from mlflow.models import ModelConfig
-from retail_ai.config import AppConfig, VectorStoreModel, EvaluationModel
+from dao_ai.config import AppConfig, VectorStoreModel, EvaluationModel
 from pyspark.sql import DataFrame, Column
 import pyspark.sql.functions as F
 import pandas as pd

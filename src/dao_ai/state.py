@@ -7,7 +7,7 @@ from langgraph.managed import RemainingSteps
 
 class AgentConfig(TypedDict):
     """
-    Configuration parameters for the retail AI agent.
+    Configuration parameters for the DAO AI agent.
 
     This TypedDict defines external configuration parameters that can be passed
     to the agent during invocation. It allows for runtime customization of the
@@ -15,7 +15,7 @@ class AgentConfig(TypedDict):
 
     Example configurations might include:
     - user_id: Identifier for the current user
-    - store_id: Identifier for the relevant retail store location
+    - store_id: Identifier for the relevant DAO store location
     - thread_id: Conversation thread identifier for stateful conversations
     - product_categories: Categories to filter for in product searches
     """
@@ -25,10 +25,10 @@ class AgentConfig(TypedDict):
 
 class AgentState(MessagesState):
     """
-    State representation for the retail AI agent conversation workflow.
+    State representation for the DAO AI agent conversation workflow.
 
     Extends LangGraph's MessagesState to maintain the conversation history while
-    adding additional state fields specific to the retail domain. This state is
+    adding additional state fields specific to the DAO domain. This state is
     passed between nodes in the agent graph and modified during execution.
 
     Attributes:
