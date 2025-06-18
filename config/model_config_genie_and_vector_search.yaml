@@ -76,7 +76,7 @@ tools:
     name: genie
     function:
       type: factory                                 # Tool type: factory function
-      name: retail_ai.tools.create_genie_tool       # Factory function path
+      name: dao_ai.tools.create_genie_tool       # Factory function path
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: My Answers questions about genie
@@ -86,7 +86,7 @@ tools:
     name: vector_search
     function:
       type: factory
-      name: retail_ai.tools.create_vector_search_tool
+      name: dao_ai.tools.create_vector_search_tool
       args:
         retriever: *products_retriever              # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name

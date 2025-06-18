@@ -33,7 +33,7 @@ tools:
     name: genie
     function:
       type: factory                                 # Tool type: factory function
-      name: retail_ai.tools.create_genie_tool       # Factory function path
+      name: dao_ai.tools.create_genie_tool       # Factory function path
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: My Answers questions about genie
