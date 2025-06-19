@@ -46,24 +46,26 @@ To add a new industry vertical (e.g., healthcare, finance, manufacturing), creat
 ### Directory Structure
 When adding a new industry called `[industry-example]`, create:
 
+> **Note**: All directories are optional - create only what you need for your specific use case.
+
 ```
-src/[industry-example]/             # Core industry-specific code
+src/[industry-example]/             # Core industry-specific code (optional)
 ├── __init__.py
 ├── tools.py                         # Industry-specific tools
 └── hooks.py                         # Industry-specific hooks
 
-config/[industry-example]/          # Industry configuration directory
+config/[industry-example]/          # Industry configuration directory (optional)
 ├── model_config.yaml               # Main model configuration
 
 
-examples/[industry-example]/        # Industry examples and demos
+examples/[industry-example]/        # Industry examples and demos (optional)
 ├── README.md                        # Industry-specific documentation
 └── sample_queries.yaml             # Example queries/scenarios
 
 data/[industry-example]/           # Sample industry data (if applicable)
 └── sample_data.parquet
 
-tests/[industry-example]/          # Industry-specific tests
+tests/[industry-example]/          # Industry-specific tests (optional)
 └── test_[industry-example]_agents.py
 ```
 
