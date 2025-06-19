@@ -245,7 +245,7 @@ class DatabricksProvider(ServiceProvider):
 
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "agent_as_code.py"
-        
+
         code_paths: list[str] = []
         src_path: Path = model_root_path.parent
         directories: Sequence[Path] = [d for d in src_path.iterdir() if d.is_dir()]

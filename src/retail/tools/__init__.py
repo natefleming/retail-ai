@@ -1,4 +1,4 @@
-from dao_ai.tools.retail.core import (
+from retail.tools.core import (
     create_find_inventory_by_sku_tool,
     create_find_inventory_by_upc_tool,
     create_find_product_by_sku_tool,

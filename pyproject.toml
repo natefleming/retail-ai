@@ -42,13 +42,29 @@ dao-ai = "dao_ai.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/dao_ai"]
 sources = ["src"]
-
-[tool.hatch.build]
 exclude = [
     "data",
-    "docs",
+    "docs", 
     "examples",
+    "functions",
+    "notebooks",
+    "schemas",
+    "config",
+    "databricks.yaml",
     "tests",
+    "uv.lock",
+    "Makefile",
+]
+
+[tool.hatch.build.targets.sdist]
+# For source distribution, include more files that developers might need
+exclude = [
+    ".databricks",
+    ".vscode", 
+    ".pytest_cache",
+    ".ruff_cache",
+    ".env",
+    "uv.lock",
 ]
 
 [tool.ruff]
