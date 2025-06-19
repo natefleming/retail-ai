@@ -67,7 +67,7 @@ from typing import Any
 import yaml
 from pathlib import Path
 
-retail_examples_path: Path = Path.cwd().parent / "examples" / "retail_examples.yaml"
+retail_examples_path: Path = Path.cwd().parent / "examples" / "retail" / "examples.yaml"
 retail_examples: dict[str, Any] = yaml.safe_load(retail_examples_path.read_text())
 
 # COMMAND ----------
