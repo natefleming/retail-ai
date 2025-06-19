@@ -53,6 +53,3 @@ class ServiceProvider(ABC):
 
     @abstractmethod
     def deploy_agent(self, config: AppModel) -> Any: ...
-
-    @abstractmethod
-    def create_montior(self, config: AppModel) -> Any: ...

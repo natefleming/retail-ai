@@ -1003,19 +1003,6 @@ class AppConfig(BaseModel):
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.deploy_agent(self)
 
-    def create_monitor(self, w: WorkspaceClient | None = None) -> None:
-        """
-        Create a monitor for the application configuration.
-
-        Args:
-            w: Optional WorkspaceClient instance for Databricks operations.
-        """
-        from dao_ai.providers.base import ServiceProvider
-        from dao_ai.providers.databricks import DatabricksProvider
-
-        provider: ServiceProvider = DatabricksProvider(w=w)
-        provider.create_montior(self)
-
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None
     ) -> Sequence[AgentModel]:
