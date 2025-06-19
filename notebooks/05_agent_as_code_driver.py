@@ -69,16 +69,6 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 # COMMAND ----------
 
 config.display_graph()
-
-# COMMAND ----------
-
-from pathlib import Path
-
-
-path: Path = Path.cwd().parent / Path("docs") / f"{config.app.name}_architecture.png"
-
-config.save_image(path)
-
 # COMMAND ----------
 
 config.create_agent()
