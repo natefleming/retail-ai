@@ -7,7 +7,40 @@ name = "dao-ai"
 version = "0.0.1"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.12"
+authors = [
+    { name = "Nate Fleming", email = "nate.fleming@databricks.com" },
+    { name = "Nate Fleming", email = "nate.fleming@gmail.com" },
+]
+maintainers = [
+    { name = "Nate Fleming", email = "nate.fleming@databricks.com" },
+]
+keywords = [
+    "ai",
+    "agents", 
+    "multi-agent",
+    "orchestration",
+    "langgraph",
+    "langchain",
+    "databricks",
+    "llm",
+    "vector-search",
+    "workflow"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+]
 dependencies = [
     "databricks-agents>=0.20.0",
     "databricks-langchain>=0.4.2",
@@ -38,6 +71,54 @@ dependencies = [
 
 [project.scripts]
 dao-ai = "dao_ai.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/natefleming/dao-ai"
+Documentation = "https://natefleming.github.io/dao-ai"
+Repository = "https://github.com/natefleming/dao-ai"
+Issues = "https://github.com/natefleming/dao-ai/issues"
+Changelog = "https://github.com/natefleming/dao-ai/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.5",
+    "ruff>=0.11.11",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.24.0",
+]
+test = [
+    "pytest>=8.3.5",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "ruff>=0.11.11",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0", 
+    "mkdocstrings[python]>=0.24.0",
+]
+test = [
+    "pytest>=8.3.5",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+]
+all = [
+    { include-group = "dev" },
+    { include-group = "docs" },
+    { include-group = "test" },
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dao_ai"]
@@ -110,10 +191,4 @@ exclude = [
     "dist",
     "node_modules",
     "venv",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.3.5",
-    "ruff>=0.11.11",
 ]

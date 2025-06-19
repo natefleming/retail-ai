@@ -127,8 +127,6 @@ for name, vector_store in config.resources.vector_stores.items():
 config.create_agent()
 config.deploy_agent()
 
-# Set up monitoring
-config.create_monitor()
 ```
 
 ### Option 2: Using CLI Commands
@@ -144,7 +142,7 @@ retail-ai graph -o architecture.png
 retail-ai bundle --deploy --run
 
 # Deploy using Databricks Asset Bundles with specific configuration
-retail-ai -vvvv bundle --deploy --run --env dev --config config/model_config.yaml --profile DEFAULT
+retail-ai -vvvv bundle --deploy --run --target dev --config config/model_config.yaml --profile DEFAULT
 ```
 
 See the [Python API](#python-api) section for detailed programmatic usage, or [Command Line Interface](#command-line-interface) for CLI usage.
@@ -237,19 +235,6 @@ The deployment process:
 2. Creates or updates a Databricks model serving endpoint
 3. Configures scaling, environment variables, and permissions
 4. Sets up proper authentication and resource access
-
-#### Monitoring Agents
-Set up monitoring and evaluation for your deployed agent:
-
-```python
-# Create monitoring with built-in assessments
-config.create_monitor()
-```
-
-This configures:
-- Safety, groundedness, and relevance assessments
-- Custom guideline judges
-- Automated evaluation pipelines
 
 ### Vector Search Operations
 
@@ -391,7 +376,6 @@ The framework includes several example notebooks demonstrating different aspects
 | [`04_unity_catalog_tools.py`](notebooks/04_unity_catalog_tools.py) | Unity Catalog function deployment | SQL function creation and testing |
 | [`05_agent_as_code_driver.py`](notebooks/05_agent_as_code_driver.py) | **Complete agent lifecycle** | `create_agent()`, `deploy_agent()` |
 | [`06_run_evaluation.py`](notebooks/06_run_evaluation.py) | Agent evaluation and testing | Evaluation framework usage |
-| [`07_create_monitor.py`](notebooks/07_create_monitor.py) | Monitoring setup | `create_monitor()` |
 | [`08_run_examples.py`](notebooks/08_run_examples.py) | End-to-end example queries | Agent interaction and testing |
 
 ## Configuration
@@ -442,7 +426,6 @@ print(f"Vector stores: {list(config.resources.vector_stores.keys())}")
 # Use configuration methods for deployment
 config.create_agent()          # Package as MLflow model
 config.deploy_agent()          # Deploy to serving endpoint
-config.create_monitor()        # Set up monitoring
 ```
 
 The configuration supports both CLI and programmatic workflows, with the Python API providing more flexibility for complex deployment scenarios.
