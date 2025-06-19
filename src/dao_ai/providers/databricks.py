@@ -243,10 +243,17 @@ class DatabricksProvider(ServiceProvider):
         pip_requirements: Sequence[str] = get_installed_packages() + additional_pip_reqs
         logger.debug(f"pip_requirements: {pip_requirements}")
 
-        root_path: Path = Path(dao_ai.__file__).parent
-        model_path: Path = root_path / "agent_as_code.py"
+        model_root_path: Path = Path(dao_ai.__file__).parent
+        model_path: Path = model_root_path / "agent_as_code.py"
+        
+        code_paths: list[str] = []
+        src_path: Path = model_root_path.parent
+        directories: Sequence[Path] = [d for d in src_path.iterdir() if d.is_dir()]
+        for directory in directories:
+            directory: Path
+            code_paths.append(directory.as_posix())
 
-        code_paths: Sequence[str] = [root_path.as_posix()] + list(additional_code_paths)
+        code_paths: Sequence[str] = code_paths + list(additional_code_paths)
         logger.debug(f"code_paths: {code_paths}")
 
         run_name: str = normalize_name(config.app.name)
