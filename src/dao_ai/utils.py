@@ -1,10 +1,27 @@
 import importlib
 import importlib.metadata
+import os
 import re
+import site
 from importlib.metadata import version
 from typing import Any, Callable, Sequence
 
 from loguru import logger
+
+import dao_ai
+
+
+def is_installed():
+    current_file = os.path.abspath(dao_ai.__file__)
+    site_packages = [os.path.abspath(path) for path in site.getsitepackages()]
+    if site.getusersitepackages():
+        site_packages.append(os.path.abspath(site.getusersitepackages()))
+
+    found: bool = any(current_file.startswith(pkg_path) for pkg_path in site_packages)
+    logger.debug(
+        f"Checking if dao_ai is installed: {found} (current file: {current_file}"
+    )
+    return found
 
 
 def normalize_name(name: str) -> str:

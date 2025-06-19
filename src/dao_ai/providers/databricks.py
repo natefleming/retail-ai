@@ -51,7 +51,7 @@ from dao_ai.config import (
 )
 from dao_ai.models import get_latest_model_version
 from dao_ai.providers.base import ServiceProvider
-from dao_ai.utils import get_installed_packages, normalize_name
+from dao_ai.utils import get_installed_packages, is_installed, normalize_name
 from dao_ai.vector_search import endpoint_exists, index_exists
 
 
@@ -247,11 +247,17 @@ class DatabricksProvider(ServiceProvider):
         model_path: Path = model_root_path / "agent_as_code.py"
 
         code_paths: list[str] = []
-        src_path: Path = model_root_path.parent
-        directories: Sequence[Path] = [d for d in src_path.iterdir() if d.is_dir()]
-        for directory in directories:
-            directory: Path
-            code_paths.append(directory.as_posix())
+
+        if is_installed():
+            additional_pip_reqs += [
+                f"dao-ai=={dao_ai.__version__}",
+            ]
+        else:
+            src_path: Path = model_root_path.parent
+            directories: Sequence[Path] = [d for d in src_path.iterdir() if d.is_dir()]
+            for directory in directories:
+                directory: Path
+                code_paths.append(directory.as_posix())
 
         code_paths: Sequence[str] = code_paths + list(additional_code_paths)
         logger.debug(f"code_paths: {code_paths}")
