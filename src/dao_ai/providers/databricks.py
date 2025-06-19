@@ -15,12 +15,13 @@ from databricks.sdk.service.catalog import (
     VolumeInfo,
     VolumeType,
 )
-from databricks.sdk.service.iam import CurrentUserAPI
+from databricks.sdk.service.iam import User
 from databricks.sdk.service.workspace import GetSecretResponse
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from loguru import logger
 from mlflow import MlflowClient
+from mlflow.entities import Experiment
 from mlflow.entities.model_registry.model_version import ModelVersion
 from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
 from mlflow.models.model import ModelInfo
@@ -137,8 +138,24 @@ class DatabricksProvider(ServiceProvider):
         self.vsc = vsc
         self.dfs = dfs
 
+    def experiment_name(self, config: AppConfig) -> str:
+        current_user: User = self.w.current_user.me()
+        name: str = config.app.name
+        return f"/Users/{current_user.user_name}/{name}"
+
+    def get_or_create_experiment(self, config: AppConfig) -> Experiment:
+        experiment_name: str = self.experiment_name(config)
+        experiment: Experiment | None = mlflow.get_experiment_by_name(experiment_name)
+        if experiment is None:
+            experiment_id: str = mlflow.create_experiment(name=experiment_name)
+            logger.info(
+                f"Created new experiment: {experiment_name} (ID: {experiment_id})"
+            )
+            experiment = mlflow.get_experiment(experiment_id)
+        return experiment
+
     def create_token(self) -> str:
-        current_user: CurrentUserAPI = self.w.current_user.me()
+        current_user: User = self.w.current_user.me()
         logger.debug(f"Authenticated to Databricks as {current_user}")
         headers: dict[str, str] = self.w.config.authenticate()
         token: str = headers["Authorization"].replace("Bearer ", "")
