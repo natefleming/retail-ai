@@ -1,4 +1,4 @@
-# Multi-Agent AI Orchestration Framework
+# Declaratice Agent Orchestration (DAO) Framework
 
 A modular, multi-agent orchestration framework for building sophisticated AI workflows on Databricks. While this implementation provides a complete retail AI reference architecture, the framework is designed to support any domain or use case requiring agent coordination, tool integration, and dynamic configuration.
 
