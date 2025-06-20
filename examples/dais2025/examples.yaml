@@ -1,0 +1,515 @@
+# DAIS Examples for Retail AI Agent System
+# Extracted from retail_ai.orig/notebooks/agent_config.yaml
+# These examples demonstrate various agent interactions and use cases
+
+examples:
+  # Demo Script Examples
+  demo_initial_inventory_check:
+    messages:
+      - role: user
+        content: "Hey Assistant, can you check if we have Adidas Gazelle sneakers in black at our Downtown Market location?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sarah.associate"
+        store_num: 101
+
+  demo_recommendation_request:
+    messages:
+      - role: user
+        content: "Assistant, can you recommend similar sneakers to the black Gazelles that we have in stock?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sarah.associate"
+        store_num: 101
+
+  demo_cross_store_check:
+    messages:
+      - role: user
+        content: "Assistant, can you check which nearby stores have black Gazelles in stock?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sarah.associate"
+        store_num: 101
+
+  demo_hold_request:
+    messages:
+      - role: user
+        content: "Assistant, can you place a hold on black Gazelles, size 10, at Marina Market for this customer?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sarah.associate"
+        store_num: 101
+
+  demo_directions_notifications:
+    messages:
+      - role: user
+        content: "Assistant, please send directions to Marina Market and set up restock notifications for black Gazelles."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sarah.associate"
+        store_num: 101
+
+  demo_customer_profile:
+    messages:
+      - role: user
+        content: "Show me everything I need to know about Victoria Chen."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "maria.stylist"
+        store_num: 101
+
+  demo_appointment_preparation:
+    messages:
+      - role: user
+        content: "What should I prepare for Victoria's appointment today?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "maria.stylist"
+        store_num: 101
+
+  demo_styling_support:
+    messages:
+      - role: user
+        content: "Victoria likes the navy blazer but wants something more modern. Suggestions?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "maria.stylist"
+        store_num: 101
+
+  # Customer Profile Intelligence and Styling Examples
+  customer_profile_intelligence_example:
+    messages:
+      - role: user
+        content: "Show me everything I need to know about Victoria Chen."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "maria.stylist"
+        store_num: 101
+
+  styling_appointment_prep_example:
+    messages:
+      - role: user
+        content: "I have a styling appointment with Victoria Sterling today. Help me prepare."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "maria.stylist"
+        store_num: 101
+
+  stylist_notification_example:
+    messages:
+      - role: user
+        content: "Generate a notification for Victoria Sterling's upcoming styling appointment."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "maria.stylist"
+        store_num: 101
+
+  real_time_styling_example:
+    messages:
+      - role: user
+        content: "Victoria is here for her appointment. She's looking at sneakers but seems unsure. What should I recommend?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "maria.stylist"
+        store_num: 101
+
+  # Product Information Examples
+  product_by_sku_example:
+    messages:
+      - role: user
+        content: "Can you tell me about the Adidas Gazelle Classic Sneakers? What's the price and available colors?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  specific_sku_lookup_example:
+    messages:
+      - role: user
+        content: "Can you tell me about SKU ADI-GAZ-001?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  product_image_example:
+    messages:
+      - role: user
+        content: "Can you give me information about these Adidas sneakers?"
+        image_paths: 
+          - "tests/images/adidas_gazelle.png"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  # Inventory Management Examples
+  inventory_by_sku_example:
+    messages:
+      - role: user
+        content: "How many Adidas Samba Classic Sneakers do you have in stock across all San Francisco stores?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  store_inventory_by_sku_example:
+    messages:
+      - role: user
+        content: "Do you have Adidas Gazelle sneakers in stock at the Downtown Market store?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  cross_store_inventory_example:
+    messages:
+      - role: user
+        content: "Check inventory for Adidas Samba sneakers across all San Francisco stores."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  out_of_stock_example:
+    messages:
+      - role: user
+        content: "Hi, do you have the Adidas Gazelle sneakers in black at the Downtown Market?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  size_availability_example:
+    messages:
+      - role: user
+        content: "Do you have Adidas Gazelle in size 9.5 available at any San Francisco stores?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  color_availability_example:
+    messages:
+      - role: user
+        content: "What colors are available for Adidas Samba at the Mission Market store?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 103
+
+  # Store Information Examples
+  store_by_number_example:
+    messages:
+      - role: user
+        content: "Can you give me details about the Downtown Market and Marina Market stores in San Francisco?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  store_hours_example:
+    messages:
+      - role: user
+        content: "What are the store hours for the Mission Market location and do you offer BrickRewards points on Adidas purchases?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 103
+
+  store_location_search_example:
+    messages:
+      - role: user
+        content: "Find me BrickMart stores in San Francisco that carry Adidas footwear."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  store_comparison_example:
+    messages:
+      - role: user
+        content: "Compare the Downtown Market and Marina Market locations - which has better Adidas selection?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  # Employee Management Examples
+  top_employees_example:
+    messages:
+      - role: user
+        content: "Who are the top performing employees in the Footwear department at our San Francisco stores?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.manager"
+        store_num: 101
+
+  personal_shopping_associates_example:
+    messages:
+      - role: user
+        content: "Which personal shopping associates are available for sneaker styling appointments in San Francisco?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.employee"
+        store_num: 101
+
+  employee_manager_example:
+    messages:
+      - role: user
+        content: "Who is the manager for employee EMP-016 at the Downtown Market store?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.employee"
+        store_num: 101
+
+  task_assignment_example:
+    messages:
+      - role: user
+        content: "Assign a BOPIS task for Adidas Gazelle pickup to the Footwear department at Marina Market."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.manager"
+        store_num: 102
+
+  department_performance_example:
+    messages:
+      - role: user
+        content: "Show me the top performers in the Footwear department at San Francisco stores this month."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.manager"
+        store_num: 101
+
+  # Customer Service Examples
+  customer_appointments_example:
+    messages:
+      - role: user
+        content: "What upcoming appointments do we have for customer CUST-001 at our San Francisco stores?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.employee"
+        store_num: 101
+
+  customer_details_example:
+    messages:
+      - role: user
+        content: "Can you get me the details for customer CUST-002 including their footwear preferences?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.employee"
+        store_num: 101
+
+  customer_preparation_example:
+    messages:
+      - role: user
+        content: "Help me prepare for Victoria Sterling's appointment - what should I know about her style preferences for sneakers?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.employee"
+        store_num: 101
+
+  vip_customer_example:
+    messages:
+      - role: user
+        content: "Victoria Sterling has an appointment today for sneaker styling. What should I prepare for her visit?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.employee"
+        store_num: 101
+
+  # Recommendation Examples
+  recommendation_example:
+    messages:
+      - role: user
+        content: "Can you recommend sneakers similar to Adidas Gazelle? I like retro suede styles."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  alternative_recommendation_example:
+    messages:
+      - role: user
+        content: "The Adidas Gazelle in black is out of stock. What would you recommend that's similar?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  style_consultation_example:
+    messages:
+      - role: user
+        content: "I'm looking for versatile sneakers for both casual and semi-formal occasions in San Francisco. What Adidas styles would you recommend?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  # Comparison Examples
+  comparison_example:
+    messages:
+      - role: user
+        content: "Can you compare Adidas Gazelle (SKU: ADI-GAZ-001) and Adidas Samba (SKU: ADI-SMB-001) sneakers?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  comparison_image_example:
+    messages:
+      - role: user
+        content: "Can you compare these Adidas sneakers?"
+        image_paths: 
+          - "tests/images/adidas_gazelle.png"
+          - "tests/images/adidas_samba.png"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  # General Store Information Examples
+  general_example:
+    messages:
+      - role: user
+        content: "What are your store hours and location for the Downtown Market in San Francisco?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  # DIY Examples
+  diy_example:
+    messages:
+      - role: user
+        content: "How do I clean and maintain my Adidas Gazelle suede sneakers?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+
+  # Orders Examples
+  orders_example:
+    messages:
+      - role: user
+        content: "When will my online order of Adidas Samba sneakers arrive at the Marina Market? Order number is 12345."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 102
+
+  # Brand Representative Training Examples
+  brand_rep_nike_customers:
+    messages:
+      - role: user
+        content: "Nike brand representative is coming to train us on Air Max SC. What should I know about our customers who buy Nike?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "marcus.associate"
+        store_num: 101
+
+  brand_rep_product_performance:
+    messages:
+      - role: user
+        content: "Show me how Nike Air Max products perform at our store."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "marcus.associate"
+        store_num: 101
+
+  brand_rep_competitive_analysis:
+    messages:
+      - role: user
+        content: "What do customers say when they choose Adidas over Nike?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "marcus.associate"
+        store_num: 101
+
+  brand_rep_product_comparison:
+    messages:
+      - role: user
+        content: "How does Air Max SC cushioning compare to our top-selling Air Max 90?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "marcus.associate"
+        store_num: 101
+
+  brand_rep_positioning:
+    messages:
+      - role: user
+        content: "How should I position Nike Air Max products to different customer segments based on our sales data?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "marcus.associate"
+        store_num: 101
+
+  brand_rep_objection_handling:
+    messages:
+      - role: user
+        content: "What are the most common objections to Nike products and how do successful associates handle them?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "marcus.associate"
+        store_num: 101
+
+  # Local San Francisco Context Examples
+  sf_weather_styling_example:
+    messages:
+      - role: user
+        content: "What Adidas sneakers work best for San Francisco's foggy weather and hilly terrain?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "sf.customer"
+        store_num: 101
+  # Demo Script Examples
+  
