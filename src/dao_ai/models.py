@@ -2,7 +2,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Generator, Optional, Sequence
 
-from langchain_core.messages import AIMessageChunk, BaseMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.pregel.io import AddableValuesDict
 from loguru import logger
@@ -64,10 +64,12 @@ class LanggraphChatModel(ChatModel):
 
         config: AgentState = self._convert_to_config(params)
 
-        response: dict[str, Any] = self.graph.invoke(request, config=config)
-        logger.trace(f"Response: {response}")
-       
-        last_message = response["messages"][-1]
+        response: dict[str, Sequence[BaseMessage]] = self.graph.invoke(
+            request, config=config
+        )
+        logger.trace(f"response: {response}")
+
+        last_message: BaseMessage = response["messages"][-1]
 
         response_message = ChatMessage(role="assistant", content=last_message.content)
         return ChatCompletionResponse(choices=[ChatChoice(message=response_message)])
@@ -107,8 +109,17 @@ class LanggraphChatModel(ChatModel):
         for message, _ in self.graph.stream(
             request, config=config, stream_mode="messages"
         ):
-            logger.trace(f"message: {message}")
-            if isinstance(message, AIMessageChunk) and message.content:
+            logger.trace(f"message_type: {type(message)}, message: {message}")
+            if (
+                isinstance(
+                    message,
+                    (
+                        AIMessageChunk,
+                        AIMessage,
+                    ),
+                )
+                and message.content
+            ):
                 content = message.content
                 yield self._create_chat_completion_chunk(content)
 
