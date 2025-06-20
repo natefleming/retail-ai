@@ -1,0 +1,92 @@
+[project]
+name = "store-assistant"
+version = "0.1.0"
+description = "A Streamlit-based store operations management system"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Core Streamlit dependencies
+    "streamlit>=1.32.0",
+    "streamlit-modal>=0.1.2",
+    "streamlit-card>=1.0.2", 
+    "streamlit-tailwind>=0.1.0",
+    
+    # Popular Third-Party Streamlit Components
+    "streamlit-extras>=0.7.1",              # Collection of useful extras
+    "streamlit-aggrid>=1.0.5",              # Advanced interactive tables
+    "extra-streamlit-components>=0.1.80",   # Additional UI components
+    "streamlit-option-menu>=0.4.0",         # Beautiful navigation menus
+    "streamlit-elements>=0.1.0",            # Dashboard components
+    "streamlit-lottie>=0.0.5",              # Lottie animations
+    "streamlit-authenticator>=0.3.3",       # Authentication system
+    "streamlit-folium>=0.21.0",             # Interactive maps
+    "streamlit-echarts>=0.4.0",             # ECharts integration
+    "streamlit-ace>=0.1.1",                 # Code editor
+    "streamlit-image-select>=0.6.0",        # Image selection widget
+    "streamlit-camera-input-live>=0.2.0",   # Live camera input
+    "streamlit-js-eval>=0.1.7",             # JavaScript execution
+    "streamlit-tags>=1.2.8",                # Tags input widget
+    "streamlit-toggle-switch>=1.0.2",       # Toggle switches
+    "streamlit-pills>=0.3.0",               # Pill-shaped buttons
+    "streamlit-calendar>=1.3.0",            # Calendar widget (updated to match installed version)
+    "streamlit-shadcn-ui>=0.1.18",          # Modern shadcn/ui components (updated to match installed version)
+    
+    # Additional Streamlit Components (newly added/confirmed)
+    "streamlit-avatar>=0.1.3",              # Avatar components
+    "streamlit-keyup>=0.3.0",               # Keyup events
+    "streamlit-vertical-slider>=2.5.5",     # Vertical sliders
+    "streamlit-image-coordinates>=0.2.2",   # Image coordinate selection
+    "streamlit-faker>=0.0.3",               # Fake data generation
+    "streamlit-embedcode>=0.1.2",           # Code embedding
+    
+    # Data processing
+    "pandas>=2.2.0",
+    "plotly>=5.18.0",
+    
+    # Databricks integrations
+    "databricks-sdk>=0.53.0",
+    "databricks-sql-connector>=3.6.0",
+    "mlflow>=2.22.0",
+    
+    # Additional utilities for enhanced components
+    "requests>=2.31.0",                     # For API calls and data fetching
+    "Pillow>=10.0.0",                       # Image processing
+    "pyecharts>=2.0.8",                     # ECharts for Python (backend for streamlit-echarts)
+    "htbuilder>=0.9.0",                     # HTML builder for custom components
+    "faker>=37.0.0",                        # Fake data generation
+    "validators>=0.35.0",                   # Data validation utilities
+    
+    # Utilities
+    "python-dotenv>=1.1.0",
+    "pyyaml>=6.0.1",
+]
+
+# UV-specific configuration
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+include = '\.pyi?$'
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+fixable = ["ALL"]
+unfixable = [] 

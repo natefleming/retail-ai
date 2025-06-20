@@ -1,0 +1,104 @@
+%% Retail AI Agent - Tools and Implementation Architecture
+%%{init: { 'theme': 'base', 'themeVariables': { 'background': '#ffffff' }}}%%
+graph TD
+    %% Background and Title
+    subgraph MainDiagram[Retail AI Agent Architecture]
+        %% User Entry Point
+        User([User]) --> Router[Router Agent<br>LangGraph + LangChain<br>LLaMA-3-70B]
+
+        %% Router Agent Routes
+        Router --> ProductA[Product Agent]
+        Router --> InventoryA[Inventory Agent]
+        Router --> RecommendA[Recommendation Agent]
+        Router --> DIYA[DIY Agent]
+        Router --> CompareA[Comparison Agent]
+        Router --> OrdersA[Orders Agent]
+        Router --> GeneralA[General Agent]
+
+        %% Product Agent Tools
+        subgraph ProductTools[Product Agent Tools]
+            P1[Vector Search<br>GTE-Large Embeddings]
+            P2[Unity Catalog Functions<br>- find_product_by_sku<br>- find_product_by_upc]
+            P3[Image Processing<br>Claude-3 Sonnet]
+        end
+        ProductA --> ProductTools
+
+        %% Inventory Agent Tools
+        subgraph InventoryTools[Inventory Agent Tools]
+            I1[Unity Catalog Functions<br>- find_inventory_by_sku<br>- find_inventory_by_upc<br>- find_store_inventory_by_sku<br>- find_store_inventory_by_upc]
+            I2[Vector Search<br>GTE-Large Embeddings]
+        end
+        InventoryA --> InventoryTools
+
+        %% Recommendation Agent Tools
+        subgraph RecommendTools[Recommendation Agent Tools]
+            R1[Vector Search<br>GTE-Large Embeddings]
+            R2[Unity Catalog Tables<br>- products<br>- inventory]
+        end
+        RecommendA --> RecommendTools
+
+        %% DIY Agent Tools
+        subgraph DIYTools[DIY Agent Tools]
+            D1[Vector Search<br>GTE-Large Embeddings]
+            D2[Web Search<br>Real-time Information]
+        end
+        DIYA --> DIYTools
+
+        %% Comparison Agent Tools
+        subgraph CompareTools[Comparison Agent Tools]
+            C1[Unity Catalog Functions<br>Product & Inventory Lookup]
+            C2[Vector Search<br>GTE-Large Embeddings]
+            C3[Image Processing<br>Claude-3 Sonnet]
+        end
+        CompareA --> CompareTools
+
+        %% Orders Agent Tools
+        subgraph OrderTools[Orders Agent Tools]
+            O1[Unity Catalog Tables<br>Order Management]
+        end
+        OrdersA --> OrderTools
+
+        %% General Agent Tools
+        subgraph GeneralTools[General Agent Tools]
+            G1[Vector Search<br>Policy Documents]
+        end
+        GeneralA --> GeneralTools
+
+        %% Data Storage
+        subgraph DataStorage[Databricks Unity Catalog]
+            Tables[(Tables)]
+            Functions>Unity Catalog Functions]
+            VS[(Vector Search Indexes)]
+        end
+
+        %% Connect Tools to Storage
+        ProductTools --> DataStorage
+        InventoryTools --> DataStorage
+        RecommendTools --> DataStorage
+        DIYTools --> DataStorage
+        CompareTools --> DataStorage
+        OrderTools --> DataStorage
+        GeneralTools --> DataStorage
+
+        %% Color Code Chart
+        subgraph ColorCodes[Color Code Reference]
+            U[User Interface]
+            A[Agents]
+            T[Tool Sets]
+            S[Storage Components]
+        end
+    end
+
+    %% Styling
+    classDef agent fill:#e1f3d8,stroke:#82c91e,stroke-width:2px
+    classDef tools fill:#fff3bf,stroke:#fab005,stroke-width:2px
+    classDef storage fill:#d0ebff,stroke:#1971c2,stroke-width:2px
+    classDef user fill:#dbe4ff,stroke:#4c6ef5,stroke-width:2px
+    classDef background fill:#ffffff,stroke:#333333,stroke-width:2px
+    
+    %% Apply Styles
+    class User,U user
+    class Router,ProductA,InventoryA,RecommendA,DIYA,CompareA,OrdersA,GeneralA,A agent
+    class ProductTools,InventoryTools,RecommendTools,DIYTools,CompareTools,OrderTools,GeneralTools,T tools
+    class DataStorage,Tables,Functions,VS,S storage
+    class MainDiagram,ColorCodes background 

@@ -1,0 +1,73 @@
+# Application Configuration
+app:
+  title: "Store Companion"
+  icon: "🏪"
+  layout: "wide"
+  version: "1.0.0"
+  debug: true
+
+# Store Configuration
+store:
+  store_id: 101 # Default store ID for Downtown Market
+
+# Employee Configuration
+employees:
+  store_manager:
+    name: "Sarah Johnson"
+  store_associate:
+    name: "Victoria Chen"
+  vp_retail_operations:
+    name: "Alexandra Rodriguez"
+
+# User Roles and Permissions
+roles:
+  store_associate:
+    can_view_orders: true
+    can_process_orders: true
+    can_view_inventory: true
+    can_reorder_inventory: false
+    can_view_staff_schedle: true
+    can_modify_staff_schedule: false
+    can_view_sales_data: false
+  store_manager:
+    can_view_orders: true
+    can_process_orders: true
+    can_view_inventory: true
+    can_reorder_inventory: true
+    can_view_staff_schedule: true
+    can_modify_staff_schedule: true
+    can_view_sales_data: true
+  vp_retail_operations:
+    can_view_orders: true
+    can_process_orders: false
+    can_view_inventory: true
+    can_reorder_inventory: true
+    can_view_staff_schedule: true
+    can_modify_staff_schedule: true
+    can_view_sales_data: true
+    can_view_executive_metrics: true
+    can_view_multi_store_data: true
+    can_view_regional_analytics: true
+    can_access_strategic_insights: true
+    can_view_roi_metrics: true
+
+# Chat Interface Configuration
+chat:
+  max_tokens: 1000
+  temperature: 0.7
+  message: "How can I help you today?"
+  placeholder: "e.g., Where are the yoga mats?"
+
+# Model Serving Configuration
+model:
+  agent_endpoint: "rct_multi_agent"  # Default agent endpoint name
+  max_tokens: 1000
+  temperature: 0.7
+  stop: ["\n"]
+  n: 1
+  stream: false
+
+# Database Configuration
+database:
+  mock: false  # Set to false to use real Databricks database
+  connection_timeout: 30 
