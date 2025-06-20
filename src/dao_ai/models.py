@@ -64,8 +64,9 @@ class LanggraphChatModel(ChatModel):
 
         config: AgentState = self._convert_to_config(params)
 
-        response = self.graph.invoke(request, config=config)
-
+        response: dict[str, Any] = self.graph.invoke(request, config=config)
+        logger.trace(f"Response: {response}")
+       
         last_message = response["messages"][-1]
 
         response_message = ChatMessage(role="assistant", content=last_message.content)
@@ -106,6 +107,7 @@ class LanggraphChatModel(ChatModel):
         for message, _ in self.graph.stream(
             request, config=config, stream_mode="messages"
         ):
+            logger.trace(f"message: {message}")
             if isinstance(message, AIMessageChunk) and message.content:
                 content = message.content
                 yield self._create_chat_completion_chunk(content)
