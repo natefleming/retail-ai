@@ -174,16 +174,76 @@ resources:
   databases:
     # PostgreSQL database for agent memory and checkpoints
     retail_database: &retail_database
-      name: "Retail Database"                       # Human-readable name
+      name: "Retail Database"                                  
+      description: "Database for agent memory and checkpoints" 
+      
+      # Database connection parameters
+      # These can be set via environment variables or Databricks secrets
       host:                                                 
         default_value: localhost                                             
         variables:
-          - env: PGHOST
+          - env: PGHOST                              # Environment variable
+          - scope: retail_ai                         # Databricks secret scope
+            secret: PGHOST                           # Secret name
+      port: 
+        default_value: 5432
+        variables:
+        - env: PGPORT 
+        - scope: retail_ai
+          secret: PGPORT
+      database: 
+        default_value: databricks_postgres           # Default database name
+        variables:
+        - env: PGDATABASE 
+        - scope: retail_ai
+          secret: PGDATABASE
+
+
+      # Traditional PostgreSQL authentication (commented out)
+      # Uncomment and configure if using direct database auth instead of OAuth2
+      # user: 
+      #   default_value: postgres
+      #   variables:
+      #   - env: PGUSER 
+      #   - scope: retail_ai
+      #     secret: PGUSER
+      # password: 
+      #   default_value: postgres
+      #   variables:
+      #   - env: PGPASSWORD 
+      #   - scope: retail_ai
+      #     secret: PGPASSWORD
+
+      # OAuth2 client credentials for Databricks authentication
+      # Used to generate access tokens for database connections
+      # This approach is recommended for Databricks environments
+      client_id:
+        variables:
+          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
           - scope: retail_ai
-            secret: PGHOST
-      connection_kwargs:                            # Additional connection parameters
-        autocommit: True                            # Enable autocommit mode
-        prepare_threshold: 0                        # Disable prepared statements
+            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      client_secret:
+        variables:
+          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      workspace_host:
+        variables:
+          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_HOST
+          
+      # Optional: Additional PostgreSQL connection parameters
+      # Uncomment and modify as needed for your specific setup
+      # connection_kwargs:                            # Additional connection parameters
+      #   autocommit: True                            # Enable autocommit mode
+      #   prepare_threshold: 0                        # Disable prepared statements
+      #   sslmode: require                            # Require SSL connection
+      #   connect_timeout: 10                         # Connection timeout in seconds
+      
+      # Optional: Connection pool configuration
+      # max_pool_size: 20                             # Maximum connections in pool
+      # timeout: 5                                    # Connection timeout in seconds
 
 # =============================================================================
 # RETRIEVERS CONFIGURATION

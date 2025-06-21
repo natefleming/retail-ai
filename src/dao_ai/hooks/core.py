@@ -19,7 +19,7 @@ def require_user_id_hook(
 
     if "user_id" not in configurable or not configurable["user_id"]:
         logger.error("User ID is required but not provided in the configuration.")
-        
+
         error_message = """
 ## Authentication Required
 
@@ -46,7 +46,7 @@ Please include the following JSON in your request configuration:
 
 Please update your configuration and try again.
         """.strip()
-        
+
         raise ValueError(error_message)
 
     return {}

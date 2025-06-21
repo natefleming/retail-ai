@@ -193,7 +193,7 @@ class SchemaModel(BaseModel, HasFullName):
     model_config = ConfigDict()
     catalog_name: str
     schema_name: str
-    permissions: list[PermissionModel]
+    permissions: Optional[list[PermissionModel]] = Field(default_factory=list)
 
     @property
     def full_name(self) -> str:
@@ -835,7 +835,7 @@ class AppModel(BaseModel):
     environment_vars: Optional[dict[str, Any]] = Field(default_factory=dict)
     budget_policy_id: Optional[str] = None
     workload_size: Optional[WorkloadSize] = "Small"
-    permissions: list[AppPermissionModel]
+    permissions: Optional[list[AppPermissionModel]] = Field(default_factory=list)
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
     alias: Optional[str] = None
@@ -882,14 +882,31 @@ class DatasetFormat(str, Enum):
     SQL = "sql"
 
 
+class VolumePathModel(BaseModel, HasFullName):
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
+    volume: VolumeModel
+    path: str
+
+    @property
+    def full_name(self) -> str:
+        if self.volume.schema_model:
+            catalog_name: str = self.volume.schema_model.catalog_name
+            schema_name: str = self.volume.schema_model.schema_name
+            volume_name: str = self.volume.name
+            return f"/Volumes/{catalog_name}/{schema_name}/{volume_name}/{self.path}"
+        return f"/Volumes/{volume_name}/{self.path}"
+
+
 class DatasetModel(BaseModel):
     model_config = ConfigDict(
         use_enum_values=True,
     )
-    table: TableModel
-    ddl: str
-    data: str
-    format: DatasetFormat
+    table: Optional[TableModel] = None
+    ddl: Optional[str] = None
+    data: str | VolumePathModel
+    format: Optional[DatasetFormat] = None
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
     def create(self, w: WorkspaceClient | None = None) -> None:

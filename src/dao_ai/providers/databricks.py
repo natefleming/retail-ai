@@ -39,6 +39,7 @@ from dao_ai.config import (
     DatasetModel,
     FunctionModel,
     GenieRoomModel,
+    HasFullName,
     IndexModel,
     IsDatabricksResource,
     LLMModel,
@@ -404,7 +405,10 @@ class DatabricksProvider(ServiceProvider):
 
         table: str = dataset.table.full_name
         ddl_path: Path = Path(dataset.ddl)
-        data_path: Path = Path(dataset.data)
+        data: str | HasFullName = dataset.data
+        if isinstance(data, HasFullName):
+            data = data.full_name
+        data_path: Path = Path(data)
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
 
