@@ -258,11 +258,18 @@
           "default": "Small"
         },
         "permissions": {
-          "items": {
-            "$ref": "#/$defs/AppPermissionModel"
-          },
-          "title": "Permissions",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/AppPermissionModel"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Permissions"
         },
         "agents": {
           "items": {
@@ -334,7 +341,6 @@
       "required": [
         "name",
         "registered_model",
-        "permissions",
         "orchestration"
       ],
       "title": "AppModel",
@@ -654,18 +660,49 @@
     "DatasetModel": {
       "properties": {
         "table": {
-          "$ref": "#/$defs/TableModel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TableModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "ddl": {
-          "title": "Ddl",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ddl"
         },
         "data": {
-          "title": "Data",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/VolumePathModel"
+            }
+          ],
+          "title": "Data"
         },
         "format": {
-          "$ref": "#/$defs/DatasetFormat"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatasetFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "read_options": {
           "anyOf": [
@@ -681,10 +718,7 @@
         }
       },
       "required": [
-        "table",
-        "ddl",
-        "data",
-        "format"
+        "data"
       ],
       "title": "DatasetModel",
       "type": "object"
@@ -1361,17 +1395,23 @@
           "type": "string"
         },
         "permissions": {
-          "items": {
-            "$ref": "#/$defs/PermissionModel"
-          },
-          "title": "Permissions",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PermissionModel"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Permissions"
         }
       },
       "required": [
         "catalog_name",
-        "schema_name",
-        "permissions"
+        "schema_name"
       ],
       "title": "SchemaModel",
       "type": "object"
@@ -1529,20 +1569,16 @@
         "model": {
           "$ref": "#/$defs/LLMModel"
         },
-        "default_agent": {
+        "memory": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AgentModel"
-            },
-            {
-              "type": "string"
+              "$ref": "#/$defs/MemoryModel"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Default Agent"
+          "default": null
         }
       },
       "required": [
@@ -1601,6 +1637,17 @@
             }
           ],
           "title": "Handoffs"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1874,6 +1921,23 @@
         "name"
       ],
       "title": "VolumeModel",
+      "type": "object"
+    },
+    "VolumePathModel": {
+      "properties": {
+        "volume": {
+          "$ref": "#/$defs/VolumeModel"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "volume",
+        "path"
+      ],
+      "title": "VolumePathModel",
       "type": "object"
     },
     "WarehouseModel": {
