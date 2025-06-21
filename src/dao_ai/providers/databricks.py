@@ -404,11 +404,17 @@ class DatabricksProvider(ServiceProvider):
             )
 
         table: str = dataset.table.full_name
-        ddl_path: Path = Path(dataset.ddl)
+
+        ddl: str | HasFullName = dataset.ddl
+        if isinstance(ddl, HasFullName):
+            ddl = ddl.full_name
+        ddl_path: Path = Path(ddl)
+
         data: str | HasFullName = dataset.data
         if isinstance(data, HasFullName):
             data = data.full_name
         data_path: Path = Path(data)
+
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
 
@@ -429,7 +435,8 @@ class DatabricksProvider(ServiceProvider):
                 )
         else:
             logger.debug(f"Writing to: {table}")
-            data_path = current_dir / data_path
+            if not data_path.is_absolute():
+                data_path = current_dir / data_path
             spark.read.format(format).options(**read_options).load(
                 data_path.as_posix()
             ).write.mode("overwrite").saveAsTable(table)

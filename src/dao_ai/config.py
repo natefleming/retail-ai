@@ -904,7 +904,7 @@ class DatasetModel(BaseModel):
         use_enum_values=True,
     )
     table: Optional[TableModel] = None
-    ddl: Optional[str] = None
+    ddl: Optional[str | VolumeModel] = None
     data: str | VolumePathModel
     format: Optional[DatasetFormat] = None
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)

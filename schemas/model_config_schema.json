@@ -676,6 +676,9 @@
               "type": "string"
             },
             {
+              "$ref": "#/$defs/VolumeModel"
+            },
+            {
               "type": "null"
             }
           ],
