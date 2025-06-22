@@ -104,10 +104,11 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     checkpointer: BaseCheckpointSaver = None
     if supervisor.memory and supervisor.memory.checkpointer:
         checkpointer = supervisor.memory.checkpointer.as_checkpointer()
+        logger.debug(f"Using checkpointer: {checkpointer}")
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
     supervisor_workflow: StateGraph = create_supervisor(
-        supervisor_name="triage",
+        supervisor_name="supervisor",
         agents=agents,
         model=model,
         tools=tools,
@@ -122,21 +123,22 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node("message_hook", message_hook_node(config=config))
-    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("orchestration", supervisor_node)
 
     workflow.add_conditional_edges(
         "message_hook",
-        route_message_hook("supervisor"),
+        route_message_hook("orchestration"),
         {
-            "supervisor": "supervisor",
+            "orchestration": "orchestration",
             END: END,
         },
     )
 
     workflow.set_entry_point("message_hook")
 
-    return workflow.compile()
-
+    return workflow.compile(checkpointer=checkpointer, store=store)
+    # something going on with this and postgres
+    #return workflow.compile()
 
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     logger.debug("Creating swarm graph")
@@ -165,10 +167,12 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     store: BaseStore = None
     if swarm.memory and swarm.memory.store:
         store = swarm.memory.store.as_store()
+        logger.debug(f"Using memory store: {store}")
 
     checkpointer: BaseCheckpointSaver = None
     if swarm.memory and swarm.memory.checkpointer:
         checkpointer = swarm.memory.checkpointer()
+        logger.debug(f"Using checkpointer: {checkpointer}")
 
     swarm_node: CompiledStateGraph = swarm_workflow.compile(
         checkpointer=checkpointer, store=store
@@ -192,7 +196,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.set_entry_point("message_hook")
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer, store=store)
 
 
 def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:

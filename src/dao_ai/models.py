@@ -5,6 +5,7 @@ from typing import Any, Generator, Optional, Sequence
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.pregel.io import AddableValuesDict
+from langgraph.types import PregelTask, StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel
@@ -64,6 +65,9 @@ class LanggraphChatModel(ChatModel):
 
         config: AgentState = self._convert_to_config(params)
 
+        if self._is_interrupted(config):
+            logger.info("Graph is currently interrupted")
+
         response: dict[str, Sequence[BaseMessage]] = self.graph.invoke(
             request, config=config
         )
@@ -106,6 +110,9 @@ class LanggraphChatModel(ChatModel):
 
         config: AgentState = self._convert_to_config(params)
 
+        if self._is_interrupted(config):
+            logger.info("Graph is currently interrupted")
+
         for message, _ in self.graph.stream(
             request, config=config, stream_mode="messages"
         ):
@@ -136,6 +143,24 @@ class LanggraphChatModel(ChatModel):
         self, messages: list[ChatMessage]
     ) -> list[dict[str, Any]]:
         return [m.to_dict() for m in messages]
+
+    def _is_interrupted(self, config: dict[str, Any]) -> bool:
+  
+        has_thread_id: bool = config.get("configurable", {}).get("thread_id") is not None
+        has_checkpointer: bool = self.graph.checkpointer is not None
+        
+        if has_thread_id and has_checkpointer:
+            state: StateSnapshot = self.graph.get_state(config, subgraphs=True)
+            if state and state.tasks:
+                for task in state.tasks:
+                    task: PregelTask
+                    if task.interrupts:
+                        logger.info(
+                            f"Graph is currently interrupted by task: {task.name}"
+                        )
+                        logger.debug(f"Interrupts Details: {task.interrupts}")
+                        return True
+        return False
 
 
 def create_agent(graph: CompiledStateGraph) -> ChatAgent:

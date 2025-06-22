@@ -1,3 +1,3 @@
-from dao_ai.hooks.core import null_hook, require_user_id_hook
+from dao_ai.hooks.core import null_hook, require_thread_id_hook, require_user_id_hook
 
-__all__ = ["null_hook", "require_user_id_hook"]
+__all__ = ["null_hook", "require_user_id_hook", "require_thread_id_hook"]

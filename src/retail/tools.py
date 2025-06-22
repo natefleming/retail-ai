@@ -21,6 +21,36 @@ from dao_ai.config import (
 )
 
 
+def create_reservation_tool() -> Callable[..., Any]:
+    """
+    Create a tool for making reservations.
+
+    This factory function generates a tool that can be used to make reservations
+    in a system. The tool can be customized with various parameters.
+
+    Returns:
+        A callable tool function that performs reservation operations
+    """
+
+    @tool
+    def make_reservation(
+        destination: str,
+    ) -> str:
+        """
+        Make a reservation with the provided details.
+
+        Args:
+            reservation_details (dict[str, Any]): Details of the reservation to be made
+
+        Returns:
+            str: Confirmation message for the reservation
+        """
+        logger.debug(f"Making reservation with details: {destination}")
+        return "Reservation made successfully!"
+
+    return make_reservation
+
+
 def find_product_details_by_description_tool(
     retriever: RetrieverModel | dict[str, Any],
 ) -> Callable[[str, str], Sequence[Document]]:

@@ -997,7 +997,7 @@ app:
       memory: *memory                            # Memory store for conversation context
   message_hooks: 
     - dao_ai.hooks.null_hook
-    - dao_ai.hooks.require_user_id_hook
+    - retail.hooks.require_store_num_hook
   input_example:
       messages:
         - role: user
