@@ -278,7 +278,7 @@ class DatabricksProvider(ServiceProvider):
             logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
                 python_model=model_path.as_posix(),
                 code_paths=code_paths,
-                model_config=config.model_dump(),
+                model_config=config.model_dump(by_alias=True),
                 artifact_path="agent",
                 pip_requirements=pip_requirements,
                 input_example=input_example,
