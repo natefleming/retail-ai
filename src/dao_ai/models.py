@@ -145,10 +145,11 @@ class LanggraphChatModel(ChatModel):
         return [m.to_dict() for m in messages]
 
     def _is_interrupted(self, config: dict[str, Any]) -> bool:
-  
-        has_thread_id: bool = config.get("configurable", {}).get("thread_id") is not None
+        has_thread_id: bool = (
+            config.get("configurable", {}).get("thread_id") is not None
+        )
         has_checkpointer: bool = self.graph.checkpointer is not None
-        
+
         if has_thread_id and has_checkpointer:
             state: StateSnapshot = self.graph.get_state(config, subgraphs=True)
             if state and state.tasks:

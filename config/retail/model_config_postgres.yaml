@@ -476,8 +476,8 @@ memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
     name: default_checkpointer                      # Checkpointer identifier
-    type: postgres                                    # Store type (memory or postgres)
-    #type: memory
+    #type: postgres                                    # Store type (memory or postgres)
+    type: memory
     database: *retail_database                     # Reference to database configuration
 
   # Long-term memory store for agent context

@@ -1,4 +1,5 @@
 from typing import Any
+
 from loguru import logger
 
 
@@ -14,18 +15,18 @@ def require_store_num_hook(
     # Check for missing required fields
     required_fields = ["thread_id", "user_id", "store_num"]
     missing_fields = []
-    
+
     for field in required_fields:
         if field not in configurable or not configurable[field]:
             missing_fields.append(field)
-    
+
     if missing_fields:
         logger.error(f"Required fields are missing: {', '.join(missing_fields)}")
 
         error_message = f"""
 ## Authentication Required
 
-The following required fields are missing: **{', '.join(missing_fields)}**
+The following required fields are missing: **{", ".join(missing_fields)}**
 
 ### Required Configuration Format
 

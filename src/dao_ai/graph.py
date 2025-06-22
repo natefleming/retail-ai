@@ -137,8 +137,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow.set_entry_point("message_hook")
 
     return workflow.compile(checkpointer=checkpointer, store=store)
-    # something going on with this and postgres
-    #return workflow.compile()
+
 
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     logger.debug("Creating swarm graph")
