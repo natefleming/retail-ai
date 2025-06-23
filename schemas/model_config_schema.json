@@ -337,6 +337,17 @@
             }
           ],
           "default": null
+        },
+        "summarization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SummarizationModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1640,6 +1651,43 @@
         "name"
       ],
       "title": "StoreModel",
+      "type": "object"
+    },
+    "SummarizationModel": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/LLMModel"
+        },
+        "retained_message_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retained Message Count"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "SummarizationModel",
       "type": "object"
     },
     "SupervisorModel": {

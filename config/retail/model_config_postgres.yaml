@@ -37,6 +37,11 @@ resources:
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
+    fast_llm: &fast_llm
+      name: databricks-meta-llama-3-1-8b-instruct  # Databricks serving endpoint name
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
       name: databricks-claude-3-7-sonnet
@@ -50,6 +55,13 @@ resources:
       name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 8192
+
+    deep_reasoning_llm: &deep_reasoning_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 8192
+      fallbacks: 
+        - databricks-claude-3-7-sonnet
 
     # LLM for evaluating and judging responses (guardrails)
     judge_llm: &judge_llm
@@ -1007,7 +1019,9 @@ app:
           thread_id: "1"
           user_id: my_user_id
           store_num: 87887
-
+  summarization: 
+    model: *reasoning_llm                          # Model for summarization tasks
+    max_tokens: 100
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general

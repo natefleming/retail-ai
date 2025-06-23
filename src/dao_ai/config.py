@@ -824,6 +824,25 @@ class ChatPayload(BaseModel):
     custom_inputs: dict
 
 
+class SummarizationModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    model: LLMModel
+    retained_message_count: Optional[int] = None
+    max_tokens: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_mutually_exclusive(self):
+        if self.retained_message_count and self.max_tokens:
+            raise ValueError(
+                "Cannot specify both retained_message_count and max_tokens. "
+                "Please provide only one of these parameters."
+            )
+        if not self.retained_message_count and not self.max_tokens:
+            self.retained_message_count = 5  # Default value if none is provided
+
+        return self
+
+
 class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
@@ -844,6 +863,7 @@ class AppModel(BaseModel):
         default_factory=list
     )
     input_example: Optional[ChatPayload] = None
+    summarization: Optional[SummarizationModel] = None
 
     @model_validator(mode="after")
     def validate_agents_not_empty(self):

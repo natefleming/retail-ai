@@ -41,6 +41,7 @@ class AgentState(MessagesState):
     context: str
     route: str
     active_agent: str
+    summary: str
 
     remaining_steps: RemainingSteps
     is_valid: bool

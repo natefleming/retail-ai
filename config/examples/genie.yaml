@@ -70,8 +70,7 @@ app:
   agents:                                           # List of agents included in the system
     - *genie                                        # Order management agent
   orchestration:                                    # Agent orchestration configuration
-    supervisor:                                     # Supervisor orchestration pattern
+    swarm:                                     # Supervisor orchestration pattern
       model: *default_llm                           # LLM for routing decisions
-      default_agent: *genie                         # Default agent when no specific match
 
 

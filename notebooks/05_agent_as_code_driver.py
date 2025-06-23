@@ -68,9 +68,6 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
-config.display_graph()
-# COMMAND ----------
-
 config.create_agent()
 
 

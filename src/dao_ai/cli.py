@@ -307,7 +307,6 @@ def handle_chat_command(options: Namespace) -> None:
 
         # Import streaming function and interrupt handling
         from langchain_core.messages import HumanMessage
-        from langgraph.errors import GraphInterrupt
 
         from dao_ai.models import process_messages_stream
 
