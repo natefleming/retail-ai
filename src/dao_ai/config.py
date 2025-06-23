@@ -3,7 +3,15 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from os import PathLike
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence, TypeAlias, Union
+from typing import (
+    Any,
+    Callable,
+    Literal,
+    Optional,
+    Sequence,
+    TypeAlias,
+    Union,
+)
 
 from databricks.sdk import WorkspaceClient
 from databricks.vector_search.client import VectorSearchClient
@@ -182,15 +190,13 @@ class Privilege(str, Enum):
 
 
 class PermissionModel(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     principals: list[str] = Field(default_factory=list)
     privileges: list[Privilege]
 
 
 class SchemaModel(BaseModel, HasFullName):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     catalog_name: str
     schema_name: str
     permissions: Optional[list[PermissionModel]] = Field(default_factory=list)
@@ -208,7 +214,7 @@ class SchemaModel(BaseModel, HasFullName):
 
 
 class TableModel(BaseModel, HasFullName, IsDatabricksResource):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -229,7 +235,7 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
 
 
 class LLMModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
@@ -276,9 +282,7 @@ class VectorSearchEndpointType(str, Enum):
 
 
 class VectorSearchEndpoint(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     type: VectorSearchEndpointType
 
@@ -511,14 +515,14 @@ class DatabaseModel(BaseModel):
 
 
 class SearchParametersModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     num_results: Optional[int] = 10
     filters: Optional[dict[str, Any]] = Field(default_factory=dict)
     query_type: Optional[str] = "ANN"
 
 
 class RetrieverModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     vector_store: VectorStoreModel
     columns: list[str]
     search_parameters: SearchParametersModel
@@ -531,12 +535,20 @@ class FunctionType(str, Enum):
     MCP = "mcp"
 
 
+class HumanInTheLoopModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    review_prompt: str
+    interupt_config: dict[str, Any] = Field(default_factory=dict)
+
+
 class BaseFunctionModel(BaseModel):
     model_config = ConfigDict(
         use_enum_values=True,
+        discriminator="type",
     )
     type: FunctionType
     name: str
+    human_in_the_loop: Optional[HumanInTheLoopModel] = None
 
     @field_serializer("type")
     def serialize_type(self, value) -> str:
@@ -547,10 +559,8 @@ class BaseFunctionModel(BaseModel):
 
 
 class PythonFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
-    type: FunctionType = FunctionType.PYTHON
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.PYTHON] = FunctionType.PYTHON
 
     @property
     def full_name(self) -> str:
@@ -559,15 +569,13 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
     def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
         from dao_ai.tools import create_python_tool
 
-        return create_python_tool(self)
+        return create_python_tool(self, **kwargs)
 
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
-    args: dict[str, Any] = Field(default_factory=dict)
-    type: FunctionType = FunctionType.FACTORY
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    args: Optional[dict[str, Any]] = Field(default_factory=dict)
+    type: Literal[FunctionType.FACTORY] = FunctionType.FACTORY
 
     @property
     def full_name(self) -> str:
@@ -585,10 +593,8 @@ class TransportType(str, Enum):
 
 
 class McpFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
-    type: FunctionType = FunctionType.MCP
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.MCP] = FunctionType.MCP
 
     transport: TransportType
     command: Optional[str] = "python"
@@ -616,11 +622,9 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
 
 
 class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    type: FunctionType = FunctionType.UNITY_CATALOG
+    type: Literal[FunctionType.UNITY_CATALOG] = FunctionType.UNITY_CATALOG
 
     @property
     def full_name(self) -> str:
@@ -635,22 +639,24 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
 
 
 AnyTool: TypeAlias = (
-    PythonFunctionModel
-    | FactoryFunctionModel
-    | UnityCatalogFunctionModel
-    | McpFunctionModel
+    Union[
+        PythonFunctionModel,
+        FactoryFunctionModel,
+        UnityCatalogFunctionModel,
+        McpFunctionModel,
+    ]
     | str
 )
 
 
 class ToolModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     function: AnyTool
 
 
 class GuardrailModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     model: LLMModel
     prompt: str
@@ -663,9 +669,7 @@ class StorageType(str, Enum):
 
 
 class CheckpointerModel(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     type: Optional[StorageType] = StorageType.MEMORY
     database: Optional[DatabaseModel] = None
@@ -687,9 +691,7 @@ class CheckpointerModel(BaseModel):
 
 
 class StoreModel(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     embedding_model: Optional[LLMModel] = None
     type: Optional[StorageType] = StorageType.MEMORY
@@ -711,7 +713,7 @@ class StoreModel(BaseModel):
 
 
 class MemoryModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     checkpointer: Optional[CheckpointerModel] = None
     store: Optional[StoreModel] = None
 
@@ -720,7 +722,7 @@ FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
 
 
 class AgentModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
     model: LLMModel
@@ -735,13 +737,13 @@ class AgentModel(BaseModel):
 
 
 class SupervisorModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     memory: Optional[MemoryModel] = None
 
 
 class SwarmModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     default_agent: Optional[AgentModel | str] = None
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
@@ -751,7 +753,7 @@ class SwarmModel(BaseModel):
 
 
 class OrchestrationModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     supervisor: Optional[SupervisorModel] = None
     swarm: Optional[SwarmModel] = None
 
@@ -765,7 +767,7 @@ class OrchestrationModel(BaseModel):
 
 
 class RegisteredModelModel(BaseModel, HasFullName):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -785,9 +787,7 @@ class Entitlement(str, Enum):
 
 
 class AppPermissionModel(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     principals: list[str] = Field(default_factory=list)
     entitlements: list[Entitlement]
 
@@ -819,8 +819,28 @@ class Message(BaseModel):
 
 
 class ChatPayload(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     messages: list[Message]
     custom_inputs: dict
+
+
+class SummarizationModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    model: LLMModel
+    retained_message_count: Optional[int] = None
+    max_tokens: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_mutually_exclusive(self):
+        if self.retained_message_count and self.max_tokens:
+            raise ValueError(
+                "Cannot specify both retained_message_count and max_tokens. "
+                "Please provide only one of these parameters."
+            )
+        if not self.retained_message_count and not self.max_tokens:
+            self.retained_message_count = 5  # Default value if none is provided
+
+        return self
 
 
 class AppModel(BaseModel):
@@ -843,6 +863,7 @@ class AppModel(BaseModel):
         default_factory=list
     )
     input_example: Optional[ChatPayload] = None
+    summarization: Optional[SummarizationModel] = None
 
     @model_validator(mode="after")
     def validate_agents_not_empty(self):
@@ -867,7 +888,7 @@ class AppModel(BaseModel):
 
 
 class EvaluationModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     table: TableModel
     num_evals: int
@@ -883,9 +904,7 @@ class DatasetFormat(str, Enum):
 
 
 class VolumePathModel(BaseModel, HasFullName):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     volume: VolumeModel
     path: str
 
@@ -900,9 +919,7 @@ class VolumePathModel(BaseModel, HasFullName):
 
 
 class DatasetModel(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     table: Optional[TableModel] = None
     ddl: Optional[str | VolumeModel] = None
     data: str | VolumePathModel
@@ -918,14 +935,12 @@ class DatasetModel(BaseModel):
 
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
 
 
 class UnityCatalogFunctionSqlModel(BaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-    )
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     function: UnityCatalogFunctionModel
     ddl: str
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
@@ -943,7 +958,7 @@ class UnityCatalogFunctionSqlModel(BaseModel):
 
 
 class ResourcesModel(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     llms: dict[str, LLMModel] = Field(default_factory=dict)
     vector_stores: dict[str, VectorStoreModel] = Field(default_factory=dict)
     genie_rooms: dict[str, GenieRoomModel] = Field(default_factory=dict)

@@ -1,6 +1,7 @@
 {
   "$defs": {
     "AgentModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -336,6 +337,17 @@
             }
           ],
           "default": null
+        },
+        "summarization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SummarizationModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -347,6 +359,7 @@
       "type": "object"
     },
     "AppPermissionModel": {
+      "additionalProperties": false,
       "properties": {
         "principals": {
           "items": {
@@ -370,6 +383,7 @@
       "type": "object"
     },
     "ChatPayload": {
+      "additionalProperties": false,
       "properties": {
         "messages": {
           "items": {
@@ -392,6 +406,7 @@
       "type": "object"
     },
     "CheckpointerModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -658,6 +673,7 @@
       "type": "string"
     },
     "DatasetModel": {
+      "additionalProperties": false,
       "properties": {
         "table": {
           "anyOf": [
@@ -761,6 +777,7 @@
       "type": "object"
     },
     "EvaluationModel": {
+      "additionalProperties": false,
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -782,19 +799,40 @@
       "type": "object"
     },
     "FactoryFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
-          "$ref": "#/$defs/FunctionType",
-          "default": "factory"
+          "const": "factory",
+          "default": "factory",
+          "title": "Type",
+          "type": "string"
         },
         "name": {
           "title": "Name",
           "type": "string"
         },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "args": {
-          "additionalProperties": true,
-          "title": "Args",
-          "type": "object"
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Args"
         }
       },
       "required": [
@@ -839,16 +877,6 @@
       "title": "FunctionModel",
       "type": "object"
     },
-    "FunctionType": {
-      "enum": [
-        "python",
-        "factory",
-        "unity_catalog",
-        "mcp"
-      ],
-      "title": "FunctionType",
-      "type": "string"
-    },
     "GenieRoomModel": {
       "properties": {
         "on_behalf_of_user": {
@@ -892,6 +920,7 @@
       "type": "object"
     },
     "GuardrailModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -923,6 +952,25 @@
         "prompt"
       ],
       "title": "GuardrailModel",
+      "type": "object"
+    },
+    "HumanInTheLoopModel": {
+      "additionalProperties": false,
+      "properties": {
+        "review_prompt": {
+          "title": "Review Prompt",
+          "type": "string"
+        },
+        "interupt_config": {
+          "additionalProperties": true,
+          "title": "Interupt Config",
+          "type": "object"
+        }
+      },
+      "required": [
+        "review_prompt"
+      ],
+      "title": "HumanInTheLoopModel",
       "type": "object"
     },
     "IndexModel": {
@@ -962,6 +1010,7 @@
       "type": "object"
     },
     "LLMModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1043,14 +1092,28 @@
       "type": "string"
     },
     "McpFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
-          "$ref": "#/$defs/FunctionType",
-          "default": "mcp"
+          "const": "mcp",
+          "default": "mcp",
+          "title": "Type",
+          "type": "string"
         },
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "transport": {
           "$ref": "#/$defs/TransportType"
@@ -1095,6 +1158,7 @@
       "type": "object"
     },
     "MemoryModel": {
+      "additionalProperties": false,
       "properties": {
         "checkpointer": {
           "anyOf": [
@@ -1150,6 +1214,7 @@
       "type": "string"
     },
     "OrchestrationModel": {
+      "additionalProperties": false,
       "properties": {
         "supervisor": {
           "anyOf": [
@@ -1178,6 +1243,7 @@
       "type": "object"
     },
     "PermissionModel": {
+      "additionalProperties": false,
       "properties": {
         "principals": {
           "items": {
@@ -1254,14 +1320,28 @@
       "type": "string"
     },
     "PythonFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
-          "$ref": "#/$defs/FunctionType",
-          "default": "python"
+          "const": "python",
+          "default": "python",
+          "title": "Type",
+          "type": "string"
         },
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1271,6 +1351,7 @@
       "type": "object"
     },
     "RegisteredModelModel": {
+      "additionalProperties": false,
       "properties": {
         "schema": {
           "anyOf": [
@@ -1295,6 +1376,7 @@
       "type": "object"
     },
     "ResourcesModel": {
+      "additionalProperties": false,
       "properties": {
         "llms": {
           "additionalProperties": {
@@ -1364,6 +1446,7 @@
       "type": "object"
     },
     "RetrieverModel": {
+      "additionalProperties": false,
       "properties": {
         "vector_store": {
           "$ref": "#/$defs/VectorStoreModel"
@@ -1388,6 +1471,7 @@
       "type": "object"
     },
     "SchemaModel": {
+      "additionalProperties": false,
       "properties": {
         "catalog_name": {
           "title": "Catalog Name",
@@ -1420,6 +1504,7 @@
       "type": "object"
     },
     "SearchParametersModel": {
+      "additionalProperties": false,
       "properties": {
         "num_results": {
           "anyOf": [
@@ -1498,6 +1583,7 @@
       "type": "string"
     },
     "StoreModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -1567,7 +1653,45 @@
       "title": "StoreModel",
       "type": "object"
     },
+    "SummarizationModel": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/LLMModel"
+        },
+        "retained_message_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retained Message Count"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "SummarizationModel",
+      "type": "object"
+    },
     "SupervisorModel": {
+      "additionalProperties": false,
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -1591,6 +1715,7 @@
       "type": "object"
     },
     "SwarmModel": {
+      "additionalProperties": false,
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -1660,6 +1785,7 @@
       "type": "object"
     },
     "TableModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1696,6 +1822,7 @@
       "type": "object"
     },
     "ToolModel": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -1738,14 +1865,28 @@
       "type": "string"
     },
     "UnityCatalogFunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "type": {
-          "$ref": "#/$defs/FunctionType",
-          "default": "unity_catalog"
+          "const": "unity_catalog",
+          "default": "unity_catalog",
+          "title": "Type",
+          "type": "string"
         },
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "schema": {
           "anyOf": [
@@ -1766,6 +1907,7 @@
       "type": "object"
     },
     "UnityCatalogFunctionSqlModel": {
+      "additionalProperties": false,
       "properties": {
         "function": {
           "$ref": "#/$defs/UnityCatalogFunctionModel"
@@ -1794,6 +1936,7 @@
       "type": "object"
     },
     "UnityCatalogFunctionSqlTestModel": {
+      "additionalProperties": false,
       "properties": {
         "parameters": {
           "anyOf": [
@@ -1812,6 +1955,7 @@
       "type": "object"
     },
     "VectorSearchEndpoint": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -1927,6 +2071,7 @@
       "type": "object"
     },
     "VolumePathModel": {
+      "additionalProperties": false,
       "properties": {
         "volume": {
           "$ref": "#/$defs/VolumeModel"

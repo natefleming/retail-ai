@@ -1,4 +1,4 @@
-from typing import Callable, Sequence
+from typing import Sequence
 
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
@@ -20,20 +20,14 @@ from dao_ai.config import (
     SupervisorModel,
     SwarmModel,
 )
-from dao_ai.nodes import (
-    create_agent_node,
-    message_hook_node,
-)
+from dao_ai.nodes import create_agent_node, message_hook_node, summarization_node
 from dao_ai.state import AgentConfig, AgentState
 
 
-def route_message_hook(on_success: str) -> Callable:
-    def route_message(state: AgentState) -> str:
-        if not state["is_valid"]:
-            return END
-        return on_success
-
-    return route_message
+def route_message(state: AgentState) -> str:
+    if not state["is_valid"]:
+        return END
+    return "summarization"
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -104,10 +98,11 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     checkpointer: BaseCheckpointSaver = None
     if supervisor.memory and supervisor.memory.checkpointer:
         checkpointer = supervisor.memory.checkpointer.as_checkpointer()
+        logger.debug(f"Using checkpointer: {checkpointer}")
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
     supervisor_workflow: StateGraph = create_supervisor(
-        supervisor_name="triage",
+        supervisor_name="supervisor",
         agents=agents,
         model=model,
         tools=tools,
@@ -122,19 +117,24 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node("message_hook", message_hook_node(config=config))
-    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("summarization", summarization_node(config=config))
+    workflow.add_node("orchestration", supervisor_node)
 
     workflow.add_conditional_edges(
         "message_hook",
-        route_message_hook("supervisor"),
+        route_message,
         {
-            "supervisor": "supervisor",
+            "summarization": "summarization",
             END: END,
         },
     )
 
+    workflow.add_edge("summarization", "orchestration")
+
     workflow.set_entry_point("message_hook")
 
+    # Current issue with postgres checkpointer
+    # return workflow.compile(checkpointer=checkpointer, store=store)
     return workflow.compile()
 
 
@@ -165,10 +165,12 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     store: BaseStore = None
     if swarm.memory and swarm.memory.store:
         store = swarm.memory.store.as_store()
+        logger.debug(f"Using memory store: {store}")
 
     checkpointer: BaseCheckpointSaver = None
     if swarm.memory and swarm.memory.checkpointer:
         checkpointer = swarm.memory.checkpointer()
+        logger.debug(f"Using checkpointer: {checkpointer}")
 
     swarm_node: CompiledStateGraph = swarm_workflow.compile(
         checkpointer=checkpointer, store=store
@@ -177,21 +179,23 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node("message_hook", message_hook_node(config=config))
+    workflow.add_node("summarization", summarization_node(config=config))
     workflow.add_node("swarm", swarm_node)
 
     workflow.add_conditional_edges(
         "message_hook",
-        route_message_hook("swarm"),
+        route_message,
         {
-            "swarm": "swarm",
+            "summarization": "summarization",
             END: END,
         },
     )
 
-    workflow.add_edge("message_hook", "swarm")
+    workflow.add_edge("summarization", "swarm")
 
     workflow.set_entry_point("message_hook")
 
+    # return workflow.compile(checkpointer=checkpointer, store=store)
     return workflow.compile()
 
 

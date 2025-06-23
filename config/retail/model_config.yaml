@@ -997,7 +997,7 @@ app:
       memory: *memory                            # Memory store for conversation context
   message_hooks: 
     - dao_ai.hooks.null_hook
-    - dao_ai.hooks.require_user_id_hook
+    - retail.hooks.require_store_num_hook
   input_example:
       messages:
         - role: user
@@ -1007,6 +1007,8 @@ app:
           thread_id: "1"
           user_id: my_user_id
           store_num: 87887
+  summarization:
+    model: *tool_calling_llm
 
     # swarm:
     #   model: *tool_calling_llm

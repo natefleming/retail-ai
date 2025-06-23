@@ -34,7 +34,6 @@ Please include the following JSON in your request configuration:
   "configurable": {
     "thread_id": "1",
     "user_id": "my_user_id", 
-    "store_num": 87887
   }
 }
 ```
@@ -42,7 +41,48 @@ Please include the following JSON in your request configuration:
 ### Field Descriptions
 - **user_id**: Your unique user identifier (required)
 - **thread_id**: Conversation thread identifier (optional)
-- **store_num**: Store number for retail context (optional)
+
+Please update your configuration and try again.
+        """.strip()
+
+        raise ValueError(error_message)
+
+    return {}
+
+
+def require_thread_id_hook(
+    state: dict[str, Any], config: dict[str, Any]
+) -> dict[str, Any]:
+    logger.debug("Executing thread_id validation hook")
+
+    config = config.get("custom_inputs", config)
+
+    configurable: dict[str, Any] = config.get("configurable", {})
+
+    if "thread_id" not in configurable or not configurable["thread_id"]:
+        logger.error("Thread ID is required but not provided in the configuration.")
+
+        error_message = """
+## Authentication Required
+
+A **thread_id** is required to process your request. Please provide your user ID in the configuration.
+
+### Required Configuration Format
+
+Please include the following JSON in your request configuration:
+
+```json
+{
+  "configurable": {
+    "thread_id": "1",
+    "user_id": "my_user_id"
+  }
+}
+```
+
+### Field Descriptions
+- **user_id**: Your unique user identifier (required)
+- **thread_id**: Conversation thread identifier (optional)
 
 Please update your configuration and try again.
         """.strip()

@@ -5,6 +5,7 @@ from databricks_langchain import (
 )
 from langchain_core.embeddings.embeddings import Embeddings
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from loguru import logger
@@ -51,7 +52,7 @@ class InMemoryCheckpointerManager(CheckpointManagerBase):
         self.checkpointer_model = checkpointer_model
 
     def checkpointer(self) -> BaseCheckpointSaver:
-        return BaseCheckpointSaver()
+        return InMemorySaver()
 
 
 class StoreManager:

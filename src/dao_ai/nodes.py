@@ -3,8 +3,15 @@ from typing import Any, Callable, Optional, Sequence
 import mlflow
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    trim_messages,
+)
 from langchain_core.messages.modifier import RemoveMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -21,6 +28,7 @@ from dao_ai.config import (
     FactoryFunctionModel,
     FunctionHook,
     PythonFunctionModel,
+    SummarizationModel,
     ToolModel,
 )
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
@@ -132,6 +140,117 @@ def create_agent_node(
     compiled_agent.name = agent.name
 
     return compiled_agent
+
+
+def summarization_node(config: AppConfig) -> AgentCallable:
+    summarization_model: SummarizationModel | None = config.app.summarization
+
+    def _create_summary(
+        model: LanguageModelLike,
+        messages_to_summarize: Sequence[BaseMessage],
+        existing_summary: str,
+    ) -> str:
+        """Helper function to create or update a summary."""
+        summary_message: str
+        if existing_summary:
+            summary_message = (
+                f"This is a summary of the conversation so far:\n\n{existing_summary}\n\n"
+                "Please create an updated summary including the conversation above:"
+            )
+        else:
+            summary_message = "Create a summary of the conversation above:"
+
+        messages: Sequence[BaseMessage] = messages_to_summarize + [
+            HumanMessage(content=summary_message)
+        ]
+        response: AIMessage = model.invoke(input=messages)
+        return response.content
+
+    def summarization(state: AgentState, config: AgentConfig) -> AgentState:
+        logger.debug("Running summarization node")
+
+        if not summarization_model:
+            logger.info("No summarization model configured, skipping summarization")
+            return
+
+        model: LanguageModelLike = summarization_model.model.as_chat_model()
+
+        if summarization_model.retained_message_count:
+            retain_message_count: int = summarization_model.retained_message_count
+
+            if len(state["messages"]) <= retain_message_count:
+                logger.debug(
+                    f"Not enough messages to summarize, retaining last {retain_message_count} messages. Current message count: {len(state['messages'])}"
+                )
+                return
+
+            messages_to_summarize: Sequence[BaseMessage] = state["messages"][
+                :-retain_message_count
+            ]
+            existing_summary: str = state.get("summary", "")
+            new_summary: str = _create_summary(
+                model, messages_to_summarize, existing_summary
+            )
+
+            deleted_messages: Sequence[RemoveMessage] = [
+                RemoveMessage(id=m.id) for m in messages_to_summarize
+            ]
+            logger.debug(
+                f"Summarized {len(messages_to_summarize)} messages, created new summary"
+            )
+            return {
+                "messages": deleted_messages,
+                "summary": new_summary,
+            }
+        else:
+            max_tokens: int = summarization_model.max_tokens
+            messages: Sequence[BaseMessage] = state["messages"]
+            trimmed_messages: Sequence[BaseMessage] = trim_messages(
+                messages,
+                max_tokens=max_tokens,
+                strategy="last",
+                token_counter=count_tokens_approximately,
+                allow_partial=False,
+                include_system=True,
+                start_on="human",
+            )
+
+            if len(trimmed_messages) < len(messages):
+                logger.debug(
+                    f"Trimmed {len(messages) - len(trimmed_messages)} messages due to token limit"
+                )
+
+                # Find messages that were removed
+                trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
+                messages_to_remove: list[BaseMessage] = [
+                    m for m in messages if m.id not in trimmed_message_ids
+                ]
+
+                # Generate summary of removed messages
+                existing_summary: str = state.get("summary", "")
+                new_summary: str = _create_summary(
+                    model, messages_to_remove, existing_summary
+                )
+
+                deleted_messages: Sequence[RemoveMessage] = [
+                    RemoveMessage(id=m.id) for m in messages_to_remove
+                ]
+                logger.debug(
+                    f"Summarized {len(messages_to_remove)} messages, created new summary"
+                )
+                return {
+                    "messages": deleted_messages,
+                    "summary": new_summary,
+                }
+            else:
+                logger.debug(
+                    "No messages trimmed, no summarization performed. "
+                    "All messages fit within the token limit."
+                )
+
+        return None
+
+    return summarization
 
 
 def message_hook_node(config: AppConfig) -> AgentCallable:
