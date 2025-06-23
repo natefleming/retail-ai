@@ -1,6 +1,7 @@
 from typing import Sequence
 
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
@@ -17,6 +18,7 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     OrchestrationModel,
+    SummarizationModel,
     SupervisorModel,
     SwarmModel,
 )
@@ -24,10 +26,19 @@ from dao_ai.nodes import create_agent_node, message_hook_node, summarization_nod
 from dao_ai.state import AgentConfig, AgentState
 
 
-def route_message(state: AgentState) -> str:
-    if not state["is_valid"]:
-        return END
-    return "summarization"
+def route_message_hook(success: str, config: AppConfig) -> RunnableLike:
+    def route_message(state: AgentState) -> str:
+        if not state["is_valid"]:
+            return END
+
+        summarization: SummarizationModel | None = config.app.summarization
+        if summarization:
+            if len(state["messages"]) > summarization.retained_message_count:
+                return "summarization"
+
+        return success
+
+    return route_message
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -122,9 +133,10 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.add_conditional_edges(
         "message_hook",
-        route_message,
+        route_message_hook("orchestration", config=config),
         {
             "summarization": "summarization",
+            "orchestration": "orchestration",
             END: END,
         },
     )
@@ -184,9 +196,10 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.add_conditional_edges(
         "message_hook",
-        route_message,
+        route_message_hook("swarm", config=config),
         {
             "summarization": "summarization",
+            "swarm": "swarm",
             END: END,
         },
     )

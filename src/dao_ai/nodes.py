@@ -8,10 +8,8 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
-    trim_messages,
 )
 from langchain_core.messages.modifier import RemoveMessage
-from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -145,28 +143,6 @@ def create_agent_node(
 def summarization_node(config: AppConfig) -> AgentCallable:
     summarization_model: SummarizationModel | None = config.app.summarization
 
-    def _create_summary(
-        model: LanguageModelLike,
-        messages_to_summarize: Sequence[BaseMessage],
-        existing_summary: str,
-    ) -> str:
-        """Helper function to create or update a summary."""
-        summary_message: str
-        if existing_summary:
-            summary_message = (
-                f"This is a summary of the conversation so far:\n\n{existing_summary}\n\n"
-                "Please create an updated summary including the conversation above.\n\n"
-                "This conversation summary should never be returned to the user"
-            )
-        else:
-            summary_message = "Create a summary of the conversation above:"
-
-        messages: Sequence[BaseMessage] = messages_to_summarize + [
-            HumanMessage(content=summary_message)
-        ]
-        response: AIMessage = model.invoke(input=messages)
-        return response.content
-
     def summarization(state: AgentState, config: AgentConfig) -> AgentState:
         logger.debug("Running summarization node")
 
@@ -177,79 +153,40 @@ def summarization_node(config: AppConfig) -> AgentCallable:
         model: LanguageModelLike = summarization_model.model.as_chat_model()
 
         if summarization_model.retained_message_count:
-            retain_message_count: int = summarization_model.retained_message_count
+            logger.debug("Trimming messages to retain only the last few messages")
+            retained_message_count: int = summarization_model.retained_message_count
 
-            if len(state["messages"]) <= retain_message_count:
-                logger.debug(
-                    f"Not enough messages to summarize, retaining last {retain_message_count} messages. Current message count: {len(state['messages'])}"
-                )
-                return
-
-            messages_to_summarize: Sequence[BaseMessage] = state["messages"][
-                :-retain_message_count
-            ]
-            existing_summary: str = state.get("summary", "")
-            new_summary: str = _create_summary(
-                model, messages_to_summarize, existing_summary
-            )
-
-            deleted_messages: Sequence[RemoveMessage] = [
-                RemoveMessage(id=m.id) for m in messages_to_summarize
-            ]
-            logger.debug(
-                f"Summarized {len(messages_to_summarize)} messages, created new summary"
-            )
-            return {
-                "messages": deleted_messages,
-                "summary": new_summary,
-            }
-        else:
-            max_tokens: int = summarization_model.max_tokens
-            messages: Sequence[BaseMessage] = state["messages"]
-            trimmed_messages: Sequence[BaseMessage] = trim_messages(
-                messages,
-                max_tokens=max_tokens,
-                strategy="last",
-                token_counter=count_tokens_approximately,
-                allow_partial=False,
-                include_system=True,
-                start_on="human",
-            )
-
-            if len(trimmed_messages) < len(messages):
-                logger.debug(
-                    f"Trimmed {len(messages) - len(trimmed_messages)} messages due to token limit"
+            summary = state.get("summary", "")
+            summary_message: str
+            if summary:
+                summary_message = (
+                    f"This is summary of the conversation to date: {summary}\n\n"
+                    "Extend the summary by taking into account the new messages above:"
                 )
 
-                # Find messages that were removed
-                trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
-                messages_to_remove: list[BaseMessage] = [
-                    m for m in messages if m.id not in trimmed_message_ids
-                ]
-
-                # Generate summary of removed messages
-                existing_summary: str = state.get("summary", "")
-                new_summary: str = _create_summary(
-                    model, messages_to_remove, existing_summary
-                )
-
-                deleted_messages: Sequence[RemoveMessage] = [
-                    RemoveMessage(id=m.id) for m in messages_to_remove
-                ]
-                logger.debug(
-                    f"Summarized {len(messages_to_remove)} messages, created new summary"
-                )
-                return {
-                    "messages": deleted_messages,
-                    "summary": new_summary,
-                }
             else:
-                logger.debug(
-                    "No messages trimmed, no summarization performed. "
-                    "All messages fit within the token limit."
-                )
+                summary_message = "Create a summary of the conversation above:"
 
-        return None
+            messages: Sequence[BaseMessage] = state["messages"] + [
+                HumanMessage(content=summary_message)
+            ]
+            response: AIMessage = model.invoke(
+                messages,
+            )
+
+            delete_messages: Sequence[RemoveMessage] = [
+                RemoveMessage(id=m.id)
+                for m in state["messages"][:-retained_message_count]
+            ]
+
+            system_message: SystemMessage = SystemMessage(
+                content=f"Summary of conversation earlier: {response.content}"
+            )
+            logger.debug(f"Summarization response: {response.content}")
+
+            messages = system_message + state["messages"] + delete_messages
+
+            return {"summary": response.content, "messages": delete_messages}
 
     return summarization
 

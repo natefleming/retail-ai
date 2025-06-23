@@ -1021,7 +1021,6 @@ app:
           store_num: 87887
   summarization: 
     model: *reasoning_llm                          # Model for summarization tasks
-    retained_message_count: 5
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
