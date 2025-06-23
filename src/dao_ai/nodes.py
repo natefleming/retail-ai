@@ -155,7 +155,8 @@ def summarization_node(config: AppConfig) -> AgentCallable:
         if existing_summary:
             summary_message = (
                 f"This is a summary of the conversation so far:\n\n{existing_summary}\n\n"
-                "Please create an updated summary including the conversation above:"
+                "Please create an updated summary including the conversation above.\n\n"
+                "This conversation summary should never be returned to the user"
             )
         else:
             summary_message = "Create a summary of the conversation above:"
