@@ -75,7 +75,7 @@ Please include the following JSON in your request configuration:
 {
   "configurable": {
     "thread_id": "1",
-    "user_id": "my_user_id", 
+    "user_id": "my_user_id"
   }
 }
 ```

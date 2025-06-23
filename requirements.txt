@@ -40,11 +40,11 @@ azure-storage-file-datalake==12.20.0
     #   mlflow-skinny
 blinker==1.9.0
     # via flask
-boto3==1.38.40
+boto3==1.38.41
     # via
     #   mlflow
     #   mlflow-skinny
-botocore==1.38.40
+botocore==1.38.41
     # via
     #   boto3
     #   mlflow
@@ -255,7 +255,7 @@ jsonpointer==3.0.0
     # via jsonpatch
 kiwisolver==1.4.8
     # via matplotlib
-langchain==0.3.25
+langchain==0.3.26
     # via
     #   dao-ai
     #   databricks-langchain
@@ -267,9 +267,9 @@ langchain-anthropic==0.3.15
     # via langmem
 langchain-community==0.3.21 ; python_full_version >= '3.13'
     # via unitycatalog-langchain
-langchain-community==0.3.25 ; python_full_version < '3.13'
+langchain-community==0.3.26 ; python_full_version < '3.13'
     # via unitycatalog-langchain
-langchain-core==0.3.65
+langchain-core==0.3.66
     # via
     #   langchain
     #   langchain-anthropic
@@ -318,7 +318,14 @@ langgraph-swarm==0.0.11
     # via dao-ai
 langmem==0.0.27
     # via dao-ai
-langsmith==0.3.45
+langsmith==0.3.45 ; python_full_version >= '3.13'
+    # via
+    #   langchain
+    #   langchain-community
+    #   langchain-core
+    #   langmem
+    #   openevals
+langsmith==0.4.1 ; python_full_version < '3.13'
     # via
     #   langchain
     #   langchain-community
@@ -385,7 +392,7 @@ numpy==1.26.4
     #   pandas
     #   scikit-learn
     #   scipy
-openai==1.88.0
+openai==1.90.0
     # via langchain-openai
 openevals==0.1.0
     # via dao-ai
@@ -493,11 +500,11 @@ pydantic==2.11.7
     #   unitycatalog-client
 pydantic-core==2.33.2
     # via pydantic
-pydantic-settings==2.9.1
+pydantic-settings==2.10.0
     # via
     #   langchain-community
     #   mcp
-pygments==2.19.1
+pygments==2.19.2
     # via
     #   pytest
     #   rich
@@ -560,7 +567,7 @@ s3transfer==0.13.0
     # via boto3
 scikit-learn==1.7.0
     # via mlflow
-scipy==1.15.3
+scipy==1.16.0
     # via
     #   mlflow
     #   scikit-learn

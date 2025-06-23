@@ -181,19 +181,24 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
 
 
 def _process_langchain_messages(
-    app: LanggraphChatModel,
+    app: LanggraphChatModel | CompiledStateGraph,
     messages: Sequence[BaseMessage],
     custom_inputs: Optional[dict[str, Any]] = None,
 ) -> AddableValuesDict:
-    return app.graph.invoke({"messages": messages}, config=custom_inputs)
+    if isinstance(app, LanggraphChatModel):
+        app = app.graph
+    return app.invoke({"messages": messages}, config=custom_inputs)
 
 
 def _process_langchain_messages_stream(
-    app: LanggraphChatModel,
+    app: LanggraphChatModel | CompiledStateGraph,
     messages: Sequence[BaseMessage],
     custom_inputs: Optional[dict[str, Any]] = None,
 ) -> Generator[AIMessageChunk, None, None]:
-    for message, _ in app.graph.stream(
+    if isinstance(app, LanggraphChatModel):
+        app = app.graph
+
+    for message, _ in app.stream(
         {"messages": messages}, config=custom_inputs, stream_mode="messages"
     ):
         message: AIMessageChunk

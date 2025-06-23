@@ -133,16 +133,16 @@ config.deploy_agent()
 
 ```bash
 # Validate configuration
-retail-ai validate -c config/retail/model_config.yaml
+dao-ai validate -c config/retail/model_config.yaml
 
 # Generate workflow diagram
-retail-ai graph -o architecture.png
+dao-ai graph -o architecture.png
 
 # Deploy using Databricks Asset Bundles
-retail-ai bundle --deploy --run
+dao-ai bundle --deploy --run
 
 # Deploy using Databricks Asset Bundles with specific configuration
-retail-ai -vvvv bundle --deploy --run --target dev --config config/retail/model_config.yaml --profile DEFAULT
+dao-ai -vvvv bundle --deploy --run --target dev --config config/retail/model_config.yaml --profile DEFAULT
 ```
 
 See the [Python API](#python-api) section for detailed programmatic usage, or [Command Line Interface](#command-line-interface) for CLI usage.
@@ -154,40 +154,40 @@ The framework includes a comprehensive CLI for managing, validating, and visuali
 ### Schema Generation
 Generate JSON schema for configuration validation and IDE autocompletion:
 ```bash
-retail-ai schema > schema.json
+dao-ai schema > schema.json
 ```
 
 ### Configuration Validation
 Validate your configuration file for syntax and semantic correctness:
 ```bash
 # Validate default configuration (config/retail/model_config.yaml)
-retail-ai validate
+dao-ai validate
 
 # Validate specific configuration file
-retail-ai validate -c config/production.yaml
+dao-ai validate -c config/production.yaml
 ```
 
 ### Graph Visualization
 Generate visual representations of your agent workflow:
 ```bash
 # Generate architecture diagram (using default config/retail/model_config.yaml)
-retail-ai graph -o architecture.png
+dao-ai graph -o architecture.png
 
 # Generate diagram from specific config
-retail-ai graph -o workflow.png -c config/custom.yaml
+dao-ai graph -o workflow.png -c config/custom.yaml
 ```
 
 ### Deployment
 Deploy your multi-agent system using Databricks Asset Bundles:
 ```bash
 # Deploy the system
-retail-ai bundle --deploy
+dao-ai bundle --deploy
 
 # Run the deployed system
-retail-ai bundle --run
+dao-ai bundle --run
 
 # Use specific Databricks profile
-retail-ai bundle --deploy --run --profile my-profile
+dao-ai bundle --deploy --run --profile my-profile
 ```
 
 ### Verbose Output
@@ -389,7 +389,7 @@ Configuration is managed through [`model_config.yaml`](config/retail/model_confi
 The [`model_config.yaml`](config/retail/model_config.yaml) is organized into several top-level keys:
 
 ```yaml
-# filepath: /Users/nate/development/retail-ai/config/retail/model_config.yaml
+# filepath: /Users/nate/development/dao-ai/config/retail/model_config.yaml
 schemas:
   # ... schema definitions ...
 
@@ -683,7 +683,7 @@ Agents are made available to the application by listing their YAML anchors (defi
 The `orchestration` block within the `app` section allows you to define the interaction pattern. Your current configuration primarily uses a **Supervisor** pattern.
 
 ```yaml
-# filepath: /Users/nate/development/retail-ai/config/retail/model_config.yaml
+# filepath: /Users/nate/development/dao-ai/config/retail/model_config.yaml
 # ...
 # app:
 #   ...
@@ -841,7 +841,7 @@ The primary log level for the application is configured in [`model_config.yaml`]
 
 **Configuration Example:**
 ```yaml
-# filepath: /Users/nate/development/retail-ai/config/retail/model_config.yaml
+# filepath: /Users/nate/development/dao-ai/config/retail/model_config.yaml
 app:
   log_level: INFO  # Supported levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
   # ... other app configurations ...

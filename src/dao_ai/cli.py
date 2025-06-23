@@ -34,6 +34,7 @@ Examples:
   dao-ai schema                                          # Generate JSON schema for configuration validation
   dao-ai validate -c config/model_config.yaml            # Validate a specific configuration file
   dao-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
+  dao-ai chat -c config/retail.yaml --custom-input store_num=87887  # Start interactive chat session
   dao-ai validate                                        # Validate with detailed logging
   dao-ai bundle --deploy                                 # Deploy the DAO AI asset bundle
         """,
@@ -137,7 +138,7 @@ Examples:
         type=str,
         required=True,
         metavar="FILE",
-        help="Path to the model configuration file to visualize (default: ./config/model_config.yaml)",
+        help="Path to the model configuration file to visualize",
     )
 
     bundle_parser: ArgumentParser = subparsers.add_parser(
@@ -168,7 +169,7 @@ Examples:
         type=str,
         required=True,
         metavar="FILE",
-        help="Path to the model configuration file for the bundle (default: ./config/model_config.yaml)",
+        help="Path to the model configuration file for the bundle",
     )
     bundle_parser.add_argument(
         "-d",
@@ -221,12 +222,193 @@ Examples:
         type=str,
         required=True,
         metavar="FILE",
-        help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
+        help="Path to the model configuration file to validate",
+    )
+
+    chat_parser: ArgumentParser = subparsers.add_parser(
+        "chat",
+        help="Interactive chat with the DAO AI system",
+        description="""
+Start an interactive chat session with the DAO AI system.
+This command provides a REPL (Read-Eval-Print Loop) interface where you can
+send messages to the configured agents and receive streaming responses in real-time.
+
+The chat session maintains conversation history and supports the full agent
+orchestration capabilities defined in your configuration file.
+
+Use Ctrl-D (EOF) to exit the chat session gracefully.
+Use Ctrl-C to interrupt and exit immediately.
+        """,
+        epilog="""
+Examples:
+  dao-ai chat -c config/model_config.yaml                              # Start chat with default settings
+  dao-ai chat -c config/retail.yaml --custom-input store_num=87887     # Chat with custom store number
+  dao-ai chat -c config/prod.yaml --user-id john123                    # Chat with specific user ID
+  dao-ai chat -c config/retail.yaml --custom-input store_num=123 --custom-input region=west  # Multiple custom inputs
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    chat_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the model configuration file to validate",
+    )
+    chat_parser.add_argument(
+        "--custom-input",
+        action="append",
+        metavar="KEY=VALUE",
+        help="Custom configurable input as key=value pair (can be used multiple times)",
+    )
+    chat_parser.add_argument(
+        "--user-id",
+        type=str,
+        default="my_user_id",
+        metavar="ID",
+        help="User ID for the chat session (default: my_user_id)",
+    )
+    chat_parser.add_argument(
+        "--thread-id",
+        type=str,
+        default="1",
+        metavar="ID",
+        help="Thread ID for the chat session (default: 1)",
     )
 
     options = parser.parse_args(args)
 
     return options
+
+
+def handle_chat_command(options: Namespace) -> None:
+    """Interactive chat REPL with the DAO AI system."""
+    logger.debug("Starting chat session with DAO AI system...")
+
+    try:
+        config: AppConfig = AppConfig.from_file(options.config)
+        app = create_dao_ai_graph(config)
+
+        print("🤖 DAO AI Chat Session Started")
+        print("Type your message and press Enter. Use Ctrl-D to exit.")
+        print("-" * 50)
+
+        # Show current configuration
+        print("📋 Session Configuration:")
+        print(f"   Config file: {options.config}")
+        print(f"   Thread ID: {options.thread_id}")
+        print(f"   User ID: {options.user_id}")
+        if options.custom_input:
+            print("   Custom inputs:")
+            for custom_input in options.custom_input:
+                print(f"     {custom_input}")
+        print("-" * 50)
+
+        # Import streaming function and interrupt handling
+        from langchain_core.messages import HumanMessage
+        from langgraph.errors import GraphInterrupt
+
+        from dao_ai.models import process_messages_stream
+
+        # Conversation history
+        messages = []
+
+        while True:
+            try:
+                # Read user input
+                user_input = input("\n👤 You: ").strip()
+
+                if not user_input:
+                    continue
+
+                # Add user message to history
+                user_message = HumanMessage(content=user_input)
+                messages.append(user_message)
+
+                # Parse custom inputs from command line
+                configurable = {
+                    "thread_id": options.thread_id,
+                    "user_id": options.user_id,
+                }
+
+                # Add custom key=value pairs if provided
+                if options.custom_input:
+                    for custom_input in options.custom_input:
+                        try:
+                            key, value = custom_input.split("=", 1)
+                            # Try to convert to appropriate type
+                            if value.isdigit():
+                                configurable[key] = int(value)
+                            elif value.lower() in ("true", "false"):
+                                configurable[key] = value.lower() == "true"
+                            elif value.replace(".", "", 1).isdigit():
+                                configurable[key] = float(value)
+                            else:
+                                configurable[key] = value
+                        except ValueError:
+                            print(
+                                f"⚠️  Warning: Invalid custom input format '{custom_input}'. Expected key=value format."
+                            )
+                            continue
+
+                # Prepare custom inputs for the agent
+                custom_inputs = {"configurable": configurable}
+
+                print("\n🤖 Assistant: ", end="", flush=True)
+
+                # Stream the response
+                response_content = ""
+                try:
+                    for chunk in process_messages_stream(app, messages, custom_inputs):
+                        # Handle different chunk types
+                        if hasattr(chunk, "content") and chunk.content:
+                            content = chunk.content
+                            print(content, end="", flush=True)
+                            response_content += content
+                        elif hasattr(chunk, "choices") and chunk.choices:
+                            # Handle ChatCompletionChunk format
+                            for choice in chunk.choices:
+                                if (
+                                    hasattr(choice, "delta")
+                                    and choice.delta
+                                    and choice.delta.content
+                                ):
+                                    content = choice.delta.content
+                                    print(content, end="", flush=True)
+                                    response_content += content
+
+                    print()  # New line after streaming
+
+                    # Add assistant response to history if we got content
+                    if response_content.strip():
+                        from langchain_core.messages import AIMessage
+
+                        assistant_message = AIMessage(content=response_content)
+                        messages.append(assistant_message)
+                    else:
+                        print("(No response content generated)")
+
+                except Exception as e:
+                    print(f"\n❌ Error during streaming: {e}")
+                    logger.error(f"Streaming error: {e}")
+
+            except EOFError:
+                # Handle Ctrl-D
+                print("\n\n👋 Goodbye! Chat session ended.")
+                break
+            except KeyboardInterrupt:
+                # Handle Ctrl-C
+                print("\n\n👋 Chat session interrupted. Goodbye!")
+                break
+            except Exception as e:
+                print(f"\n❌ Error: {e}")
+                logger.error(f"Chat error: {e}")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize chat session: {e}")
+        print(f"❌ Failed to start chat session: {e}")
+        sys.exit(1)
 
 
 def handle_schema_command(options: Namespace) -> None:
@@ -397,6 +579,8 @@ def main() -> None:
             handle_bundle_command(options)
         case "deploy":
             handle_deploy_command(options)
+        case "chat":
+            handle_chat_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")
             sys.exit(1)
