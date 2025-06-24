@@ -60,6 +60,7 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 log_level: str = config.app.log_level
 
+logger.remove()
 logger.add(sys.stderr, level=log_level)
 
 graph: CompiledStateGraph = create_dao_ai_graph(config=config)
