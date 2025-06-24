@@ -18,6 +18,7 @@ resources:
       name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
+      on_behalf_of_user: False
 
 
   genie_rooms:

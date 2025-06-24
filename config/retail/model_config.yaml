@@ -44,6 +44,7 @@ resources:
       max_tokens: 8192
       fallbacks:                                     # Fallback models if primary fails
         - databricks-meta-llama-3-3-70b-instruct
+      on_behalf_of_user: False                       # Do not impersonate user in tool calls
 
     # LLM for complex reasoning tasks
     reasoning_llm: &reasoning_llm
