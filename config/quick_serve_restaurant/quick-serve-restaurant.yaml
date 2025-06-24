@@ -417,9 +417,11 @@ datasets:
       name: items_raw
     ddl: ../data/quick_serve_restaurant/items_raw.sql
     data: ../data/quick_serve_restaurant/items_raw.csv
-    read_options:
-      header: True
     format: csv
+    read_options:
+      header: "true"
+      inferSchema: "true"
+      timestampFormat: "yyyy-MM-dd HH:mm:ss"
 
 
 
