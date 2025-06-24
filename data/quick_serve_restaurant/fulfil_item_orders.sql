@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE TABLE fulfil_item_orders (
+CREATE OR REPLACE TABLE fulfil_item_orders (
   uuid STRING,
   coffee_name STRING,
   size STRING,

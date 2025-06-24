@@ -78,18 +78,12 @@ resources:
       source_table:                                 # Table containing source data
         schema: *qsr_schema
         name: items_description
-      primary_key: product_id                       # Primary key column
+      primary_key: item_name                       # Primary key column
       doc_uri: ~                                    # Optional document URI column (null in this case)
-      embedding_source_column: description          # Column to create embeddings from
+      embedding_source_column: item_review          # Column to create embeddings from
       columns:                                      # Columns to include in vector store
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - class_cd
-        - description
+        - item_name
+        - item_review
 
 
 
@@ -99,9 +93,12 @@ resources:
   # Define Unity Catalog tables used by the system
   tables:
     # Product catalog table
-    item_orders_table: &item_orders_table
+    fulfil_item_orders: &fulfil_item_orders
       schema: *qsr_schema                        # Reference to schema defined above
       name: fulfil_item_orders                                # Table name
+    itemis_description_table: &items_description_table
+      schema: *qsr_schema                        # Reference to schema defined above
+      name: items_description                                 # Table name
     
 
   # ---------------------------------------------------------------------------
