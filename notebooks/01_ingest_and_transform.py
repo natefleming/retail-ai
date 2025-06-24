@@ -80,3 +80,18 @@ datasets: Sequence[DatasetModel] = config.datasets
 for dataset in datasets:
     dataset: DatasetModel
     dataset.create()
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC drop table retail_consumer_goods.quick_serve_restaurant.items_raw;
+
+# COMMAND ----------
+
+ retail_consumer_goods                    # Unity Catalog name
+    schema_name: quick_serve_restaurant 
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC select * from retail_consumer_goods.quick_serve_restaurant.items_raw

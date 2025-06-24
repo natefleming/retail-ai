@@ -10,6 +10,7 @@ TBLPROPERTIES (
   'delta.enableDeletionVectors' = 'true',
   'delta.feature.changeDataFeed' = 'supported',
   'delta.feature.deletionVectors' = 'supported',
+  'delta.feature.allowColumnDefaults' = 'supported',
   'delta.minReaderVersion' = '3',
   'delta.minWriterVersion' = '7'
   )
