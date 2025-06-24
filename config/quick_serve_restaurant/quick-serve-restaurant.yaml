@@ -31,11 +31,6 @@ resources:
   # ---------------------------------------------------------------------------
   # Configure different LLMs for various purposes in the agent system
   llms:
-    # Primary LLM for general tasks
-    default_llm: &default_llm
-      name: databricks-claude-3-7-sonnet  # Databricks serving endpoint name
-      temperature: 0.1                              # Low temperature for consistent responses
-      max_tokens: 8192                              # Maximum tokens per response
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
@@ -99,8 +94,12 @@ resources:
     items_description_table: &items_description_table
       schema: *qsr_schema                        # Reference to schema defined above
       name: items_description                                 # Table name
-    
-
+    items_raw_table: &items_raw_table
+      schema: *qsr_schema                        # Reference to schema defined above
+      name: items_raw                                 # Table name    
+    orders_raw_table: &orders_raw_table
+      schema: *qsr_schema                        # Reference to schema defined above
+      name: orders_raw                                 # Table name    
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -236,6 +235,11 @@ retrievers:
 
 tools:
 
+  insert_coffee_order_uc_tool: &insert_coffee_order_uc_tool
+    name: insert_coffee_order_tool_uc
+    function:
+      type: unity_catalog
+      <<: *insert_coffee_order
 
   match_item_by_description_and_price_tool: &match_item_by_description_and_price_tool
     name: match_item_by_description_and_price_uc
@@ -261,10 +265,17 @@ tools:
       type: factory
       name: quick_serve_restaurant.tools.insert_coffee_order_tool
       args:
-        variables:
-          - env: RETAIL_AI_DATABRICKS_HOST          
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_HOST
+        host:
+          variables:
+            - env: RETAIL_AI_DATABRICKS_HOST          
+            - scope: retail_ai
+              secret: RETAIL_AI_DATABRICKS_HOST
+        token:
+          variables:
+            - env: RETAIL_AI_DATABRICKS_HOST          
+            - scope: retail_ai
+              secret: RETAIL_AI_DATABRICKS_HOST
+        tool: *insert_coffee_order_uc_tool
 
 # =============================================================================
 # MEMORY CONFIGURATION
@@ -297,28 +308,70 @@ memory: &memory
 
 agents:
   # ---------------------------------------------------------------------------
-  # GENERAL AGENT
+  # BARISTA AGENT
   # ---------------------------------------------------------------------------
-  # Handles general store information and basic inquiries
-  general: &general
-    name: general                                   # Agent identifier
-    description: "General retail store assistant for home improvement and hardware store inquiries"
+  # Expert coffee shop agent specialized in menu inquiries, recommendations, ordering, and order history
+  barista: &barista
+    name: barista                                   # Agent identifier
+    description: "Expert coffee shop barista specializing in menu recommendations, coffee ordering, price inquiries, item descriptions, and order history. Can find products by description, match items within price ranges, process coffee orders, and retrieve historical order data."
     model: *tool_calling_llm                       # Reference to LLM configuration
     tools: 
       - *insert_coffee_order_tool
       - *match_item_by_description_and_price_tool
       - *match_historical_item_order_by_date_tool
       - *match_historical_item_order_by_date_tool
+      - *lookup_items_by_descriptions_tool
     memory: *memory                                 # Reference to memory configuration
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
-      - **Store Number**: {store_num}
-      You are a helpful retail store assistant for a home improvement and hardware store. You have access to search tools to find general information 
-      which can not be better answered by another agent.
+      - **Session ID**: {thread_id}
+      
+      You are an expert barista at a specialty coffee shop with comprehensive knowledge of our menu, prices, and customer preferences. Your primary role is to help customers discover menu items, make recommendations, process orders, and provide information about past orders.
+
+      ## Your Capabilities & When to Use Tools:
+
+      ### **Menu Discovery & Recommendations** 
+      Use `match_item_by_description_and_price_tool` when customers:
+      - Ask for recommendations ("What cold drinks do you have?", "Suggest something sweet")
+      - Want items in a specific price range ("What costs under $5?")
+      - Ask about specific sizes or categories
+      - Need help choosing between options
+
+      ### **Detailed Item Information**
+      Use `lookup_items_by_descriptions_tool` when customers:
+      - Want to know more about a specific item's taste or ingredients
+      - Ask for reviews or descriptions ("What does the mocha taste like?")
+      - Need detailed information before ordering
+
+      ### **Order Processing**
+      Use `insert_coffee_order_tool` when customers:
+      - Express clear ordering intent ("I'll take a...", "Can I get...", "I'd like to order...")
+      - Confirm their selection after browsing
+      - Are ready to complete their purchase
+
+      ### **Order History & Analytics**
+      Use `match_historical_item_order_by_date_tool` when customers:
+      - Ask about past orders ("What did I order last week?")
+      - Want to know popular items or trends
+      - Inquire about order history within specific dates
+
+      ## Interaction Guidelines:
+
+      **Be Proactive**: Always offer relevant suggestions and ask clarifying questions to better serve customers.
+
+      **Price Sensitivity**: When customers ask about prices, use the price range filters effectively (low_price, high_price parameters).
+
+      **Size Matters**: Always confirm sizes (Small, Medium, Large) when processing orders, as pricing varies by size.
+
+      **Follow Up**: After providing information, ask if they'd like to place an order or need more details.
+
+      **Handle Ambiguity**: If a customer's request is unclear, use your tools to show options and let them choose.
+
+      You are friendly, knowledgeable, and always ready to help customers find exactly what they're looking for!
     handoff_prompt: |                              
-      General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
-      Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
+      Coffee shop inquiries including menu questions, item recommendations, price checks, coffee ordering, taste descriptions, and order history.
+      Examples: "What coffee drinks do you have?", "I'd like a medium latte", "What's good for under $4?", "What did I order yesterday?", "Tell me about your cold brew", "Can you recommend something sweet?"
 
 # =============================================================================
 # APPLICATION CONFIGURATION
@@ -327,13 +380,13 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: retai_ai_agent_example                      # Application name  
-  description: "Multi-agent system for retail customer service and product assistance"
+  name: coffee_shop_agent                      # Application name  
+  description: "Multi-agent system for coffee shop order management and customer service"
   log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *qsr_schema                          # Schema where model will be registered
-    name: qsr_ai_agent                           # Model name in MLflow registry
-  endpoint_name: qsr_ai_agent                    # Model serving endpoint name
+    name: coffee_shop_agent                           # Model name in MLflow registry
+  endpoint_name: coffee_shop_agent                    # Model serving endpoint name
   environment_vars: 
     PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
@@ -347,13 +400,14 @@ app:
       entitlements:
         - CAN_MANAGE                                # Full management permissions
   agents:                                           # List of agents included in the system
-    - *general  
+    - *barista  
   orchestration:                                    # Agent orchestration configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
       memory: *memory                            # Memory store for conversation context
   message_hooks: 
-    - retail.hooks.require_store_num_hook
+    - dao_ai.hooks.require_thread_id_hook
+    - dao_ai.hooks.require_user_id_hook
   input_example:
       messages:
         - role: user
@@ -362,10 +416,6 @@ app:
         configurable:
           thread_id: "1"
           user_id: my_user_id
-          store_num: 87887
-  summarization:
-    model: *tool_calling_llm
-
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
