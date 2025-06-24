@@ -123,6 +123,9 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
+    
+    ## It might make sense to have each agent have its own summarization node
+    # but for now we will use a single summarization node
     workflow.add_node("summarization", summarization_node(config=config))
     workflow.add_node("orchestration", supervisor_node)
 
@@ -190,6 +193,9 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
+    
+    ## It might make sense to have each agent have its own summarization node
+    # but for now we will use a single summarization node
     workflow.add_node("summarization", summarization_node(config=config))
     workflow.add_node("swarm", swarm_node)
 
