@@ -708,8 +708,12 @@
             },
             {
               "$ref": "#/$defs/VolumePathModel"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Data"
         },
         "format": {
@@ -736,9 +740,6 @@
           "title": "Read Options"
         }
       },
-      "required": [
-        "data"
-      ],
       "title": "DatasetModel",
       "type": "object"
     },

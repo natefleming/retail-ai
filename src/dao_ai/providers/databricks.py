@@ -409,38 +409,40 @@ class DatabricksProvider(ServiceProvider):
         ddl: str | HasFullName = dataset.ddl
         if isinstance(ddl, HasFullName):
             ddl = ddl.full_name
-        ddl_path: Path = Path(ddl)
 
         data: str | HasFullName = dataset.data
         if isinstance(data, HasFullName):
             data = data.full_name
-        data_path: Path = Path(data)
 
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
 
-        statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
-        for statement in statements:
-            logger.debug(statement)
-            spark.sql(
-                str(statement), args={"database": dataset.table.schema_model.full_name}
-            )
-
-        if format == "sql":
-            data_statements: Sequence[str] = sqlparse.parse(data_path.read_text())
-            for statement in data_statements:
+        if ddl:
+            ddl_path: Path = Path(ddl)
+            statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
+            for statement in statements:
                 logger.debug(statement)
                 spark.sql(
-                    str(statement),
-                    args={"database": dataset.table.schema_model.full_name},
+                    str(statement), args={"database": dataset.table.schema_model.full_name}
                 )
-        else:
-            logger.debug(f"Writing to: {table}")
-            if not data_path.is_absolute():
-                data_path = current_dir / data_path
-            spark.read.format(format).options(**read_options).load(
-                data_path.as_posix()
-            ).write.mode("overwrite").saveAsTable(table)
+
+        if data:
+            data_path: Path = Path(data)
+            if format == "sql":
+                data_statements: Sequence[str] = sqlparse.parse(data_path.read_text())
+                for statement in data_statements:
+                    logger.debug(statement)
+                    spark.sql(
+                        str(statement),
+                        args={"database": dataset.table.schema_model.full_name},
+                    )
+            else:
+                logger.debug(f"Writing to: {table}")
+                if not data_path.is_absolute():
+                    data_path = current_dir / data_path
+                spark.read.format(format).options(**read_options).load(
+                    data_path.as_posix()
+                ).write.mode("overwrite").saveAsTable(table)
 
     def create_vector_store(self, vector_store: VectorStoreModel) -> None:
         if not endpoint_exists(self.vsc, vector_store.endpoint.name):
