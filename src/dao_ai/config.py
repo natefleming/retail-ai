@@ -922,7 +922,7 @@ class DatasetModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     table: Optional[TableModel] = None
     ddl: Optional[str | VolumeModel] = None
-    data: str | VolumePathModel
+    data: Optional[str | VolumePathModel] = None
     format: Optional[DatasetFormat] = None
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
