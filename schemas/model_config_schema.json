@@ -738,6 +738,18 @@
             }
           ],
           "title": "Read Options"
+        },
+        "table_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Table Schema"
         }
       },
       "title": "DatasetModel",
