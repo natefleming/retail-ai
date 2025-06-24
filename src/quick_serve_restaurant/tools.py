@@ -2,20 +2,23 @@ from typing import Any, Callable
 
 from langchain_core.tools import tool as create_tool
 
-from dao_ai.config import CompositeVariableModel, UnityCatalogFunctionModel
-
+from dao_ai.config import CompositeVariableModel, ToolModel, UnityCatalogFunctionModel
+from loguru import logger
+from dao_ai.tools.core import BaseTool
 
 def insert_coffee_order_tool(
     host: CompositeVariableModel | dict[str, Any],
     token: CompositeVariableModel | dict[str, Any],
-    tool: UnityCatalogFunctionModel | dict[str, Any],
+    tool: ToolModel | dict[str, Any],
 ) -> Callable[[list[str]], tuple]:
+  
+    logger.debug(f"Creating insert_coffee_order tool with host: {host}, token: {token}, tool: {tool}")
     if isinstance(host, dict):
         host = CompositeVariableModel(**host)
     if isinstance(token, dict):
         token = CompositeVariableModel(**token)
     if isinstance(tool, dict):
-        tool = UnityCatalogFunctionModel(**tool)
+        tool = ToolModel(**tool)
 
     @create_tool
     def insert_coffee_order(coffee_name: str, size: str, thread_id: str) -> str:
@@ -34,10 +37,16 @@ def insert_coffee_order_tool(
           str: Order confirmation message with details and next steps for the customer
         """
 
-        result: str = tool.as_tool().invoke(
+        unity_catalog_function: UnityCatalogFunctionModel | dict[str, Any ]= tool.function
+        if isinstance(unity_catalog_function, dict):
+            unity_catalog_function = UnityCatalogFunctionModel(**unity_catalog_function)
+
+        unity_catalog_tool: BaseTool = unity_catalog_function.as_tool()
+        logger.debug(f"Invoking Unity Catalog tool: {unity_catalog_tool.name}")
+        result: str = unity_catalog_tool.invoke(
             {
-                "host": host,
-                "token": token,
+                "host": host.as_value(),
+                "token": token.as_value(),
                 "coffee_name": coffee_name,
                 "size": size,
                 "session_id": thread_id,
