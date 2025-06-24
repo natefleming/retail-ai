@@ -2,6 +2,8 @@ from typing import Any, Literal, Optional, Type
 
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.base import RunnableLike
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.managed import RemainingSteps
@@ -10,8 +12,7 @@ from openevals.llm import create_llm_as_judge
 
 from dao_ai.config import GuardrailModel
 from dao_ai.messages import last_ai_message, last_human_message
-from dao_ai.state import AgentConfig, AgentState
-from dao_ai.types import AgentCallable
+from dao_ai.state import SharedState
 
 
 class MessagesWithSteps(MessagesState):
@@ -64,12 +65,12 @@ def with_guardrails(
 ) -> CompiledStateGraph:
     logger.debug("Creating graph with guardrails")
     return create_reflection_graph(
-        graph, guardrail, state_schema=AgentState, config_schema=AgentConfig
+        graph, guardrail, state_schema=SharedState, config_schema=RunnableConfig
     ).compile()
 
 
-def judge_node(guardrails: GuardrailModel) -> AgentCallable:
-    def judge(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
+def judge_node(guardrails: GuardrailModel) -> RunnableLike:
+    def judge(state: SharedState, config: RunnableConfig) -> dict[str, BaseMessage]:
         llm: LanguageModelLike = guardrails.model.as_chat_model()
 
         evaluator = create_llm_as_judge(
@@ -102,7 +103,7 @@ def judge_node(guardrails: GuardrailModel) -> AgentCallable:
 
 def reflection_guardrail(guardrails: GuardrailModel) -> CompiledStateGraph:
     judge: CompiledStateGraph = (
-        StateGraph(AgentState, config_schema=AgentConfig)
+        StateGraph(SharedState, config_schema=RunnableConfig)
         .add_node("judge", judge_node(guardrails=guardrails))
         .add_edge(START, "judge")
         .add_edge("judge", END)

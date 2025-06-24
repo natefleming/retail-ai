@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Generator, Optional, Sequence
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.pregel.io import AddableValuesDict
 from langgraph.types import PregelTask, StateSnapshot
@@ -20,7 +21,7 @@ from mlflow.types.llm import (  # Non-streaming helper classes; Helper classes f
 )
 
 from dao_ai.messages import has_langchain_messages, has_mlflow_messages
-from dao_ai.state import AgentConfig, AgentState
+from dao_ai.state import SharedState
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -63,7 +64,7 @@ class LanggraphChatModel(ChatModel):
 
         request = {"messages": self._convert_messages_to_dict(messages)}
 
-        config: AgentState = self._convert_to_config(params)
+        config: SharedState = self._convert_to_config(params)
 
         if self._is_interrupted(config):
             logger.info("Graph is currently interrupted")
@@ -80,7 +81,7 @@ class LanggraphChatModel(ChatModel):
 
     def _convert_to_config(
         self, params: Optional[ChatParams | dict[str, Any]]
-    ) -> AgentConfig:
+    ) -> RunnableConfig:
         if not params:
             return {}
 
@@ -96,7 +97,7 @@ class LanggraphChatModel(ChatModel):
             if "configurable" in custom_inputs:
                 configurable: dict[str, Any] = custom_inputs.pop("configurable")
 
-        agent_config: AgentConfig = AgentConfig(**{"configurable": configurable})
+        agent_config: RunnableConfig = RunnableConfig(**{"configurable": configurable})
         return agent_config
 
     def predict_stream(
@@ -108,12 +109,12 @@ class LanggraphChatModel(ChatModel):
 
         request = {"messages": self._convert_messages_to_dict(messages)}
 
-        config: AgentState = self._convert_to_config(params)
+        config: SharedState = self._convert_to_config(params)
 
         if self._is_interrupted(config):
             logger.info("Graph is currently interrupted")
 
-        for message, _ in self.graph.stream(
+        for message, metadata in self.graph.stream(
             request, config=config, stream_mode="messages"
         ):
             logger.trace(f"message_type: {type(message)}, message: {message}")
@@ -126,6 +127,7 @@ class LanggraphChatModel(ChatModel):
                     ),
                 )
                 and message.content
+                and metadata["langgraph_node"] != "summarization"
             ):
                 content = message.content
                 yield self._create_chat_completion_chunk(content)

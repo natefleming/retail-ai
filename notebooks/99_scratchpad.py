@@ -193,7 +193,7 @@ vector_search_retriever_tool: BaseTool = (
 from langgraph.prebuilt import create_react_agent
 from databricks_langchain import ChatDatabricks
 from dao_ai.tools import create_vector_search_tool
-from dao_ai.state import AgentState, AgentConfig
+from dao_ai.state import SharedState, AgentConfig
 
 
 vs_tool = create_vector_search_tool(
@@ -208,7 +208,7 @@ vector_search_agent = create_react_agent(
     model=ChatDatabricks(model=model_name, temperature=0.1),
     tools=[vs_tool],
     prompt="You are an intelligent agent that can answer questions about summarizing product reviews. You have access to a vector search index that contains product reviews. Use the vector search index to answer the question. If the question is not related to product reviews, just say that you don't know.",
-    state_schema=AgentState,
+    state_schema=SharedState,
     config_schema=AgentConfig,
     checkpointer=None,
 )
@@ -384,7 +384,7 @@ from loguru import logger
 from mlflow.models import ModelConfig
 from langchain_core.prompts import PromptTemplate
 
-from dao_ai.state import AgentConfig, AgentState
+from dao_ai.state import AgentConfig, SharedState
 from dao_ai.tools import create_genie_tool, create_vector_search_tool
 
 from langchain_core.messages import HumanMessage
@@ -413,7 +413,7 @@ agent: CompiledStateGraph = create_react_agent(
     name="arma_agent",
     model=llm,
     prompt=formatted_prompt,
-    state_schema=AgentState,
+    state_schema=SharedState,
     config_schema=AgentConfig,
     tools=[],
 ) 
