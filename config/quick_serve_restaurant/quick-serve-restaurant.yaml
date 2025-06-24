@@ -272,9 +272,9 @@ tools:
               secret: RETAIL_AI_DATABRICKS_HOST
         token:
           variables:
-            - env: RETAIL_AI_DATABRICKS_HOST          
+            - env: RETAIL_AI_DATABRICKS_TOKEN          
             - scope: retail_ai
-              secret: RETAIL_AI_DATABRICKS_HOST
+              secret: RETAIL_AI_DATABRICKS_TOKEN
         tool: *insert_coffee_order_uc_tool
 
 # =============================================================================
