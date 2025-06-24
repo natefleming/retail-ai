@@ -1,22 +1,25 @@
 import pytest
 from langchain_core.documents.base import Document
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 
 from dao_ai.config import AppConfig
-from dao_ai.state import AgentConfig, AgentState
+from dao_ai.state import SharedState
 
 
 @pytest.mark.unit
 def test_agent_config_creation() -> None:
-    """Test creating an AgentConfig instance."""
-    config = AgentConfig()
+    """Test creating an RunnableConfig instance."""
+    config = RunnableConfig()
     assert isinstance(config, dict)
 
 
 @pytest.mark.unit
 def test_agent_config_with_fields() -> None:
-    """Test AgentConfig with custom fields."""
-    config = AgentConfig(user_id="user123", store_num="store456", is_valid_config=True)
+    """Test RunnableConfig with custom fields."""
+    config = RunnableConfig(
+        user_id="user123", store_num="store456", is_valid_config=True
+    )
 
     assert config["user_id"] == "user123"
     assert config["store_num"] == "store456"
@@ -28,7 +31,7 @@ def test_agent_state_creation() -> None:
     """Test creating an AgentState instance."""
     test_document = Document(page_content="Test content", metadata={"source": "test"})
 
-    state = AgentState(
+    state = SharedState(
         messages=[HumanMessage(content="Hello")],
         context=[test_document],
         route="search",
@@ -53,7 +56,7 @@ def test_agent_state_creation() -> None:
 @pytest.mark.unit
 def test_agent_state_inherits_messages_state() -> None:
     """Test that AgentState properly inherits from MessagesState."""
-    state = AgentState(
+    state = SharedState(
         messages=[
             HumanMessage(content="First message"),
             HumanMessage(content="Second message"),
@@ -76,7 +79,7 @@ def test_agent_state_inherits_messages_state() -> None:
 @pytest.mark.unit
 def test_agent_state_with_empty_context() -> None:
     """Test AgentState with empty context list."""
-    state = AgentState(
+    state = SharedState(
         messages=[],
         context=[],
         route="",
@@ -99,7 +102,7 @@ def test_agent_state_with_multiple_documents() -> None:
         Document(page_content="Doc 3", metadata={"id": 3}),
     ]
 
-    state = AgentState(
+    state = SharedState(
         messages=[],
         context=docs,
         route="vector_search",
@@ -118,8 +121,8 @@ def test_agent_state_with_multiple_documents() -> None:
 
 @pytest.mark.unit
 def test_agent_config_integration_with_app_config(config: AppConfig) -> None:
-    """Test that AgentConfig works with the existing config fixture."""
-    agent_config = AgentConfig(
+    """Test that RunnableConfig works with the existing config fixture."""
+    agent_config = RunnableConfig(
         user_id="test_user", store_num="store001", is_valid_config=config is not None
     )
 

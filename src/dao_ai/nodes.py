@@ -8,9 +8,12 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    trim_messages,
 )
 from langchain_core.messages.modifier import RemoveMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
@@ -31,15 +34,14 @@ from dao_ai.config import (
 )
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
 from dao_ai.messages import last_human_message
-from dao_ai.state import AgentConfig, AgentState
+from dao_ai.state import IncomingState, SharedState
 from dao_ai.tools import create_tools
-from dao_ai.types import AgentCallable
 
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
     logger.debug(f"make_prompt: {base_system_prompt}")
 
-    def prompt(state: AgentState, config: AgentConfig) -> list:
+    def prompt(state: SharedState, config: RunnableConfig) -> list:
         prompt_template: PromptTemplate = PromptTemplate.from_template(
             base_system_prompt
         )
@@ -50,6 +52,12 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
         params |= config.get("configurable", {})
 
         system_prompt: str = prompt_template.format(**params)
+
+        summary: str = state.get("summary", "")
+        if summary:
+            system_prompt += (
+                f"\n\n## Previous Conversation Summary\n\n{summary}\n\n---\n"
+            )
 
         messages: Sequence[BaseMessage] = state["messages"]
         messages = [SystemMessage(content=system_prompt)] + messages
@@ -71,7 +79,7 @@ def create_hook(
 
 def create_agent_node(
     agent: AgentModel, additional_tools: Optional[Sequence[BaseTool]] = None
-) -> AgentCallable:
+) -> RunnableLike:
     """
     Factory function that creates a LangGraph node for a specialized agent.
 
@@ -122,10 +130,13 @@ def create_agent_node(
     post_agent_hook: Callable[..., Any] = create_hook(agent.post_agent_hook)
 
     compiled_agent: CompiledStateGraph = create_react_agent(
+        name=agent.name,
         model=llm,
         prompt=make_prompt(agent.prompt),
         tools=tools,
         store=store,
+        state_schema=SharedState,
+        config_schema=RunnableConfig,
         checkpointer=checkpointer,
         pre_model_hook=pre_agent_hook,
         post_model_hook=post_agent_hook,
@@ -140,10 +151,54 @@ def create_agent_node(
     return compiled_agent
 
 
-def summarization_node(config: AppConfig) -> AgentCallable:
+def summarization_node(config: AppConfig) -> RunnableLike:
     summarization_model: SummarizationModel | None = config.app.summarization
 
-    def summarization(state: AgentState, config: AgentConfig) -> AgentState:
+    def _create_summary(
+        model: LanguageModelLike,
+        messages_to_summarize: Sequence[BaseMessage],
+        existing_summary: str,
+    ) -> str:
+        summary_message: str
+        if existing_summary:
+            summary_message = (
+                f"This is a summary of the conversation so far: {existing_summary}\n\n"
+                "Extend the summary by taking into account the new messages above:"
+            )
+        else:
+            summary_message = "Create a summary of the conversation above:"
+
+        messages: Sequence[BaseMessage] = messages_to_summarize + [
+            HumanMessage(content=summary_message)
+        ]
+        response: AIMessage = model.invoke(input=messages)
+        return response.content
+
+    def _update_messages_with_summary(
+        model: LanguageModelLike,
+        state: SharedState,
+        messages_to_summarize: Sequence[BaseMessage],
+    ) -> dict[str, Any]:
+        """Helper function to create summary and update messages."""
+        existing_summary: str = state.get("summary", "")
+        new_summary: str = _create_summary(
+            model, messages_to_summarize, existing_summary
+        )
+
+        deleted_messages: Sequence[RemoveMessage] = [
+            RemoveMessage(id=m.id) for m in messages_to_summarize
+        ]
+
+        logger.debug(
+            f"Summarized {len(messages_to_summarize)} messages, created new summary"
+        )
+
+        return {
+            "messages": deleted_messages,
+            "summary": new_summary,
+        }
+
+    def summarization(state: SharedState, config: RunnableConfig) -> SharedState:
         logger.debug("Running summarization node")
 
         if not summarization_model:
@@ -153,51 +208,64 @@ def summarization_node(config: AppConfig) -> AgentCallable:
         model: LanguageModelLike = summarization_model.model.as_chat_model()
 
         if summarization_model.retained_message_count:
-            logger.debug("Trimming messages to retain only the last few messages")
-            retained_message_count: int = summarization_model.retained_message_count
+            retain_message_count: int = summarization_model.retained_message_count
 
-            summary = state.get("summary", "")
-            summary_message: str
-            if summary:
-                summary_message = (
-                    f"This is summary of the conversation to date: {summary}\n\n"
-                    "Extend the summary by taking into account the new messages above:"
+            if len(state["messages"]) <= retain_message_count:
+                logger.debug(
+                    f"Not enough messages to summarize, retaining last {retain_message_count} messages. Current message count: {len(state['messages'])}"
+                )
+                return
+
+            messages_to_summarize: Sequence[BaseMessage] = state["messages"][
+                :-retain_message_count
+            ]
+
+            return _update_messages_with_summary(model, state, messages_to_summarize)
+        else:
+            max_tokens: int = summarization_model.max_tokens
+            messages: Sequence[BaseMessage] = state["messages"]
+            trimmed_messages: Sequence[BaseMessage] = trim_messages(
+                messages,
+                max_tokens=max_tokens,
+                strategy="last",
+                token_counter=count_tokens_approximately,
+                allow_partial=False,
+                include_system=True,
+                start_on="human",
+            )
+
+            if len(trimmed_messages) < len(messages):
+                logger.debug(
+                    f"Trimmed {len(messages) - len(trimmed_messages)} messages due to token limit"
                 )
 
+                # Find messages that were removed by trimming
+                trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
+                messages_to_summarize: Sequence[BaseMessage] = [
+                    m for m in messages if m.id not in trimmed_message_ids
+                ]
+
+                return _update_messages_with_summary(
+                    model, state, messages_to_summarize
+                )
             else:
-                summary_message = "Create a summary of the conversation above:"
+                logger.debug(
+                    "No messages trimmed, no summarization performed. "
+                    "All messages fit within the token limit."
+                )
 
-            messages: Sequence[BaseMessage] = state["messages"] + [
-                HumanMessage(content=summary_message)
-            ]
-            response: AIMessage = model.invoke(
-                messages,
-            )
-
-            delete_messages: Sequence[RemoveMessage] = [
-                RemoveMessage(id=m.id)
-                for m in state["messages"][:-retained_message_count]
-            ]
-
-            system_message: SystemMessage = SystemMessage(
-                content=f"Summary of conversation earlier: {response.content}"
-            )
-            logger.debug(f"Summarization response: {response.content}")
-
-            messages = system_message + state["messages"] + delete_messages
-
-            return {"summary": response.content, "messages": delete_messages}
+        return None
 
     return summarization
 
 
-def message_hook_node(config: AppConfig) -> AgentCallable:
+def message_hook_node(config: AppConfig) -> RunnableLike:
     message_hooks: Sequence[Callable[..., Any]] = [
         create_hook(hook) for hook in config.app.message_hooks
     ]
 
     @mlflow.trace()
-    def message_hook(state: AgentState, config: AgentConfig) -> dict[str, Any]:
+    def message_hook(state: IncomingState, config: RunnableConfig) -> SharedState:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "message_error": None}
 
@@ -229,13 +297,13 @@ def message_hook_node(config: AppConfig) -> AgentCallable:
     return message_hook
 
 
-def process_images_node(config: AppConfig) -> AgentCallable:
+def process_images_node(config: AppConfig) -> RunnableLike:
     process_image_config: AgentModel = config.agents.get("process_image", {})
     prompt: str = process_image_config.prompt
 
     @mlflow.trace()
     def process_images(
-        state: AgentState, config: AgentConfig
+        state: SharedState, config: RunnableConfig
     ) -> dict[str, BaseMessage]:
         logger.debug("process_images")
 
