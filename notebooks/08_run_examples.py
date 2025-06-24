@@ -14,42 +14,20 @@
 
 # COMMAND ----------
 
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+
+# COMMAND ----------
+
 from dotenv import find_dotenv, load_dotenv
 
 _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
-config_path: str = dbutils.widgets.get("config-path")
-print(config_path)
-
-# COMMAND ----------
-
-from typing import Sequence
-from importlib.metadata import version
 import sys
 
-
 sys.path.insert(0, "../src")
-
-pip_requirements: Sequence[str] = (
-    f"langgraph=={version('langgraph')}",
-    f"langchain=={version('langchain')}",
-    f"databricks-langchain=={version('databricks-langchain')}",
-    f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
-    f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
-    f"duckduckgo-search=={version('duckduckgo-search')}",
-    f"databricks-sdk=={version('databricks-sdk')}",
-    f"openevals=={version('openevals')}",
-    f"mlflow=={version('mlflow')}",
-    f"psycopg[binary,pool]=={version('psycopg')}",
-    f"databricks-agents=={version('databricks-agents')}",
-    f"pydantic=={version('pydantic')}",
-    f"loguru=={version('loguru')}",
-)
-
-print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
@@ -58,17 +36,11 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-# MAGIC %load_ext autoreload
-# MAGIC %autoreload 2
+from rich import print as pprint
 
-# COMMAND ----------
-
-from typing import Any
-import yaml
-from pathlib import Path
-
-retail_examples_path: Path = Path.cwd().parent / "examples" / "retail" / "examples.yaml"
-retail_examples: dict[str, Any] = yaml.safe_load(retail_examples_path.read_text())
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+config_path: str = dbutils.widgets.get("config-path")
+pprint(config_path)
 
 # COMMAND ----------
 
@@ -94,6 +66,65 @@ graph: CompiledStateGraph = create_dao_ai_graph(config=config)
 
 app: ChatModel = create_agent(graph)
 
+
+# COMMAND ----------
+
+config.display_graph()
+
+# COMMAND ----------
+
+from typing import Any, Sequence
+import yaml
+from pathlib import Path
+from rich import print as pprint
+
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+config_path: str = dbutils.widgets.get("config-path")
+pprint(config_path)
+
+examples_path: Path = Path.cwd().parent / "examples"
+projects: Sequence[str] = [item.name for item in examples_path.iterdir() if item.is_dir()]
+
+dbutils.widgets.dropdown(name="project", defaultValue="retail", choices=projects)
+project: str = dbutils.widgets.get("project")
+
+project_examples: Path = Path.cwd().parent / "examples" / project
+examples_files: Sequence[str] = [item.name for item in project_examples.iterdir() if item.is_file()]
+
+dbutils.widgets.dropdown(name="example_files", defaultValue=examples_files[0], choices=examples_files)
+example_file: str = dbutils.widgets.get("example_files")
+
+chosen_example: str | None = None
+chosen_input_example: dict[str, Any] = {}
+examples_path: Path = Path.cwd().parent / "examples" / project / example_file
+if examples_path.exists():
+  retail_examples: dict[str, Any] = yaml.safe_load(examples_path.read_text())
+
+  examples: dict[str, Any] = retail_examples.get("examples", {})
+
+  example_names: Sequence[str] = sorted(examples.keys())
+
+  dbutils.widgets.dropdown(name="example", defaultValue=example_names[0], choices=example_names)
+  chosen_example: dict[str, Any] = dbutils.widgets.get("example")
+
+  chosen_input_example = examples.get(chosen_example, {})
+
+pprint(chosen_example)
+pprint(chosen_input_example)
+
+
+
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
+from dao_ai.models import process_messages
+
+pprint(chosen_input_example)
+
+response = process_messages(app=app, **chosen_input_example)
+pprint(response)
 
 # COMMAND ----------
 
