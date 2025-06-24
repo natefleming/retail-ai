@@ -34,9 +34,9 @@ CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.match_historical_item_or
         query => description,
         num_results => 3
       ) vs
-        inner join items_raw item
+        inner join {catalog_name}.{schema_name}.items_raw item
           ON vs.item_name = item.item_name
-        INNER JOIN orders_raw orders
+        INNER JOIN {catalog_name}.{schema_name}.orders_raw orders
           ON orders.item_id = item.item_id
     where
       orders.created_at >= to_timestamp(start_transaction_date)

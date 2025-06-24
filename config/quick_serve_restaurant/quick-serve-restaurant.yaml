@@ -96,7 +96,7 @@ resources:
     fulfil_item_orders: &fulfil_item_orders
       schema: *qsr_schema                        # Reference to schema defined above
       name: fulfil_item_orders                                # Table name
-    itemis_description_table: &items_description_table
+    items_description_table: &items_description_table
       schema: *qsr_schema                        # Reference to schema defined above
       name: items_description                                 # Table name
     
@@ -107,9 +107,9 @@ resources:
   # ---------------------------------------------------------------------------
   # Define Unity Catalog functions for data operations
   functions:
-    # insert_coffee_order: &insert_coffee_order
-    #   schema: *qsr_schema
-    #   name: insert_coffee_order             
+    insert_coffee_order: &insert_coffee_order
+      schema: *qsr_schema
+      name: insert_coffee_order             
     match_item_by_description_and_price: &match_item_by_description_and_price
       schema: *qsr_schema
       name: match_item_by_description_and_price                  
@@ -236,20 +236,35 @@ retrievers:
 
 tools:
 
-  # Vector search tool for product similarity
-  vector_search_tool: &vector_search_tool
-    name: vector_search
+
+  match_item_by_description_and_price_tool: &match_item_by_description_and_price_tool
+    name: match_item_by_description_and_price_uc
+    function:
+      type: unity_catalog
+      <<: *match_item_by_description_and_price
+
+  match_historical_item_order_by_date_tool: &match_historical_item_order_by_date_tool
+    name: match_historical_item_order_by_date_uc
+    function:
+      type: unity_catalog
+      <<: *match_historical_item_order_by_date
+
+  lookup_items_by_descriptions_tool: &lookup_items_by_descriptions_tool
+    name: lookup_items_by_descriptions_uc
+    function:
+      type: unity_catalog
+      <<: *lookup_items_by_descriptions
+
+  insert_coffee_order_tool: &insert_coffee_order_tool
+    name: insert_coffee_order
     function:
       type: factory
-      name: dao_ai.tools.create_vector_search_tool
+      name: quick_serve_restaurant.tools.insert_coffee_order_tool
       args:
-        retriever: *items_description_retriever              # Reference to retriever config
-        name: product_vector_search_tool            # Tool instance name
-        description: "Search for products using vector search"  # Tool description
-
-
-
-
+        variables:
+          - env: RETAIL_AI_DATABRICKS_HOST          
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_HOST
 
 # =============================================================================
 # MEMORY CONFIGURATION
@@ -289,20 +304,21 @@ agents:
     name: general                                   # Agent identifier
     description: "General retail store assistant for home improvement and hardware store inquiries"
     model: *tool_calling_llm                       # Reference to LLM configuration
-    tools: []                                         # Tools available to this agent
+    tools: 
+      - *insert_coffee_order_tool
+      - *match_item_by_description_and_price_tool
+      - *match_historical_item_order_by_date_tool
+      - *match_historical_item_order_by_date_tool
     memory: *memory                                 # Reference to memory configuration
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
-
       You are a helpful retail store assistant for a home improvement and hardware store. You have access to search tools to find general information 
       which can not be better answered by another agent.
     handoff_prompt: |                              
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
-
-
 
 # =============================================================================
 # APPLICATION CONFIGURATION
@@ -319,10 +335,10 @@ app:
     name: qsr_ai_agent                           # Model name in MLflow registry
   endpoint_name: qsr_ai_agent                    # Model serving endpoint name
   environment_vars: 
-    PGHOST: "{{secrets/qsr_ai/PGHOST}}"  # Databricks host URL
-    qsr_AI_DATABRICKS_CLIENT_ID: "{{secrets/qsr_ai/qsr_AI_DATABRICKS_CLIENT_ID}}"
-    qsr_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/qsr_ai/qsr_AI_DATABRICKS_CLIENT_SECRET}}"
-    qsr_AI_DATABRICKS_HOST: "{{secrets/qsr_ai/qsr_AI_DATABRICKS_HOST}}"
+    PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
@@ -331,7 +347,7 @@ app:
       entitlements:
         - CAN_MANAGE                                # Full management permissions
   agents:                                           # List of agents included in the system
-    - *general                                      # General purpose agent
+    - *general  
   orchestration:                                    # Agent orchestration configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
@@ -376,9 +392,11 @@ unity_catalog_functions:
       schema: *qsr_schema
       name: match_item_by_description_and_price
     ddl: ../functions/quick_serve_restaurant/match_item_by_description_and_price.sql
+  - function:
+      schema: *qsr_schema
+      name: insert_coffee_order
+    ddl: ../functions/quick_serve_restaurant/insert_coffee_order.sql
 
-
- 
 # =============================================================================
 # EVALUATION CONFIGURATION
 # =============================================================================
@@ -400,12 +418,20 @@ evaluation:
 datasets:
   - table: 
       schema: *qsr_schema
+      name: orders_raw
+    ddl: ../data/quick_serve_restaurant/orders_raw.sql
+    data: ../data/quick_serve_restaurant/orders_raw.csv
+    format: csv
+    read_options:
+      header: True
+  - table: 
+      schema: *qsr_schema
       name: items_raw
     ddl: ../data/quick_serve_restaurant/items_raw.sql
     data: ../data/quick_serve_restaurant/items_raw.csv
     format: csv
     read_options:
-      header: "true"
+      header: True
     table_schema: |
       item_id STRING
       ,sku STRING

@@ -20,7 +20,7 @@ CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.match_item_by_descriptio
         query => description,
         num_results => 3
       ) vs
-        inner join items_raw item
+        inner join {catalog_name}.{schema_name}.items_raw item
           ON vs.item_name = item.item_name
           and item.item_price BETWEEN low_price AND high_price
           and item.item_size ilike '%' || size || '%'
