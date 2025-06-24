@@ -441,7 +441,8 @@ class DatabricksProvider(ServiceProvider):
                 if not data_path.is_absolute():
                     data_path = current_dir / data_path
                 spark.read.format(format).options(**read_options).load(
-                    data_path.as_posix()
+                    data_path.as_posix(),
+                    schema=dataset.table.table_schema,
                 ).write.mode("overwrite").saveAsTable(table)
 
     def create_vector_store(self, vector_store: VectorStoreModel) -> None:

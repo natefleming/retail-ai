@@ -400,6 +400,21 @@ evaluation:
 datasets:
   - table: 
       schema: *qsr_schema
+      name: items_raw
+    ddl: ../data/quick_serve_restaurant/items_raw.sql
+    data: ../data/quick_serve_restaurant/items_raw.csv
+    format: csv
+    read_options:
+      header: "true"
+    table_schema: |
+      item_id STRING
+      ,sku STRING
+      ,item_name STRING
+      ,item_cat STRING
+      ,item_size STRING
+      ,item_price DECIMAL(10,2)
+  - table: 
+      schema: *qsr_schema
       name: items_description
     ddl: ../data/quick_serve_restaurant/items_description.sql
     data: ../data/quick_serve_restaurant/items_description.csv
@@ -412,16 +427,7 @@ datasets:
       schema: *qsr_schema
       name: fulfil_item_orders
     ddl: ../data/quick_serve_restaurant/fulfil_item_orders.sql
-  - table: 
-      schema: *qsr_schema
-      name: items_raw
-    ddl: ../data/quick_serve_restaurant/items_raw.sql
-    data: ../data/quick_serve_restaurant/items_raw.csv
-    format: csv
-    read_options:
-      header: "true"
-      inferSchema: "true"
-      timestampFormat: "yyyy-MM-dd HH:mm:ss"
+
 
 
 

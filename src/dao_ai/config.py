@@ -925,6 +925,7 @@ class DatasetModel(BaseModel):
     data: Optional[str | VolumePathModel] = None
     format: Optional[DatasetFormat] = None
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
+    table_schema: Optional[str] = None
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.base import ServiceProvider
