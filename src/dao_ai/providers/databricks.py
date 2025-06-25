@@ -191,6 +191,7 @@ class DatabricksProvider(ServiceProvider):
         additional_pip_reqs: Sequence[str] = [],
         additional_code_paths: Sequence[str] = [],
     ) -> ModelInfo:
+        logger.debug("Creating agent...")
         mlflow.set_registry_uri("databricks-uc")
 
         llms: Sequence[LLMModel] = list(config.resources.llms.values())
@@ -229,10 +230,11 @@ class DatabricksProvider(ServiceProvider):
         system_auth_policy: SystemAuthPolicy = SystemAuthPolicy(
             resources=system_resources
         )
-
-        api_scopes: Sequence[str] = list(
-            set([r.api_scopes for r in resources if r.on_behalf_of_user])
-        )
+        api_scopes: Sequence[str] = list(set([
+            scope for r in resources if r.on_behalf_of_user for scope in r.api_scopes
+        ]))
+        logger.debug(f"api_scopes: {api_scopes}")
+        
         user_auth_policy: UserAuthPolicy = UserAuthPolicy(api_scopes=api_scopes)
         logger.debug(f"system_auth_policy: {system_auth_policy}")
 
