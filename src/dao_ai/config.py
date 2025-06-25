@@ -339,6 +339,7 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
             index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
         )
 
+
 class VectorStoreModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict()
     embedding_model: LLMModel

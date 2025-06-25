@@ -228,12 +228,12 @@ class DatabricksProvider(ServiceProvider):
             r.as_resource() for r in resources if not r.on_behalf_of_user
         ]
         logger.debug(f"system_resources: {[r.name for r in system_resources]}")
-        
+
         system_auth_policy: SystemAuthPolicy = SystemAuthPolicy(
             resources=system_resources
         )
         logger.debug(f"system_auth_policy: {system_auth_policy}")
-        
+
         api_scopes: Sequence[str] = list(
             set(
                 [
