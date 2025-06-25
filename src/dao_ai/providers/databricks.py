@@ -282,8 +282,8 @@ class DatabricksProvider(ServiceProvider):
                 name="agent",
                 pip_requirements=pip_requirements,
                 input_example=input_example,
-                resources=all_resources,
-                # auth_policy=auth_policy,
+                #resources=all_resources,
+                auth_policy=auth_policy,
             )
 
         registered_model_name: str = config.app.registered_model.full_name

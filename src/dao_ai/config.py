@@ -75,6 +75,7 @@ class IsDatabricksResource(ABC):
         credentials_strategy: CredentialsStrategy = None
         if self.on_behalf_of_user:
             credentials_strategy = ModelServingUserCredentials()
+        logger.debug(f"Creating WorkspaceClient with credentials strategy: {credentials_strategy}")
         return WorkspaceClient(credentials_strategy=credentials_strategy)
 
 
