@@ -137,6 +137,4 @@ app:
   orchestration:                                    # Agent orchestration configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *default_llm                      # LLM for routing decisions
-      default_agent: *genie                       # Default agent when no specific match
-
 
