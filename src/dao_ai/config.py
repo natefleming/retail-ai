@@ -339,7 +339,6 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
             index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
         )
 
-
 class VectorStoreModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict()
     embedding_model: LLMModel
@@ -355,6 +354,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
     def api_scopes(self) -> Sequence[str]:
         return [
             "vectorsearch.vector-search-endpoints",
+            "serving.serving-endpoints",
         ] + self.index.api_scopes
 
     def as_resource(self) -> DatabricksResource:
@@ -464,6 +464,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     def api_scopes(self) -> Sequence[str]:
         return [
             "sql.warehouses",
+            "sql.statement-execution",
         ]
 
     def as_resource(self) -> DatabricksResource:

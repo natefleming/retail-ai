@@ -86,6 +86,8 @@ def find_product_details_by_description_tool(
         Returns:
           Sequence[Document]: A list of matching product documents with relevant metadata
         """
+        logger.debug(f"find_product_details_by_description: content={content}")
+        
         vector_store: VectorStoreModel = retriever.vector_store
 
         # Initialize the Vector Search client with endpoint and index configuration

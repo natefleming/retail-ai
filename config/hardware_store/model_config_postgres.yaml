@@ -72,6 +72,7 @@ resources:
     # Embedding model for vector search and semantic similarity
     embedding_model: &embedding_model
       name: databricks-gte-large-en                 # Text embedding model
+      on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
@@ -102,7 +103,7 @@ resources:
         - merchandise_class
         - class_cd
         - description
-      on_behalf_of_user: True
+      on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
   # GENIE ROOMS
@@ -114,6 +115,7 @@ resources:
       name: "Retail AI Genie Room"                  # Human-readable name
       description: "A room for Genie agents to interact"  # Description
       space_id: 01f01c91f1f414d59daaefd2b7ec82ea    # Databricks Genie space ID
+      on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
   # TABLES
@@ -179,8 +181,8 @@ resources:
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
-      on_behalf_of_user: True
-      
+      on_behalf_of_user: False
+
   # ---------------------------------------------------------------------------
   # DATABASES
   # ---------------------------------------------------------------------------
