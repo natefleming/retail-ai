@@ -6,6 +6,47 @@
 # This configuration file defines the complete setup for the multi-agent system
 # including schemas, resources, tools, agents, and orchestration patterns.
 
+variables:
+  database_host_var: &database_host_var                                              
+    default_value: localhost                                             
+    options:
+      - env: PGHOST                              # Environment variable
+      - scope: retail_ai                         # Databricks secret scope
+        secret: PGHOST                           # Secret name
+  port_var: &port_var
+    default_value: 5432
+    options:
+    - env: PGPORT 
+    - scope: retail_ai
+      secret: PGPORT
+  database_var: &database_var
+    default_value: databricks_postgres           # Default database name
+    options:
+    - env: PGDATABASE 
+    - scope: retail_ai
+      secret: PGDATABASE
+  client_id_var: &client_id_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret_var: &client_secret_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+  workspace_host_var: &workspace_host_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_HOST
+        host:
+  pat_var: &pat_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_TOKEN          
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_TOKEN
+
 # =============================================================================
 # DATABRICKS SCHEMAS
 # =============================================================================
@@ -144,59 +185,13 @@ resources:
       
       # Database connection parameters
       # These can be set via environment variables or Databricks secrets
-      host:                                                 
-        default_value: localhost                                             
-        variables:
-          - env: PGHOST                              # Environment variable
-          - scope: retail_ai                         # Databricks secret scope
-            secret: PGHOST                           # Secret name
-      port: 
-        default_value: 5432
-        variables:
-        - env: PGPORT 
-        - scope: retail_ai
-          secret: PGPORT
-      database: 
-        default_value: databricks_postgres           # Default database name
-        variables:
-        - env: PGDATABASE 
-        - scope: retail_ai
-          secret: PGDATABASE
+      host: *database_host_var
+      port: *port_var
+      database: *database_var
+      client_id: *client_id_var
+      client_secret: *client_secret_var
+      workspace_host: *workspace_host_var
 
-
-      # Traditional PostgreSQL authentication (commented out)
-      # Uncomment and configure if using direct database auth instead of OAuth2
-      # user: 
-      #   default_value: postgres
-      #   variables:
-      #   - env: PGUSER 
-      #   - scope: qsr_ai
-      #     secret: PGUSER
-      # password: 
-      #   default_value: postgres
-      #   variables:
-      #   - env: PGPASSWORD 
-      #   - scope: qsr_ai
-      #     secret: PGPASSWORD
-
-      # OAuth2 client credentials for Databricks authentication
-      # Used to generate access tokens for database connections
-      # This approach is recommended for Databricks environments
-      client_id:
-        variables:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      client_secret:
-        variables:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      workspace_host:
-        variables:
-          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_HOST
           
       # Optional: Additional PostgreSQL connection parameters
       # Uncomment and modify as needed for your specific setup
@@ -265,16 +260,8 @@ tools:
       type: factory
       name: quick_serve_restaurant.tools.insert_coffee_order_tool
       args:
-        host:
-          variables:
-            - env: RETAIL_AI_DATABRICKS_HOST          
-            - scope: retail_ai
-              secret: RETAIL_AI_DATABRICKS_HOST
-        token:
-          variables:
-            - env: RETAIL_AI_DATABRICKS_TOKEN          
-            - scope: retail_ai
-              secret: RETAIL_AI_DATABRICKS_TOKEN
+        host: *workspace_host_var
+        token: *pat_var
         tool: *insert_coffee_order_uc_tool
 
   current_time_tool: &current_time_tool
