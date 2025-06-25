@@ -1,7 +1,7 @@
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.match_historical_item_order_by_date(
     description STRING COMMENT 'Coffee item description to search for in order history. Examples: "latte", "cold brew", "espresso", "frappuccino". Use customer-provided drink names or general categories.',
-    start_transaction_date STRING default current_timestamp() COMMENT 'Start date for order history search in YYYY-MM-DD format or timestamp string. Examples: "2024-01-01", "last week", "2024-06-01 00:00:00". Defaults to current timestamp if not specified.',
-    end_transaction_date STRING default current_timestamp() COMMENT 'End date for order history search in YYYY-MM-DD format or timestamp string. Examples: "2024-12-31", "today", "2024-06-24 23:59:59". Defaults to current timestamp if not specified.',
+    start_transaction_date STRING default current_timestamp() COMMENT 'Start date for order history search in YYYY-MM-DD format or timestamp string. Examples: "2024-01-01", "2024-06-01 00:00:00". Defaults to current timestamp if not specified.',
+    end_transaction_date STRING default current_timestamp() COMMENT 'End date for order history search in YYYY-MM-DD format or timestamp string. Examples: "2024-12-31", "2024-06-24 23:59:59". Defaults to current timestamp if not specified.',
     size STRING default 'Medium' COMMENT 'Coffee size filter for order history. Valid options: "Small", "Medium", "Large", or "N/A" for single-size items. Defaults to "Medium" if not specified.'
   )
   RETURNS TABLE(
