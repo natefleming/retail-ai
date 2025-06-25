@@ -1,0 +1,36 @@
+examples:
+  menu_recommendation_example:
+    messages:
+      - role: user
+        content: What cold coffee drinks do you have under $5?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: sarah.jones
+
+  item_description_example:
+    messages:
+      - role: user
+        content: What does your caramel macchiato taste like? I want to know more about it before ordering.
+    custom_inputs:
+      configurable:
+        thread_id: "2" 
+        user_id: mike.chen
+
+  coffee_order_example:
+    messages:
+      - role: user
+        content: I'd like to order a medium cappuccino please.
+    custom_inputs:
+      configurable:
+        thread_id: "3"
+        user_id: alex.rodriguez
+
+  order_history_example:
+    messages:
+      - role: user
+        content: What coffee orders did I place last week? I want to see my order history.
+    custom_inputs:
+      configurable:
+        thread_id: "4"
+        user_id: emma.wilson

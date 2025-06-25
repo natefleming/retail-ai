@@ -502,6 +502,7 @@ class DatabricksProvider(ServiceProvider):
             sql = sql.replace("{schema_name}", schema.schema_name)
 
             logger.info(function.name)
+            logger.info(sql)
             _: FunctionInfo = self.dfs.create_function(sql_function_body=sql)
 
             if unity_catalog_function.test:
