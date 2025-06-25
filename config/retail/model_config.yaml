@@ -10,6 +10,15 @@
 # DATABRICKS SCHEMAS
 # =============================================================================
 # Define Unity Catalog schemas where data and functions will be stored
+
+variables:
+  databricks_host: &databricks_host
+    default_value: localhost                                             
+    options:
+      - env: PGHOST                              # Environment variable
+      - scope: retail_ai                         # Databricks secret scope
+        secret: PGHOST                           # Secret name
+        
 schemas:
   retail_schema: &retail_schema
     catalog_name: nfleming                    # Unity Catalog name
@@ -183,19 +192,19 @@ resources:
       # These can be set via environment variables or Databricks secrets
       host:                                                 
         default_value: localhost                                             
-        variables:
+        options:
           - env: PGHOST                              # Environment variable
           - scope: retail_ai                         # Databricks secret scope
             secret: PGHOST                           # Secret name
       port: 
         default_value: 5432
-        variables:
+        options:
         - env: PGPORT 
         - scope: retail_ai
           secret: PGPORT
       database: 
         default_value: databricks_postgres           # Default database name
-        variables:
+        options:
         - env: PGDATABASE 
         - scope: retail_ai
           secret: PGDATABASE
@@ -205,13 +214,13 @@ resources:
       # Uncomment and configure if using direct database auth instead of OAuth2
       # user: 
       #   default_value: postgres
-      #   variables:
+      #   options:
       #   - env: PGUSER 
       #   - scope: retail_ai
       #     secret: PGUSER
       # password: 
       #   default_value: postgres
-      #   variables:
+      #   options:
       #   - env: PGPASSWORD 
       #   - scope: retail_ai
       #     secret: PGPASSWORD
@@ -220,17 +229,17 @@ resources:
       # Used to generate access tokens for database connections
       # This approach is recommended for Databricks environments
       client_id:
-        variables:
+        options:
           - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
           - scope: retail_ai
             secret: RETAIL_AI_DATABRICKS_CLIENT_ID
       client_secret:
-        variables:
+        options:
           - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
           - scope: retail_ai
             secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
       workspace_host:
-        variables:
+        options:
           - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
           - scope: retail_ai
             secret: RETAIL_AI_DATABRICKS_HOST

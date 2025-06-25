@@ -144,7 +144,7 @@ class CompositeVariableModel(BaseModel, HasValue):
         use_enum_values=True,
     )
     default_value: Optional[Any] = None
-    variables: list[
+    options: list[
         EnvironmentVariableModel
         | SecretVariableModel
         | PrimitiveVariableModel
@@ -157,7 +157,7 @@ class CompositeVariableModel(BaseModel, HasValue):
     def as_value(self) -> Any:
         logger.debug("Evaluating composite variable...")
         value: Any = None
-        for v in self.variables:
+        for v in self.options:
             value = value_of(v)
             if value is not None:
                 return value
@@ -984,6 +984,7 @@ class ResourcesModel(BaseModel):
 
 class AppConfig(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    variables: dict[str, AnyVariable] = Field(default_factory=dict)
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)

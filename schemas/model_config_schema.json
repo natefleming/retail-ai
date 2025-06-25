@@ -453,7 +453,7 @@
           "default": null,
           "title": "Default Value"
         },
-        "variables": {
+        "options": {
           "items": {
             "anyOf": [
               {
@@ -479,7 +479,7 @@
               }
             ]
           },
-          "title": "Variables",
+          "title": "Options",
           "type": "array"
         }
       },
@@ -2155,6 +2155,13 @@
   },
   "additionalProperties": false,
   "properties": {
+    "variables": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AnyVariable"
+      },
+      "title": "Variables",
+      "type": "object"
+    },
     "schemas": {
       "additionalProperties": {
         "$ref": "#/$defs/SchemaModel"
