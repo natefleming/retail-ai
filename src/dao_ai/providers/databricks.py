@@ -423,7 +423,8 @@ class DatabricksProvider(ServiceProvider):
             for statement in statements:
                 logger.debug(statement)
                 spark.sql(
-                    str(statement), args={"database": dataset.table.schema_model.full_name}
+                    str(statement),
+                    args={"database": dataset.table.schema_model.full_name},
                 )
 
         if data:
