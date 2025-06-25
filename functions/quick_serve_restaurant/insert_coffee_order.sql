@@ -1,13 +1,13 @@
 create or replace function {catalog_name}.{schema_name}.insert_coffee_order(
-  host string comment "The host of the Databricks workspace"
-, token string comment "The token of the pricipal of the Databricks workspace"
-, coffee_name string comment "The name of the coffee to be ordered"
-, size string comment "The size of the coffee to be ordered"
-, session_id string comment "The session_id of the user"
+  host string comment "Databricks workspace host URL - automatically provided by the system context. Do not ask customers for this value."
+, token string comment "Databricks authentication token - automatically provided by the system context. Do not ask customers for this value."
+, coffee_name string comment "Exact name of the coffee item being ordered. Examples: 'Cappuccino', 'Iced Latte', 'Cold Brew', 'Caramel Macchiato'. Use the exact menu item name from previous searches or customer specifications."
+, size string comment "Size of the coffee order. Valid options: 'Small', 'Medium', 'Large', or 'N/A' for single-size items. Always confirm size with customer before placing order."
+, session_id string comment "Unique session identifier for this customer conversation - automatically provided by the system as thread_id. Do not ask customers for this value."
 ) 
-returns string 
+returns string comment "Order confirmation message indicating success or failure. Returns 'Row successfully inserted - SUCCEEDED' for successful orders, or error message if order failed. Use this response to confirm the order with the customer."
 language python 
-COMMENT 'The function is used as a tool to insert record into the order fulfillment table in the retail. Get the host and token from the l;ocal context. Return success once you are able to successfully insert into the table.'
+COMMENT 'Process and record a coffee order in the fulfillment system. Use this tool ONLY when a customer explicitly wants to place an order with clear ordering language like "I want to order", "I will take", "Can I get", or "I would like". Always confirm the coffee name and size before calling this tool. This creates an actual order record that will be fulfilled, so only use when the customer is ready to purchase.'
 AS 
 $$
 from databricks.sdk import WorkspaceClient

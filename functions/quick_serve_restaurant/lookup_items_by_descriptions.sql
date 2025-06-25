@@ -1,11 +1,11 @@
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.lookup_items_by_descriptions(
-    description STRING
+    description STRING COMMENT 'The name or description of a coffee item to look up. Examples: "cappuccino", "cold brew", "caramel macchiato", "iced latte". Use customer-provided drink names or descriptive terms.'
   )
   RETURNS TABLE(
-    item_review STRING
+    item_review STRING COMMENT 'Detailed customer review and description of the coffee item, including taste profile, ingredients, and customer feedback to help with recommendations'
   )
   LANGUAGE SQL
-  COMMENT 'The items_description table in the coffeeshop retail database contains information about the various items available for purchase at the coffee shop, along with their corresponding reviews. This function serves as a reference for customers looking to learn more about specific items and their quality based on reviews. It helps the business track customer feedback and preferences, enabling them to make data-driven decisions on product offerings and improvements. The data in this table can be used for analyzing customer satisfaction, identifying popular items, and enhancing the overall shopping experience at the coffee shop.'
+  COMMENT 'Look up detailed reviews and descriptions for coffee menu items. Use this tool when customers ask about specific drinks, want to know what something tastes like, need ingredient information, or want reviews before ordering. Returns customer reviews and detailed descriptions to help customers make informed choices.'
   RETURN 
     SELECT
       item_review item_review

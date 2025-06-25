@@ -1,22 +1,22 @@
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.match_historical_item_order_by_date(
-    description STRING,
-    start_transaction_date STRING default current_timestamp(),
-    end_transaction_date STRING default current_timestamp(),
-    size STRING default 'Medium'
+    description STRING COMMENT 'Coffee item description to search for in order history. Examples: "latte", "cold brew", "espresso", "frappuccino". Use customer-provided drink names or general categories.',
+    start_transaction_date STRING default current_timestamp() COMMENT 'Start date for order history search in YYYY-MM-DD format or timestamp string. Examples: "2024-01-01", "last week", "2024-06-01 00:00:00". Defaults to current timestamp if not specified.',
+    end_transaction_date STRING default current_timestamp() COMMENT 'End date for order history search in YYYY-MM-DD format or timestamp string. Examples: "2024-12-31", "today", "2024-06-24 23:59:59". Defaults to current timestamp if not specified.',
+    size STRING default 'Medium' COMMENT 'Coffee size filter for order history. Valid options: "Small", "Medium", "Large", or "N/A" for single-size items. Defaults to "Medium" if not specified.'
   )
   RETURNS TABLE(
-    item_id STRING,
-    item_name STRING,
-    item_size STRING,
-    category STRING,
-    price DOUBLE,
-    item_review STRING,
-    total_order_value DOUBLE,
-    in_or_out STRING,
-    transaction_date TIMESTAMP
+    item_id STRING COMMENT 'Unique identifier for the coffee item in the order',
+    item_name STRING COMMENT 'Name of the coffee item that was ordered',
+    item_size STRING COMMENT 'Size of the coffee item (Small, Medium, Large, or N/A)',
+    category STRING COMMENT 'Category or type of the coffee item (e.g., Espresso, Cold Brew, Specialty)',
+    price DOUBLE COMMENT 'Unit price of the coffee item at time of order',
+    item_review STRING COMMENT 'Customer review and description of the coffee item',
+    total_order_value DOUBLE COMMENT 'Total value of this line item (price × quantity)',
+    in_or_out STRING COMMENT 'Order type: whether it was for dine-in or takeout',
+    transaction_date TIMESTAMP COMMENT 'Date and time when the order was placed'
   )
   LANGUAGE SQL
-  COMMENT 'This function finds coffee from by matching the description and transaction dates and returns arelevant results. Example scenario: Show me the history of coffee orders based on description and the dates of orders. or which was the most popular coffee?'
+  COMMENT 'Retrieve historical coffee order data filtered by item description and date range. Use this tool when customers ask about past orders, order history, popular items over time, or want to reorder something they had before. Perfect for queries like "What did I order last week?", "Show my order history", "What was popular in January?", or "I want to reorder what I had yesterday".'
   RETURN
     SELECT
       item.item_id item_id,
