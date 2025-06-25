@@ -14,6 +14,10 @@ from typing import (
 )
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.credentials_provider import (
+    CredentialsStrategy,
+    ModelServingUserCredentials,
+)
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -65,6 +69,13 @@ class IsDatabricksResource(ABC):
     @property
     @abstractmethod
     def api_scopes(self) -> Sequence[str]: ...
+
+    @property
+    def workspace_client(self) -> WorkspaceClient:
+        credentials_strategy: CredentialsStrategy = None
+        if self.on_behalf_of_user:
+            credentials_strategy = ModelServingUserCredentials()
+        return WorkspaceClient(credentials_strategy=credentials_strategy)
 
 
 class EnvironmentVariableModel(BaseModel, HasValue):

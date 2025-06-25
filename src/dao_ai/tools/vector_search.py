@@ -55,6 +55,7 @@ def create_vector_search_tool(
         index_name=index_name,
         columns=columns,
         **search_parameters,
+        workspace_client=vector_store.workspace_client
     )
 
     # Register the retriever schema with MLflow for model serving integration
