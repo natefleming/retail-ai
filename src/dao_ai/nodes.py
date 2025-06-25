@@ -202,7 +202,7 @@ def summarization_node(config: AppConfig) -> RunnableLike:
         logger.debug("Running summarization node")
 
         if not summarization_model:
-            logger.info("No summarization model configured, skipping summarization")
+            logger.debug("No summarization model configured, skipping summarization")
             return
 
         model: LanguageModelLike = summarization_model.model.as_chat_model()

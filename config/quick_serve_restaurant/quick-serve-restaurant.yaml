@@ -277,6 +277,13 @@ tools:
               secret: RETAIL_AI_DATABRICKS_TOKEN
         tool: *insert_coffee_order_uc_tool
 
+  current_time_tool: &current_time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+
 # =============================================================================
 # MEMORY CONFIGURATION
 # =============================================================================
@@ -321,6 +328,7 @@ agents:
       - *match_historical_item_order_by_date_tool
       - *match_historical_item_order_by_date_tool
       - *lookup_items_by_descriptions_tool
+      - *current_time_tool
     memory: *memory                                 # Reference to memory configuration
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
