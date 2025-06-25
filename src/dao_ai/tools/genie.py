@@ -38,6 +38,7 @@ def create_genie_tool(
 
     genie: Genie = Genie(
         space_id=space_id,
+        workspace_client=genie_room.workspace_client,
     )
 
     default_description: str = dedent("""
