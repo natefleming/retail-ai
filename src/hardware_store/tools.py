@@ -14,11 +14,7 @@ from langchain_core.tools import tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 
-from dao_ai.config import (
-    RetrieverModel,
-    SchemaModel,
-    WarehouseModel,
-)
+from dao_ai.config import RetrieverModel, SchemaModel, VectorStoreModel, WarehouseModel
 
 
 def create_reservation_tool() -> Callable[..., Any]:
@@ -90,13 +86,15 @@ def find_product_details_by_description_tool(
         Returns:
           Sequence[Document]: A list of matching product documents with relevant metadata
         """
+        vector_store: VectorStoreModel = retriever.vector_store
 
         # Initialize the Vector Search client with endpoint and index configuration
         vector_search: VectorStore = DatabricksVectorSearch(
-            endpoint=retriever.vector_store.endpoint.name,
-            index_name=retriever.vector_store.index.full_name,
+            endpoint=vector_store.endpoint.name,
+            index_name=vector_store.index.full_name,
             columns=retriever.columns,
             client_args={},
+            workspace_client=vector_store.workspace_client,
         )
 
         search_params: dict[str, Any] = retriever.search_parameters.model_dump()
@@ -157,7 +155,7 @@ def create_find_product_by_sku_tool(
         """
         logger.debug(f"find_product_by_sku: skus={skus}")
 
-        w: WorkspaceClient = WorkspaceClient()
+        w: WorkspaceClient = warehouse.workspace_client
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
@@ -215,7 +213,7 @@ def create_find_product_by_upc_tool(
         """
         logger.debug(f"find_product_by_upc: upcs={upcs}")
 
-        w: WorkspaceClient = WorkspaceClient()
+        w: WorkspaceClient = warehouse.workspace_client
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
@@ -293,7 +291,7 @@ def create_find_inventory_by_sku_tool(
         """
         logger.debug(f"find_inventory_by_sku: skus={skus}")
 
-        w: WorkspaceClient = WorkspaceClient()
+        w: WorkspaceClient = warehouse.workspace_client
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
@@ -356,7 +354,7 @@ def create_find_inventory_by_upc_tool(
         """
         logger.debug(f"find_inventory_by_upc: upcs={upcs}")
 
-        w: WorkspaceClient = WorkspaceClient()
+        w: WorkspaceClient = warehouse.workspace_client
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""
@@ -437,7 +435,7 @@ def create_find_store_inventory_by_sku_tool(
         """
         logger.debug(f"find_store_inventory_by_sku: store={store}, sku={skus}")
 
-        w: WorkspaceClient = WorkspaceClient()
+        w: WorkspaceClient = warehouse.workspace_client
 
         skus = ",".join([f"'{sku}'" for sku in skus])
         statement: str = f"""
@@ -503,7 +501,7 @@ def create_find_store_inventory_by_upc_tool(
         """
         logger.debug(f"find_store_inventory_by_upc: store={store}, upcs={upcs}")
 
-        w: WorkspaceClient = WorkspaceClient()
+        w: WorkspaceClient = warehouse.workspace_client
 
         upcs = ",".join([f"'{upc}'" for upc in upcs])
         statement: str = f"""

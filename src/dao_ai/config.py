@@ -268,10 +268,10 @@ class LLMModel(BaseModel, IsDatabricksResource):
         )
 
     def as_chat_model(self) -> LanguageModelLike:
-       # Retrieve langchain chat client from workspace client to enable OBO
-       # ChatOpenAI does not allow additional inputs at the moment, so we cannot use it directly
-       # chat_client: LanguageModelLike = self.as_open_ai_client()
-                
+        # Retrieve langchain chat client from workspace client to enable OBO
+        # ChatOpenAI does not allow additional inputs at the moment, so we cannot use it directly
+        # chat_client: LanguageModelLike = self.as_open_ai_client()
+
         chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
@@ -301,8 +301,8 @@ class LLMModel(BaseModel, IsDatabricksResource):
             )
         )
         chat_client.temperature = self.temperature
-        chat_client.max_tokens = self.max_tokens    
-        
+        chat_client.max_tokens = self.max_tokens
+
         return chat_client
 
 

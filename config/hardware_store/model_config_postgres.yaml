@@ -102,6 +102,7 @@ resources:
         - merchandise_class
         - class_cd
         - description
+      on_behalf_of_user: True
 
   # ---------------------------------------------------------------------------
   # GENIE ROOMS
