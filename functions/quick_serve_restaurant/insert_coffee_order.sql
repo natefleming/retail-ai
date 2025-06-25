@@ -5,9 +5,9 @@ create or replace function {catalog_name}.{schema_name}.insert_coffee_order(
 , size string comment "Size of the coffee order. Valid options: 'Small', 'Medium', 'Large', or 'N/A' for single-size items. Always confirm size with customer before placing order."
 , session_id string comment "Unique session identifier for this customer conversation - automatically provided by the system as thread_id. Do not ask customers for this value."
 ) 
-returns string comment "Order confirmation message indicating success or failure. Returns 'Row successfully inserted - SUCCEEDED' for successful orders, or error message if order failed. Use this response to confirm the order with the customer."
+returns string
 language python 
-COMMENT 'Process and record a coffee order in the fulfillment system. Use this tool ONLY when a customer explicitly wants to place an order with clear ordering language like "I want to order", "I will take", "Can I get", or "I would like". Always confirm the coffee name and size before calling this tool. This creates an actual order record that will be fulfilled, so only use when the customer is ready to purchase.'
+COMMENT 'Process and record a coffee order in the fulfillment system. Use this tool ONLY when a customer explicitly wants to place an order with clear ordering language like "I want to order", "I will take", "Can I get", or "I would like". Always confirm the coffee name and size before calling this tool. This creates an actual order record that will be fulfilled, so only use when the customer is ready to purchase. Returns order confirmation message indicating success ("Row successfully inserted - SUCCEEDED") or error message if order failed.'
 AS 
 $$
 from databricks.sdk import WorkspaceClient
