@@ -36,9 +36,10 @@ def get_installed_packages() -> dict[str, str]:
     packages: Sequence[str] = [
         f"databricks-agents=={version('databricks-agents')}",
         f"databricks-langchain=={version('databricks-langchain')}",
-        f"databricks-sdk=={version('databricks-sdk')}",
+        f"databricks-sdk[openai]=={version('databricks-sdk')}",
         f"duckduckgo-search=={version('duckduckgo-search')}",
         f"langchain=={version('langchain')}",
+        f"langchain-openai=={version('langchain-openai')}",
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
         f"langgraph=={version('langgraph')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",

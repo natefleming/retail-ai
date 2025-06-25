@@ -518,7 +518,7 @@ source = { editable = "." }
 dependencies = [
     { name = "databricks-agents" },
     { name = "databricks-langchain" },
-    { name = "databricks-sdk" },
+    { name = "databricks-sdk", extra = ["openai"] },
     { name = "databricks-vectorsearch" },
     { name = "duckduckgo-search" },
     { name = "grandalf" },
@@ -594,7 +594,7 @@ test = [
 requires-dist = [
     { name = "databricks-agents", specifier = ">=0.20.0" },
     { name = "databricks-langchain", specifier = ">=0.4.2" },
-    { name = "databricks-sdk", specifier = ">=0.55.0" },
+    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.55.0" },
     { name = "databricks-vectorsearch", specifier = ">=0.56" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
     { name = "grandalf", specifier = ">=0.8" },
@@ -746,6 +746,13 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bf/50/8231952fa2dbafd6f7a4cb288530280f4a227ef69dbfdf6224ab270f83d5/databricks_sdk-0.55.0.tar.gz", hash = "sha256:087b3acd139857013bdd9762425e04db47ebda85a8f9845719b6d97845e588b3", size = 764071, upload-time = "2025-05-27T12:06:00.603Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/d9/2fc1825c3e74228d31e6e21d20d28bf3d8278cb7301e2ccea9d42de97ede/databricks_sdk-0.55.0-py3-none-any.whl", hash = "sha256:77bb3e6ebfbe2e804f32bc71f06e7c99f0ec8f5a2eaa9fa848eac214106bcb8b", size = 722902, upload-time = "2025-05-27T12:05:58.431Z" },
+]
+
+[package.optional-dependencies]
+openai = [
+    { name = "httpx" },
+    { name = "langchain-openai" },
+    { name = "openai" },
 ]
 
 [[package]]

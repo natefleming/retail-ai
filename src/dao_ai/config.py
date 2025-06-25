@@ -26,6 +26,7 @@ from databricks_langchain import (
 )
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools.base import BaseTool
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 from loguru import logger
@@ -75,7 +76,9 @@ class IsDatabricksResource(ABC):
         credentials_strategy: CredentialsStrategy = None
         if self.on_behalf_of_user:
             credentials_strategy = ModelServingUserCredentials()
-        logger.debug(f"Creating WorkspaceClient with credentials strategy: {credentials_strategy}")
+        logger.debug(
+            f"Creating WorkspaceClient with credentials strategy: {credentials_strategy}"
+        )
         return WorkspaceClient(credentials_strategy=credentials_strategy)
 
 
@@ -265,6 +268,10 @@ class LLMModel(BaseModel, IsDatabricksResource):
         )
 
     def as_chat_model(self) -> LanguageModelLike:
+       # Retrieve langchain chat client from workspace client to enable OBO
+       # ChatOpenAI does not allow additional inputs at the moment, so we cannot use it directly
+       # chat_client: LanguageModelLike = self.as_open_ai_client()
+                
         chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
@@ -285,6 +292,17 @@ class LLMModel(BaseModel, IsDatabricksResource):
         if fallbacks:
             chat_client = chat_client.with_fallbacks(fallbacks)
 
+        return chat_client
+
+    def as_open_ai_client(self) -> LanguageModelLike:
+        chat_client: ChatOpenAI = (
+            self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
+                model=self.name
+            )
+        )
+        chat_client.temperature = self.temperature
+        chat_client.max_tokens = self.max_tokens    
+        
         return chat_client
 
 

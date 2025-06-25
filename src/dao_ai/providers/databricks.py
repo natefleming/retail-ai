@@ -219,9 +219,9 @@ class DatabricksProvider(ServiceProvider):
             + connections
         )
 
-        all_resources: Sequence[DatabricksResource] = [
-            r.as_resource() for r in resources
-        ]
+        # all_resources: Sequence[DatabricksResource] = [
+        #     r.as_resource() for r in resources
+        # ]
 
         system_resources: Sequence[DatabricksResource] = [
             r.as_resource() for r in resources if not r.on_behalf_of_user
@@ -282,7 +282,7 @@ class DatabricksProvider(ServiceProvider):
                 name="agent",
                 pip_requirements=pip_requirements,
                 input_example=input_example,
-                #resources=all_resources,
+                # resources=all_resources,
                 auth_policy=auth_policy,
             )
 
