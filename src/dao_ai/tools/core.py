@@ -288,14 +288,14 @@ def search_tool() -> BaseTool:
 
 
 @create_tool
-def current_time_tool() -> datetime:
+def current_time_tool() -> str:
     """
     Get the current time.
 
-    This tool returns the current date and time in UTC format.
+    This tool returns the current date and time in ISO 8601 format.
     It can be used to retrieve the current timestamp during reasoning.
 
     Returns:
-        datetime: The current date and time in UTC.
+        str: The current date and time in ISO 8601 format.
     """
-    return datetime.now(tz=None)
+    return datetime.now().isoformat()
