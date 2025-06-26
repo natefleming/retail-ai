@@ -20,13 +20,13 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import tool
 from loguru import logger
 
+from dais2025.models import DepartmentInfo, TaskAssignmentInfo
 from dao_ai.config import (
     GenieRoomModel,
     LLMModel,
     SchemaModel,
     WarehouseModel,
 )
-from dais2025.models import DepartmentInfo, TaskAssignmentInfo
 
 
 def create_employee_insights_tool(

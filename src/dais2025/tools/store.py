@@ -18,12 +18,12 @@ from langchain_core.tools import tool
 from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 
+from dais2025.models import StoreInfo
 from dao_ai.config import (
     RetrieverModel,
     SchemaModel,
     WarehouseModel,
 )
-from dais2025.models import StoreInfo
 
 
 def find_store_details_by_location_tool(

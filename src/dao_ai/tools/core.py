@@ -298,4 +298,7 @@ def current_time_tool() -> str:
     Returns:
         str: The current date and time in ISO 8601 format.
     """
-    return datetime.now().isoformat()
+
+    time_now: str = datetime.now().isoformat()
+    logger.debug(f"Current time: {time_now}")
+    return time_now
