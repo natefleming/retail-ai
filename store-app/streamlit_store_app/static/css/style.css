@@ -1,0 +1,150 @@
+/* Context Switcher Button */
+button[data-testid="baseButton-secondary"]:has(div:contains("🏪")) {
+    position: fixed !important;
+    top: 0.5rem !important;
+    right: 0.5rem !important;
+    z-index: 1000 !important;
+    padding: 0.5rem 1rem !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 20px !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+    transition: all 0.3s ease !important;
+    font-size: 0.9rem !important;
+}
+
+button[data-testid="baseButton-secondary"]:has(div:contains("🏪")):hover {
+    background: white !important;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Floating Chat Icon */
+.floating-chat-container {
+    position: fixed !important;
+    bottom: 2rem !important;
+    right: 2rem !important;
+    z-index: 1000 !important;
+}
+
+.floating-chat-icon {
+    width: 60px !important;
+    height: 60px !important;
+    border-radius: 50% !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    border: none !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+    transition: all 0.3s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 24px !important;
+    position: relative !important;
+}
+
+.floating-chat-icon:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2) !important;
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
+}
+
+.floating-chat-icon:active {
+    transform: translateY(0px) !important;
+}
+
+/* Chat notification badge */
+.chat-notification-badge {
+    position: absolute !important;
+    top: -5px !important;
+    right: -5px !important;
+    background: #ff4757 !important;
+    color: white !important;
+    border-radius: 50% !important;
+    width: 20px !important;
+    height: 20px !important;
+    font-size: 12px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-weight: bold !important;
+}
+
+/* Chat Window */
+.floating-chat-window {
+    position: fixed !important;
+    bottom: 5rem !important;
+    right: 2rem !important;
+    width: 350px !important;
+    height: 500px !important;
+    background: white !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15) !important;
+    z-index: 999 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    border: 1px solid #e0e0e0 !important;
+}
+
+.chat-window-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    padding: 1rem !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+}
+
+.chat-window-title {
+    font-weight: 600 !important;
+    font-size: 16px !important;
+}
+
+.chat-window-close {
+    background: none !important;
+    border: none !important;
+    color: white !important;
+    cursor: pointer !important;
+    font-size: 18px !important;
+    padding: 0 !important;
+    width: 24px !important;
+    height: 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 50% !important;
+    transition: background 0.2s ease !important;
+}
+
+.chat-window-close:hover {
+    background: rgba(255,255,255,0.2) !important;
+}
+
+.chat-window-content {
+    flex: 1 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Context Switcher Panel */
+[data-testid="stSidebar"] {
+    z-index: 1001;
+    background: white;
+    border-left: 1px solid #e0e0e0;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {
+    margin-top: 0;
+    padding-top: 1rem;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 0.5rem;
+}
+
+/* Hide default Streamlit toolbar */
+div[data-testid="stToolbar"] {
+    visibility: hidden;
+} 

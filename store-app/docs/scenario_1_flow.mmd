@@ -1,0 +1,62 @@
+sequenceDiagram
+    participant C as Customer
+    participant A as Associate
+    participant MA as Mobile App
+    participant RA as Router Agent
+    participant IA as Inventory Agent
+    participant PA as Product Agent
+    participant SA as Store Locator Agent
+    participant CSA as Customer Service Agent
+    participant DB as Databricks Platform
+
+    Note over C,DB: Phase 1: Initial Inventory Check
+    C->>A: Asks about Starbucks Pike Place pods
+    A->>MA: Opens mobile app
+    MA->>RA: Initiates query
+    RA->>IA: Routes to Inventory Agent
+    IA->>DB: Queries Delta Live Tables
+    DB->>IA: Returns inventory status
+    IA->>MA: Reports out of stock + restock date
+    MA->>A: Displays inventory status
+    A->>C: Informs about stock status
+
+    Note over C,DB: Phase 2: Product Recommendations
+    C->>A: Asks for similar products
+    A->>MA: Requests recommendations
+    MA->>RA: Forwards request
+    RA->>PA: Routes to Product Agent
+    PA->>DB: Queries Vector Search
+    DB->>PA: Returns similar products
+    PA->>MA: Lists alternatives with details
+    MA->>A: Shows recommendations
+    A->>C: Presents alternatives
+
+    Note over C,DB: Phase 3: Cross-Store Availability
+    C->>A: Asks about other locations
+    A->>MA: Checks network inventory
+    MA->>RA: Initiates location search
+    RA->>SA: Routes to Store Locator
+    SA->>DB: Queries Unity Catalog
+    DB->>SA: Returns store availability
+    SA->>MA: Lists nearby stores
+    MA->>A: Shows store options
+    A->>C: Shares location options
+
+    Note over C,DB: Phase 4: Personalized Service
+    C->>A: Requests hold at Marina
+    A->>MA: Initiates hold request
+    MA->>RA: Forwards service request
+    RA->>CSA: Routes to Customer Service
+    CSA->>DB: Places hold & updates inventory
+    DB->>CSA: Confirms hold placement
+    CSA->>MA: Offers additional services
+    MA->>A: Shows confirmation
+    A->>C: Confirms hold & options
+
+    Note over C,DB: Databricks Platform Integration
+    rect rgb(240, 240, 240)
+        Note right of DB: • Delta Live Tables: Real-time inventory
+        Note right of DB: • Vector Search: Product recommendations
+        Note right of DB: • Unity Catalog: Cross-store data
+        Note right of DB: • MLflow: Model serving
+    end 
