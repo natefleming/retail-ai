@@ -31,7 +31,7 @@ def run_sql_statement(w, statement: str):
 w = WorkspaceClient(host=host, token=token)
 uuid = str(uuid.uuid4())
 uuid = f"'{uuid}'"
-statement = f"insert into retail.coffeeshop.fulfil_item_orders_jh (uuid, coffee_name, size, session_id) values ({uuid}, '{coffee_name}', '{size}', '{session_id}')"
+statement = f"insert into {catalog_name}.{schema_name}.fulfil_item_orders(uuid, coffee_name, size, session_id) values ({uuid}, '{coffee_name}', '{size}', '{session_id}')"
 response=run_sql_statement(w, statement)
 if response == 'SUCCEEDED':
   return f"Row successfully inserted - {response}"

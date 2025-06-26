@@ -1,4 +1,10 @@
 # Databricks notebook source
+# MAGIC %sql
+# MAGIC
+# MAGIC select * from retail_consumer_goods.quick_serve_restaurant.fulfil_item_orders
+
+# COMMAND ----------
+
 # MAGIC %pip install uv
 # MAGIC
 # MAGIC import os

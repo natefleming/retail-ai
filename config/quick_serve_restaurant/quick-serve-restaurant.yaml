@@ -287,8 +287,8 @@ memory: &memory
   # Long-term memory store for agent context
   store: 
     name: default_store                             # Store identifier
-    type: postgres                                    # Store type (memory or postgres)
-    #type: memory
+    #type: postgres                                    # Store type (memory or postgres)
+    type: memory
     embedding_model: *embedding_model               # Model for semantic memory
     dims: 1536                                      # Embedding dimensions
     database: *qsr_database                      # Database for persistence (if needed)
@@ -396,7 +396,7 @@ app:
   agents:                                           # List of agents included in the system
     - *barista  
   orchestration:                                    # Agent orchestration configuration
-    supervisor:                                     # Supervisor orchestration pattern
+    swarm:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
       memory: *memory                            # Memory store for conversation context
   message_hooks: 

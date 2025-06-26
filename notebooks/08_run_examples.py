@@ -86,7 +86,7 @@ pprint(config_path)
 examples_path: Path = Path.cwd().parent / "examples"
 projects: Sequence[str] = [item.name for item in examples_path.iterdir() if item.is_dir()]
 
-dbutils.widgets.dropdown(name="project", defaultValue="retail", choices=projects)
+dbutils.widgets.dropdown(name="project", defaultValue=projects[0], choices=projects)
 project: str = dbutils.widgets.get("project")
 
 project_examples: Path = Path.cwd().parent / "examples" / project
@@ -138,14 +138,13 @@ input_example: dict[str, Any] = {
   'messages': [
     {
       'role': 'user',
-      'content': 'How many big green egg grills do you have in stock?'
+      'content': 'Can I have a medium latte?'
     }
   ],
   'custom_inputs': {
       'configurable': {
         'thread_id': '1',
         'user_id': 'nate.fleming',
-        'store_num': 35048
       }
     }
   }
