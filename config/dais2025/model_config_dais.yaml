@@ -198,10 +198,10 @@ retrievers:
       - sku
       - product_name
       - long_description
-    search_parameters:
-      num_results: 20
-      filter: {}
-      query_type: ANN
+    search_parameters:                              # Search configuration
+      num_results: 20                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
 
   stores_retriever: &stores_retriever
     vector_store: *store_vector_store
@@ -212,10 +212,10 @@ retrievers:
       - store_city
       - store_state
       - store_details_text
-    search_parameters:
-      num_results: 10
-      filter: {}
-      query_type: ANN
+    search_parameters:                              # Search configuration
+      num_results: 10                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
 
 tools:
   weather_tool_mcp: &weather_tool_mcp
@@ -256,7 +256,7 @@ tools:
     name: find_product_details_by_description
     function:
       type: factory
-      name: retail.tools.find_product_details_by_description_tool
+      name: hardware_store.tools.find_product_details_by_description_tool
       args:
         retriever: *products_retriever
 
@@ -265,7 +265,7 @@ tools:
     name: find_product_by_sku
     function:
       type: factory
-      name: retail.tools.create_find_product_by_sku_tool
+      name: hardware_store.tools.create_find_product_by_sku_tool
       args:
         schema: *dais_schema
         warehouse: *dais_warehouse
@@ -274,7 +274,7 @@ tools:
     name: find_product_by_upc
     function:
       type: factory
-      name: retail.tools.create_find_product_by_upc_tool
+      name: hardware_store.tools.create_find_product_by_upc_tool
       args:
         schema: *dais_schema
         warehouse: *dais_warehouse
@@ -283,7 +283,7 @@ tools:
     name: find_inventory_by_sku
     function:
       type: factory
-      name: retail.tools.create_find_inventory_by_sku_tool
+      name: hardware_store.tools.create_find_inventory_by_sku_tool
       args:
         schema: *dais_schema
         warehouse: *dais_warehouse
@@ -292,7 +292,7 @@ tools:
     name: find_inventory_by_upc
     function:
       type: factory
-      name: retail.tools.create_find_inventory_by_upc_tool
+      name: hardware_store.tools.create_find_inventory_by_upc_tool
       args:
         schema: *dais_schema
         warehouse: *dais_warehouse
@@ -301,7 +301,7 @@ tools:
     name: find_store_inventory_by_sku
     function:
       type: factory
-      name: retail.tools.create_find_store_inventory_by_sku_tool
+      name: hardware_store.tools.create_find_store_inventory_by_sku_tool
       args:
         schema: *dais_schema
         warehouse: *dais_warehouse
@@ -310,7 +310,7 @@ tools:
     name: find_store_inventory_by_upc
     function:
       type: factory
-      name: retail.tools.create_find_store_inventory_by_upc_tool
+      name: hardware_store.tools.create_find_store_inventory_by_upc_tool
       args:
         schema: *dais_schema
         warehouse: *dais_warehouse
