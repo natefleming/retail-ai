@@ -1,6 +1,5 @@
 import asyncio
 from collections import OrderedDict
-from datetime import datetime
 from typing import Any, Callable, Optional, Sequence
 
 from databricks_langchain import (
@@ -285,20 +284,3 @@ def create_uc_tool(function: UnityCatalogFunctionModel | str) -> BaseTool:
 def search_tool() -> BaseTool:
     logger.debug("search_tool")
     return DuckDuckGoSearchRun(output_format="list")
-
-
-@create_tool
-def current_time_tool() -> str:
-    """
-    Get the current time.
-
-    This tool returns the current date and time in ISO 8601 format.
-    It can be used to retrieve the current timestamp during reasoning.
-
-    Returns:
-        str: The current date and time in ISO 8601 format.
-    """
-
-    time_now: str = datetime.now().isoformat()
-    logger.debug(f"Current time: {time_now}")
-    return time_now
