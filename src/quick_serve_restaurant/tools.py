@@ -56,6 +56,7 @@ def insert_coffee_order_tool(
                 "session_id": session_id,
             }
         )
+        logger.debug(f"Order result: {result}")
         return result
 
     return insert_coffee_order
