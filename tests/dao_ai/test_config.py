@@ -41,3 +41,8 @@ def test_app_config_tools_should_be_correct_type(
             f"Function type mismatch for tool '{tool_name}': "
             f"expected '{expected_type}', got '{actual_type}'"
         )
+
+
+@pytest.mark.unit
+def test_app_config_should_initialize(config: AppConfig) -> None:
+    config.initialize()

@@ -2,10 +2,16 @@ from typing import Any
 
 from loguru import logger
 
+from dao_ai.config import AppConfig
+
 
 def null_hook(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     logger.debug("Executing null hook")
     return {}
+
+
+def null_initialization_hook(config: AppConfig) -> None:
+    logger.debug("Executing null initialization hook")
 
 
 def require_user_id_hook(

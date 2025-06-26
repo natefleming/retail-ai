@@ -1007,6 +1007,11 @@ app:
           thread_id: "1"
           user_id: my_user_id
           store_num: 87887
+  initialization_hooks: 
+      - type: python                                 
+        name: dao_ai.hooks.null_initialization_hook       
+
+
 
     # swarm:
     #   model: *tool_calling_llm

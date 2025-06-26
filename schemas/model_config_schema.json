@@ -294,6 +294,39 @@
           "default": null,
           "title": "Alias"
         },
+        "initialization_hooks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PythonFunctionModel"
+                  },
+                  {
+                    "$ref": "#/$defs/FactoryFunctionModel"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Initialization Hooks"
+        },
         "message_hooks": {
           "anyOf": [
             {

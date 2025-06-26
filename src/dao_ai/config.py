@@ -891,6 +891,9 @@ class AppModel(BaseModel):
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
     alias: Optional[str] = None
+    initialization_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
+        default_factory=list
+    )
     message_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
         default_factory=list
     )
@@ -1028,6 +1031,26 @@ class AppConfig(BaseModel):
         model_config: ModelConfig = ModelConfig(development_config=path)
         config: AppConfig = AppConfig(**model_config.to_dict())
         return config
+
+    def initialize(self) -> None:
+        initialization_hooks: FunctionHook | list[FunctionHook] | None = (
+            self.app.initialization_hooks
+        )
+        if not initialization_hooks:
+            return
+        if not isinstance(initialization_hooks, Sequence):
+            initialization_hooks = [initialization_hooks]
+        for initialization_hook in initialization_hooks:
+            if isinstance(initialization_hook, str):
+                initialization_hook = PythonFunctionModel(name=initialization_hook)
+
+            initialization_function: Callable[[AppConfig], None] = (
+                initialization_hook.as_tool()
+            )
+            logger.info(
+                f"Running initialization hook: {initialization_function.__name__}"
+            )
+            initialization_function(self)
 
     def display_graph(self) -> None:
         from dao_ai.graph import create_dao_ai_graph
