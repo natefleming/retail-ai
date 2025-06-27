@@ -1062,8 +1062,13 @@ class AppConfig(BaseModel):
         )
         for shutdown_function in shutdown_functions:
             logger.debug(f"Running shutdown hook: {shutdown_function.__name__}")
-            shutdown_function(self)
-
+            try:
+                shutdown_function(self)
+            except Exception as e:
+                logger.error(
+                    f"Error during shutdown hook {shutdown_function.__name__}: {e}"
+                )
+                
     def display_graph(self) -> None:
         from dao_ai.graph import create_dao_ai_graph
         from dao_ai.models import display_graph
