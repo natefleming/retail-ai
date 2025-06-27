@@ -1,4 +1,3 @@
-import atexit
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -1036,7 +1035,6 @@ class AppConfig(BaseModel):
         config: AppConfig = AppConfig(**model_config.to_dict())
 
         config.initialize()
-        atexit.register(config.shutdown)
 
         return config
 

@@ -17,6 +17,15 @@ examples:
         thread_id: "2" 
         user_id: mike.chen
 
+  coffee_order_example:
+    messages:
+      - role: user
+        content: I'd like to order a medium cappuccino please.
+    custom_inputs:
+      configurable:
+        thread_id: "3"
+        user_id: alex.rodriguez
+
   order_history_example:
     messages:
       - role: user
@@ -25,21 +34,3 @@ examples:
       configurable:
         thread_id: "4"
         user_id: emma.wilson
-
-  price_enquiry_example:
-    messages:
-      - role: user
-        content: What is the price of a medium cold coffee?
-    custom_inputs:
-      configurable:
-        thread_id: "5"
-        user_id: john.paul
-  
-  coffee_order_example:
-    messages:
-      - role: user
-        content: Can you order a medium cold mocha for me, please?
-    custom_inputs:
-      configurable:
-        thread_id: "6"
-        user_id: leo.messi

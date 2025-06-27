@@ -19,8 +19,7 @@ variables:
     default: Standard_D4ads_v5
   app_name: 
     description: The job name
-    default: deploy-dao-ai-job   
-  
+
 resources:
   jobs:
     deploy-end-to-end:
@@ -31,85 +30,86 @@ resources:
             node_type_id: ${var.node_type}
             spark_version: 16.2.x-scala2.12
             num_workers: 1
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - "-r ${workspace.file_path}/requirements.txt"
       tasks:
         - task_key: ingest-and-transform
-          job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/01_ingest_and_transform.py
             base_parameters:
               config-path: ${var.config_path}
-          libraries:
-            - whl: ./dist/*.whl
+          job_cluster_key: common-cluster
         - task_key: provision-vector-search
           depends_on:
             - task_key: ingest-and-transform
-          job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/02_provision_vector_search.py
             base_parameters:
               config-path: ${var.config_path}
-          libraries:
-            - whl: ./dist/*.whl
+          job_cluster_key: common-cluster
+          #environment_key: default
         - task_key: generate-evaluation-data
           depends_on:
             - task_key: provision-vector-search
-          job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/03_generate_evaluation_data.py
             base_parameters:
               config-path: ${var.config_path}
-          libraries:
-            - whl: ./dist/*.whl
+          job_cluster_key: common-cluster
+          #environment_key: default
         - task_key: unity-catalog-tools
           depends_on:
             - task_key: provision-vector-search
-          job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/04_unity_catalog_tools.py
             base_parameters:
               config-path: ${var.config_path}
-          libraries:
-            - whl: ./dist/*.whl
+          job_cluster_key: common-cluster
+          #environment_key: default
         - task_key: deploy-agents
           depends_on:
             - task_key: unity-catalog-tools
-          job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/05_agent_as_code_driver.py
             base_parameters:
               config-path: ${var.config_path}
-          libraries:
-            - whl: ./dist/*.whl
+          job_cluster_key: common-cluster
+          #environment_key: default
         - task_key: run-evaluation
           depends_on:
             - task_key: deploy-agents
             - task_key: generate-evaluation-data
-          job_cluster_key: common-cluster
           notebook_task:
             notebook_path: ./notebooks/06_run_evaluation.py
             base_parameters:
               config-path: ${var.config_path}
-          libraries:
-            - whl: ./dist/*.whl
-
+          job_cluster_key: common-cluster
+          #environment_key: default
+          
 targets:
   azure:
     default: True
     workspace:
       host: https://adb-984752964297111.11.azuredatabricks.net
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
+
   aws:
     workspace:
       host: https://e2-demo-field-eng.cloud.databricks.com
-    variables:
-      node_type: i3.xlarge
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
   gcp:
     workspace:
       host: https://416411475796958.8.gcp.databricks.com/
-    variables:
-      node_type: n2-highmem-4
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
+
   retail:
     workspace:
       host: https://adb-6447127900489650.10.azuredatabricks.net/
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
 
 
 
