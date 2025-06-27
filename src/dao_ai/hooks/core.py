@@ -8,6 +8,7 @@ from dao_ai.config import AppConfig, FunctionHook, PythonFunctionModel
 def create_hooks(
     function_hooks: FunctionHook | list[FunctionHook] | None,
 ) -> Sequence[Callable[..., Any]]:
+    logger.debug(f"Creating hooks from: {function_hooks}")
     hooks: Sequence[Callable[..., Any]] = []
     if not function_hooks:
         return []
@@ -18,6 +19,7 @@ def create_hooks(
             function_hook = PythonFunctionModel(name=function_hook)
         hook: Callable[..., Any] = function_hook.as_tool()
         hooks.append(hook)
+    logger.debug(f"Created hooks: {hooks}")
     return hooks
 
 

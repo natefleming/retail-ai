@@ -119,21 +119,24 @@ def create_agent_node(
     pre_agent_hook: Callable[..., Any] = next(
         iter(create_hooks(agent.pre_agent_hook)), None
     )
+    logger.debug(f"pre_agent_hook: {pre_agent_hook}")
+    
     post_agent_hook: Callable[..., Any] = next(
         iter(create_hooks(agent.post_agent_hook)), None
     )
+    logger.debug(f"post_agent_hook: {post_agent_hook}")
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         name=agent.name,
         model=llm,
         prompt=make_prompt(agent.prompt),
-        tools=tools,
-        store=store,
+        tools=[],#tools,
+        #store=store,
         state_schema=SharedState,
         config_schema=RunnableConfig,
-        checkpointer=checkpointer,
-        pre_model_hook=pre_agent_hook,
-        post_model_hook=post_agent_hook,
+        #checkpointer=checkpointer,
+        #pre_model_hook=pre_agent_hook,
+        #post_model_hook=post_agent_hook,
     )
 
     for guardrail_definition in agent.guardrails:
