@@ -715,6 +715,218 @@ The `orchestration` block within the `app` section allows you to define the inte
     *   In a swarm, agents might collaborate more directly or work in parallel on different aspects of a query. The `model` under `swarm` would likely define the LLM used by the agents within the swarm or by a coordinating element of the swarm.
     *   The specific implementation of how a swarm pattern behaves would be defined in your `retail_ai/graph.py` and `retail_ai/nodes.py`.
 
+## Integration Hooks
+
+The DAO framework provides several hook integration points that allow you to customize agent behavior and application lifecycle. These hooks enable you to inject custom logic at key points in the system without modifying the core framework code.
+
+### Hook Types
+
+#### Agent-Level Hooks
+
+**Agent hooks** are defined at the individual agent level and allow you to customize specific agent behavior:
+
+##### `create_agent_hook`
+Used to provide a completely custom agent implementation. When this is provided all other configuration is ignored. See: **Hook Implementation**
+
+```yaml
+agents:
+  custom_agent:
+    name: custom_agent
+    description: "Agent with custom initialization"
+    model: *tool_calling_llm
+    create_agent_hook: my_package.hooks.initialize_custom_agent
+    # ... other agent configuration
+```
+
+##### `pre_agent_hook`
+Executed before an agent processes a message. Ideal for request preprocessing, logging, validation, or context injection. See: **Hook Implementation**
+
+```yaml
+agents:
+  logging_agent:
+    name: logging_agent
+    description: "Agent with request logging"
+    model: *tool_calling_llm
+    pre_agent_hook: my_package.hooks.log_incoming_request
+    # ... other agent configuration
+```
+
+##### `post_agent_hook`
+Executed after an agent completes processing a message. Perfect for response post-processing, logging, metrics collection, or cleanup operations. See: **Hook Implementation**
+
+```yaml
+agents:
+  analytics_agent:
+    name: analytics_agent
+    description: "Agent with response analytics"
+    model: *tool_calling_llm
+    post_agent_hook: my_package.hooks.collect_response_metrics
+    # ... other agent configuration
+```
+
+#### Application-Level Hooks
+
+**Application hooks** operate at the global application level and affect the entire system lifecycle:
+
+##### `initialization_hooks`
+Executed when the application starts up via `AppConfig.from_file()`. Use these for system initialization, resource setup, database connections, or external service configuration. See: **Hook Implementation**
+
+```yaml
+app:
+  name: my_retail_app
+  initialization_hooks:
+    - my_package.hooks.setup_database_connections
+    - my_package.hooks.initialize_external_apis
+    - my_package.hooks.setup_monitoring
+  # ... other app configuration
+```
+
+##### `shutdown_hooks`
+Executed when the application shuts down (registered via `atexit`). Essential for cleanup operations, closing connections, saving state, or performing final logging. See: **Hook Implementation**
+
+```yaml
+app:
+  name: my_retail_app
+  shutdown_hooks:
+    - my_package.hooks.cleanup_database_connections
+    - my_package.hooks.save_session_data
+    - my_package.hooks.send_shutdown_metrics
+  # ... other app configuration
+```
+
+##### `message_hooks`
+Executed for every message processed by the system. Useful for global logging, authentication, rate limiting, or message transformation. See: **Hook Implementation**
+
+```yaml
+app:
+  name: my_retail_app
+  message_hooks:
+    - my_package.hooks.authenticate_user
+    - my_package.hooks.apply_rate_limiting
+    - my_package.hooks.transform_message_format
+  # ... other app configuration
+```
+
+### Hook Implementation
+
+Hooks can be implemented as either:
+
+1. **Python Functions**: Direct function references
+   ```yaml
+   initialization_hooks: my_package.hooks.setup_function
+   ```
+
+2. **Factory Functions**: Functions that return configured tools or handlers
+   ```yaml
+   initialization_hooks:
+     type: factory
+     name: my_package.hooks.create_setup_handler
+     args:
+       config_param: "value"
+   ```
+
+3. **Hook Lists**: Multiple hooks executed in sequence
+   ```yaml
+   initialization_hooks:
+     - my_package.hooks.setup_database
+     - my_package.hooks.setup_cache
+     - my_package.hooks.setup_monitoring
+   ```
+
+### Hook Function Signatures
+
+Each hook type expects specific function signatures:
+
+#### Agent Hooks
+```python
+# create_agent_hook
+def initialize_custom_agent(agent_config: AgentModel) -> None:
+    """Custom agent initialization logic"""
+    pass
+
+# pre_agent_hook  
+def log_incoming_request(state: dict, config: AppConfig) -> dict:
+    """Pre-process incoming request"""
+    return state
+
+# post_agent_hook
+def collect_response_metrics(state: dict, config: AppConfig) -> dict:
+    """Post-process agent response"""
+    return state
+```
+
+#### Application Hooks
+```python
+# initialization_hooks
+def setup_database_connections(config: AppConfig) -> None:
+    """Initialize database connections"""
+    pass
+
+# shutdown_hooks  
+def cleanup_resources(config: AppConfig) -> None:
+    """Clean up resources on shutdown"""
+    pass
+
+# message_hooks
+def authenticate_user(state: dict, config: AppConfig) -> dict:
+    """Authenticate and authorize user requests"""
+    return state
+```
+
+### Use Cases and Examples
+
+#### Common Hook Patterns
+
+**Logging and Monitoring**:
+```python
+def log_agent_performance(state: dict, config: AppConfig) -> dict:
+    """Log agent response times and quality metrics"""
+    start_time = state.get('start_time')
+    if start_time:
+        duration = time.time() - start_time
+        logger.info(f"Agent response time: {duration:.2f}s")
+    return state
+```
+
+**Authentication and Authorization**:
+```python
+def validate_user_permissions(state: dict, config: AppConfig) -> dict:
+    """Validate user has permission for requested operation"""
+    user_id = state.get('user_id')
+    if not has_permission(user_id, state.get('operation')):
+        raise UnauthorizedError("Insufficient permissions")
+    return state
+```
+
+**Resource Management**:
+```python
+def initialize_vector_search(config: AppConfig) -> None:
+    """Initialize vector search connections during startup"""
+    for vs_name, vs_config in config.resources.vector_stores.items():
+        vs_config.create()
+        logger.info(f"Vector store {vs_name} initialized")
+```
+
+**State Enrichment**:
+```python
+def enrich_user_context(state: dict, config: AppConfig) -> dict:
+    """Add user profile and preferences to state"""
+    user_id = state.get('user_id')
+    if user_id:
+        user_profile = get_user_profile(user_id)
+        state['user_context'] = user_profile
+    return state
+```
+
+### Best Practices
+
+1. **Keep hooks lightweight**: Avoid heavy computations that could slow down message processing
+2. **Handle errors gracefully**: Use try-catch blocks to prevent hook failures from breaking the system
+3. **Use appropriate hook types**: Choose agent-level vs application-level hooks based on scope
+4. **Maintain state immutability**: Return modified copies of state rather than mutating in-place
+5. **Log hook execution**: Include logging for troubleshooting and monitoring
+6. **Test hooks independently**: Write unit tests for hook functions separate from the main application
+
 
 ## Development
 

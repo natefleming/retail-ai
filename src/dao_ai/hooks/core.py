@@ -14,6 +14,10 @@ def null_initialization_hook(config: AppConfig) -> None:
     logger.debug("Executing null initialization hook")
 
 
+def null_shutdown_hook(config: AppConfig) -> None:
+    logger.debug("Executing null shutdown hook")
+
+
 def require_user_id_hook(
     state: dict[str, Any], config: dict[str, Any]
 ) -> dict[str, Any]:

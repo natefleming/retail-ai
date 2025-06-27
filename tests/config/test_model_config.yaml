@@ -1010,7 +1010,7 @@ app:
   initialization_hooks: 
       - type: python                                 
         name: dao_ai.hooks.null_initialization_hook       
-
+  shutdown_hooks: dao_ai.hooks.null_shutdown_hook   
 
 
     # swarm:

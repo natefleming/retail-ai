@@ -10,7 +10,7 @@ from langgraph.types import PregelTask, StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel
-from mlflow.types.llm import (  # Non-streaming helper classes; Helper classes for streaming agent output
+from mlflow.types.llm import (
     ChatChoice,
     ChatChoiceDelta,
     ChatChunkChoice,

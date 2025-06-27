@@ -1,3 +1,4 @@
+import atexit
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -894,6 +895,9 @@ class AppModel(BaseModel):
     initialization_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
         default_factory=list
     )
+    shutdown_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
+        default_factory=list
+    )
     message_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
         default_factory=list
     )
@@ -1030,27 +1034,35 @@ class AppConfig(BaseModel):
         logger.debug(f"Loading config from {path}")
         model_config: ModelConfig = ModelConfig(development_config=path)
         config: AppConfig = AppConfig(**model_config.to_dict())
+
+        config.initialize()
+        atexit.register(config.shutdown)
+
         return config
 
     def initialize(self) -> None:
-        initialization_hooks: FunctionHook | list[FunctionHook] | None = (
+        from dao_ai.tools.core import create_hooks
+
+        logger.debug("Calling initialization hooks...")
+        initialization_functions: Sequence[Callable[..., Any]] = create_hooks(
             self.app.initialization_hooks
         )
-        if not initialization_hooks:
-            return
-        if not isinstance(initialization_hooks, Sequence):
-            initialization_hooks = [initialization_hooks]
-        for initialization_hook in initialization_hooks:
-            if isinstance(initialization_hook, str):
-                initialization_hook = PythonFunctionModel(name=initialization_hook)
-
-            initialization_function: Callable[[AppConfig], None] = (
-                initialization_hook.as_tool()
-            )
-            logger.info(
+        for initialization_function in initialization_functions:
+            logger.debug(
                 f"Running initialization hook: {initialization_function.__name__}"
             )
             initialization_function(self)
+
+    def shutdown(self) -> None:
+        from dao_ai.tools.core import create_hooks
+
+        logger.debug("Calling shutdown hooks...")
+        shutdown_functions: Sequence[Callable[..., Any]] = create_hooks(
+            self.app.shutdown_hooks
+        )
+        for shutdown_function in shutdown_functions:
+            logger.debug(f"Running shutdown hook: {shutdown_function.__name__}")
+            shutdown_function(self)
 
     def display_graph(self) -> None:
         from dao_ai.graph import create_dao_ai_graph

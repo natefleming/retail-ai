@@ -26,16 +26,14 @@ from pydantic import BaseModel, Field
 from dao_ai.config import (
     AgentModel,
     AppConfig,
-    FactoryFunctionModel,
     FunctionHook,
-    PythonFunctionModel,
     SummarizationModel,
     ToolModel,
 )
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
 from dao_ai.messages import last_human_message
 from dao_ai.state import IncomingState, SharedState
-from dao_ai.tools import create_tools
+from dao_ai.tools import create_hooks, create_tools
 
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
@@ -67,16 +65,6 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
     return prompt
 
 
-def create_hook(
-    hook: PythonFunctionModel | FactoryFunctionModel | str,
-) -> Callable[..., Any]:
-    if isinstance(hook, str):
-        hook = PythonFunctionModel(name=hook)
-    if hook:
-        hook = hook.as_tool()
-    return hook
-
-
 def create_agent_node(
     agent: AgentModel, additional_tools: Optional[Sequence[BaseTool]] = None
 ) -> RunnableLike:
@@ -97,7 +85,7 @@ def create_agent_node(
     logger.debug(f"Creating agent node for {agent.name}")
 
     if agent.create_agent_hook:
-        agent_hook = create_hook(agent.create_agent_hook)
+        agent_hook = next(iter(create_hooks(agent.create_agent_hook)), None)
         return agent_hook
 
     llm: LanguageModelLike = agent.model.as_chat_model()
@@ -126,8 +114,13 @@ def create_agent_node(
     if agent.memory and agent.memory.checkpointer:
         checkpointer = agent.memory.checkpointer.as_checkpointer()
         logger.debug(f"Using memory checkpointer: {checkpointer}")
-    pre_agent_hook: Callable[..., Any] = create_hook(agent.pre_agent_hook)
-    post_agent_hook: Callable[..., Any] = create_hook(agent.post_agent_hook)
+
+    pre_agent_hook: Callable[..., Any] = next(
+        iter(create_hooks(agent.pre_agent_hook)), None
+    )
+    post_agent_hook: Callable[..., Any] = next(
+        iter(create_hooks(agent.post_agent_hook)), None
+    )
 
     compiled_agent: CompiledStateGraph = create_react_agent(
         name=agent.name,
@@ -260,9 +253,7 @@ def summarization_node(config: AppConfig) -> RunnableLike:
 
 
 def message_hook_node(config: AppConfig) -> RunnableLike:
-    message_hooks: Sequence[Callable[..., Any]] = [
-        create_hook(hook) for hook in config.app.message_hooks
-    ]
+    message_hooks: Sequence[Callable[..., Any]] = create_hooks(config.app.message_hooks)
 
     @mlflow.trace()
     def message_hook(state: IncomingState, config: RunnableConfig) -> SharedState:

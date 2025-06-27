@@ -327,6 +327,39 @@
           ],
           "title": "Initialization Hooks"
         },
+        "shutdown_hooks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PythonFunctionModel"
+                  },
+                  {
+                    "$ref": "#/$defs/FactoryFunctionModel"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Shutdown Hooks"
+        },
         "message_hooks": {
           "anyOf": [
             {
