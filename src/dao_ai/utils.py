@@ -42,7 +42,7 @@ def get_installed_packages() -> dict[str, str]:
         f"langchain-openai=={version('langchain-openai')}",
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
         f"langgraph=={version('langgraph')}",
-        f"langgraph-prebuilt=={version('langgraph')}",
+        f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
         f"langgraph-supervisor=={version('langgraph-supervisor')}",
         f"langgraph-swarm=={version('langgraph-swarm')}",
