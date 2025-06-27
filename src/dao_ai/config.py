@@ -169,7 +169,7 @@ class CompositeVariableModel(BaseModel, HasValue):
         return self.default_value
 
 
-type AnyVariable = (
+AnyVariable: TypeAlias = (
     CompositeVariableModel
     | EnvironmentVariableModel
     | SecretVariableModel

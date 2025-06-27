@@ -17,15 +17,6 @@ examples:
         thread_id: "2" 
         user_id: mike.chen
 
-  coffee_order_example:
-    messages:
-      - role: user
-        content: I'd like to order a medium cappuccino please.
-    custom_inputs:
-      configurable:
-        thread_id: "3"
-        user_id: alex.rodriguez
-
   order_history_example:
     messages:
       - role: user
