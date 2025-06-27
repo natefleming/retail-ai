@@ -840,17 +840,17 @@ Each hook type expects specific function signatures:
 #### Agent Hooks
 ```python
 # create_agent_hook
-def initialize_custom_agent(agent_config: AgentModel) -> None:
+def initialize_custom_agent(state: dict, config: dict) -> dict:
     """Custom agent initialization logic"""
     pass
 
 # pre_agent_hook  
-def log_incoming_request(state: dict, config: AppConfig) -> dict:
+def log_incoming_request(state: dict, config: dict) -> dict:
     """Pre-process incoming request"""
     return state
 
 # post_agent_hook
-def collect_response_metrics(state: dict, config: AppConfig) -> dict:
+def collect_response_metrics(state: dict, config: dict) -> dict:
     """Post-process agent response"""
     return state
 ```
@@ -868,7 +868,7 @@ def cleanup_resources(config: AppConfig) -> None:
     pass
 
 # message_hooks
-def authenticate_user(state: dict, config: AppConfig) -> dict:
+def authenticate_user(state: dict, config: dict) -> dict:
     """Authenticate and authorize user requests"""
     return state
 ```
