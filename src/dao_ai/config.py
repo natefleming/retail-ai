@@ -1041,7 +1041,7 @@ class AppConfig(BaseModel):
         return config
 
     def initialize(self) -> None:
-        from dao_ai.tools.core import create_hooks
+        from dao_ai.hooks.core import create_hooks
 
         logger.debug("Calling initialization hooks...")
         initialization_functions: Sequence[Callable[..., Any]] = create_hooks(
@@ -1054,7 +1054,7 @@ class AppConfig(BaseModel):
             initialization_function(self)
 
     def shutdown(self) -> None:
-        from dao_ai.tools.core import create_hooks
+        from dao_ai.hooks.core import create_hooks
 
         logger.debug("Calling shutdown hooks...")
         shutdown_functions: Sequence[Callable[..., Any]] = create_hooks(
@@ -1068,7 +1068,7 @@ class AppConfig(BaseModel):
                 logger.error(
                     f"Error during shutdown hook {shutdown_function.__name__}: {e}"
                 )
-                
+
     def display_graph(self) -> None:
         from dao_ai.graph import create_dao_ai_graph
         from dao_ai.models import display_graph

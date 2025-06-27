@@ -1,4 +1,5 @@
 from dao_ai.hooks.core import (
+    create_hooks,
     null_hook,
     null_initialization_hook,
     null_shutdown_hook,
@@ -7,6 +8,7 @@ from dao_ai.hooks.core import (
 )
 
 __all__ = [
+    "create_hooks",
     "null_hook",
     "null_initialization_hook",
     "null_shutdown_hook",

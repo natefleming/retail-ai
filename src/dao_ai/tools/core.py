@@ -19,7 +19,6 @@ from dao_ai.config import (
     AnyTool,
     BaseFunctionModel,
     FactoryFunctionModel,
-    FunctionHook,
     HumanInTheLoopModel,
     McpFunctionModel,
     PythonFunctionModel,
@@ -27,23 +26,8 @@ from dao_ai.config import (
     TransportType,
     UnityCatalogFunctionModel,
 )
+from dao_ai.hooks.core import create_hooks
 from dao_ai.utils import load_function
-
-
-def create_hooks(
-    function_hooks: FunctionHook | list[FunctionHook] | None,
-) -> Sequence[Callable[..., Any]]:
-    hooks: Sequence[Callable[..., Any]] = []
-    if not function_hooks:
-        return []
-    if not isinstance(function_hooks, (list, tuple, set)):
-        function_hooks = [function_hooks]
-    for function_hook in function_hooks:
-        if isinstance(function_hook, str):
-            function_hook = PythonFunctionModel(name=function_hook)
-        hook: Callable[..., Any] = function_hook.as_tool()
-        hooks.append(hook)
-    return hooks
 
 
 def add_human_in_the_loop(

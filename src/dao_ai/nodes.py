@@ -31,9 +31,10 @@ from dao_ai.config import (
     ToolModel,
 )
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
+from dao_ai.hooks.core import create_hooks
 from dao_ai.messages import last_human_message
 from dao_ai.state import IncomingState, SharedState
-from dao_ai.tools import create_hooks, create_tools
+from dao_ai.tools import create_tools
 
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:

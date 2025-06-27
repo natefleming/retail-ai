@@ -1,8 +1,24 @@
-from typing import Any
+from typing import Any, Callable, Sequence
 
 from loguru import logger
 
-from dao_ai.config import AppConfig
+from dao_ai.config import AppConfig, FunctionHook, PythonFunctionModel
+
+
+def create_hooks(
+    function_hooks: FunctionHook | list[FunctionHook] | None,
+) -> Sequence[Callable[..., Any]]:
+    hooks: Sequence[Callable[..., Any]] = []
+    if not function_hooks:
+        return []
+    if not isinstance(function_hooks, (list, tuple, set)):
+        function_hooks = [function_hooks]
+    for function_hook in function_hooks:
+        if isinstance(function_hook, str):
+            function_hook = PythonFunctionModel(name=function_hook)
+        hook: Callable[..., Any] = function_hook.as_tool()
+        hooks.append(hook)
+    return hooks
 
 
 def null_hook(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:

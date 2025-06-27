@@ -1,7 +1,7 @@
+from dao_ai.hooks.core import create_hooks
 from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.core import (
     create_factory_tool,
-    create_hooks,
     create_mcp_tool,
     create_python_tool,
     create_tools,
