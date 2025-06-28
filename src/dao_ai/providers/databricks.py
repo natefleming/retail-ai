@@ -406,7 +406,8 @@ class DatabricksProvider(ServiceProvider):
                 volume_type=VolumeType.MANAGED,
             )
         return volume_info
-
+        
+        
     def create_dataset(self, dataset: DatasetModel) -> None:
         current_dir: Path = "file:///" / Path.cwd().relative_to("/")
 
@@ -430,6 +431,17 @@ class DatabricksProvider(ServiceProvider):
         format: str = dataset.format
         read_options: dict[str, Any] = dataset.read_options or {}
 
+        args: dict[str, Any] = {}
+        for key, value in dataset.parameters.items():
+            if isinstance(value, HasFullName):
+                value = value.full_name
+            args[key] = value
+
+        if not args:
+            args = {
+                "database": dataset.table.schema_model.full_name,
+            }
+
         if ddl:
             ddl_path: Path = Path(ddl)
             statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
@@ -437,7 +449,7 @@ class DatabricksProvider(ServiceProvider):
                 logger.debug(statement)
                 spark.sql(
                     str(statement),
-                    args={"database": dataset.table.schema_model.full_name},
+                    args=args,
                 )
 
         if data:
@@ -448,7 +460,7 @@ class DatabricksProvider(ServiceProvider):
                     logger.debug(statement)
                     spark.sql(
                         str(statement),
-                        args={"database": dataset.table.schema_model.full_name},
+                        args=args,
                     )
             else:
                 logger.debug(f"Writing to: {table}")
@@ -506,13 +518,26 @@ class DatabricksProvider(ServiceProvider):
         function: FunctionModel = unity_catalog_function.function
         schema: SchemaModel = function.schema_model
         ddl_path: Path = Path(unity_catalog_function.ddl)
+        parameters: dict[str, Any] = unity_catalog_function.parameters
 
         statements: Sequence[str] = [
             str(s) for s in sqlparse.parse(ddl_path.read_text())
         ]
+
+        if not parameters:
+            parameters = {
+                "catalog_name": schema.catalog_name,
+                "schema_name": schema.schema_name,
+            }
+
         for sql in statements:
-            sql = sql.replace("{catalog_name}", schema.catalog_name)
-            sql = sql.replace("{schema_name}", schema.schema_name)
+            for key, value in parameters.items():
+                if isinstance(value, HasFullName):
+                    value = value.full_name
+                sql = sql.replace(f"{{{key}}}", value)
+
+            # sql = sql.replace("{catalog_name}", schema.catalog_name)
+            # sql = sql.replace("{schema_name}", schema.schema_name)
 
             logger.info(function.name)
             logger.info(sql)

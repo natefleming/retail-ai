@@ -965,6 +965,7 @@ class DatasetModel(BaseModel):
     format: Optional[DatasetFormat] = None
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
     table_schema: Optional[str] = None
+    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.base import ServiceProvider
@@ -983,6 +984,7 @@ class UnityCatalogFunctionSqlModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     function: UnityCatalogFunctionModel
     ddl: str
+    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
 
     def create(
