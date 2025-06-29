@@ -315,7 +315,7 @@ class VectorSearchEndpointType(str, Enum):
 class VectorSearchEndpoint(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    type: VectorSearchEndpointType
+    type: VectorSearchEndpointType = VectorSearchEndpointType.STANDARD
 
 
 class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
@@ -347,10 +347,10 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
     endpoint: VectorSearchEndpoint
     index: IndexModel
     source_table: TableModel
-    primary_key: str
+    primary_key: Optional[str] = None
     doc_uri: Optional[str] = None
     embedding_source_column: str
-    columns: list[str]
+    columns: Optional[list[str]] = Field(default_factory=list)
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -557,8 +557,8 @@ class SearchParametersModel(BaseModel):
 class RetrieverModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     vector_store: VectorStoreModel
-    columns: list[str]
-    search_parameters: SearchParametersModel
+    columns: list[str] = Field(default_factory=list)
+    search_parameters: SearchParametersModel = Field(default_factory=dict)
 
 
 class FunctionType(str, Enum):

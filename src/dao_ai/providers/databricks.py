@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Final, Sequence
 
 import mlflow
 import sqlparse
@@ -10,8 +10,12 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.catalog import (
     CatalogInfo,
+    ColumnInfo,
     FunctionInfo,
+    PrimaryKeyConstraint,
     SchemaInfo,
+    TableConstraint,
+    TableInfo,
     VolumeInfo,
     VolumeType,
 )
@@ -54,6 +58,12 @@ from dao_ai.models import get_latest_model_version
 from dao_ai.providers.base import ServiceProvider
 from dao_ai.utils import get_installed_packages, is_installed, normalize_name
 from dao_ai.vector_search import endpoint_exists, index_exists
+
+MAX_NUM_INDEXES: Final[int] = 50
+
+
+def with_available_indexes(endpoint: dict[str, Any]) -> bool:
+    return endpoint["num_indexes"] < 50
 
 
 def _workspace_client(
@@ -406,8 +416,7 @@ class DatabricksProvider(ServiceProvider):
                 volume_type=VolumeType.MANAGED,
             )
         return volume_info
-        
-        
+
     def create_dataset(self, dataset: DatasetModel) -> None:
         current_dir: Path = "file:///" / Path.cwd().relative_to("/")
 
@@ -556,3 +565,40 @@ class DatabricksProvider(ServiceProvider):
                 else:
                     logger.info(f"Function {function.full_name} executed successfully.")
                     logger.info(f"Result: {result}")
+
+    def find_columns(self, table_model: TableModel) -> Sequence[str]:
+        logger.debug(f"Finding columns for table: {table_model.full_name}")
+        table_info: TableInfo = self.w.tables.get(full_name=table_model.full_name)
+        columns: Sequence[ColumnInfo] = table_info.columns
+        column_names: Sequence[str] = [c.name for c in columns]
+        logger.debug(f"Columns found: {column_names}")
+        return column_names
+
+    def find_primary_key(self, table_model: TableModel) -> Sequence[str] | None:
+        logger.debug(f"Finding primary key for table: {table_model.full_name}")
+        primary_keys: Sequence[str] | None = None
+        table_info: TableInfo = self.w.tables.get(full_name=table_model.full_name)
+        constraints: Sequence[TableConstraint] = table_info.table_constraints
+        primary_key_constraint: PrimaryKeyConstraint | None = next(
+            c.primary_key_constraint for c in constraints if c.primary_key_constraint
+        )
+        if primary_key_constraint:
+            primary_keys = primary_key_constraint.child_columns
+
+        logger.debug(f"Primary key for table {table_model.full_name}: {primary_keys}")
+        return primary_keys
+
+    def find_vector_search_endpoint(
+        self, predicate: Callable[[dict[str, Any]], bool]
+    ) -> str | None:
+        logger.debug("Finding vector search endpoint...")
+        endpoint_name: str | None = None
+        vector_search_endpoints: Sequence[dict[str, Any]] = (
+            self.vsc.list_endpoints().get("endpoints", [])
+        )
+        for endpoint in vector_search_endpoints:
+            if predicate(endpoint):
+                endpoint_name = endpoint["name"]
+                break
+        logger.debug(f"Vector search endpoint found: {endpoint_name}")
+        return endpoint_name

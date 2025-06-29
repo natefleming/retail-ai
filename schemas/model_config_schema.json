@@ -1702,9 +1702,7 @@
         }
       },
       "required": [
-        "vector_store",
-        "columns",
-        "search_parameters"
+        "vector_store"
       ],
       "title": "RetrieverModel",
       "type": "object"
@@ -2213,12 +2211,12 @@
           "type": "string"
         },
         "type": {
-          "$ref": "#/$defs/VectorSearchEndpointType"
+          "$ref": "#/$defs/VectorSearchEndpointType",
+          "default": "STANDARD"
         }
       },
       "required": [
-        "name",
-        "type"
+        "name"
       ],
       "title": "VectorSearchEndpoint",
       "type": "object"
@@ -2258,8 +2256,16 @@
           "$ref": "#/$defs/TableModel"
         },
         "primary_key": {
-          "title": "Primary Key",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Key"
         },
         "doc_uri": {
           "anyOf": [
@@ -2278,11 +2284,18 @@
           "type": "string"
         },
         "columns": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Columns",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Columns"
         }
       },
       "required": [
@@ -2290,9 +2303,7 @@
         "endpoint",
         "index",
         "source_table",
-        "primary_key",
-        "embedding_source_column",
-        "columns"
+        "embedding_source_column"
       ],
       "title": "VectorStoreModel",
       "type": "object"
