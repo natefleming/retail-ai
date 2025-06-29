@@ -343,14 +343,68 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
 
 class VectorStoreModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict()
-    embedding_model: LLMModel
-    endpoint: VectorSearchEndpoint
-    index: IndexModel
+    embedding_model: Optional[LLMModel] = None
+    endpoint: Optional[VectorSearchEndpoint] = None
+    index: Optional[IndexModel] = None
     source_table: TableModel
     primary_key: Optional[str] = None
     doc_uri: Optional[str] = None
     embedding_source_column: str
     columns: Optional[list[str]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def set_default_embedding_model(self):
+        if not self.embedding_model:
+            self.embedding_model = LLMModel(name="databricks-gte-large-en")
+        return self
+
+    @model_validator(mode="after")
+    def set_default_primary_key(self):
+        if self.primary_key is None:
+            from dao_ai.providers.databricks import DatabricksProvider
+
+            provider: DatabricksProvider = DatabricksProvider()
+            primary_key: Sequence[str] | None = provider.find_primary_key(
+                self.source_table
+            )
+            if not primary_key:
+                raise ValueError(
+                    "Missing field primary_key and unable to find an appropriate primary_key."
+                )
+            if len(primary_key) > 1:
+                raise ValueError(
+                    f"Table {self.source_table.full_name} has more than one primary key: {primary_key}"
+                )
+            self.primary_key = primary_key[0] if primary_key else None
+
+        return self
+
+    @model_validator(mode="after")
+    def set_default_endpoint(self):
+        if self.endpoint is None:
+            from dao_ai.providers.databricks import (
+                DatabricksProvider,
+                with_available_indexes,
+            )
+
+            provider: DatabricksProvider = DatabricksProvider()
+            endpoint: str | None = provider.find_vector_search_endpoint(
+                with_available_indexes
+            )
+            if endpoint is None:
+                raise ValueError(
+                    "Missing field endpoint and unable to find an available vector search endpoint."
+                )
+            self.endpoint = VectorSearchEndpoint(name=endpoint)
+
+        return self
+
+    @model_validator(mode="after")
+    def set_default_index(self):
+        if self.index is None:
+            name: str = f"{self.source_table.name}_index"
+            self.index = IndexModel(schema=self.source_table.schema_model, name=name)
+        return self
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -557,8 +611,17 @@ class SearchParametersModel(BaseModel):
 class RetrieverModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     vector_store: VectorStoreModel
-    columns: list[str] = Field(default_factory=list)
-    search_parameters: SearchParametersModel = Field(default_factory=dict)
+    columns: Optional[list[str]] = Field(default_factory=list)
+    search_parameters: SearchParametersModel = Field(
+        default_factory=SearchParametersModel
+    )
+
+    @model_validator(mode="after")
+    def set_default_columns(self):
+        if not self.columns:
+            columns: Sequence[str] = self.vector_store.columns
+            self.columns = columns
+        return self
 
 
 class FunctionType(str, Enum):
