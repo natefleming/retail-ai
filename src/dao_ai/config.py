@@ -352,7 +352,6 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
     doc_uri: Optional[str] = None
     embedding_source_column: str
 
-
     @model_validator(mode="after")
     def set_default_embedding_model(self):
         if not self.embedding_model:
@@ -386,7 +385,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
             name: str = f"{self.source_table.name}_index"
             self.index = IndexModel(schema=self.source_table.schema_model, name=name)
         return self
-    
+
     @model_validator(mode="after")
     def set_default_endpoint(self):
         if self.endpoint is None:
