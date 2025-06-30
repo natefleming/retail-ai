@@ -344,13 +344,14 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
 class VectorStoreModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     embedding_model: Optional[LLMModel] = None
-    endpoint: Optional[VectorSearchEndpoint] = None
     index: Optional[IndexModel] = None
+    endpoint: Optional[VectorSearchEndpoint] = None
     source_table: TableModel
     primary_key: Optional[str] = None
+    columns: Optional[list[str]] = Field(default_factory=list)
     doc_uri: Optional[str] = None
     embedding_source_column: str
-    columns: Optional[list[str]] = Field(default_factory=list)
+
 
     @model_validator(mode="after")
     def set_default_embedding_model(self):
@@ -380,6 +381,13 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
         return self
 
     @model_validator(mode="after")
+    def set_default_index(self):
+        if self.index is None:
+            name: str = f"{self.source_table.name}_index"
+            self.index = IndexModel(schema=self.source_table.schema_model, name=name)
+        return self
+    
+    @model_validator(mode="after")
     def set_default_endpoint(self):
         if self.endpoint is None:
             from dao_ai.providers.databricks import (
@@ -388,27 +396,23 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
             )
 
             provider: DatabricksProvider = DatabricksProvider()
+            logger.debug("Finding endpoint for existing index...")
             endpoint_name: str | None = provider.find_endpoint_for_index(self.index)
             if endpoint_name is None:
+                logger.debug("Finding first endpoint with available indexes...")
                 endpoint_name = provider.find_vector_search_endpoint(
                     with_available_indexes
                 )
             if endpoint_name is None:
+                logger.debug("No endpoint found, creating a new name...")
                 endpoint_name = (
                     f"{self.source_table.schema_model.catalog_name}_endpoint"
                 )
+            logger.debug(f"Using endpoint: {endpoint_name}")
             self.endpoint = VectorSearchEndpoint(name=endpoint_name)
 
         return self
 
-    @model_validator(mode="after")
-    def set_default_index(self):
-        if self.index is None:
-            name: str = f"{self.source_table.name}_index"
-            self.index = IndexModel(schema=self.source_table.schema_model, name=name)
-        return self
-
-    
     @property
     def api_scopes(self) -> Sequence[str]:
         return [
