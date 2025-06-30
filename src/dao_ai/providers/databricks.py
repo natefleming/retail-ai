@@ -442,8 +442,9 @@ class DatabricksProvider(ServiceProvider):
 
         args: dict[str, Any] = {}
         for key, value in dataset.parameters.items():
-            if isinstance(value, HasFullName):
-                value = value.full_name
+            if isinstance(value, dict):
+                schema_model: SchemaModel = SchemaModel(**value)
+                value = schema_model.full_name
             args[key] = value
 
         if not args:
