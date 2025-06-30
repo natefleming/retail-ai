@@ -319,7 +319,7 @@ class VectorSearchEndpoint(BaseModel):
 
 
 class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -342,7 +342,7 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
 
 
 class VectorStoreModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     embedding_model: Optional[LLMModel] = None
     endpoint: Optional[VectorSearchEndpoint] = None
     index: Optional[IndexModel] = None
@@ -388,14 +388,16 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
             )
 
             provider: DatabricksProvider = DatabricksProvider()
-            endpoint: str | None = provider.find_vector_search_endpoint(
-                with_available_indexes
-            )
-            if endpoint is None:
-                raise ValueError(
-                    "Missing field endpoint and unable to find an available vector search endpoint."
+            endpoint_name: str | None = provider.find_endpoint_for_index(self.index)
+            if endpoint_name is None:
+                endpoint_name = provider.find_vector_search_endpoint(
+                    with_available_indexes
                 )
-            self.endpoint = VectorSearchEndpoint(name=endpoint)
+            if endpoint_name is None:
+                endpoint_name = (
+                    f"{self.source_table.schema_model.catalog_name}_endpoint"
+                )
+            self.endpoint = VectorSearchEndpoint(name=endpoint_name)
 
         return self
 
@@ -433,7 +435,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 
 
 class GenieRoomModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
     space_id: str
@@ -451,7 +453,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
 
 
 class VolumeModel(BaseModel, HasFullName):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -1101,6 +1103,7 @@ class AppConfig(BaseModel):
         config: AppConfig = AppConfig(**model_config.to_dict())
 
         config.initialize()
+
         atexit.register(config.shutdown)
 
         return config

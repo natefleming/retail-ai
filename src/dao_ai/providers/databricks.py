@@ -602,3 +602,22 @@ class DatabricksProvider(ServiceProvider):
                 break
         logger.debug(f"Vector search endpoint found: {endpoint_name}")
         return endpoint_name
+
+    def find_endpoint_for_index(self, index_model: IndexModel) -> str | None:
+        logger.debug(f"Finding vector search index: {index_model.full_name}")
+        all_endpoints: Sequence[dict[str, Any]] = self.vsc.list_endpoints().get(
+            "endpoints", []
+        )
+        index_name: str = index_model.full_name
+        found_endpoint_name: str | None = None
+        for endpoint in all_endpoints:
+            endpoint_name: str = endpoint["name"]
+            indexes = self.vsc.list_indexes(name=endpoint_name)
+            vector_indexes: Sequence[dict[str, Any]] = indexes.get("vector_indexes", [])
+            logger.trace(f"Endpoint: {endpoint_name}, vector_indexes: {vector_indexes}")
+            index_names = [vector_index["name"] for vector_index in vector_indexes]
+            if index_name in index_names:
+                found_endpoint_name = endpoint_name
+                break
+        logger.debug(f"Vector search index found: {found_endpoint_name}")
+        return found_endpoint_name
