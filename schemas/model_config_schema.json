@@ -1117,6 +1117,7 @@
       "type": "object"
     },
     "GenieRoomModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1213,6 +1214,7 @@
       "type": "object"
     },
     "IndexModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1691,11 +1693,18 @@
           "$ref": "#/$defs/VectorStoreModel"
         },
         "columns": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Columns",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Columns"
         },
         "search_parameters": {
           "$ref": "#/$defs/SearchParametersModel"
@@ -2230,6 +2239,7 @@
       "type": "string"
     },
     "VectorStoreModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -2244,13 +2254,37 @@
           "title": "On Behalf Of User"
         },
         "embedding_model": {
-          "$ref": "#/$defs/LLMModel"
-        },
-        "endpoint": {
-          "$ref": "#/$defs/VectorSearchEndpoint"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "index": {
-          "$ref": "#/$defs/IndexModel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndexModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VectorSearchEndpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "source_table": {
           "$ref": "#/$defs/TableModel"
@@ -2267,6 +2301,20 @@
           "default": null,
           "title": "Primary Key"
         },
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Columns"
+        },
         "doc_uri": {
           "anyOf": [
             {
@@ -2282,26 +2330,9 @@
         "embedding_source_column": {
           "title": "Embedding Source Column",
           "type": "string"
-        },
-        "columns": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Columns"
         }
       },
       "required": [
-        "embedding_model",
-        "endpoint",
-        "index",
         "source_table",
         "embedding_source_column"
       ],
@@ -2309,6 +2340,7 @@
       "type": "object"
     },
     "VolumeModel": {
+      "additionalProperties": false,
       "properties": {
         "schema": {
           "anyOf": [

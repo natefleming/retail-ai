@@ -1,0 +1,79 @@
+# yaml-language-server: $schema=../../schemas/model_config_schema.json
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: nfleming                    # Unity Catalog name
+    schema_name: retail_ai                    # Schema within the catalog
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      source_table:                                 # Table containing source data
+        schema: *retail_schema
+        name: products
+      embedding_source_column: description          # Column to create embeddings from
+
+
+  genie_rooms:
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"                  # Human-readable name
+      space_id: 01f01c91f1f414d59daaefd2b7ec82ea    # Databricks Genie space ID
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_genie_tool          # Factory function path
+      args:                                         # Arguments passed to factory
+        name: my_genie_tool
+        description: My Answers questions about genie
+        genie_room: *retail_genie_room              # Reference to Genie room config
+
+  vector_search_tool: &vector_search_tool
+    name: vector_search
+    function:
+      type: factory
+      name: databricks_langchain.vector_search_retriever_tool.VectorSearchRetrieverTool
+      args:
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products using vector search"  # Tool description
+        index_name: nfleming.retail_ai.products_index
+
+agents:
+  genie_agent: &genie_agent
+    name: genie_agent                                     # Agent identifier
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *genie_tool
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about foo
+    handoff_prompt: |                               # Conditions for routing to this agent
+      Answers all foo questions
+
+  vector_search_agent: &vector_search_agent
+    name: vector_search_agent                                   # Agent identifier
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *vector_search_tool
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about bar
+    handoff_prompt: |                               # Conditions for routing to this agent
+      Answers all bar questions
+
+app:
+  name: genie_and_vector_search_example             # Application name  
+  log_level: INFO                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: genie_and_vector_search_agent             # Model name in MLflow registry
+  agents:                                           # List of agents included in the system
+    - *genie_agent                                       # Order management agent
+    - *vector_search_agent                               # Vector search agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *default_llm                          # LLM for routing decisions
