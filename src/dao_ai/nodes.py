@@ -120,7 +120,7 @@ def create_agent_node(
         iter(create_hooks(agent.pre_agent_hook)), None
     )
     logger.debug(f"pre_agent_hook: {pre_agent_hook}")
-    
+
     post_agent_hook: Callable[..., Any] = next(
         iter(create_hooks(agent.post_agent_hook)), None
     )

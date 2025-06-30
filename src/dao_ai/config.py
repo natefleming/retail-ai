@@ -315,11 +315,11 @@ class VectorSearchEndpointType(str, Enum):
 class VectorSearchEndpoint(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    type: VectorSearchEndpointType
+    type: VectorSearchEndpointType = VectorSearchEndpointType.STANDARD
 
 
 class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -342,15 +342,75 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
 
 
 class VectorStoreModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict()
-    embedding_model: LLMModel
-    endpoint: VectorSearchEndpoint
-    index: IndexModel
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    embedding_model: Optional[LLMModel] = None
+    index: Optional[IndexModel] = None
+    endpoint: Optional[VectorSearchEndpoint] = None
     source_table: TableModel
-    primary_key: str
+    primary_key: Optional[str] = None
+    columns: Optional[list[str]] = Field(default_factory=list)
     doc_uri: Optional[str] = None
     embedding_source_column: str
-    columns: list[str]
+
+    @model_validator(mode="after")
+    def set_default_embedding_model(self):
+        if not self.embedding_model:
+            self.embedding_model = LLMModel(name="databricks-gte-large-en")
+        return self
+
+    @model_validator(mode="after")
+    def set_default_primary_key(self):
+        if self.primary_key is None:
+            from dao_ai.providers.databricks import DatabricksProvider
+
+            provider: DatabricksProvider = DatabricksProvider()
+            primary_key: Sequence[str] | None = provider.find_primary_key(
+                self.source_table
+            )
+            if not primary_key:
+                raise ValueError(
+                    "Missing field primary_key and unable to find an appropriate primary_key."
+                )
+            if len(primary_key) > 1:
+                raise ValueError(
+                    f"Table {self.source_table.full_name} has more than one primary key: {primary_key}"
+                )
+            self.primary_key = primary_key[0] if primary_key else None
+
+        return self
+
+    @model_validator(mode="after")
+    def set_default_index(self):
+        if self.index is None:
+            name: str = f"{self.source_table.name}_index"
+            self.index = IndexModel(schema=self.source_table.schema_model, name=name)
+        return self
+
+    @model_validator(mode="after")
+    def set_default_endpoint(self):
+        if self.endpoint is None:
+            from dao_ai.providers.databricks import (
+                DatabricksProvider,
+                with_available_indexes,
+            )
+
+            provider: DatabricksProvider = DatabricksProvider()
+            logger.debug("Finding endpoint for existing index...")
+            endpoint_name: str | None = provider.find_endpoint_for_index(self.index)
+            if endpoint_name is None:
+                logger.debug("Finding first endpoint with available indexes...")
+                endpoint_name = provider.find_vector_search_endpoint(
+                    with_available_indexes
+                )
+            if endpoint_name is None:
+                logger.debug("No endpoint found, creating a new name...")
+                endpoint_name = (
+                    f"{self.source_table.schema_model.catalog_name}_endpoint"
+                )
+            logger.debug(f"Using endpoint: {endpoint_name}")
+            self.endpoint = VectorSearchEndpoint(name=endpoint_name)
+
+        return self
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -379,7 +439,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 
 
 class GenieRoomModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
     space_id: str
@@ -397,7 +457,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
 
 
 class VolumeModel(BaseModel, HasFullName):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
 
@@ -557,8 +617,17 @@ class SearchParametersModel(BaseModel):
 class RetrieverModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     vector_store: VectorStoreModel
-    columns: list[str]
-    search_parameters: SearchParametersModel
+    columns: Optional[list[str]] = Field(default_factory=list)
+    search_parameters: SearchParametersModel = Field(
+        default_factory=SearchParametersModel
+    )
+
+    @model_validator(mode="after")
+    def set_default_columns(self):
+        if not self.columns:
+            columns: Sequence[str] = self.vector_store.columns
+            self.columns = columns
+        return self
 
 
 class FunctionType(str, Enum):
@@ -965,6 +1034,7 @@ class DatasetModel(BaseModel):
     format: Optional[DatasetFormat] = None
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
     table_schema: Optional[str] = None
+    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.base import ServiceProvider
@@ -983,6 +1053,7 @@ class UnityCatalogFunctionSqlModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     function: UnityCatalogFunctionModel
     ddl: str
+    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
 
     def create(
@@ -1036,6 +1107,7 @@ class AppConfig(BaseModel):
         config: AppConfig = AppConfig(**model_config.to_dict())
 
         config.initialize()
+
         atexit.register(config.shutdown)
 
         return config

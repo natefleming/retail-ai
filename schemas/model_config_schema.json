@@ -126,34 +126,6 @@
       "title": "AgentModel",
       "type": "object"
     },
-    "AnyVariable": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/CompositeVariableModel"
-        },
-        {
-          "$ref": "#/$defs/EnvironmentVariableModel"
-        },
-        {
-          "$ref": "#/$defs/SecretVariableModel"
-        },
-        {
-          "$ref": "#/$defs/PrimitiveVariableModel"
-        },
-        {
-          "type": "string"
-        },
-        {
-          "type": "integer"
-        },
-        {
-          "type": "number"
-        },
-        {
-          "type": "boolean"
-        }
-      ]
-    },
     "AppModel": {
       "additionalProperties": false,
       "properties": {
@@ -598,34 +570,100 @@
         "host": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "title": "Host"
         },
         "database": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": "databricks_postgres"
+          "default": "databricks_postgres",
+          "title": "Database"
         },
         "port": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": 5432
+          "default": 5432,
+          "title": "Port"
         },
         "connection_kwargs": {
           "anyOf": [
@@ -666,57 +704,167 @@
         "user": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "User"
         },
         "password": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Password"
         },
         "client_id": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Client Id"
         },
         "client_secret": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Client Secret"
         },
         "workspace_host": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AnyVariable"
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Workspace Host"
         }
       },
       "required": [
@@ -816,6 +964,18 @@
           ],
           "default": null,
           "title": "Table Schema"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parameters"
         }
       },
       "title": "DatasetModel",
@@ -1542,9 +1702,7 @@
         }
       },
       "required": [
-        "vector_store",
-        "columns",
-        "search_parameters"
+        "vector_store"
       ],
       "title": "RetrieverModel",
       "type": "object"
@@ -1995,6 +2153,18 @@
           "title": "Ddl",
           "type": "string"
         },
+        "parameters": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parameters"
+        },
         "test": {
           "anyOf": [
             {
@@ -2041,12 +2211,12 @@
           "type": "string"
         },
         "type": {
-          "$ref": "#/$defs/VectorSearchEndpointType"
+          "$ref": "#/$defs/VectorSearchEndpointType",
+          "default": "STANDARD"
         }
       },
       "required": [
-        "name",
-        "type"
+        "name"
       ],
       "title": "VectorSearchEndpoint",
       "type": "object"
@@ -2086,8 +2256,16 @@
           "$ref": "#/$defs/TableModel"
         },
         "primary_key": {
-          "title": "Primary Key",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Key"
         },
         "doc_uri": {
           "anyOf": [
@@ -2106,11 +2284,18 @@
           "type": "string"
         },
         "columns": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Columns",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Columns"
         }
       },
       "required": [
@@ -2118,9 +2303,7 @@
         "endpoint",
         "index",
         "source_table",
-        "primary_key",
-        "embedding_source_column",
-        "columns"
+        "embedding_source_column"
       ],
       "title": "VectorStoreModel",
       "type": "object"
@@ -2223,7 +2406,32 @@
   "properties": {
     "variables": {
       "additionalProperties": {
-        "$ref": "#/$defs/AnyVariable"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CompositeVariableModel"
+          },
+          {
+            "$ref": "#/$defs/EnvironmentVariableModel"
+          },
+          {
+            "$ref": "#/$defs/SecretVariableModel"
+          },
+          {
+            "$ref": "#/$defs/PrimitiveVariableModel"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          }
+        ]
       },
       "title": "Variables",
       "type": "object"

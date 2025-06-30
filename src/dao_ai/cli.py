@@ -439,6 +439,7 @@ def handle_validate_command(options: Namespace) -> None:
     try:
         config: AppConfig = AppConfig.from_file(options.config)
         _ = create_dao_ai_graph(config)
+        config.model_dump(by_alias=True)
         sys.exit(0)
     except Exception as e:
         logger.error(f"Configuration validation failed: {e}")
