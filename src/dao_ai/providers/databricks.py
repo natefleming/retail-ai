@@ -457,6 +457,7 @@ class DatabricksProvider(ServiceProvider):
             statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
             for statement in statements:
                 logger.debug(statement)
+                logger.debug(f"args: {args}")
                 spark.sql(
                     str(statement),
                     args=args,
@@ -469,6 +470,7 @@ class DatabricksProvider(ServiceProvider):
                 data_statements: Sequence[str] = sqlparse.parse(data_path.read_text())
                 for statement in data_statements:
                     logger.debug(statement)
+                    logger.debug(f"args: {args}")
                     spark.sql(
                         str(statement),
                         args=args,
