@@ -408,6 +408,15 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
             self.index = IndexModel(schema=self.source_table.schema_model, name=name)
         return self
 
+    @model_validator(mode="after")
+    def set_columns(self):
+        if self.columns and self.endpoint.type == VectorSearchEndpointType.OPTIMIZED_STORAGE:
+            raise ValueError(
+                "Columns cannot be set for optimized storage endpoints. "
+                "Please remove the 'columns' field from the VectorStoreModel."
+            )
+        return self
+    
     @property
     def api_scopes(self) -> Sequence[str]:
         return [
