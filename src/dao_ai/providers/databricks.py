@@ -453,6 +453,7 @@ class DatabricksProvider(ServiceProvider):
 
         if ddl:
             ddl_path: Path = Path(ddl)
+            logger.debug(f"Executing DDL from: {ddl_path}")
             statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
             for statement in statements:
                 logger.debug(statement)
@@ -464,6 +465,7 @@ class DatabricksProvider(ServiceProvider):
         if data:
             data_path: Path = Path(data)
             if format == "sql":
+                logger.debug(f"Executing SQL from: {data_path}")
                 data_statements: Sequence[str] = sqlparse.parse(data_path.read_text())
                 for statement in data_statements:
                     logger.debug(statement)
@@ -475,6 +477,7 @@ class DatabricksProvider(ServiceProvider):
                 logger.debug(f"Writing to: {table}")
                 if not data_path.is_absolute():
                     data_path = current_dir / data_path
+                logger.debug(f"Data path: {data_path.as_posix()}")
                 spark.read.format(format).options(**read_options).load(
                     data_path.as_posix(),
                     schema=dataset.table_schema,
