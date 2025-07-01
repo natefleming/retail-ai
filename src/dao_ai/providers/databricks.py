@@ -264,13 +264,15 @@ class DatabricksProvider(ServiceProvider):
         )
         logger.debug(f"auth_policy: {auth_policy}")
 
-        pip_requirements: Sequence[str] = get_installed_packages() + additional_pip_reqs
+        pip_requirements: Sequence[str] = (
+            get_installed_packages() + config.app.pip_requirements + additional_pip_reqs
+        )
         logger.debug(f"pip_requirements: {pip_requirements}")
 
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "agent_as_code.py"
 
-        code_paths: list[str] = []
+        code_paths: list[str] = config.app.code_paths or []
 
         if is_installed():
             additional_pip_reqs += [
