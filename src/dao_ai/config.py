@@ -1159,19 +1159,12 @@ class AppConfig(BaseModel):
     def create_agent(
         self,
         w: WorkspaceClient | None = None,
-        *,
-        additional_pip_reqs: Sequence[str] = [],
-        additional_code_paths: Sequence[str] = [],
     ) -> None:
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
         provider: ServiceProvider = DatabricksProvider(w=w)
-        provider.create_agent(
-            self,
-            additional_pip_reqs=additional_pip_reqs,
-            additional_code_paths=additional_code_paths,
-        )
+        provider.create_agent(self)
 
     def deploy_agent(
         self,

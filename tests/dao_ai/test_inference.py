@@ -23,7 +23,9 @@ def test_inference(chat_model: ChatModel) -> None:
             "thread_id": "1",
         }
     }
-    response: dict[str, Any] | Any = process_messages(chat_model, messages, custom_inputs)
+    response: dict[str, Any] | Any = process_messages(
+        chat_model, messages, custom_inputs
+    )
     print(response)
     assert response is not None
 
@@ -42,6 +44,8 @@ def test_inference_missing_user_id(chat_model: ChatModel) -> None:
             "thread_id": "1",
         }
     }
-    response: dict[str, Any] | Any = process_messages(chat_model, messages, custom_inputs)
+    response: dict[str, Any] | Any = process_messages(
+        chat_model, messages, custom_inputs
+    )
     print(response)
     assert response is not None
