@@ -386,6 +386,20 @@
             }
           ],
           "default": null
+        },
+        "code_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Code Paths",
+          "type": "array"
+        },
+        "pip_requirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Pip Requirements",
+          "type": "array"
         }
       },
       "required": [

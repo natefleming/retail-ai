@@ -972,6 +972,8 @@ class AppModel(BaseModel):
     )
     input_example: Optional[ChatPayload] = None
     summarization: Optional[SummarizationModel] = None
+    code_paths: list[str] = Field(default_factory=list)
+    pip_requirements: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_agents_not_empty(self):

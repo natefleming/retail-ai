@@ -5,8 +5,7 @@ from typing import Any, Generator, Optional, Sequence
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.pregel.io import AddableValuesDict
-from langgraph.types import PregelTask, StateSnapshot
+from langgraph.types import StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel
@@ -156,7 +155,6 @@ class LanggraphChatModel(ChatModel):
             state: StateSnapshot = self.graph.get_state(config, subgraphs=True)
             if state and state.tasks:
                 for task in state.tasks:
-                    task: PregelTask
                     if task.interrupts:
                         logger.info(
                             f"Graph is currently interrupted by task: {task.name}"
@@ -186,7 +184,7 @@ def _process_langchain_messages(
     app: LanggraphChatModel | CompiledStateGraph,
     messages: Sequence[BaseMessage],
     custom_inputs: Optional[dict[str, Any]] = None,
-) -> AddableValuesDict:
+) -> dict[str, Any] | Any:
     if isinstance(app, LanggraphChatModel):
         app = app.graph
     return app.invoke({"messages": messages}, config=custom_inputs)
@@ -280,7 +278,7 @@ def process_messages(
     app: LanggraphChatModel,
     messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
     custom_inputs: Optional[dict[str, Any]] = None,
-) -> ChatCompletionResponse | AddableValuesDict:
+) -> ChatCompletionResponse | dict[str, Any] | Any:
     """
     Process messages through a ChatAgent in batch mode.
 

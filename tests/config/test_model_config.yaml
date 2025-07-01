@@ -1011,6 +1011,10 @@ app:
       - type: python                                 
         name: dao_ai.hooks.null_initialization_hook       
   shutdown_hooks: dao_ai.hooks.null_shutdown_hook   
+  pip_requirements:
+    - cow-saying==0.0.1
+  code_paths:
+    - src/dao_ai
 
 
     # swarm:
