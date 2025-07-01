@@ -3,7 +3,6 @@ from typing import Any, Sequence
 import pytest
 from conftest import has_databricks_env
 from langchain_core.messages import BaseMessage, HumanMessage
-from langgraph.pregel.io import AddableValuesDict
 from mlflow.pyfunc import ChatModel
 
 from dao_ai.models import process_messages
@@ -24,7 +23,7 @@ def test_inference(chat_model: ChatModel) -> None:
             "thread_id": "1",
         }
     }
-    response: AddableValuesDict = process_messages(chat_model, messages, custom_inputs)
+    response: dict[str, Any] | Any = process_messages(chat_model, messages, custom_inputs)
     print(response)
     assert response is not None
 
@@ -43,6 +42,6 @@ def test_inference_missing_user_id(chat_model: ChatModel) -> None:
             "thread_id": "1",
         }
     }
-    response: AddableValuesDict = process_messages(chat_model, messages, custom_inputs)
+    response: dict[str, Any] | Any = process_messages(chat_model, messages, custom_inputs)
     print(response)
     assert response is not None

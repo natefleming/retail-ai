@@ -266,6 +266,10 @@ class DatabricksProvider(ServiceProvider):
         )
 
         code_paths: list[str] = config.app.code_paths
+        for path in code_paths:
+            path = Path(path)
+            if not path.exists():
+                raise FileNotFoundError(f"Code path does not exist: {path}")
 
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "agent_as_code.py"
