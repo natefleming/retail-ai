@@ -197,9 +197,6 @@ class DatabricksProvider(ServiceProvider):
     def create_agent(
         self,
         config: AppConfig,
-        *,
-        additional_pip_reqs: Sequence[str] = [],
-        additional_code_paths: Sequence[str] = [],
     ) -> ModelInfo:
         logger.debug("Creating agent...")
         mlflow.set_registry_uri("databricks-uc")
@@ -265,17 +262,16 @@ class DatabricksProvider(ServiceProvider):
         logger.debug(f"auth_policy: {auth_policy}")
 
         pip_requirements: Sequence[str] = (
-            get_installed_packages() + config.app.pip_requirements + additional_pip_reqs
+            get_installed_packages() + config.app.pip_requirements
         )
-        logger.debug(f"pip_requirements: {pip_requirements}")
+
+        code_paths: list[str] = config.app.code_paths
 
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "agent_as_code.py"
 
-        code_paths: list[str] = config.app.code_paths or []
-
         if is_installed():
-            additional_pip_reqs += [
+            pip_requirements += [
                 f"dao-ai=={dao_ai.__version__}",
             ]
         else:
@@ -285,7 +281,7 @@ class DatabricksProvider(ServiceProvider):
                 directory: Path
                 code_paths.append(directory.as_posix())
 
-        code_paths: Sequence[str] = code_paths + list(additional_code_paths)
+        logger.debug(f"pip_requirements: {pip_requirements}")
         logger.debug(f"code_paths: {code_paths}")
 
         run_name: str = normalize_name(config.app.name)
