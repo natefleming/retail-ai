@@ -151,9 +151,9 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
     return list(tools.values())
 
 
-def create_mcp_tool(
+def create_mcp_tools(
     function: McpFunctionModel,
-) -> Callable[..., Any]:
+) -> Sequence[BaseTool]:
     """
     Create a tool for invoking a Databricks MCP function.
 
@@ -166,7 +166,7 @@ def create_mcp_tool(
     Returns:
         A callable tool function that wraps the specified MCP function
     """
-    logger.debug(f"create_mcp_tool: {function}")
+    logger.debug(f"create_mcp_tools: {function}")
 
     connection: dict[str, Any]
     match function.transport:
@@ -244,7 +244,7 @@ def create_python_tool(
     return tool
 
 
-def create_uc_tool(function: UnityCatalogFunctionModel | str) -> BaseTool:
+def create_uc_tools(function: UnityCatalogFunctionModel | str) -> Sequence[BaseTool]:
     """
     Create LangChain tools from Unity Catalog functions.
 
@@ -259,7 +259,7 @@ def create_uc_tool(function: UnityCatalogFunctionModel | str) -> BaseTool:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
-    logger.debug(f"create_uc_tool: {function}")
+    logger.debug(f"create_uc_tools: {function}")
 
     if isinstance(function, UnityCatalogFunctionModel):
         function = function.full_name
@@ -270,14 +270,11 @@ def create_uc_tool(function: UnityCatalogFunctionModel | str) -> BaseTool:
         function_names=[function], client=client
     )
 
-    tool = next(iter(toolkit.tools or []), None)
+    tools = toolkit.tools or []
 
-    tool = as_human_in_the_loop(
-        tool=tool,
-        function=function,
-    )
+    tools = [as_human_in_the_loop(tool=tool, function=function) for tool in tools]
 
-    return tool
+    return tools
 
 
 def search_tool() -> BaseTool:

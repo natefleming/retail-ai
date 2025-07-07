@@ -17,7 +17,7 @@ def create_hooks(
     for function_hook in function_hooks:
         if isinstance(function_hook, str):
             function_hook = PythonFunctionModel(name=function_hook)
-        hook: Callable[..., Any] = function_hook.as_tool()
+        hook: Callable[..., Any] = function_hook.as_tools()
         hooks.append(hook)
     logger.debug(f"Created hooks: {hooks}")
     return hooks

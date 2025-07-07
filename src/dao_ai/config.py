@@ -668,7 +668,7 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
     def full_name(self) -> str:
         return self.name
 
-    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+    def as_tools(self, **kwargs: Any) -> Sequence[Callable[..., Any]]:
         from dao_ai.tools import create_python_tool
 
         return create_python_tool(self, **kwargs)
@@ -683,7 +683,7 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     def full_name(self) -> str:
         return self.name
 
-    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+    def as_tools(self, **kwargs: Any) -> Sequence[Callable[..., Any]]:
         from dao_ai.tools import create_factory_tool
 
         return create_factory_tool(self, **kwargs)
@@ -717,10 +717,10 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             raise ValueError("args must not be provided for STDIO transport")
         return self
 
-    def as_tool(self, **kwargs: Any) -> BaseTool:
-        from dao_ai.tools import create_mcp_tool
+    def as_tools(self, **kwargs: Any) -> Sequence[BaseTool]:
+        from dao_ai.tools import create_mcp_tools
 
-        return create_mcp_tool(self)
+        return create_mcp_tools(self)
 
 
 class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
@@ -734,10 +734,10 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
-    def as_tool(self, **kwargs: Any) -> BaseTool:
-        from dao_ai.tools import create_uc_tool
+    def as_tools(self, **kwargs: Any) -> Sequence[BaseTool]:
+        from dao_ai.tools import create_uc_tools
 
-        return create_uc_tool(self)
+        return create_uc_tools(self)
 
 
 AnyTool: TypeAlias = (
