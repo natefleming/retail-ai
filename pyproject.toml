@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 authors = [
     { name = "Nate Fleming", email = "nate.fleming@databricks.com" },
     { name = "Nate Fleming", email = "nate.fleming@gmail.com" },
