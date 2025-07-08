@@ -45,7 +45,9 @@ def insert_coffee_order_tool(
         if isinstance(unity_catalog_function, dict):
             unity_catalog_function = UnityCatalogFunctionModel(**unity_catalog_function)
 
-        unity_catalog_tool: BaseTool = unity_catalog_function.as_tool()
+        unity_catalog_tool: BaseTool = next(
+            iter(unity_catalog_function.as_tools() or []), None
+        )
         logger.debug(f"Invoking Unity Catalog tool: {unity_catalog_tool.name}")
         result: str = unity_catalog_tool.invoke(
             {

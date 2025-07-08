@@ -2,10 +2,10 @@ from dao_ai.hooks.core import create_hooks
 from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.core import (
     create_factory_tool,
-    create_mcp_tool,
+    create_mcp_tools,
     create_python_tool,
     create_tools,
-    create_uc_tool,
+    create_uc_tools,
     search_tool,
 )
 from dao_ai.tools.genie import create_genie_tool
@@ -26,10 +26,10 @@ __all__ = [
     "create_factory_tool",
     "create_genie_tool",
     "create_hooks",
-    "create_mcp_tool",
+    "create_mcp_tools",
     "create_python_tool",
     "create_tools",
-    "create_uc_tool",
+    "create_uc_tools",
     "create_vector_search_tool",
     "current_time_tool",
     "format_time_tool",

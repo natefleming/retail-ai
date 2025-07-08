@@ -8,6 +8,7 @@ from databricks_langchain import (
 )
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool as create_tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -31,7 +32,7 @@ from dao_ai.utils import load_function
 
 
 def add_human_in_the_loop(
-    tool: Callable[..., Any] | BaseTool,
+    tool: RunnableLike,
     *,
     interrupt_config: HumanInterruptConfig | None = None,
     review_prompt: Optional[str] = "Please review the tool call",
@@ -98,8 +99,8 @@ def add_human_in_the_loop(
 
 
 def as_human_in_the_loop(
-    tool: Callable[..., Any] | BaseTool, function: BaseFunctionModel | str
-) -> BaseTool:
+    tool: RunnableLike, function: BaseFunctionModel | str
+) -> RunnableLike:
     if isinstance(function, BaseFunctionModel):
         human_in_the_loop: HumanInTheLoopModel | None = function.human_in_the_loop
         if human_in_the_loop:
@@ -112,10 +113,10 @@ def as_human_in_the_loop(
     return tool
 
 
-tool_registry: dict[str, BaseTool] = {}
+tool_registry: dict[str, Sequence[RunnableLike]] = {}
 
 
-def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
+def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
     """
     Create a list of tools based on the provided configuration.
 
@@ -129,31 +130,35 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
         A sequence of BaseTool objects created from the provided configurations
     """
 
-    tools: OrderedDict[str, BaseTool] = OrderedDict()
+    tools: OrderedDict[str, Sequence[RunnableLike]] = OrderedDict()
 
     for tool_config in tool_models:
         name: str = tool_config.name
         if name in tools:
-            logger.warning(f"Tool {name} already exists, skipping creation.")
+            logger.warning(f"Tools already registered for: {name}, skipping creation.")
             continue
-        tool: BaseTool = tool_registry.get(name)
-        if tool is None:
-            logger.debug(f"Creating tool: {name}...")
+        registered_tools: Sequence[RunnableLike] = tool_registry.get(name)
+        if registered_tools is None:
+            logger.debug(f"Creating tools for: {name}...")
             function: AnyTool = tool_config.function
-            tool = next(iter(create_hooks(function)))
-            logger.debug(f"Registering tool: {tool_config}")
-            tool_registry[name] = tool
+            registered_tools = create_hooks(function)
+            logger.debug(f"Registering tools for: {tool_config}")
+            tool_registry[name] = registered_tools
         else:
-            logger.debug(f"Tool {name} already registered.")
+            logger.debug(f"Tools already registered for: {name}")
 
-        tools[name] = tool
+        tools[name] = registered_tools
 
-    return list(tools.values())
+    all_tools: Sequence[RunnableLike] = [
+        t for tool_list in tools.values() for t in tool_list
+    ]
+    logger.debug(f"Created tools: {all_tools}")
+    return all_tools
 
 
-def create_mcp_tool(
+def create_mcp_tools(
     function: McpFunctionModel,
-) -> Callable[..., Any]:
+) -> Sequence[RunnableLike]:
     """
     Create a tool for invoking a Databricks MCP function.
 
@@ -166,7 +171,7 @@ def create_mcp_tool(
     Returns:
         A callable tool function that wraps the specified MCP function
     """
-    logger.debug(f"create_mcp_tool: {function}")
+    logger.debug(f"create_mcp_tools: {function}")
 
     connection: dict[str, Any]
     match function.transport:
@@ -184,20 +189,22 @@ def create_mcp_tool(
 
     client: MultiServerMCPClient = MultiServerMCPClient({function.name: connection})
 
-    tools = asyncio.run(client.get_tools())
-    tool = next(iter(tools or []), None)
+    tools: Sequence[RunnableLike] = asyncio.run(client.get_tools()) or []
 
-    tool = as_human_in_the_loop(
-        tool=tool,
-        function=function,
-    )
+    tools = [
+        as_human_in_the_loop(
+            tool=tool,
+            function=function,
+        )
+        for tool in tools
+    ]
 
-    return tool
+    return tools
 
 
 def create_factory_tool(
     function: FactoryFunctionModel,
-) -> Callable[..., Any]:
+) -> RunnableLike:
     """
     Create a factory tool from a FactoryFunctionModel.
     This factory function dynamically loads a Python function and returns it as a callable tool.
@@ -219,7 +226,7 @@ def create_factory_tool(
 
 def create_python_tool(
     function: PythonFunctionModel | str,
-) -> Callable[..., Any]:
+) -> RunnableLike:
     """
     Create a Python tool from a Python function model.
     This factory function wraps a Python function as a callable tool that can be
@@ -244,7 +251,9 @@ def create_python_tool(
     return tool
 
 
-def create_uc_tool(function: UnityCatalogFunctionModel | str) -> BaseTool:
+def create_uc_tools(
+    function: UnityCatalogFunctionModel | str,
+) -> Sequence[RunnableLike]:
     """
     Create LangChain tools from Unity Catalog functions.
 
@@ -259,7 +268,7 @@ def create_uc_tool(function: UnityCatalogFunctionModel | str) -> BaseTool:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
-    logger.debug(f"create_uc_tool: {function}")
+    logger.debug(f"create_uc_tools: {function}")
 
     if isinstance(function, UnityCatalogFunctionModel):
         function = function.full_name
@@ -270,16 +279,13 @@ def create_uc_tool(function: UnityCatalogFunctionModel | str) -> BaseTool:
         function_names=[function], client=client
     )
 
-    tool = next(iter(toolkit.tools or []), None)
+    tools = toolkit.tools or []
 
-    tool = as_human_in_the_loop(
-        tool=tool,
-        function=function,
-    )
+    tools = [as_human_in_the_loop(tool=tool, function=function) for tool in tools]
 
-    return tool
+    return tools
 
 
-def search_tool() -> BaseTool:
+def search_tool() -> RunnableLike:
     logger.debug("search_tool")
     return DuckDuckGoSearchRun(output_format="list")

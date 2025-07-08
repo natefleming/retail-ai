@@ -26,7 +26,7 @@ from databricks_langchain import (
     DatabricksFunctionClient,
 )
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.tools.base import BaseTool
+from langchain_core.runnables.base import RunnableLike
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
@@ -643,7 +643,7 @@ class HumanInTheLoopModel(BaseModel):
     interupt_config: dict[str, Any] = Field(default_factory=dict)
 
 
-class BaseFunctionModel(BaseModel):
+class BaseFunctionModel(ABC, BaseModel):
     model_config = ConfigDict(
         use_enum_values=True,
         discriminator="type",
@@ -651,6 +651,9 @@ class BaseFunctionModel(BaseModel):
     type: FunctionType
     name: str
     human_in_the_loop: Optional[HumanInTheLoopModel] = None
+
+    @abstractmethod
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]: ...
 
     @field_serializer("type")
     def serialize_type(self, value) -> str:
@@ -668,10 +671,10 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
     def full_name(self) -> str:
         return self.name
 
-    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_python_tool
 
-        return create_python_tool(self, **kwargs)
+        return [create_python_tool(self, **kwargs)]
 
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
@@ -683,10 +686,10 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     def full_name(self) -> str:
         return self.name
 
-    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_factory_tool
 
-        return create_factory_tool(self, **kwargs)
+        return [create_factory_tool(self, **kwargs)]
 
 
 class TransportType(str, Enum):
@@ -717,10 +720,10 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             raise ValueError("args must not be provided for STDIO transport")
         return self
 
-    def as_tool(self, **kwargs: Any) -> BaseTool:
-        from dao_ai.tools import create_mcp_tool
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_mcp_tools
 
-        return create_mcp_tool(self)
+        return create_mcp_tools(self)
 
 
 class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
@@ -734,10 +737,10 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
-    def as_tool(self, **kwargs: Any) -> BaseTool:
-        from dao_ai.tools import create_uc_tool
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_uc_tools
 
-        return create_uc_tool(self)
+        return create_uc_tools(self)
 
 
 AnyTool: TypeAlias = (
