@@ -34,7 +34,6 @@ tools:
     function:
       type: mcp                                  # MCP function type
       name: vector_search_mcp                              
-      transport: streamable_http                 # Transport protocol
       url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/vector-search/nfleming/retail_ai
       client_id: *client_id
       client_secret: *client_secret
@@ -45,7 +44,6 @@ tools:
     function:
       type: mcp                                  # MCP function type
       name: unity_catalog_mcp                              
-      transport: streamable_http                 # Transport protocol
       url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/nfleming/retail_ai
       client_id: *client_id
       client_secret: *client_secret
@@ -56,7 +54,6 @@ tools:
     function:
       type: mcp                                  # MCP function type
       name: genie_mcp                              
-      transport: streamable_http                 # Transport protocol
       url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/genie/01f01c91f1f414d59daaefd2b7ec82ea
       client_id: *client_id
       client_secret: *client_secret

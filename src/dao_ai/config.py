@@ -701,7 +701,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: Literal[FunctionType.MCP] = FunctionType.MCP
 
-    transport: TransportType
+    transport: TransportType = TransportType.STREAMABLE_HTTP
     command: Optional[str] = "python"
     url: Optional[AnyVariable] = None
     headers: dict[str, AnyVariable] = Field(default_factory=dict)

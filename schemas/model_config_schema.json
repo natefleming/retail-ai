@@ -1378,7 +1378,8 @@
           "default": null
         },
         "transport": {
-          "$ref": "#/$defs/TransportType"
+          "$ref": "#/$defs/TransportType",
+          "default": "streamable_http"
         },
         "command": {
           "anyOf": [
@@ -1598,8 +1599,7 @@
         }
       },
       "required": [
-        "name",
-        "transport"
+        "name"
       ],
       "title": "McpFunctionModel",
       "type": "object"
