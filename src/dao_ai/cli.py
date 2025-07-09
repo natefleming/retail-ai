@@ -192,8 +192,6 @@ Examples:
         "-t",
         "--target",
         type=str,
-        default="dev",
-        help="Environment for the bundle (default: dev)",
     )
     bundle_parser.add_argument(
         "--dry-run",

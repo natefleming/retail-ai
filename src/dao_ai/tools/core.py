@@ -192,6 +192,8 @@ def create_mcp_tools(
 
     tools: Sequence[RunnableLike] = asyncio.run(client.get_tools()) or []
 
+    logger.debug(f"Retrieved tools: {tools}")
+
     tools = [
         as_human_in_the_loop(
             tool=tool,
@@ -281,6 +283,8 @@ def create_uc_tools(
     )
 
     tools = toolkit.tools or []
+
+    logger.debug(f"Retrieved tools: {tools}")
 
     tools = [as_human_in_the_loop(tool=tool, function=function) for tool in tools]
 

@@ -41,16 +41,18 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
     logger.debug(f"make_prompt: {base_system_prompt}")
 
     def prompt(state: SharedState, config: RunnableConfig) -> list:
-        prompt_template: PromptTemplate = PromptTemplate.from_template(
-            base_system_prompt
-        )
+        system_prompt: str = ""
+        if base_system_prompt:
+            prompt_template: PromptTemplate = PromptTemplate.from_template(
+                base_system_prompt
+            )
 
-        params: dict[str, Any] = {
-            input_variable: "" for input_variable in prompt_template.input_variables
-        }
-        params |= config.get("configurable", {})
+            params: dict[str, Any] = {
+                input_variable: "" for input_variable in prompt_template.input_variables
+            }
+            params |= config.get("configurable", {})
 
-        system_prompt: str = prompt_template.format(**params)
+            system_prompt: str = prompt_template.format(**params)
 
         summary: str = state.get("summary", "")
         if summary:
@@ -59,7 +61,8 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
             )
 
         messages: Sequence[BaseMessage] = state["messages"]
-        messages = [SystemMessage(content=system_prompt)] + messages
+        if system_prompt:
+            messages = [SystemMessage(content=system_prompt)] + messages
 
         return messages
 

@@ -703,7 +703,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
 
     transport: TransportType
     command: Optional[str] = "python"
-    url: Optional[str] = None
+    url: Optional[AnyVariable] = None
     headers: dict[str, AnyVariable] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
     pat: Optional[AnyVariable] = None
@@ -726,10 +726,14 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
         return self
 
     @model_validator(mode="after")
+    def update_url(self):
+        self.url = value_of(self.url)
+        return self
+
+    @model_validator(mode="after")
     def update_headers(self):
         for key, value in self.headers.items():
-            if isinstance(value, CompositeVariableModel):
-                self.headers[key] = value.as_value()
+            self.headers[key] = value_of(value)
         return self
 
     @model_validator(mode="after")
@@ -754,10 +758,10 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             from dao_ai.providers.databricks import DatabricksProvider
 
             provider: DatabricksProvider = DatabricksProvider(
-                workspace_host=self.workspace_host,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                pat=self.pat,
+                workspace_host=value_of(self.workspace_host),
+                client_id=value_of(self.client_id),
+                client_secret=value_of(self.client_secret),
+                pat=value_of(self.pat),
             )
             bearer_token: str = provider.create_token()
             self.headers["Authorization"] = f"Bearer {bearer_token}"
@@ -878,7 +882,7 @@ class AgentModel(BaseModel):
     tools: list[ToolModel] = Field(default_factory=list)
     guardrails: list[GuardrailModel] = Field(default_factory=list)
     memory: Optional[MemoryModel] = None
-    prompt: str
+    prompt: Optional[str] = None
     handoff_prompt: Optional[str] = None
     create_agent_hook: Optional[FunctionHook] = None
     pre_agent_hook: Optional[FunctionHook] = None
@@ -1133,14 +1137,14 @@ class ResourcesModel(BaseModel):
 class AppConfig(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     variables: dict[str, AnyVariable] = Field(default_factory=dict)
-    schemas: dict[str, SchemaModel]
-    resources: ResourcesModel
+    schemas: dict[str, SchemaModel] = Field(default_factory=dict)
+    resources: Optional[ResourcesModel] = None
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
     tools: dict[str, ToolModel] = Field(default_factory=dict)
     guardrails: dict[str, GuardrailModel] = Field(default_factory=dict)
     memory: Optional[MemoryModel] = None
     agents: dict[str, AgentModel] = Field(default_factory=dict)
-    app: AppModel
+    app: Optional[AppModel] = None
     evaluation: Optional[EvaluationModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
     unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(

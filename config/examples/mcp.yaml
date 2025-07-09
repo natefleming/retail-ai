@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=../../schemas/model_config_schema.json
+
+variables:
+
+  client_id_var: &client_id_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret_var: &client_secret_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+  workspace_host_var: &workspace_host_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_HOST
+        host:
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: nfleming                    # Unity Catalog name
+    schema_name: retail_ai                    # Schema within the catalog
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+
+tools:
+  vector_search_mcp: &vector_search_mcp
+    name: vector_search_mcp                                  
+    function:
+      type: mcp                                    
+      name: vector_search_mcp                              
+      transport: streamable_http                    # Transport protocol
+      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/vector-search/nfleming/retail_ai
+      client_id: *client_id_var
+      client_secret: *client_secret_var
+      workspace_host: *workspace_host_var
+
+  unity_catalog_mcp: &unity_catalog_mcp
+    name: unity_catalog_mcp                                  
+    function:
+      type: mcp                                    
+      name: unity_catalog_mcp                              
+      transport: streamable_http                    # Transport protocol
+      url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/nfleming/retail_ai
+      client_id: *client_id_var
+      client_secret: *client_secret_var
+      workspace_host: *workspace_host_var
+
+  genie_mcp: &genie_mcp
+    name: genie_mcp                                  
+    function:
+      type: mcp                                    
+      name: genie_mcp                              
+      transport: streamable_http                    # Transport protocol
+      url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/genie/01f01c91f1f414d59daaefd2b7ec82ea
+      client_id: *client_id_var
+      client_secret: *client_secret_var
+      workspace_host: *workspace_host_var
+
+agents:
+  mcp_agent: &mcp_agent
+    name: mcp_agent                                     # Agent identifier
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *vector_search_mcp
+      - *unity_catalog_mcp
+      - *genie_mcp
+      
+app:
+  name: mcp_agent             # Application name  
+  log_level: DEBUG                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: mcp_agent             # Model name in MLflow registry
+  agents:                                           # List of agents included in the system
+    - *mcp_agent                                       # Order management agent
+  orchestration:                                    # Agent orchestration configuration
+    swarm:                                     # Supervisor orchestration pattern
+      model: *default_llm                          # LLM for routing decisions

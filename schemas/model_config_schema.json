@@ -48,8 +48,16 @@
           "default": null
         },
         "prompt": {
-          "title": "Prompt",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
         },
         "handoff_prompt": {
           "anyOf": [
@@ -120,8 +128,7 @@
       },
       "required": [
         "name",
-        "model",
-        "prompt"
+        "model"
       ],
       "title": "AgentModel",
       "type": "object"
@@ -1388,7 +1395,28 @@
         "url": {
           "anyOf": [
             {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
               "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             },
             {
               "type": "null"
@@ -2654,7 +2682,15 @@
       "type": "object"
     },
     "resources": {
-      "$ref": "#/$defs/ResourcesModel"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResourcesModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "retrievers": {
       "additionalProperties": {
@@ -2696,7 +2732,15 @@
       "type": "object"
     },
     "app": {
-      "$ref": "#/$defs/AppModel"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AppModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "evaluation": {
       "anyOf": [
@@ -2751,11 +2795,6 @@
       "title": "Providers"
     }
   },
-  "required": [
-    "schemas",
-    "resources",
-    "app"
-  ],
   "title": "AppConfig",
   "type": "object"
 }
