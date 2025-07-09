@@ -715,6 +715,12 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     def full_name(self) -> str:
         return self.name
 
+    @field_serializer("transport")
+    def serialize_transport(self, value) -> str:
+        if isinstance(value, TransportType):
+            return value.value
+        return str(value)
+    
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
         if self.transport == TransportType.STREAMABLE_HTTP and not self.url:
