@@ -704,8 +704,12 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     transport: TransportType
     command: Optional[str] = "python"
     url: Optional[str] = None
-    headers: Optional[dict[str, str | CompositeVariableModel]] = Field(default_factory=dict)
+    headers: dict[str, AnyVariable] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
+    pat: Optional[AnyVariable] = None
+    client_id: Optional[AnyVariable] = None
+    client_secret: Optional[AnyVariable] = None
+    workspace_host: Optional[AnyVariable] = None
 
     @property
     def full_name(self) -> str:
@@ -720,16 +724,44 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
         if self.transport == TransportType.STDIO and not self.args:
             raise ValueError("args must not be provided for STDIO transport")
         return self
-    
+
     @model_validator(mode="after")
-    def validate_bearer_header(self):
-        if "Authorization" in self.headers:
-            auth_header: str | CompositeVariableModel = self.headers["Authorization"]
-            if isinstance(auth_header, CompositeVariableModel):
-                auth_header = auth_header.as_value()
-            if not auth_header.startswith("Bearer "):
-                auth_header = f"Bearer {auth_header}"
-            self.headers["Authorization"] = auth_header
+    def update_headers(self):
+        for key, value in self.headers.items():
+            if isinstance(value, CompositeVariableModel):
+                self.headers[key] = value.as_value()
+        return self
+
+    @model_validator(mode="after")
+    def validate_auth_methods(self):
+        oauth_fields: Sequence[Any] = [
+            self.workspace_host,
+            self.client_id,
+            self.client_secret,
+        ]
+        has_oauth: bool = all(field is not None for field in oauth_fields)
+
+        pat_fields: Sequence[Any] = [self.pat]
+        has_user_auth: bool = all(field is not None for field in pat_fields)
+
+        if has_oauth and has_user_auth:
+            raise ValueError(
+                "Cannot use both OAuth and user authentication methods. "
+                "Please provide either OAuth credentials or user credentials."
+            )
+
+        if (has_oauth or has_user_auth) and "Authentication" not in self.headers:
+            from dao_ai.providers.databricks import DatabricksProvider
+
+            provider: DatabricksProvider = DatabricksProvider(
+                workspace_host=self.workspace_host,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                pat=self.pat,
+            )
+            bearer_token: str = provider.create_token()
+            self.headers["Authorization"] = f"Bearer {bearer_token}"
+
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:

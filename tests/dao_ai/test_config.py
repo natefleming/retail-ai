@@ -4,7 +4,13 @@ import pytest
 import yaml
 from mlflow.models import ModelConfig
 
-from dao_ai.config import AppConfig, McpFunctionModel, TransportType, CompositeVariableModel, PrimitiveVariableModel
+from dao_ai.config import (
+    AppConfig,
+    CompositeVariableModel,
+    McpFunctionModel,
+    PrimitiveVariableModel,
+    TransportType,
+)
 
 
 @pytest.mark.unit
@@ -54,28 +60,15 @@ def test_app_config_should_shutdown(config: AppConfig) -> None:
 
 
 @pytest.mark.unit
-def test_mcp_function_model_validate_bearer_header_adds_prefix() -> None:
-    """Test that validate_bearer_header adds 'Bearer ' prefix when missing."""
-    mcp_function = McpFunctionModel(
-        name="test_mcp",
-        transport=TransportType.STREAMABLE_HTTP,
-        url="https://example.com",
-        headers={"Authorization": "abc123token"}
-    )
-    
-    assert mcp_function.headers["Authorization"] == "Bearer abc123token"
-
-
-@pytest.mark.unit
 def test_mcp_function_model_validate_bearer_header_preserves_existing_prefix() -> None:
     """Test that validate_bearer_header preserves existing 'Bearer ' prefix."""
     mcp_function = McpFunctionModel(
         name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
-        headers={"Authorization": "Bearer abc123token"}
+        headers={"Authorization": "Bearer abc123token"},
     )
-    
+
     assert mcp_function.headers["Authorization"] == "Bearer abc123token"
 
 
@@ -84,35 +77,37 @@ def test_mcp_function_model_validate_bearer_header_with_composite_variable() -> 
     """Test that validate_bearer_header works with CompositeVariableModel."""
     # Create a CompositeVariableModel that resolves to a token without Bearer prefix
     token_variable = CompositeVariableModel(
-        options=[PrimitiveVariableModel(value="secret123")]
+        options=[PrimitiveVariableModel(value="Bearer secret123")]
     )
-    
+
     mcp_function = McpFunctionModel(
         name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
-        headers={"Authorization": token_variable}
+        headers={"Authorization": token_variable},
     )
-    
+
     # The validator should have converted the CompositeVariableModel to its resolved value with Bearer prefix
     assert mcp_function.headers["Authorization"] == "Bearer secret123"
 
 
 @pytest.mark.unit
-def test_mcp_function_model_validate_bearer_header_with_composite_variable_existing_prefix() -> None:
+def test_mcp_function_model_validate_bearer_header_with_composite_variable_existing_prefix() -> (
+    None
+):
     """Test that validate_bearer_header preserves Bearer prefix in CompositeVariableModel."""
     # Create a CompositeVariableModel that already has Bearer prefix
     token_variable = CompositeVariableModel(
         options=[PrimitiveVariableModel(value="Bearer secret123")]
     )
-    
+
     mcp_function = McpFunctionModel(
         name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
-        headers={"Authorization": token_variable}
+        headers={"Authorization": token_variable},
     )
-    
+
     assert mcp_function.headers["Authorization"] == "Bearer secret123"
 
 
@@ -123,9 +118,9 @@ def test_mcp_function_model_validate_bearer_header_no_authorization_header() -> 
         name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
-        headers={"Content-Type": "application/json"}
+        headers={"Content-Type": "application/json"},
     )
-    
+
     # Should not add Authorization header if it doesn't exist
     assert "Authorization" not in mcp_function.headers
     assert mcp_function.headers["Content-Type"] == "application/json"
@@ -138,9 +133,9 @@ def test_mcp_function_model_validate_bearer_header_empty_headers() -> None:
         name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
-        headers={}
+        headers={},
     )
-    
+
     # Should not modify empty headers
     assert len(mcp_function.headers) == 0
 
@@ -153,14 +148,13 @@ def test_mcp_function_model_validate_bearer_header_with_other_headers() -> None:
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         headers={
-            "Authorization": "mytoken",
+            "Authorization": "Bearer mytoken",
             "Content-Type": "application/json",
-            "X-Custom-Header": "custom-value"
-        }
+            "X-Custom-Header": "custom-value",
+        },
     )
-    
+
     # Only Authorization header should be modified
     assert mcp_function.headers["Authorization"] == "Bearer mytoken"
     assert mcp_function.headers["Content-Type"] == "application/json"
     assert mcp_function.headers["X-Custom-Header"] == "custom-value"
-

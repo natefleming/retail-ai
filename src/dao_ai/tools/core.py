@@ -185,6 +185,7 @@ def create_mcp_tools(
             connection = {
                 "url": function.url,
                 "transport": function.transport,
+                "headers": function.headers or {},
             }
 
     client: MultiServerMCPClient = MultiServerMCPClient({function.name: connection})
