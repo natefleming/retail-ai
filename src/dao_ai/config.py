@@ -763,8 +763,11 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
                 client_secret=value_of(self.client_secret),
                 pat=value_of(self.pat),
             )
-            bearer_token: str = provider.create_token()
-            self.headers["Authorization"] = f"Bearer {bearer_token}"
+            try:
+                bearer_token: str = provider.create_token()
+                self.headers["Authorization"] = f"Bearer {bearer_token}"
+            except Exception as e:
+                logger.error(f"Failed to create token: {e}")
 
         return self
 
