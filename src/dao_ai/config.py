@@ -704,6 +704,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     transport: TransportType
     command: Optional[str] = "python"
     url: Optional[str] = None
+    headers: Optional[dict[str, str | CompositeVariableModel]] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
 
     @property
@@ -718,6 +719,17 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             raise ValueError("command must not be provided for STDIO transport")
         if self.transport == TransportType.STDIO and not self.args:
             raise ValueError("args must not be provided for STDIO transport")
+        return self
+    
+    @model_validator(mode="after")
+    def validate_bearer_header(self):
+        if "Authorization" in self.headers:
+            auth_header: str | CompositeVariableModel = self.headers["Authorization"]
+            if isinstance(auth_header, CompositeVariableModel):
+                auth_header = auth_header.as_value()
+            if not auth_header.startswith("Bearer "):
+                auth_header = f"Bearer {auth_header}"
+            self.headers["Authorization"] = auth_header
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
