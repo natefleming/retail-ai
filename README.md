@@ -42,7 +42,7 @@ The Multi-Agent AI system is built as a component-based agent architecture that 
 
 #### Configuration Components
 
-All components are defined from the provided [`model_config.yaml`](config/hardware_store/model_config.yaml) using a modular approach:
+All components are defined from the provided [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml) using a modular approach:
 
 - **Schemas**: Define database and catalog structures
 - **Resources**: Configure infrastructure components like LLMs, vector stores, catalogs, warehouses, and databases
@@ -65,7 +65,7 @@ The system uses a LangGraph-based workflow with the following key nodes:
 
 #### Specialized Agents
 
-Agents are dynamically configured from the provided [`model_config.yaml`](config/hardware_store/model_config.yaml) file and can include:
+Agents are dynamically configured from the provided [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml) file and can include:
 - Custom LLM models and parameters
 - Specific sets of available tools (Python functions, Unity Catalog functions, factory tools, MCP services)
 - Domain-specific system prompts
@@ -117,7 +117,7 @@ make install
 from retail_ai.config import AppConfig
 
 # Load your configuration
-config = AppConfig.from_file("config/hardware_store/model_config.yaml")
+config = AppConfig.from_file("config/hardware_store/supervisor_postgres.yaml")
 
 # Create vector search infrastructure
 for name, vector_store in config.resources.vector_stores.items():
@@ -133,7 +133,7 @@ config.deploy_agent()
 
 ```bash
 # Validate configuration
-dao-ai validate -c config/hardware_store/model_config.yaml
+dao-ai validate -c config/hardware_store/supervisor_postgres.yaml
 
 # Generate workflow diagram
 dao-ai graph -o architecture.png
@@ -142,7 +142,7 @@ dao-ai graph -o architecture.png
 dao-ai bundle --deploy --run
 
 # Deploy using Databricks Asset Bundles with specific configuration
-dao-ai -vvvv bundle --deploy --run --target dev --config config/hardware_store/model_config.yaml --profile DEFAULT
+dao-ai -vvvv bundle --deploy --run --target dev --config config/hardware_store/supervisor_postgres.yaml --profile DEFAULT
 ```
 
 See the [Python API](#python-api) section for detailed programmatic usage, or [Command Line Interface](#command-line-interface) for CLI usage.
@@ -160,7 +160,7 @@ dao-ai schema > schema.json
 ### Configuration Validation
 Validate your configuration file for syntax and semantic correctness:
 ```bash
-# Validate default configuration (config/hardware_store/model_config.yaml)
+# Validate default configuration (config/hardware_store/supervisor_postgres.yaml)
 dao-ai validate
 
 # Validate specific configuration file
@@ -170,7 +170,7 @@ dao-ai validate -c config/production.yaml
 ### Graph Visualization
 Generate visual representations of your agent workflow:
 ```bash
-# Generate architecture diagram (using default config/hardware_store/model_config.yaml)
+# Generate architecture diagram (using default config/hardware_store/supervisor_postgres.yaml)
 dao-ai graph -o architecture.png
 
 # Generate diagram from specific config
@@ -203,7 +203,7 @@ The framework provides a comprehensive Python API for programmatic access to all
 from retail_ai.config import AppConfig
 
 # Load configuration from file
-config = AppConfig.from_file(path="config/hardware_store/model_config.yaml")
+config = AppConfig.from_file(path="config/hardware_store/supervisor_postgres.yaml")
 ```
 
 ### Agent Lifecycle Management
@@ -348,7 +348,7 @@ from retail_ai.config import AppConfig
 from pathlib import Path
 
 # Load configuration
-config = AppConfig.from_file("config/hardware_store/model_config.yaml")
+config = AppConfig.from_file("config/hardware_store/supervisor_postgres.yaml")
 
 # Visualize the workflow
 config.display_graph()
@@ -380,16 +380,16 @@ The framework includes several example notebooks demonstrating different aspects
 
 ## Configuration
 
-Configuration is managed through [`model_config.yaml`](config/hardware_store/model_config.yaml). This file defines all components of the Retail AI system, including resources, tools, agents, and the overall application setup.
+Configuration is managed through [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml). This file defines all components of the Retail AI system, including resources, tools, agents, and the overall application setup.
 
 **Note**: The configuration file location is configurable throughout the framework. You can specify a different configuration file using the `-c` or `--config` flag in CLI commands, or by setting the appropriate parameters in the Python API.
 
-### Basic Structure of [`model_config.yaml`](config/hardware_store/model_config.yaml)
+### Basic Structure of [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml)
 
-The [`model_config.yaml`](config/hardware_store/model_config.yaml) is organized into several top-level keys:
+The [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml) is organized into several top-level keys:
 
 ```yaml
-# filepath: /Users/nate/development/dao-ai/config/hardware_store/model_config.yaml
+# filepath: /Users/nate/development/dao-ai/config/hardware_store/supervisor_postgres.yaml
 schemas:
   # ... schema definitions ...
 
@@ -416,7 +416,7 @@ The configuration can be loaded and used programmatically through the `AppConfig
 from retail_ai.config import AppConfig
 
 # Load configuration from file
-config = AppConfig.from_file("config/hardware_store/model_config.yaml")
+config = AppConfig.from_file("config/hardware_store/supervisor_postgres.yaml")
 
 # Access different configuration sections
 print(f"Available agents: {list(config.agents.keys())}")
@@ -432,7 +432,7 @@ The configuration supports both CLI and programmatic workflows, with the Python 
 
 ### Developing and Configuring Tools
 
-Tools are functions that agents can use to interact with external systems or perform specific tasks. They are defined under the `tools` key in [`model_config.yaml`](config/hardware_store/model_config.yaml). Each tool has a unique name and contains a `function` specification.
+Tools are functions that agents can use to interact with external systems or perform specific tasks. They are defined under the `tools` key in [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml). Each tool has a unique name and contains a `function` specification.
 
 There are four types of tools supported:
 
@@ -493,13 +493,13 @@ Unity Catalog functions provide the backbone for data access in the multi-agent 
 
 #### Function Deployment Configuration
 
-Unity Catalog functions are defined in the `unity_catalog_functions` section of [`model_config.yaml`](config/hardware_store/model_config.yaml). Each function specification includes:
+Unity Catalog functions are defined in the `unity_catalog_functions` section of [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml). Each function specification includes:
 
 - **Function metadata**: Schema and name for Unity Catalog registration
 - **DDL file path**: Location of the SQL file containing the function definition
 - **Test parameters**: Optional test data for function validation
 
-**Configuration Example from [`model_config.yaml`](config/hardware_store/model_config.yaml):**
+**Configuration Example from [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml):**
 ```yaml
 unity_catalog_functions:
   - function:
@@ -597,7 +597,7 @@ test:
 
 ### Configuring New Agents
 
-Agents are specialized AI assistants defined under the `agents` key in [`model_config.yaml`](config/hardware_store/model_config.yaml). Each agent has a unique name and specific configuration.
+Agents are specialized AI assistants defined under the `agents` key in [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml). Each agent has a unique name and specific configuration.
 
 **Configuration Example:**
 ```yaml
@@ -683,7 +683,7 @@ Agents are made available to the application by listing their YAML anchors (defi
 The `orchestration` block within the `app` section allows you to define the interaction pattern. Your current configuration primarily uses a **Supervisor** pattern.
 
 ```yaml
-# filepath: /Users/nate/development/dao-ai/config/hardware_store/model_config.yaml
+# filepath: /Users/nate/development/dao-ai/config/hardware_store/supervisor_postgres.yaml
 # ...
 # app:
 #   ...
@@ -943,7 +943,7 @@ def enrich_user_context(state: dict, config: AppConfig) -> dict:
 - `schemas/`: JSON schemas for configuration validation
 - `notebooks/`: Jupyter notebooks for setup and experimentation
 - `docs/`: Documentation files, including architecture diagrams.
-- `config/`: Contains [`model_config.yaml`](config/hardware_store/model_config.yaml).
+- `config/`: Contains [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml).
 
 ### Building the Package
 
@@ -1030,7 +1030,7 @@ The `configurable` section supports:
 
 To customize the agent:
 
-1. **Update [`model_config.yaml`](config/hardware_store/model_config.yaml)**:
+1. **Update [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml)**:
    - Add tools in the `tools` section
    - Create agents in the `agents` section
    - Configure resources (LLMs, vector stores, etc.)
@@ -1049,11 +1049,11 @@ make test
 
 ## Logging
 
-The primary log level for the application is configured in [`model_config.yaml`](config/hardware_store/model_config.yaml) under the `app.log_level` field.
+The primary log level for the application is configured in [`model_config.yaml`](config/hardware_store/supervisor_postgres.yaml) under the `app.log_level` field.
 
 **Configuration Example:**
 ```yaml
-# filepath: /Users/nate/development/dao-ai/config/hardware_store/model_config.yaml
+# filepath: /Users/nate/development/dao-ai/config/hardware_store/supervisor_postgres.yaml
 app:
   log_level: INFO  # Supported levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
   # ... other app configurations ...
