@@ -9,7 +9,7 @@ from databricks_langchain import (
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.base import RunnableLike
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langchain_core.tools import tool as create_tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt.interrupt import HumanInterrupt, HumanInterruptConfig
@@ -162,8 +162,8 @@ def create_mcp_tools(
     """
     Create a tool for invoking a Databricks MCP function.
 
-    This factory function wraps a Databricks MCP function as a callable tool that can be
-    invoked by agents during reasoning.
+    This factory function wraps a Databricks MCP function as callable tools that can be
+    invoked by agents during reasoning. Handles both sync and async invocation patterns.
 
     Args:
         function: McpFunctionModel instance containing the function details
@@ -190,16 +190,32 @@ def create_mcp_tools(
 
     client: MultiServerMCPClient = MultiServerMCPClient({function.name: connection})
 
-    tools: Sequence[RunnableLike] = asyncio.run(client.get_tools()) or []
+    async_tools: Sequence[RunnableLike] = asyncio.run(client.get_tools()) or []
 
-    logger.debug(f"Retrieved tools: {tools}")
+    logger.debug(f"Retrieved async tools: {async_tools}")
+
+    # Wrap StructuredTool instances to support sync invocation
+    sync_tools: list[RunnableLike] = []
+    for async_tool in async_tools:
+        if isinstance(async_tool, StructuredTool):
+            @create_tool(
+                async_tool.name,
+                description=async_tool.description,
+                args_schema=async_tool.args_schema,
+            )
+            def sync_wrapper(**kwargs):
+                return asyncio.run(async_tool.ainvoke(kwargs))
+
+            sync_tools.append(sync_wrapper)
+        else:
+            sync_tools.append(async_tool)
 
     tools = [
         as_human_in_the_loop(
             tool=tool,
             function=function,
         )
-        for tool in tools
+        for tool in sync_tools
     ]
 
     return tools
