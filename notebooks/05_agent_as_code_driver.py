@@ -1,15 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install --quiet uv
-# MAGIC
-# MAGIC import os
-# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
-
-# COMMAND ----------
-
-# MAGIC %sh uv --project ../ sync
-
-# COMMAND ----------
-
+# MAGIC %pip install --quiet -r ../requirements.txt
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -69,6 +59,7 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 # COMMAND ----------
 
 config.display_graph()
+
 # COMMAND ----------
 
 config.create_agent()

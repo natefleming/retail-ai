@@ -5,17 +5,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install uv
-# MAGIC
-# MAGIC import os
-# MAGIC os.environ["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
-
-# COMMAND ----------
-
-# MAGIC %sh uv --project ../ sync
-
-# COMMAND ----------
-
+# MAGIC %pip install --quiet -r ../requirements.txt
 # MAGIC %restart_python
 
 # COMMAND ----------
