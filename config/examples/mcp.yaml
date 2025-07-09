@@ -1,7 +1,6 @@
 # yaml-language-server: $schema=../../schemas/model_config_schema.json
 
 variables:
-
   client_id_var: &client_id_var
     options:
       - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
