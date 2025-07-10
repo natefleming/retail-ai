@@ -84,11 +84,11 @@ resources:
     dais_genie_room: &dais_genie_room
       name: "DAIS RCT Demo Genie Room"
       description: "A room for Genie agents to interact"
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+      space_id: 01f05dd06c421ad6b522bf7a517cf6d2
     dais_executive_insights_genie_room: &dais_executive_insights_genie_room
       name: "DAIS Executive Insights"
       description: "A room curated for executive personas"
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+      space_id: 01f05dd06c421ad6b522bf7a517cf6d2
 
 
   tables:
