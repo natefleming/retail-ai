@@ -198,6 +198,7 @@ def create_mcp_tools(
     sync_tools: list[RunnableLike] = []
     for async_tool in async_tools:
         if isinstance(async_tool, StructuredTool):
+
             @create_tool(
                 async_tool.name,
                 description=async_tool.description,

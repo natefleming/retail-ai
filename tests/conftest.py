@@ -21,6 +21,7 @@ logger.add(sys.stderr, level="INFO")
 root_dir: Path = Path(__file__).parents[1]
 src_dir: Path = root_dir / "src"
 test_dir: Path = root_dir / "tests"
+data_dir: Path = test_dir / "data"
 config_dir: Path = test_dir / "config"
 
 sys.path.insert(0, str(test_dir.resolve()))
@@ -70,6 +71,11 @@ def has_postgres_env() -> bool:
 @pytest.fixture
 def development_config() -> Path:
     return config_dir / "test_model_config.yaml"
+
+
+@pytest.fixture
+def data_path() -> Path:
+    return data_dir
 
 
 @pytest.fixture
