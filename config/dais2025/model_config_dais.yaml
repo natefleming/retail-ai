@@ -188,7 +188,7 @@ resources:
     dais_warehouse: &dais_warehouse
       name: "Shared Endpoint Warehouse"
       description: "A warehouse for shared endpoints"
-      warehouse_id: ddcfd4b37fe1c02a
+      warehouse_id: 148ccb90800933a1
 
 retrievers:
   products_retriever: &products_retriever
