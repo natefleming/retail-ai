@@ -1092,6 +1092,11 @@ evaluation:
     schema: *retail_schema
     name: evaluation
   num_evals: 25
+  custom_inputs:
+    configurable:
+      thread_id: "1"
+      user_id: nate.fleming
+      store_num: 87887
 
 # =============================================================================
 # DATASETS CONFIGURATION

@@ -1062,6 +1062,7 @@ class EvaluationModel(BaseModel):
     model: LLMModel
     table: TableModel
     num_evals: int
+    custom_inputs: dict[str, Any] = Field(default_factory=dict)
 
 
 class DatasetFormat(str, Enum):

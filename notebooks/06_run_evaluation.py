@@ -27,6 +27,7 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
+from typing import Any
 from rich import print as pprint
 from dao_ai.config import EvaluationModel
 
@@ -36,8 +37,10 @@ if not evaluation:
   dbutils.notebook.exit("Missing evaluation configuration")
   
 payload_table: str = evaluation.table.full_name
+custom_inputs: dict[str, Any] = evaluation.custom_inputs
 
 pprint(payload_table)
+pprint(custom_inputs)
 
 # COMMAND ----------
 
@@ -55,12 +58,19 @@ model_uri: str = f"models:/{registered_model_name}@Current"
 model_version: ModelVersion = mlflow_client.get_model_version_by_alias(registered_model_name, "Current")
 
 loaded_agent = mlflow.pyfunc.load_model(model_uri)
-def predict_fn(messages: dict[str, Any]) -> str:
+def predict_fn(messages: dict[str, Any]) -> dict[str, Any]:
   print(f"messages={messages}")
   input = {"messages": messages}
+  if custom_inputs:
+      input["custom_inputs"] = custom_inputs
   response: dict[str, Any] = loaded_agent.predict(input)
   content: str = response["choices"][0]["message"]["content"]
-  return content
+  outputs: dict[str, Any] = {
+      "outputs": {
+          "response": content,
+      }
+  }
+  return outputs
 
 # COMMAND ----------
 
