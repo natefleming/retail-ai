@@ -1,5 +1,0 @@
-id,name,price,category,description,created_at
-1,Widget A,10.50,Electronics,A basic widget,2024-01-01 10:00:00
-2,Widget B,15.75,Electronics,An advanced widget,2024-01-02 11:00:00
-3,Tool C,25.00,Tools,A useful tool,2024-01-03 12:00:00
-4,Gadget D,5.99,Electronics,A small gadget,2024-01-04 13:00:00
