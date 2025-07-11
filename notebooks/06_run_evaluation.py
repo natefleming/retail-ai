@@ -80,7 +80,7 @@ from mlflow.entities import Feedback, Trace
 
 clarity = Guidelines(
     name="clarity",
-    guidelines=["The response must be clear, coherent, and concise"]
+    guidelines=["The response must be clear, coherent, and concise"],
 )
 
 @scorer

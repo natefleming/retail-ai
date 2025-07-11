@@ -126,7 +126,7 @@ class LanggraphChatModel(ChatModel):
                     ),
                 )
                 and message.content
-                and metadata["langgraph_node"] != "summarization"
+                and metadata["langgraph_node"] not in ["summarization", "swarm", "supervisor"]
             ):
                 content = message.content
                 yield self._create_chat_completion_chunk(content)
