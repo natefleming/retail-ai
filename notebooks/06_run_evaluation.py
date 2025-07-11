@@ -1,32 +1,56 @@
 # Databricks notebook source
+# DBTITLE 1,Install Required Python Packages and Restart Kernel
 # MAGIC %pip install --quiet -r ../requirements.txt
 # MAGIC %restart_python
 
 # COMMAND ----------
 
+# DBTITLE 1,Set and Retrieve Configuration Path
 dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
 config_path: str = dbutils.widgets.get("config-path")
 print(config_path)
 
 # COMMAND ----------
 
+# DBTITLE 1,Add Source Directory to System Path
 import sys
 
 sys.path.insert(0, "../src")
 
 # COMMAND ----------
 
+# DBTITLE 1,Enable Nest Asyncio for Compatibility
 import nest_asyncio
 nest_asyncio.apply()
 
 # COMMAND ----------
 
+# DBTITLE 1,Initialize and Configure DAO AI ChatModel
+import sys
+import mlflow
+from langgraph.graph.state import CompiledStateGraph
+from mlflow.pyfunc import ChatModel
+from dao_ai.graph import create_dao_ai_graph
+from dao_ai.models import create_agent 
 from dao_ai.config import AppConfig
+
+from loguru import logger
+
+mlflow.langchain.autolog()
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
+log_level: str = config.app.log_level
+
+logger.add(sys.stderr, level=log_level)
+
+graph: CompiledStateGraph = create_dao_ai_graph(config=config)
+
+app: ChatModel = create_agent(graph)
+
 # COMMAND ----------
 
+# DBTITLE 1,Check Evaluation Configuration and Print Details
 from typing import Any
 from rich import print as pprint
 from dao_ai.config import EvaluationModel
@@ -44,11 +68,16 @@ pprint(custom_inputs)
 
 # COMMAND ----------
 
+# DBTITLE 1,Load Model and Process Chat Messages
 from typing import Any
 
 import mlflow
 from mlflow import MlflowClient
 from mlflow.entities.model_registry.model_version import ModelVersion
+from dao_ai.models import process_messages_stream, process_messages
+from mlflow.types.llm import (
+    ChatCompletionResponse,
+)
 
 mlflow.set_registry_uri("databricks-uc")
 mlflow_client = MlflowClient()
@@ -57,23 +86,41 @@ registered_model_name: str = config.app.registered_model.full_name
 model_uri: str = f"models:/{registered_model_name}@Current"
 model_version: ModelVersion = mlflow_client.get_model_version_by_alias(registered_model_name, "Current")
 
-loaded_agent = mlflow.pyfunc.load_model(model_uri)
+#loaded_agent = mlflow.pyfunc.load_model(model_uri)
 def predict_fn(messages: dict[str, Any]) -> dict[str, Any]:
-  print(f"messages={messages}")
-  input = {"messages": messages}
-  if custom_inputs:
-      input["custom_inputs"] = custom_inputs
-  response: dict[str, Any] = loaded_agent.predict(input)
-  content: str = response["choices"][0]["message"]["content"]
-  outputs: dict[str, Any] = {
-      "outputs": {
-          "response": content,
-      }
-  }
-  return outputs
+    print(f"messages={messages}")
+    input = {"messages": messages}
+    if custom_inputs:
+        input["custom_inputs"] = custom_inputs
+    response_content = ""
+    for chunk in process_messages_stream(app, **input):
+        # Handle different chunk types
+        if hasattr(chunk, "content") and chunk.content:
+            content = chunk.content
+            response_content += content
+        elif hasattr(chunk, "choices") and chunk.choices:
+            # Handle ChatCompletionChunk format
+            for choice in chunk.choices:
+                if (
+                    hasattr(choice, "delta")
+                    and choice.delta
+                    and choice.delta.content
+                ):
+                    content = choice.delta.content
+                    response_content += content
+
+    print(f"response_content={response_content}")
+
+    outputs: dict[str, Any] = {
+        "outputs": {
+            "response": response_content,
+        }
+    }
+    return outputs
 
 # COMMAND ----------
 
+# DBTITLE 1,- Define and Evaluate Scoring Functions for Responses
 from mlflow.genai.scorers import scorer, Safety, Guidelines
 from mlflow.entities import Feedback, Trace
 
@@ -84,15 +131,20 @@ clarity = Guidelines(
 )
 
 @scorer
-def response_completeness(outputs: str) -> Feedback:
+def response_completeness(outputs: dict[str, Any]) -> Feedback:
+
+    print(f"outputs={outputs}")
+
+    content = outputs["outputs"]["response"]
+
     # Outputs is return value of your app. Here we assume it's a string.
-    if len(outputs.strip()) < 10:
+    if len(content.strip()) < 10:
         return Feedback(
             value=False,
             rationale="Response too short to be meaningful"
         )
 
-    if outputs.lower().endswith(("...", "etc", "and so on")):
+    if content.lower().endswith(("...", "etc", "and so on")):
         return Feedback(
             value=False,
             rationale="Response appears incomplete"
@@ -138,30 +190,7 @@ def tool_call_efficiency(trace: Trace) -> Feedback:
 
 # COMMAND ----------
 
-import sys
-import mlflow
-from langgraph.graph.state import CompiledStateGraph
-from mlflow.pyfunc import ChatModel
-from dao_ai.graph import create_dao_ai_graph
-from dao_ai.models import create_agent 
-from dao_ai.config import AppConfig
-
-from loguru import logger
-
-mlflow.langchain.autolog()
-
-config: AppConfig = AppConfig.from_file(path=config_path)
-
-log_level: str = config.app.log_level
-
-logger.add(sys.stderr, level=log_level)
-
-graph: CompiledStateGraph = create_dao_ai_graph(config=config)
-
-app: ChatModel = create_agent(graph)
-
-# COMMAND ----------
-
+# DBTITLE 1,Convert Spark DataFrame to Pandas DataFrame
 from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
 
@@ -177,6 +206,7 @@ display(eval_df)
 
 # COMMAND ----------
 
+# DBTITLE 1,- Evaluate Model with Custom Scorers and Log Results
 import mlflow
 from mlflow.models.model import ModelInfo
 from mlflow.entities.model_registry.model_version import ModelVersion
