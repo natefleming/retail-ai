@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Callable, Final, Sequence
 
 import mlflow
+import pandas as pd
 import sqlparse
 from databricks import agents
 from databricks.agents import PermissionLevel, set_permissions
@@ -483,10 +484,20 @@ class DatabricksProvider(ServiceProvider):
                 if not data_path.is_absolute():
                     data_path = current_dir / data_path
                 logger.debug(f"Data path: {data_path.as_posix()}")
-                spark.read.format(format).options(**read_options).load(
-                    data_path.as_posix(),
-                    schema=dataset.table_schema,
-                ).write.mode("overwrite").saveAsTable(table)
+                if format == "excel":
+                    pdf = pd.read_excel(data_path.as_posix())
+                    df = spark.createDataFrame(pdf, schema=dataset.table_schema)
+                else:
+                    df = (
+                        spark.read.format(format)
+                        .options(**read_options)
+                        .load(
+                            data_path.as_posix(),
+                            schema=dataset.table_schema,
+                        )
+                    )
+
+                df.write.mode("overwrite").saveAsTable(table)
 
     def create_vector_store(self, vector_store: VectorStoreModel) -> None:
         if not endpoint_exists(self.vsc, vector_store.endpoint.name):

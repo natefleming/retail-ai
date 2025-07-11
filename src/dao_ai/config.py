@@ -720,7 +720,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
         if isinstance(value, TransportType):
             return value.value
         return str(value)
-    
+
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
         if self.transport == TransportType.STREAMABLE_HTTP and not self.url:
@@ -1071,6 +1071,7 @@ class DatasetFormat(str, Enum):
     PARQUET = "parquet"
     ORC = "orc"
     SQL = "sql"
+    EXCEL = "excel"
 
 
 class VolumePathModel(BaseModel, HasFullName):
