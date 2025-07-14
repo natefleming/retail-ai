@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../schemas/model_config_schema.json
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: nfleming                    
+    schema_name: retail_ai                    
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-meta-llama-3-3-70b-instruct 
+
+
+tools:
+  current_time: &current_time
+    name: current_time
+    function:
+      type: python                                
+      name: dao_ai.tools.current_time_tool          # Factory function path
+      human_in_the_loop:
+        review_prompt: Would you like to execute this tool?
+
+agents:
+  my_agent: &my_agent
+    name: my_agent                                     # Agent identifier
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *current_time
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about the time
+
+app:
+  name: my_app             # Application name  
+  log_level: INFO                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: my_app             # Model name in MLflow registry
+  agents:                                           # List of agents included in the system
+    - *my_agent                                       # Order management agent
+  orchestration:                                    # Agent orchestration configuration
+    swarm:                                     # Supervisor orchestration pattern
+      model: *default_llm                          # LLM for routing decisions

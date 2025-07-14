@@ -101,6 +101,7 @@ def add_human_in_the_loop(
 def as_human_in_the_loop(
     tool: RunnableLike, function: BaseFunctionModel | str
 ) -> RunnableLike:
+    logger.debug(f"Wrapping tool {tool.name} with human-in-the-loop for function {function}")
     if isinstance(function, BaseFunctionModel):
         human_in_the_loop: HumanInTheLoopModel | None = function.human_in_the_loop
         if human_in_the_loop:
@@ -258,11 +259,12 @@ def create_python_tool(
     """
     logger.debug(f"create_python_tool: {function}")
 
+    function_name: str = function
     if isinstance(function, PythonFunctionModel):
-        function = function.full_name
+        function_name = function.full_name
 
     # Load the Python function dynamically
-    tool: Callable[..., Any] = load_function(function_name=function)
+    tool: Callable[..., Any] = load_function(function_name=function_name)
 
     tool = as_human_in_the_loop(
         tool=tool,
