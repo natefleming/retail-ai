@@ -178,7 +178,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     checkpointer: BaseCheckpointSaver = None
     if swarm.memory and swarm.memory.checkpointer:
-        checkpointer = swarm.memory.checkpointer
+        checkpointer = swarm.memory.checkpointer.as_checkpointer()
         logger.debug(f"Using checkpointer: {checkpointer}")
 
     swarm_node: CompiledStateGraph = swarm_workflow.compile(
