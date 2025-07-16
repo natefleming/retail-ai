@@ -16,7 +16,6 @@ variables:
       - env: RETAIL_AI_DATABRICKS_HOST
       - scope: retail_ai
         secret: RETAIL_AI_DATABRICKS_HOST
-        host:
 
 schemas:
   retail_schema: &retail_schema                  # Unity Catalog schema configuration
