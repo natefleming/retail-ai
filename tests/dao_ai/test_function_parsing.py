@@ -195,10 +195,11 @@ class TestFunctionModelParsing:
                 "name": "tools.example_function",
                 "human_in_the_loop": {
                     "review_prompt": "Please review this action:",
-                    "interupt_config": {
+                    "interrupt_config": {
                         "allow_accept": True,
                         "allow_edit": False,
                         "allow_respond": True,
+                        "allow_decline": True,
                     },
                 },
             },
@@ -209,10 +210,11 @@ class TestFunctionModelParsing:
         hitl = tool.function.human_in_the_loop
         assert hitl is not None
         assert hitl.review_prompt == "Please review this action:"
-        assert hitl.interupt_config == {
+        assert hitl.interrupt_config == {
             "allow_accept": True,
             "allow_edit": False,
             "allow_respond": True,
+            "allow_decline": True,
         }
 
 

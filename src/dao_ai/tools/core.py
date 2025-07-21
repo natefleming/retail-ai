@@ -20,6 +20,7 @@ from dao_ai.config import (
     AnyTool,
     BaseFunctionModel,
     FactoryFunctionModel,
+    HumanInTheLoopActionType,
     HumanInTheLoopModel,
     McpFunctionModel,
     PythonFunctionModel,
@@ -36,23 +37,24 @@ def add_human_in_the_loop(
     *,
     interrupt_config: HumanInterruptConfig | None = None,
     review_prompt: Optional[str] = "Please review the tool call",
+    decline_message: str = "Tool call declined by user",
+    custom_actions: Optional[dict[str, str]] = None,
 ) -> BaseTool:
     """
-    Wrap a tool with human-in-the-loop functionality.
-    This function takes a tool (either a callable or a BaseTool instance) and wraps it
-    with a human-in-the-loop mechanism. When the tool is invoked, it will first
-    request human review before executing the tool's logic. The human can choose to
-    accept, edit the input, or provide a custom response.
+    Wrap a tool with enhanced human-in-the-loop functionality.
+
+    This function takes a tool and wraps it with a human-in-the-loop mechanism that
+    supports multiple actions including accept, edit, response, and decline.
 
     Args:
-        tool (Callable[..., Any] | BaseTool): _description_
-        interrupt_config (HumanInterruptConfig | None, optional): _description_. Defaults to None.
-
-    Raises:
-        ValueError: _description_
+        tool: The tool to wrap (callable or BaseTool instance)
+        interrupt_config: LangGraph interrupt configuration
+        review_prompt: Custom prompt for the human reviewer
+        decline_message: Message to return when user declines
+        custom_actions: Custom action handlers
 
     Returns:
-        BaseTool: _description_
+        Enhanced BaseTool with human-in-the-loop functionality
     """
     if not isinstance(tool, BaseTool):
         tool = create_tool(tool)
@@ -62,13 +64,20 @@ def add_human_in_the_loop(
             "allow_accept": True,
             "allow_edit": True,
             "allow_respond": True,
+            "allow_decline": True,
         }
 
-    logger.debug(f"Wrapping tool {tool} with human-in-the-loop functionality")
+    if custom_actions is None:
+        custom_actions = {}
+
+    logger.debug(
+        f"Wrapping tool {tool.name} with enhanced human-in-the-loop functionality"
+    )
 
     @create_tool(tool.name, description=tool.description, args_schema=tool.args_schema)
     def call_tool_with_interrupt(config: RunnableConfig, **tool_input) -> Any:
         logger.debug(f"call_tool_with_interrupt: {tool.name} with input: {tool_input}")
+
         request: HumanInterrupt = {
             "action_request": {
                 "action": tool.name,
@@ -82,18 +91,33 @@ def add_human_in_the_loop(
         response: dict[str, Any] = interrupt([request])[0]
         logger.debug(f"Human interrupt response: {response}")
 
-        if response["type"] == "accept":
-            tool_response = tool.invoke(tool_input, config=config)
-        elif response["type"] == "edit":
-            tool_input = response["args"]["args"]
-            tool_response = tool.invoke(tool_input, config=config)
-        elif response["type"] == "response":
-            user_feedback = response["args"]
-            tool_response = user_feedback
-        else:
-            raise ValueError(f"Unknown interrupt response type: {response['type']}")
+        response_type = response.get("type")
 
-        return tool_response
+        if response_type == HumanInTheLoopActionType.ACCEPT:
+            logger.info(f"Tool {tool.name} accepted by user")
+            return tool.invoke(tool_input, config=config)
+
+        elif response_type == HumanInTheLoopActionType.EDIT:
+            logger.info(f"Tool {tool.name} edited by user")
+            edited_args = response.get("args", {}).get("args", tool_input)
+            return tool.invoke(edited_args, config=config)
+
+        elif response_type == HumanInTheLoopActionType.RESPONSE:
+            logger.info(f"Tool {tool.name} responded to by user")
+            return response.get("args", "User provided custom response")
+
+        elif response_type == HumanInTheLoopActionType.DECLINE:
+            logger.info(f"Tool {tool.name} declined by user")
+            return decline_message
+
+        elif response_type in custom_actions:
+            logger.info(f"Tool {tool.name} handled with custom action: {response_type}")
+            return custom_actions[response_type]
+
+        else:
+            error_message = f"Unknown interrupt response type: {response_type}. Supported types: {', '.join([t.value for t in HumanInTheLoopActionType])}"
+            logger.error(error_message)
+            raise ValueError(error_message)
 
     return call_tool_with_interrupt
 
@@ -101,15 +125,26 @@ def add_human_in_the_loop(
 def as_human_in_the_loop(
     tool: RunnableLike, function: BaseFunctionModel | str
 ) -> RunnableLike:
-    logger.debug(f"Wrapping tool {tool.name} with human-in-the-loop for function {function}")
+    """
+    Apply human-in-the-loop configuration to a tool based on function model settings.
+
+    Args:
+        tool: The tool to potentially wrap
+        function: Function model that may contain human-in-the-loop configuration
+
+    Returns:
+        The tool, potentially wrapped with human-in-the-loop functionality
+    """
     if isinstance(function, BaseFunctionModel):
         human_in_the_loop: HumanInTheLoopModel | None = function.human_in_the_loop
         if human_in_the_loop:
             logger.debug(f"Adding human-in-the-loop to tool: {tool.name}")
             tool = add_human_in_the_loop(
                 tool=tool,
-                interrupt_config=human_in_the_loop.interupt_config,
+                interrupt_config=human_in_the_loop.interrupt_config,
                 review_prompt=human_in_the_loop.review_prompt,
+                decline_message=human_in_the_loop.decline_message,
+                custom_actions=human_in_the_loop.custom_actions,
             )
     return tool
 
@@ -236,7 +271,7 @@ def create_factory_tool(
     """
     logger.debug(f"create_factory_tool: {function}")
 
-    factory: Callable[..., Any] = load_function(function_name=function.full_name)
+    factory: Callable[..., Any] = load_function(function.full_name)
     tool: Callable[..., Any] = factory(**function.args)
     tool = as_human_in_the_loop(
         tool=tool,
@@ -259,12 +294,12 @@ def create_python_tool(
     """
     logger.debug(f"create_python_tool: {function}")
 
-    function_name: str = function
-    if isinstance(function, PythonFunctionModel):
-        function_name = function.full_name
+    function_name: str = (
+        function.full_name if isinstance(function, PythonFunctionModel) else function
+    )
 
     # Load the Python function dynamically
-    tool: Callable[..., Any] = load_function(function_name=function_name)
+    tool: Callable[..., Any] = load_function(function_name)
 
     tool = as_human_in_the_loop(
         tool=tool,
@@ -292,13 +327,16 @@ def create_uc_tools(
 
     logger.debug(f"create_uc_tools: {function}")
 
-    if isinstance(function, UnityCatalogFunctionModel):
-        function = function.full_name
+    function_name: str = (
+        function.full_name
+        if isinstance(function, UnityCatalogFunctionModel)
+        else function
+    )
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
     toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=[function], client=client
+        function_names=[function_name], client=client
     )
 
     tools = toolkit.tools or []

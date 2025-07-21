@@ -273,9 +273,11 @@ class LLMModel(BaseModel, IsDatabricksResource):
         # ChatOpenAI does not allow additional inputs at the moment, so we cannot use it directly
         # chat_client: LanguageModelLike = self.as_open_ai_client()
 
+        # Create ChatDatabricksWrapper instance directly
         chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
+
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
             fallback: str | LLMModel
@@ -637,10 +639,28 @@ class FunctionType(str, Enum):
     MCP = "mcp"
 
 
+class HumanInTheLoopActionType(str, Enum):
+    """Supported action types for human-in-the-loop interactions."""
+
+    ACCEPT = "accept"
+    EDIT = "edit"
+    RESPONSE = "response"
+    DECLINE = "decline"
+
+
 class HumanInTheLoopModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    review_prompt: str
-    interupt_config: dict[str, Any] = Field(default_factory=dict)
+    review_prompt: str = "Please review the tool call"
+    interrupt_config: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "allow_accept": True,
+            "allow_edit": True,
+            "allow_respond": True,
+            "allow_decline": True,
+        }
+    )
+    decline_message: str = "Tool call declined by user"
+    custom_actions: Optional[dict[str, str]] = Field(default_factory=dict)
 
 
 class BaseFunctionModel(ABC, BaseModel):
@@ -994,12 +1014,12 @@ class SummarizationModel(BaseModel):
 
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
-        if self.retained_message_count and self.max_tokens:
+        if self.retained_message_count is not None and self.max_tokens is not None:
             raise ValueError(
                 "Cannot specify both retained_message_count and max_tokens. "
                 "Please provide only one of these parameters."
             )
-        if not self.retained_message_count and not self.max_tokens:
+        if self.retained_message_count is None and self.max_tokens is None:
             self.retained_message_count = 5  # Default value if none is provided
 
         return self

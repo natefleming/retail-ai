@@ -60,7 +60,7 @@ Please include the following JSON in your request configuration:
 {
   "configurable": {
     "thread_id": "1",
-    "user_id": "my_user_id", 
+    "user_id": "my_user_id"
   }
 }
 ```
@@ -70,6 +70,44 @@ Please include the following JSON in your request configuration:
 - **thread_id**: Conversation thread identifier (optional)
 
 Please update your configuration and try again.
+        """.strip()
+
+        raise ValueError(error_message)
+
+    # Validate that user_id doesn't contain dots
+    user_id = configurable["user_id"]
+    if "." in user_id:
+        logger.error(f"User ID '{user_id}' contains invalid character '.'")
+
+        # Create a corrected version of the user_id
+        corrected_user_id = user_id.replace(".", "_")
+
+        # Create corrected configuration for the error message
+        import json
+
+        # Corrected config with fixed user_id
+        corrected_config = {
+            "configurable": {
+                "thread_id": configurable.get("thread_id", "1"),
+                "user_id": corrected_user_id,
+                "store_num": configurable.get("store_num", 87887),
+            }
+        }
+
+        # Format as JSON for copy-paste
+        corrected_config_json = json.dumps(corrected_config, indent=2)
+
+        error_message = f"""
+## Invalid User ID Format
+
+The **user_id** cannot contain a dot character ('.'). Please provide a valid user ID without dots.
+
+### Corrected Configuration (Copy & Paste This)
+```json
+{corrected_config_json}
+```
+
+Please update your user_id and try again.
         """.strip()
 
         raise ValueError(error_message)

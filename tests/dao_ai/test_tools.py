@@ -211,5 +211,6 @@ def test_add_human_in_the_loop_default_interrupt_config():
             "allow_accept": True,
             "allow_edit": True,
             "allow_respond": True,
+            "allow_decline": True,
         }
         assert interrupt_args["config"] == expected_default_config

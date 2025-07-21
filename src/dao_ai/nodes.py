@@ -1,3 +1,4 @@
+import json
 from typing import Any, Callable, Optional, Sequence
 
 import mlflow
@@ -10,15 +11,16 @@ from langchain_core.messages import (
     SystemMessage,
     trim_messages,
 )
+from langchain_core.messages.base import messages_to_dict
 from langchain_core.messages.modifier import RemoveMessage
-from langchain_core.messages.utils import count_tokens_approximately
+from langchain_core.messages.utils import count_tokens_approximately, messages_from_dict
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
-from langgraph.store.base import BaseStore
+from langgraph.store.base import BaseStore, Item
 from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -35,6 +37,35 @@ from dao_ai.hooks.core import create_hooks
 from dao_ai.messages import last_human_message
 from dao_ai.state import IncomingState, SharedState
 from dao_ai.tools import create_tools
+
+
+def _serialize_messages(
+    messages: Sequence[BaseMessage],
+) -> dict[str, Sequence[dict[str, Any]]]:
+    """Convert LangChain messages to JSON-serializable dictionaries."""
+    logger.debug(f"Serializing {len(messages)} messages to JSON format")
+    serialized_messages: dict[str, Sequence[dict[str, Any]]] = {
+        "messages": messages_to_dict(messages)
+    }
+
+    logger.trace(f"Serialized {len(serialized_messages)} messages to JSON format")
+    logger.trace(f"Serialized messages: {serialized_messages}")
+
+    return serialized_messages
+
+
+def _deserialize_messages(
+    serialized_messages: dict[str, Sequence[dict[str, Any]]],
+) -> Sequence[BaseMessage]:
+    """Convert JSON-serializable dictionaries back to LangChain messages."""
+    serialized_messages = serialized_messages.get("messages", [])
+    logger.debug(f"Deserializing {len(serialized_messages)} messages from JSON format")
+    messages = messages_from_dict(serialized_messages)
+
+    logger.trace(f"Deserialized {len(messages)} messages from JSON format")
+    logger.trace(f"Deserialized messages: {[m.model_dump() for m in messages]}")
+
+    return messages
 
 
 def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
@@ -151,6 +182,94 @@ def create_agent_node(
     return compiled_agent
 
 
+def load_conversation_node(store: BaseStore) -> RunnableLike:
+    """
+    Create a node that loads the conversation history from the database.
+
+    This node retrieves the conversation history for a given thread ID and returns it
+    as a sequence of messages.
+    """
+
+    @mlflow.trace()
+    def load_conversation(state: IncomingState, config: RunnableConfig) -> SharedState:
+        logger.debug("Running load_conversation node")
+        messages: Sequence[BaseMessage] = []
+
+        #  store: BaseStore = get_store()
+        configurable: dict[str, Any] = config.get("configurable", {})
+
+        if store and "thread_id" in configurable and "user_id" in configurable:
+            thread_id: str = configurable.get("thread_id")
+            user_id: str = configurable.get("user_id")
+            logger.debug(
+                f"Using store: {store} to load thread ID: {thread_id} for user ID: {user_id}"
+            )
+
+            # Use consistent namespace pattern like in graph.py
+            namespace = ("conversations", user_id)
+            conversation_history: Item = store.get(namespace, thread_id)
+
+            if conversation_history:
+                logger.debug(f"Loaded conversation history: {conversation_history}")
+                # Deserialize the stored messages from JSON back to LangChain message objects
+                serialized_messages: dict[str, Any] = conversation_history.value
+                messages = _deserialize_messages(serialized_messages)
+                logger.debug(f"Deserialized {len(messages)} messages from store")
+
+            else:
+                logger.debug(
+                    f"No conversation history found for thread ID: {thread_id}"
+                )
+        else:
+            logger.debug(
+                "No store available or missing thread_id/user_id, starting with empty conversation"
+            )
+
+        return {"messages": messages}
+
+    return load_conversation
+
+
+def save_conversation_node(store: BaseStore) -> RunnableLike:
+    """
+    Create a node that saves the conversation history to the database.
+
+    This node saves the current conversation messages for a given thread ID and user ID
+    to the store for future retrieval.
+    """
+
+    @mlflow.trace()
+    def save_conversation(state: SharedState, config: RunnableConfig) -> SharedState:
+        logger.debug("Running save_conversation node")
+        configurable: dict[str, Any] = config.get("configurable", {})
+
+        if store and "thread_id" in configurable and "user_id" in configurable:
+            thread_id: str = configurable.get("thread_id")
+            user_id: str = configurable.get("user_id")
+            messages: Sequence[BaseMessage] = state.get("messages", [])
+
+            logger.debug(
+                f"Saving conversation for thread ID: {thread_id} for user ID: {user_id}"
+            )
+
+            # Use consistent namespace pattern like in graph.py
+            namespace = ("conversations", user_id)
+
+            # Serialize the messages to JSON-safe format before storing
+            serialized_messages = _serialize_messages(messages)
+            store.put(namespace, thread_id, serialized_messages)
+            logger.debug(f"Saved {len(messages)} serialized messages to store")
+        else:
+            logger.debug(
+                "No store available or missing thread_id/user_id, cannot save conversation"
+            )
+
+        # Return the state unchanged - this is a side-effect node
+        return state
+
+    return save_conversation
+
+
 def summarization_node(config: AppConfig) -> RunnableLike:
     summarization_model: SummarizationModel | None = config.app.summarization
 
@@ -181,6 +300,11 @@ def summarization_node(config: AppConfig) -> RunnableLike:
     ) -> dict[str, Any]:
         """Helper function to create summary and update messages."""
         existing_summary: str = state.get("summary", "")
+
+        logger.trace(
+            f"Creating summary for {len(messages_to_summarize)} messages with existing summary: {existing_summary}"
+        )
+
         new_summary: str = _create_summary(
             model, messages_to_summarize, existing_summary
         )
@@ -191,6 +315,11 @@ def summarization_node(config: AppConfig) -> RunnableLike:
 
         logger.debug(
             f"Summarized {len(messages_to_summarize)} messages, created new summary"
+        )
+
+        logger.trace(
+            f"New summary: {new_summary}\n"
+            f"Deleted messages: {[m.id for m in messages_to_summarize]}"
         )
 
         return {
@@ -205,54 +334,71 @@ def summarization_node(config: AppConfig) -> RunnableLike:
             logger.debug("No summarization model configured, skipping summarization")
             return
 
+        messages: Sequence[BaseMessage] = state["messages"]
+
         model: LanguageModelLike = summarization_model.model.as_chat_model()
 
-        if summarization_model.retained_message_count:
-            retain_message_count: int = summarization_model.retained_message_count
+        max_tokens: int
+        token_counter: Callable[..., int]
 
-            if len(state["messages"]) <= retain_message_count:
-                logger.debug(
-                    f"Not enough messages to summarize, retaining last {retain_message_count} messages. Current message count: {len(state['messages'])}"
-                )
-                return
+        if summarization_model.retained_message_count is not None:
+            # For message count-based trimming, ensure we keep at least 1 message
+            max_tokens = max(1, summarization_model.retained_message_count)
+            token_counter = len
+        else:
+            max_tokens = summarization_model.max_tokens
+            token_counter = count_tokens_approximately
 
-            messages_to_summarize: Sequence[BaseMessage] = state["messages"][
-                :-retain_message_count
+        logger.debug(f"max_tokens: {max_tokens}, token_counter: {token_counter}")
+
+        logger.trace(
+            f"Original messages:\n{json.dumps([msg.model_dump() for msg in messages], indent=2)}"
+        )
+
+        trimmed_messages: Sequence[BaseMessage] = trim_messages(
+            messages,
+            max_tokens=max_tokens,
+            strategy="last",
+            token_counter=token_counter,
+            allow_partial=False,
+            include_system=True,
+            start_on="human",
+            #   end_on=("human", "tool"),
+        )
+        logger.trace(
+            f"Trimmed messages:\n{json.dumps([msg.model_dump() for msg in trimmed_messages], indent=2)}"
+        )
+
+        logger.debug(
+            f"Trimmed messages from {len(messages)} to {len(trimmed_messages)}"
+        )
+
+        # Safety check: ensure we always have at least one message
+        if len(trimmed_messages) == 0 and len(messages) > 0:
+            logger.warning(
+                "trim_messages returned empty list, keeping the last message to avoid API error"
+            )
+            trimmed_messages = messages[-1:]
+
+        if len(trimmed_messages) < len(messages):
+            logger.debug(
+                f"Trimmed {len(messages) - len(trimmed_messages)} messages due to limit: {max_tokens} "
+                f"(using {'message count' if token_counter == len else 'token count'}). "
+                f"Kept {len(trimmed_messages)} messages."
+            )
+
+            # Find messages that were removed by trimming
+            trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
+            messages_to_summarize: Sequence[BaseMessage] = [
+                m for m in messages if m.id not in trimmed_message_ids
             ]
 
             return _update_messages_with_summary(model, state, messages_to_summarize)
         else:
-            max_tokens: int = summarization_model.max_tokens
-            messages: Sequence[BaseMessage] = state["messages"]
-            trimmed_messages: Sequence[BaseMessage] = trim_messages(
-                messages,
-                max_tokens=max_tokens,
-                strategy="last",
-                token_counter=count_tokens_approximately,
-                allow_partial=False,
-                include_system=True,
-                start_on="human",
+            logger.debug(
+                f"No messages trimmed ({len(messages)} messages fit within limit: {max_tokens}). "
+                f"No summarization performed."
             )
-
-            if len(trimmed_messages) < len(messages):
-                logger.debug(
-                    f"Trimmed {len(messages) - len(trimmed_messages)} messages due to token limit"
-                )
-
-                # Find messages that were removed by trimming
-                trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
-                messages_to_summarize: Sequence[BaseMessage] = [
-                    m for m in messages if m.id not in trimmed_message_ids
-                ]
-
-                return _update_messages_with_summary(
-                    model, state, messages_to_summarize
-                )
-            else:
-                logger.debug(
-                    "No messages trimmed, no summarization performed. "
-                    "All messages fit within the token limit."
-                )
 
         return None
 
