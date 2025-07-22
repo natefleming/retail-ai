@@ -121,6 +121,17 @@ pprint(response)
 
 from typing import Any
 from rich import print as pprint
+from dao_ai.models import process_messages_stream
+
+pprint(chosen_input_example)
+
+for event in process_messages_stream(app=app, **chosen_input_example):
+  print(event.choices[0].delta.content, end="", flush=True)
+
+# COMMAND ----------
+
+from typing import Any
+from rich import print as pprint
 from dao_ai.models import process_messages
 
 # store num

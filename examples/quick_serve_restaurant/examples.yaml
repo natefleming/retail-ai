@@ -6,7 +6,7 @@ examples:
     custom_inputs:
       configurable:
         thread_id: "1"
-        user_id: sarah.jones
+        user_id: sarah_jones
 
   item_description_example:
     messages:
@@ -15,7 +15,7 @@ examples:
     custom_inputs:
       configurable:
         thread_id: "2" 
-        user_id: mike.chen
+        user_id: mike_chen
 
   coffee_order_example:
     messages:
@@ -24,7 +24,7 @@ examples:
     custom_inputs:
       configurable:
         thread_id: "3"
-        user_id: alex.rodriguez
+        user_id: alex_rodriguez
 
   order_history_example:
     messages:
@@ -33,4 +33,4 @@ examples:
     custom_inputs:
       configurable:
         thread_id: "4"
-        user_id: emma.wilson
+        user_id: emma_wilson
