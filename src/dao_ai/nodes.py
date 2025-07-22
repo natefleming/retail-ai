@@ -182,12 +182,12 @@ def create_agent_node(
     return compiled_agent
 
 
-def load_conversation_node(store: BaseStore) -> RunnableLike:
+def load_conversation_node(store: BaseStore, app_config: AppConfig) -> RunnableLike:
     """
     Create a node that loads the conversation history from the database.
 
     This node retrieves the conversation history for a given thread ID and returns it
-    as a sequence of messages.
+    as a sequence of messages. Only loads history if enable_conversation_history is True.
     """
 
     @mlflow.trace()
@@ -195,7 +195,11 @@ def load_conversation_node(store: BaseStore) -> RunnableLike:
         logger.debug("Running load_conversation node")
         messages: Sequence[BaseMessage] = []
 
-        #  store: BaseStore = get_store()
+        # Check if conversation history is enabled
+        if not app_config.app.enable_conversation_history:
+            logger.debug("Conversation history is disabled, returning empty history")
+            return {"conversation_history": messages}
+
         configurable: dict[str, Any] = config.get("configurable", {})
 
         if store and "thread_id" in configurable and "user_id" in configurable:
@@ -205,8 +209,8 @@ def load_conversation_node(store: BaseStore) -> RunnableLike:
                 f"Using store: {store} to load thread ID: {thread_id} for user ID: {user_id}"
             )
 
-            # Use consistent namespace pattern like in graph.py
-            namespace = ("conversations", user_id)
+            app_name: str = app_config.app.name or "default"
+            namespace = ("conversations", app_name, user_id)
             conversation_history: Item = store.get(namespace, thread_id)
 
             if conversation_history:
@@ -230,17 +234,23 @@ def load_conversation_node(store: BaseStore) -> RunnableLike:
     return load_conversation
 
 
-def save_conversation_node(store: BaseStore) -> RunnableLike:
+def store_conversation_node(store: BaseStore, app_config: AppConfig) -> RunnableLike:
     """
     Create a node that saves the conversation history to the database.
 
     This node saves the current conversation messages for a given thread ID and user ID
-    to the store for future retrieval.
+    to the store for future retrieval. Only stores history if enable_conversation_history is True.
     """
 
     @mlflow.trace()
-    def save_conversation(state: SharedState, config: RunnableConfig) -> SharedState:
-        logger.debug("Running save_conversation node")
+    def store_conversation(state: SharedState, config: RunnableConfig) -> SharedState:
+        logger.debug("Running store_conversation node")
+
+        # Check if conversation history is enabled
+        if not app_config.app.enable_conversation_history:
+            logger.debug("Conversation history is disabled, skipping storage")
+            return state
+
         configurable: dict[str, Any] = config.get("configurable", {})
 
         if store and "thread_id" in configurable and "user_id" in configurable:
@@ -253,7 +263,10 @@ def save_conversation_node(store: BaseStore) -> RunnableLike:
             )
 
             # Use consistent namespace pattern like in graph.py
-            namespace = ("conversations", user_id)
+
+            app_name: str = app_config.app.name or "default"
+
+            namespace: tuple[str, ...] = ("conversations", app_name, user_id)
 
             # Serialize the messages to JSON-safe format before storing
             serialized_messages = _serialize_messages(messages)
@@ -267,7 +280,7 @@ def save_conversation_node(store: BaseStore) -> RunnableLike:
         # Return the state unchanged - this is a side-effect node
         return state
 
-    return save_conversation
+    return store_conversation
 
 
 def summarization_node(config: AppConfig) -> RunnableLike:

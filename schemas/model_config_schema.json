@@ -394,6 +394,18 @@
           ],
           "default": null
         },
+        "enable_conversation_history": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "Enable Conversation History"
+        },
         "code_paths": {
           "items": {
             "type": "string"
@@ -1225,18 +1237,35 @@
       "additionalProperties": false,
       "properties": {
         "review_prompt": {
+          "default": "Please review the tool call",
           "title": "Review Prompt",
           "type": "string"
         },
-        "interupt_config": {
+        "interrupt_config": {
           "additionalProperties": true,
-          "title": "Interupt Config",
+          "title": "Interrupt Config",
           "type": "object"
+        },
+        "decline_message": {
+          "default": "Tool call declined by user",
+          "title": "Decline Message",
+          "type": "string"
+        },
+        "custom_actions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Custom Actions"
         }
       },
-      "required": [
-        "review_prompt"
-      ],
       "title": "HumanInTheLoopModel",
       "type": "object"
     },

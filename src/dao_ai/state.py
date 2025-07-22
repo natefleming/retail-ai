@@ -1,7 +1,8 @@
 from typing import Sequence
+
+from langchain_core.messages import BaseMessage
 from langgraph.graph import MessagesState
 from langgraph.managed import RemainingSteps
-from langchain_core.messages import BaseMessage
 
 
 class IncomingState(MessagesState): ...

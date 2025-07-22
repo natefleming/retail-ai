@@ -1039,6 +1039,7 @@ class AppModel(BaseModel):
     workload_size: Optional[WorkloadSize] = "Small"
     permissions: Optional[list[AppPermissionModel]] = Field(default_factory=list)
     agents: list[AgentModel] = Field(default_factory=list)
+
     orchestration: OrchestrationModel
     alias: Optional[str] = None
     initialization_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
@@ -1052,6 +1053,7 @@ class AppModel(BaseModel):
     )
     input_example: Optional[ChatPayload] = None
     summarization: Optional[SummarizationModel] = None
+    enable_conversation_history: Optional[bool] = False
     code_paths: list[str] = Field(default_factory=list)
     pip_requirements: list[str] = Field(default_factory=list)
 
