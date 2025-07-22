@@ -225,7 +225,7 @@ def load_conversation_node(store: BaseStore) -> RunnableLike:
                 "No store available or missing thread_id/user_id, starting with empty conversation"
             )
 
-        return {"messages": messages}
+        return {"conversation_history": messages}
 
     return load_conversation
 

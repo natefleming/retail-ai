@@ -1,5 +1,7 @@
+from typing import Sequence
 from langgraph.graph import MessagesState
 from langgraph.managed import RemainingSteps
+from langchain_core.messages import BaseMessage
 
 
 class IncomingState(MessagesState): ...
@@ -25,6 +27,7 @@ class SharedState(MessagesState):
     remaining_steps: RemainingSteps  # langgraph-supervisor
 
     summary: str  # summarization node
+    conversation_history: Sequence[BaseMessage]
 
     is_valid: bool  # message validation node
     message_error: str
