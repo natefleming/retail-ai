@@ -1024,9 +1024,8 @@ app:
           user_id: my_user_id
           store_num: 87887
   summarization: 
-    retained_message_count: 10
+    retained_message_count: 5
     model: *reasoning_llm                          # Model for summarization tasks
-  enable_conversation_history: True
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general

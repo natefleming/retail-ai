@@ -2,13 +2,11 @@ import json
 from typing import Any, Callable, Optional, Sequence
 
 import mlflow
-from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
-    SystemMessage,
     trim_messages,
 )
 from langchain_core.messages.base import messages_to_dict
@@ -35,6 +33,7 @@ from dao_ai.config import (
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
 from dao_ai.hooks.core import create_hooks
 from dao_ai.messages import last_human_message
+from dao_ai.prompts import make_prompt
 from dao_ai.state import IncomingState, SharedState
 from dao_ai.tools import create_tools
 
@@ -66,38 +65,6 @@ def _deserialize_messages(
     logger.trace(f"Deserialized messages: {[m.model_dump() for m in messages]}")
 
     return messages
-
-
-def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
-    logger.debug(f"make_prompt: {base_system_prompt}")
-
-    def prompt(state: SharedState, config: RunnableConfig) -> list:
-        system_prompt: str = ""
-        if base_system_prompt:
-            prompt_template: PromptTemplate = PromptTemplate.from_template(
-                base_system_prompt
-            )
-
-            params: dict[str, Any] = {
-                input_variable: "" for input_variable in prompt_template.input_variables
-            }
-            params |= config.get("configurable", {})
-
-            system_prompt: str = prompt_template.format(**params)
-
-        summary: str = state.get("summary", "")
-        if summary:
-            system_prompt += (
-                f"\n\n## Previous Conversation Summary\n\n{summary}\n\n---\n"
-            )
-
-        messages: Sequence[BaseMessage] = state["messages"]
-        if system_prompt:
-            messages = [SystemMessage(content=system_prompt)] + messages
-
-        return messages
-
-    return prompt
 
 
 def create_agent_node(

@@ -3,10 +3,13 @@ from typing import Sequence
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
+from langgraph.cache.base import BaseCache
+from langgraph.cache.memory import InMemoryCache
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
+from langgraph.types import CachePolicy
 from langgraph_supervisor import create_handoff_tool as supervisor_handoff_tool
 from langgraph_supervisor import create_supervisor
 from langgraph_swarm import create_handoff_tool as swarm_handoff_tool
@@ -26,6 +29,7 @@ from dao_ai.nodes import (
     message_hook_node,
     summarization_node,
 )
+from dao_ai.prompts import make_prompt
 from dao_ai.state import IncomingState, OutgoingState, SharedState
 
 
@@ -105,9 +109,13 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         checkpointer = supervisor.memory.checkpointer.as_checkpointer()
         logger.debug(f"Using checkpointer: {checkpointer}")
 
+    cache: BaseCache = None
+    cache = InMemoryCache()
+
     model: LanguageModelLike = supervisor.model.as_chat_model()
     supervisor_workflow: StateGraph = create_supervisor(
         supervisor_name="supervisor",
+        prompt=make_prompt(base_system_prompt=""),
         agents=agents,
         model=model,
         tools=tools,
@@ -134,8 +142,14 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     # workflow.add_node(
     #     "load_conversation", load_conversation_history_node(store=store, app_config=config)
     # )
-    workflow.add_node("summarization", summarization_node(config=config))
-    workflow.add_node("orchestration", supervisor_node)
+    workflow.add_node(
+        "summarization",
+        summarization_node(config=config),
+        cache_policy=CachePolicy(ttl=60),
+    )
+    workflow.add_node(
+        "orchestration", supervisor_node, cache_policy=CachePolicy(ttl=60)
+    )
     # workflow.add_node(
     #     "store_conversation", store_conversation_history_node(store=store, app_config=config)
     # )
@@ -157,7 +171,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     # workflow.set_finish_point("store_conversation")
 
     # Current issue with postgres checkpointer
-    return workflow.compile(checkpointer=checkpointer, store=store)
+    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
     # return workflow.compile()
 
 
@@ -195,6 +209,9 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         checkpointer = swarm.memory.checkpointer.as_checkpointer()
         logger.debug(f"Using checkpointer: {checkpointer}")
 
+    cache: BaseCache = None
+    cache = InMemoryCache()
+
     swarm_node: CompiledStateGraph = swarm_workflow.compile(
         checkpointer=checkpointer, store=store
     )
@@ -214,8 +231,12 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # workflow.add_node(
     #     "load_conversation", load_conversation_history_node(store=store, app_config=config)
     # )
-    workflow.add_node("summarization", summarization_node(config=config))
-    workflow.add_node("orchestration", swarm_node)
+    workflow.add_node(
+        "summarization",
+        summarization_node(config=config),
+        cache_policy=CachePolicy(ttl=60),
+    )
+    workflow.add_node("orchestration", swarm_node, cache_policy=CachePolicy(ttl=60))
     # workflow.add_node(
     #     "store_conversation", store_conversation_history_node(store=store, app_config=config)
     # )
@@ -237,7 +258,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # workflow.set_finish_point("store_conversation")
 
     # Current issue with postgres checkpointer
-    return workflow.compile(checkpointer=checkpointer, store=store)
+    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
     # return workflow.compile()
 
 

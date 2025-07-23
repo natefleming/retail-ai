@@ -3,7 +3,7 @@ from typing import Any, Iterator, Optional, Sequence
 
 from databricks_langchain import ChatDatabricks
 from langchain_core.callbacks import CallbackManagerForLLMRun
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from loguru import logger
 
@@ -113,37 +113,19 @@ class ChatDatabricksFiltered(ChatDatabricks):
             f"Filtered {len(messages)} messages down to {len(filtered_messages)} messages"
         )
 
-        # Safety check: ensure we always have at least one valid message
+        # Log diagnostic information if all messages were filtered out
         if len(filtered_messages) == 0:
-            logger.error(
+            logger.warning(
                 f"All {len(messages)} messages were filtered out! This indicates a problem with the conversation state."
             )
-            logger.error(f"Original message types: {message_types}")
+            logger.debug(f"Original message types: {message_types}")
 
             if remove_message_count == len(messages):
-                logger.error(
+                logger.warning(
                     "All messages were RemoveMessage objects - this suggests a bug in summarization logic"
                 )
             elif empty_content_count > 0:
-                logger.error(f"{empty_content_count} messages had empty content")
-
-            if len(messages) > 0:
-                logger.warning(
-                    "Creating a minimal valid message to avoid API errors, but this needs investigation."
-                )
-                # Create a minimal, safe message that all LLMs can handle
-                # Use a HumanMessage with minimal content as it's the most universally supported
-                fallback_message = HumanMessage(
-                    content="Continue the conversation", id="fallback-message"
-                )
-                filtered_messages = [fallback_message]
-            else:
-                logger.error("No messages provided to process at all!")
-                # If no messages were provided at all, create a minimal interaction
-                fallback_message = HumanMessage(
-                    content="Hello", id="empty-fallback-message"
-                )
-                filtered_messages = [fallback_message]
+                logger.debug(f"{empty_content_count} messages had empty content")
 
         return filtered_messages
 
@@ -160,6 +142,15 @@ class ChatDatabricksFiltered(ChatDatabricks):
         """Override _generate to apply message preprocessing and postprocessing."""
         # Apply message preprocessing
         processed_messages: Sequence[BaseMessage] = self._preprocess_messages(messages)
+
+        if len(processed_messages) == 0:
+            logger.error(
+                "All messages were filtered out during preprocessing. This indicates a serious issue with the conversation state."
+            )
+            empty_generation = ChatGeneration(
+                message=AIMessage(content="", id="empty-response")
+            )
+            return ChatResult(generations=[empty_generation])
 
         logger.trace(
             f"Processed messages:\n{json.dumps([msg.model_dump() for msg in processed_messages], indent=2)}"
@@ -186,6 +177,19 @@ class ChatDatabricksFiltered(ChatDatabricks):
         """Override _stream to apply message preprocessing and postprocessing."""
         # Apply message preprocessing
         processed_messages: Sequence[BaseMessage] = self._preprocess_messages(messages)
+
+        # Handle the edge case where all messages were filtered out
+        if len(processed_messages) == 0:
+            logger.error(
+                "All messages were filtered out during preprocessing. This indicates a serious issue with the conversation state."
+            )
+            # Return an empty streaming result without calling the underlying API
+            # This prevents API errors while making the issue visible through an empty response
+            empty_chunk = ChatGenerationChunk(
+                message=AIMessage(content="", id="empty-response")
+            )
+            yield empty_chunk
+            return
 
         logger.trace(
             f"Processed messages:\n{json.dumps([msg.model_dump() for msg in processed_messages], indent=2)}"
