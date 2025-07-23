@@ -22,7 +22,6 @@ from databricks.sdk.credentials_provider import (
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
-    ChatDatabricks,
     DatabricksFunctionClient,
 )
 from langchain_core.language_models import LanguageModelLike
@@ -43,6 +42,8 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+
+from dao_ai.chat_models import ChatDatabricksFiltered
 
 
 class HasValue(ABC):
@@ -274,7 +275,7 @@ class LLMModel(BaseModel, IsDatabricksResource):
         # chat_client: LanguageModelLike = self.as_open_ai_client()
 
         # Create ChatDatabricksWrapper instance directly
-        chat_client: LanguageModelLike = ChatDatabricks(
+        chat_client: LanguageModelLike = ChatDatabricksFiltered(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
 
@@ -1053,7 +1054,6 @@ class AppModel(BaseModel):
     )
     input_example: Optional[ChatPayload] = None
     summarization: Optional[SummarizationModel] = None
-    enable_conversation_history: Optional[bool] = False
     code_paths: list[str] = Field(default_factory=list)
     pip_requirements: list[str] = Field(default_factory=list)
 

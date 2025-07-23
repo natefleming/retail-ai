@@ -96,6 +96,9 @@ class LanggraphChatModel(ChatModel):
             if "configurable" in custom_inputs:
                 configurable: dict[str, Any] = custom_inputs.pop("configurable")
 
+        if "user_id" in configurable:
+            configurable["user_id"] = configurable["user_id"].replace(".", "_")
+
         agent_config: RunnableConfig = RunnableConfig(**{"configurable": configurable})
         return agent_config
 

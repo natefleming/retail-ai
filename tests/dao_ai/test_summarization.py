@@ -154,10 +154,10 @@ def test_summarization_with_max_tokens(
     This uses the approximate token counter.
     """
     # Arrange
-    # Each "message X" is ~2 tokens. Let's set a limit that cuts off the first few.
+    # Each "message X" is ~7 tokens. Let's set a limit that keeps the last 2 messages.
     summarization_config = SummarizationModel(
         model=mock_llm_model,
-        max_tokens=5,  # Should keep last 2 messages approx
+        max_tokens=14,  # Should keep last 2 messages (~14 tokens)
     )
 
     app_model = AppModel(
@@ -171,7 +171,7 @@ def test_summarization_with_max_tokens(
     )
     app_config = AppConfig(app=app_model)
 
-    messages = create_test_messages(5)  # Total tokens ~10
+    messages = create_test_messages(5)  # Total tokens ~35
     initial_state = {"messages": messages, "summary": ""}
 
     # Act

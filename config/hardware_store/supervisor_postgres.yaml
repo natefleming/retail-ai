@@ -980,13 +980,13 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: hardware_store_postgres                      # Application name  
+  name: hardware_store_postgres_wip                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
   log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
-    name: hardware_store_postgres                  # Model name in MLflow registry
-  endpoint_name: hardware_store_postgres           # Model serving endpoint name
+    name: hardware_store_postgres_wip                  # Model name in MLflow registry
+  endpoint_name: hardware_store_postgres_wip           # Model serving endpoint name
   environment_vars: 
     PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
@@ -1024,8 +1024,9 @@ app:
           user_id: my_user_id
           store_num: 87887
   summarization: 
+    retained_message_count: 10
     model: *reasoning_llm                          # Model for summarization tasks
-  enable_conversation_history: False
+  enable_conversation_history: True
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general

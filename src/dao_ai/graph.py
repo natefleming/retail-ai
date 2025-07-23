@@ -23,9 +23,7 @@ from dao_ai.config import (
 )
 from dao_ai.nodes import (
     create_agent_node,
-    load_conversation_node,
     message_hook_node,
-    store_conversation_node,
     summarization_node,
 )
 from dao_ai.state import IncomingState, OutgoingState, SharedState
@@ -34,7 +32,7 @@ from dao_ai.state import IncomingState, OutgoingState, SharedState
 def route_message(state: SharedState) -> str:
     if not state["is_valid"]:
         return END
-    return "load_conversation"
+    return "summarization"
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -133,34 +131,34 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     ## It might make sense to have each agent have its own summarization node
     # but for now we will use a single summarization node
 
-    workflow.add_node(
-        "load_conversation", load_conversation_node(store=store, app_config=config)
-    )
+    # workflow.add_node(
+    #     "load_conversation", load_conversation_history_node(store=store, app_config=config)
+    # )
     workflow.add_node("summarization", summarization_node(config=config))
     workflow.add_node("orchestration", supervisor_node)
-    workflow.add_node(
-        "store_conversation", store_conversation_node(store=store, app_config=config)
-    )
+    # workflow.add_node(
+    #     "store_conversation", store_conversation_history_node(store=store, app_config=config)
+    # )
 
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
         {
-            "load_conversation": "load_conversation",
+            "summarization": "summarization",
             END: END,
         },
     )
 
-    workflow.add_edge("load_conversation", "summarization")
+    #   workflow.add_edge("load_conversation", "summarization")
     workflow.add_edge("summarization", "orchestration")
-    workflow.add_edge("orchestration", "store_conversation")
+    # workflow.add_edge("orchestration", "store_conversation")
 
     workflow.set_entry_point("message_hook")
-    workflow.set_finish_point("store_conversation")
+    # workflow.set_finish_point("store_conversation")
 
     # Current issue with postgres checkpointer
-    # return workflow.compile(checkpointer=checkpointer, store=store)
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer, store=store)
+    # return workflow.compile()
 
 
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
@@ -213,34 +211,34 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     ## It might make sense to have each agent have its own summarization node
     # but for now we will use a single summarization node
 
-    workflow.add_node(
-        "load_conversation", load_conversation_node(store=store, app_config=config)
-    )
+    # workflow.add_node(
+    #     "load_conversation", load_conversation_history_node(store=store, app_config=config)
+    # )
     workflow.add_node("summarization", summarization_node(config=config))
     workflow.add_node("orchestration", swarm_node)
-    workflow.add_node(
-        "store_conversation", store_conversation_node(store=store, app_config=config)
-    )
+    # workflow.add_node(
+    #     "store_conversation", store_conversation_history_node(store=store, app_config=config)
+    # )
 
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
         {
-            "load_conversation": "load_conversation",
+            "summarization": "summarization",
             END: END,
         },
     )
 
-    workflow.add_edge("load_conversation", "summarization")
+    # workflow.add_edge("load_conversation", "summarization")
     workflow.add_edge("summarization", "orchestration")
     workflow.add_edge("orchestration", "store_conversation")
 
     workflow.set_entry_point("message_hook")
-    workflow.set_finish_point("store_conversation")
+    # workflow.set_finish_point("store_conversation")
 
     # Current issue with postgres checkpointer
-    # return workflow.compile(checkpointer=checkpointer, store=store)
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer, store=store)
+    # return workflow.compile()
 
 
 def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:

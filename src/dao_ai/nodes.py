@@ -182,7 +182,9 @@ def create_agent_node(
     return compiled_agent
 
 
-def load_conversation_node(store: BaseStore, app_config: AppConfig) -> RunnableLike:
+def load_conversation_history_node(
+    store: BaseStore, app_config: AppConfig
+) -> RunnableLike:
     """
     Create a node that loads the conversation history from the database.
 
@@ -191,34 +193,35 @@ def load_conversation_node(store: BaseStore, app_config: AppConfig) -> RunnableL
     """
 
     @mlflow.trace()
-    def load_conversation(state: IncomingState, config: RunnableConfig) -> SharedState:
+    def load_conversation_history(
+        state: IncomingState, config: RunnableConfig
+    ) -> SharedState:
         logger.debug("Running load_conversation node")
-        messages: Sequence[BaseMessage] = []
-
-        # Check if conversation history is enabled
-        if not app_config.app.enable_conversation_history:
-            logger.debug("Conversation history is disabled, returning empty history")
-            return {"conversation_history": messages}
+        conversation_history_messages: Sequence[BaseMessage] = []
 
         configurable: dict[str, Any] = config.get("configurable", {})
 
         if store and "thread_id" in configurable and "user_id" in configurable:
             thread_id: str = configurable.get("thread_id")
+            app_name: str = app_config.app.name or "default"
             user_id: str = configurable.get("user_id")
             logger.debug(
-                f"Using store: {store} to load thread ID: {thread_id} for user ID: {user_id}"
+                f"Using store: {store} to load thread ID: {thread_id} for user ID: {app_name}/{user_id}"
             )
 
-            app_name: str = app_config.app.name or "default"
-            namespace = ("conversations", app_name, user_id)
-            conversation_history: Item = store.get(namespace, thread_id)
+            namespace: tuple[str, ...] = ("conversations", app_name, user_id)
+            conversation_history: Item | None = store.get(namespace, thread_id)
 
             if conversation_history:
                 logger.debug(f"Loaded conversation history: {conversation_history}")
                 # Deserialize the stored messages from JSON back to LangChain message objects
                 serialized_messages: dict[str, Any] = conversation_history.value
-                messages = _deserialize_messages(serialized_messages)
-                logger.debug(f"Deserialized {len(messages)} messages from store")
+                conversation_history_messages = _deserialize_messages(
+                    serialized_messages
+                )
+                logger.debug(
+                    f"Deserialized {len(conversation_history_messages)} messages from store"
+                )
 
             else:
                 logger.debug(
@@ -229,12 +232,14 @@ def load_conversation_node(store: BaseStore, app_config: AppConfig) -> RunnableL
                 "No store available or missing thread_id/user_id, starting with empty conversation"
             )
 
-        return {"conversation_history": messages}
+        return {"conversation_history": conversation_history_messages}
 
-    return load_conversation
+    return load_conversation_history
 
 
-def store_conversation_node(store: BaseStore, app_config: AppConfig) -> RunnableLike:
+def store_conversation_history_node(
+    store: BaseStore, app_config: AppConfig
+) -> RunnableLike:
     """
     Create a node that saves the conversation history to the database.
 
@@ -243,33 +248,30 @@ def store_conversation_node(store: BaseStore, app_config: AppConfig) -> Runnable
     """
 
     @mlflow.trace()
-    def store_conversation(state: SharedState, config: RunnableConfig) -> SharedState:
+    def store_conversation_history(
+        state: SharedState, config: RunnableConfig
+    ) -> SharedState:
         logger.debug("Running store_conversation node")
-
-        # Check if conversation history is enabled
-        if not app_config.app.enable_conversation_history:
-            logger.debug("Conversation history is disabled, skipping storage")
-            return state
 
         configurable: dict[str, Any] = config.get("configurable", {})
 
         if store and "thread_id" in configurable and "user_id" in configurable:
             thread_id: str = configurable.get("thread_id")
+            app_name: str = app_config.app.name or "default"
             user_id: str = configurable.get("user_id")
             messages: Sequence[BaseMessage] = state.get("messages", [])
 
             logger.debug(
-                f"Saving conversation for thread ID: {thread_id} for user ID: {user_id}"
+                f"Saving conversation for thread ID: {thread_id} for user ID: {app_name}/{user_id}"
             )
-
-            # Use consistent namespace pattern like in graph.py
-
-            app_name: str = app_config.app.name or "default"
 
             namespace: tuple[str, ...] = ("conversations", app_name, user_id)
 
             # Serialize the messages to JSON-safe format before storing
-            serialized_messages = _serialize_messages(messages)
+
+            serialized_messages: dict[str, Sequence[dict[str, Any]]] = (
+                _serialize_messages(messages)
+            )
             store.put(namespace, thread_id, serialized_messages)
             logger.debug(f"Saved {len(messages)} serialized messages to store")
         else:
@@ -277,10 +279,9 @@ def store_conversation_node(store: BaseStore, app_config: AppConfig) -> Runnable
                 "No store available or missing thread_id/user_id, cannot save conversation"
             )
 
-        # Return the state unchanged - this is a side-effect node
         return state
 
-    return store_conversation
+    return store_conversation_history
 
 
 def summarization_node(config: AppConfig) -> RunnableLike:
@@ -347,7 +348,8 @@ def summarization_node(config: AppConfig) -> RunnableLike:
             logger.debug("No summarization model configured, skipping summarization")
             return
 
-        messages: Sequence[BaseMessage] = state["messages"]
+        new_messages: Sequence[BaseMessage] = state.get("messages", [])
+        all_messages: Sequence[BaseMessage] = new_messages
 
         model: LanguageModelLike = summarization_model.model.as_chat_model()
 
@@ -365,11 +367,11 @@ def summarization_node(config: AppConfig) -> RunnableLike:
         logger.debug(f"max_tokens: {max_tokens}, token_counter: {token_counter}")
 
         logger.trace(
-            f"Original messages:\n{json.dumps([msg.model_dump() for msg in messages], indent=2)}"
+            f"Original messages:\n{json.dumps([msg.model_dump() for msg in all_messages], indent=2)}"
         )
 
         trimmed_messages: Sequence[BaseMessage] = trim_messages(
-            messages,
+            all_messages,
             max_tokens=max_tokens,
             strategy="last",
             token_counter=token_counter,
@@ -383,19 +385,19 @@ def summarization_node(config: AppConfig) -> RunnableLike:
         )
 
         logger.debug(
-            f"Trimmed messages from {len(messages)} to {len(trimmed_messages)}"
+            f"Trimmed messages from {len(all_messages)} to {len(trimmed_messages)}"
         )
 
-        # Safety check: ensure we always have at least one message
-        if len(trimmed_messages) == 0 and len(messages) > 0:
+        # Handle case where trim_messages returns empty list - summarize all messages
+        if len(trimmed_messages) == 0 and len(all_messages) > 0:
             logger.warning(
-                "trim_messages returned empty list, keeping the last message to avoid API error"
+                "trim_messages returned empty list, summarizing all messages"
             )
-            trimmed_messages = messages[-1:]
+            return _update_messages_with_summary(model, state, all_messages)
 
-        if len(trimmed_messages) < len(messages):
+        if len(trimmed_messages) < len(all_messages):
             logger.debug(
-                f"Trimmed {len(messages) - len(trimmed_messages)} messages due to limit: {max_tokens} "
+                f"Trimmed {len(all_messages) - len(trimmed_messages)} messages due to limit: {max_tokens} "
                 f"(using {'message count' if token_counter == len else 'token count'}). "
                 f"Kept {len(trimmed_messages)} messages."
             )
@@ -403,13 +405,13 @@ def summarization_node(config: AppConfig) -> RunnableLike:
             # Find messages that were removed by trimming
             trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
             messages_to_summarize: Sequence[BaseMessage] = [
-                m for m in messages if m.id not in trimmed_message_ids
+                m for m in all_messages if m.id not in trimmed_message_ids
             ]
 
             return _update_messages_with_summary(model, state, messages_to_summarize)
         else:
             logger.debug(
-                f"No messages trimmed ({len(messages)} messages fit within limit: {max_tokens}). "
+                f"No messages trimmed ({len(all_messages)} messages fit within limit: {max_tokens}). "
                 f"No summarization performed."
             )
 
