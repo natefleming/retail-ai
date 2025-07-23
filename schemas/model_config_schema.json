@@ -394,18 +394,6 @@
           ],
           "default": null
         },
-        "enable_conversation_history": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": false,
-          "title": "Enable Conversation History"
-        },
         "code_paths": {
           "items": {
             "type": "string"
