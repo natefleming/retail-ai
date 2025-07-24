@@ -120,7 +120,7 @@ def _create_supervisor_orchestration_graph(config: AppConfig) -> CompiledStateGr
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
     supervisor_workflow: StateGraph = create_supervisor(
-        supervisor_name="supervisor",
+        supervisor_name="triage",
         prompt=make_prompt(base_system_prompt=prompt),
         agents=agents,
         model=model,
@@ -145,11 +145,9 @@ def _create_supervisor_orchestration_graph(config: AppConfig) -> CompiledStateGr
         summarization_node(config=config),
         cache_policy=CachePolicy(ttl=60),
     )
-    workflow.add_node(
-        "orchestration", supervisor_node, cache_policy=CachePolicy(ttl=60)
-    )
+    workflow.add_node("supervisor", supervisor_node, cache_policy=CachePolicy(ttl=60))
 
-    workflow.add_edge("summarization", "orchestration")
+    workflow.add_edge("summarization", "supervisor")
     workflow.set_entry_point("summarization")
 
     return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
@@ -212,9 +210,9 @@ def _create_swarm_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
         summarization_node(config=config),
         cache_policy=CachePolicy(ttl=60),
     )
-    workflow.add_node("orchestration", swarm_node, cache_policy=CachePolicy(ttl=60))
+    workflow.add_node("swarm", swarm_node, cache_policy=CachePolicy(ttl=60))
 
-    workflow.add_edge("summarization", "orchestration")
+    workflow.add_edge("summarization", "swarm")
     workflow.set_entry_point("summarization")
 
     return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
