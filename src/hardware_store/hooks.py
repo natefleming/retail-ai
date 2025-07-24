@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from loguru import logger
@@ -23,6 +24,17 @@ def require_store_num_hook(
     if missing_fields:
         logger.error(f"Required fields are missing: {', '.join(missing_fields)}")
 
+        corrected_config = {
+            "configurable": {
+                "thread_id": configurable.get("thread_id", "1"),
+                "user_id": configurable.get("user_id", "my_user_id"),
+                "store_num": configurable.get("store_num", 87887),
+            }
+        }
+
+        # Format as JSON for copy-paste
+        corrected_config_json = json.dumps(corrected_config, indent=2)
+
         error_message = f"""
 ## Authentication Required
 
@@ -33,13 +45,7 @@ The following required fields are missing: **{", ".join(missing_fields)}**
 Please include the following JSON in your request configuration:
 
 ```json
-{{
-  "configurable": {{
-    "thread_id": "1",
-    "user_id": "my_user_id", 
-    "store_num": 87887
-  }}
-}}
+{corrected_config_json}
 ```
 
 ### Field Descriptions

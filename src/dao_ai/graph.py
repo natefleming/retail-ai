@@ -36,7 +36,7 @@ from dao_ai.state import IncomingState, OutgoingState, SharedState
 def route_message(state: SharedState) -> str:
     if not state["is_valid"]:
         return END
-    return "summarization"
+    return "orchestration"  # Changed from "summarization" since orchestration handles that now
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -75,8 +75,12 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
     return handoff_tools
 
 
-def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
-    logger.debug("Creating supervisor graph")
+def _create_supervisor_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
+    """
+    Create the supervisor orchestration graph without message validation.
+    This graph handles summarization and orchestration only.
+    """
+    logger.debug("Creating supervisor orchestration graph")
     agents: list[CompiledStateGraph] = []
     tools: Sequence[BaseTool] = []
     for registered_agent in config.app.agents:
@@ -112,10 +116,12 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     cache: BaseCache = None
     cache = InMemoryCache()
 
+    prompt: str = supervisor.prompt
+
     model: LanguageModelLike = supervisor.model.as_chat_model()
     supervisor_workflow: StateGraph = create_supervisor(
         supervisor_name="supervisor",
-        prompt=make_prompt(base_system_prompt=""),
+        prompt=make_prompt(base_system_prompt=prompt),
         agents=agents,
         model=model,
         tools=tools,
@@ -130,18 +136,10 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(
         SharedState,
         config_schema=RunnableConfig,
-        input=IncomingState,
+        input=SharedState,  # Changed from IncomingState since validation is done elsewhere
         output=OutgoingState,
     )
 
-    workflow.add_node("message_hook", message_hook_node(config=config))
-
-    ## It might make sense to have each agent have its own summarization node
-    # but for now we will use a single summarization node
-
-    # workflow.add_node(
-    #     "load_conversation", load_conversation_history_node(store=store, app_config=config)
-    # )
     workflow.add_node(
         "summarization",
         summarization_node(config=config),
@@ -150,33 +148,19 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow.add_node(
         "orchestration", supervisor_node, cache_policy=CachePolicy(ttl=60)
     )
-    # workflow.add_node(
-    #     "store_conversation", store_conversation_history_node(store=store, app_config=config)
-    # )
 
-    workflow.add_conditional_edges(
-        "message_hook",
-        route_message,
-        {
-            "summarization": "summarization",
-            END: END,
-        },
-    )
-
-    #   workflow.add_edge("load_conversation", "summarization")
     workflow.add_edge("summarization", "orchestration")
-    # workflow.add_edge("orchestration", "store_conversation")
+    workflow.set_entry_point("summarization")
 
-    workflow.set_entry_point("message_hook")
-    # workflow.set_finish_point("store_conversation")
-
-    # Current issue with postgres checkpointer
     return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
-    # return workflow.compile()
 
 
-def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
-    logger.debug("Creating swarm graph")
+def _create_swarm_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
+    """
+    Create the swarm orchestration graph without message validation.
+    This graph handles summarization and orchestration only.
+    """
+    logger.debug("Creating swarm orchestration graph")
     agents: list[CompiledStateGraph] = []
     for registered_agent in config.app.agents:
         handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
@@ -219,55 +203,59 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(
         SharedState,
         config_schema=RunnableConfig,
-        input=IncomingState,
+        input=SharedState,  # Changed from IncomingState since validation is done elsewhere
         output=OutgoingState,
     )
 
-    workflow.add_node("message_hook", message_hook_node(config=config))
-
-    ## It might make sense to have each agent have its own summarization node
-    # but for now we will use a single summarization node
-
-    # workflow.add_node(
-    #     "load_conversation", load_conversation_history_node(store=store, app_config=config)
-    # )
     workflow.add_node(
         "summarization",
         summarization_node(config=config),
         cache_policy=CachePolicy(ttl=60),
     )
     workflow.add_node("orchestration", swarm_node, cache_policy=CachePolicy(ttl=60))
-    # workflow.add_node(
-    #     "store_conversation", store_conversation_history_node(store=store, app_config=config)
-    # )
+
+    workflow.add_edge("summarization", "orchestration")
+    workflow.set_entry_point("summarization")
+
+    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
+
+
+def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
+    """
+    Create the main DAO AI graph by directly adding validation to orchestration graphs.
+    This eliminates the wrapper while still solving the chicken-and-egg problem.
+    """
+    logger.debug("Creating DAO AI graph")
+
+    # Create the appropriate orchestration graph (with checkpointer/store/cache)
+    orchestration: OrchestrationModel = config.app.orchestration
+    if orchestration.supervisor:
+        orchestration_graph = _create_supervisor_orchestration_graph(config)
+    elif orchestration.swarm:
+        orchestration_graph = _create_swarm_orchestration_graph(config)
+    else:
+        raise ValueError("No valid orchestration model found in the configuration.")
+
+    # Create the main workflow with validation
+    workflow: StateGraph = StateGraph(
+        SharedState,
+        config_schema=RunnableConfig,
+        input=IncomingState,
+        output=OutgoingState,
+    )
+
+    workflow.add_node("message_hook", message_hook_node(config=config))
+    workflow.add_node("orchestration", orchestration_graph)
 
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
         {
-            "summarization": "summarization",
+            "orchestration": "orchestration",
             END: END,
         },
     )
 
-    # workflow.add_edge("load_conversation", "summarization")
-    workflow.add_edge("summarization", "orchestration")
-    workflow.add_edge("orchestration", "store_conversation")
-
     workflow.set_entry_point("message_hook")
-    # workflow.set_finish_point("store_conversation")
 
-    # Current issue with postgres checkpointer
-    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
-    # return workflow.compile()
-
-
-def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
-    orchestration: OrchestrationModel = config.app.orchestration
-    if orchestration.supervisor:
-        return _create_supervisor_graph(config)
-
-    if orchestration.swarm:
-        return _create_swarm_graph(config)
-
-    raise ValueError("No valid orchestration model found in the configuration.")
+    return workflow.compile()

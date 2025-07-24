@@ -2181,6 +2181,18 @@
             }
           ],
           "default": null
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
         }
       },
       "required": [

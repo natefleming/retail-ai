@@ -1,3 +1,4 @@
+import uuid
 from os import PathLike
 from pathlib import Path
 from typing import Any, Generator, Optional, Sequence
@@ -98,6 +99,12 @@ class LanggraphChatModel(ChatModel):
 
         if "user_id" in configurable:
             configurable["user_id"] = configurable["user_id"].replace(".", "_")
+
+        if "conversation_id" in configurable and "thread_id" not in configurable:
+            configurable["thread_id"] = configurable["conversation_id"]
+
+        if "thread_id" not in configurable:
+            configurable["thread_id"] = str(uuid.uuid4())
 
         agent_config: RunnableConfig = RunnableConfig(**{"configurable": configurable})
         return agent_config

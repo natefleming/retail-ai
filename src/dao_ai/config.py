@@ -923,6 +923,7 @@ class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     memory: Optional[MemoryModel] = None
+    prompt: Optional[str] = None
 
 
 class SwarmModel(BaseModel):
