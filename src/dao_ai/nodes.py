@@ -15,7 +15,6 @@ from langchain_core.messages.utils import count_tokens_approximately, messages_f
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
-from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore, Item
@@ -26,6 +25,7 @@ from pydantic import BaseModel, Field
 from dao_ai.config import (
     AgentModel,
     AppConfig,
+    AppModel,
     FunctionHook,
     SummarizationModel,
     ToolModel,
@@ -68,7 +68,9 @@ def _deserialize_messages(
 
 
 def create_agent_node(
-    agent: AgentModel, additional_tools: Optional[Sequence[BaseTool]] = None
+    app: AppModel,
+    agent: AgentModel,
+    additional_tools: Optional[Sequence[BaseTool]] = None,
 ) -> RunnableLike:
     """
     Factory function that creates a LangGraph node for a specialized agent.
@@ -97,25 +99,16 @@ def create_agent_node(
         additional_tools = []
     tools: Sequence[BaseTool] = create_tools(tool_models) + additional_tools
 
-    store: BaseStore = None
-    if agent.memory and agent.memory.store:
-        store = agent.memory.store.as_store()
-        logger.debug(f"Using memory store: {store}")
-
+    if app.orchestration.memory and app.orchestration.memory.store:
         namespace: tuple[str, ...] = ("memory",)
-        if agent.memory.store.namespace:
-            namespace = namespace + (agent.memory.store.namespace,)
+        if app.orchestration.memory.store.namespace:
+            namespace = namespace + (app.orchestration.memory.store.namespace,)
         logger.debug(f"Memory store namespace: {namespace}")
 
         tools += [
-            create_manage_memory_tool(namespace=namespace, store=store),
-            create_search_memory_tool(namespace=namespace, store=store),
+            create_manage_memory_tool(namespace=namespace),
+            create_search_memory_tool(namespace=namespace),
         ]
-
-    checkpointer: BaseCheckpointSaver = None
-    if agent.memory and agent.memory.checkpointer:
-        checkpointer = agent.memory.checkpointer.as_checkpointer()
-        logger.debug(f"Using memory checkpointer: {checkpointer}")
 
     pre_agent_hook: Callable[..., Any] = next(
         iter(create_hooks(agent.pre_agent_hook)), None
@@ -132,10 +125,10 @@ def create_agent_node(
         model=llm,
         prompt=make_prompt(agent.prompt),
         tools=tools,
-        store=store,
+        store=True,
         state_schema=SharedState,
         config_schema=RunnableConfig,
-        checkpointer=checkpointer,
+        checkpointer=True,
         pre_model_hook=pre_agent_hook,
         post_model_hook=post_agent_hook,
     )

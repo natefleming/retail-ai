@@ -36,7 +36,7 @@ from dao_ai.state import IncomingState, OutgoingState, SharedState
 def route_message(state: SharedState) -> str:
     if not state["is_valid"]:
         return END
-    return "orchestration"  # Changed from "summarization" since orchestration handles that now
+    return "summarization"
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -75,16 +75,16 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
     return handoff_tools
 
 
-def _create_supervisor_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
-    """
-    Create the supervisor orchestration graph without message validation.
-    This graph handles summarization and orchestration only.
-    """
-    logger.debug("Creating supervisor orchestration graph")
+def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
+    logger.debug("Creating supervisor graph")
     agents: list[CompiledStateGraph] = []
     tools: Sequence[BaseTool] = []
     for registered_agent in config.app.agents:
-        agents.append(create_agent_node(agent=registered_agent, additional_tools=[]))
+        agents.append(
+            create_agent_node(
+                app=config.app, agent=registered_agent, additional_tools=[]
+            )
+        )
         tools.append(
             supervisor_handoff_tool(
                 agent_name=registered_agent.name,
@@ -92,25 +92,26 @@ def _create_supervisor_orchestration_graph(config: AppConfig) -> CompiledStateGr
             )
         )
 
-    supervisor: SupervisorModel = config.app.orchestration.supervisor
+    orchestration: OrchestrationModel = config.app.orchestration
+    supervisor: SupervisorModel = orchestration.supervisor
 
     store: BaseStore = None
-    if supervisor.memory and supervisor.memory.store:
-        store = supervisor.memory.store.as_store()
+    if orchestration.memory and orchestration.memory.store:
+        store = orchestration.memory.store.as_store()
         logger.debug(f"Using memory store: {store}")
         namespace: tuple[str, ...] = ("memory",)
 
-        if supervisor.memory.store.namespace:
-            namespace = namespace + (supervisor.memory.store.namespace,)
+        if orchestration.memory.store.namespace:
+            namespace = namespace + (orchestration.memory.store.namespace,)
             logger.debug(f"Memory store namespace: {namespace}")
             tools += [
-                create_manage_memory_tool(namespace=namespace, store=store),
-                create_search_memory_tool(namespace=namespace, store=store),
+                create_manage_memory_tool(namespace=namespace),
+                create_search_memory_tool(namespace=namespace),
             ]
 
     checkpointer: BaseCheckpointSaver = None
-    if supervisor.memory and supervisor.memory.checkpointer:
-        checkpointer = supervisor.memory.checkpointer.as_checkpointer()
+    if orchestration.memory and orchestration.memory.checkpointer:
+        checkpointer = orchestration.memory.checkpointer.as_checkpointer()
         logger.debug(f"Using checkpointer: {checkpointer}")
 
     cache: BaseCache = None
@@ -120,7 +121,7 @@ def _create_supervisor_orchestration_graph(config: AppConfig) -> CompiledStateGr
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
     supervisor_workflow: StateGraph = create_supervisor(
-        supervisor_name="triage",
+        supervisor_name="supervisor",
         prompt=make_prompt(base_system_prompt=prompt),
         agents=agents,
         model=model,
@@ -129,46 +130,53 @@ def _create_supervisor_orchestration_graph(config: AppConfig) -> CompiledStateGr
         config_schema=RunnableConfig,
     )
 
-    supervisor_node: CompiledStateGraph = supervisor_workflow.compile(
-        checkpointer=checkpointer, store=store
-    )
+    supervisor_node: CompiledStateGraph = supervisor_workflow.compile()
 
     workflow: StateGraph = StateGraph(
         SharedState,
         config_schema=RunnableConfig,
-        input=SharedState,  # Changed from IncomingState since validation is done elsewhere
+        input=IncomingState,
         output=OutgoingState,
     )
+
+    workflow.add_node("message_hook", message_hook_node(config=config))
 
     workflow.add_node(
         "summarization",
         summarization_node(config=config),
         cache_policy=CachePolicy(ttl=60),
     )
-    workflow.add_node("supervisor", supervisor_node, cache_policy=CachePolicy(ttl=60))
+    workflow.add_node("triage", supervisor_node, cache_policy=CachePolicy(ttl=60))
+    workflow.add_conditional_edges(
+        "message_hook",
+        route_message,
+        {
+            "summarization": "summarization",
+            END: END,
+        },
+    )
 
-    workflow.add_edge("summarization", "supervisor")
-    workflow.set_entry_point("summarization")
+    workflow.add_edge("summarization", "triage")
+    workflow.set_entry_point("message_hook")
 
     return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
 
 
-def _create_swarm_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
-    """
-    Create the swarm orchestration graph without message validation.
-    This graph handles summarization and orchestration only.
-    """
-    logger.debug("Creating swarm orchestration graph")
+def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
+    logger.debug("Creating swarm graph")
     agents: list[CompiledStateGraph] = []
     for registered_agent in config.app.agents:
         handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
             agent=registered_agent, config=config
         )
         agents.append(
-            create_agent_node(agent=registered_agent, additional_tools=handoff_tools)
+            create_agent_node(
+                app=config.app, agent=registered_agent, additional_tools=handoff_tools
+            )
         )
 
-    swarm: SwarmModel = config.app.orchestration.swarm
+    orchestration: OrchestrationModel = config.app.orchestration
+    swarm: SwarmModel = orchestration.swarm
 
     default_agent: AgentModel = swarm.default_agent
     if isinstance(default_agent, AgentModel):
@@ -181,60 +189,8 @@ def _create_swarm_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
         config_schema=RunnableConfig,
     )
 
-    store: BaseStore = None
-    if swarm.memory and swarm.memory.store:
-        store = swarm.memory.store.as_store()
-        logger.debug(f"Using memory store: {store}")
+    swarm_node: CompiledStateGraph = swarm_workflow.compile()
 
-    checkpointer: BaseCheckpointSaver = None
-    if swarm.memory and swarm.memory.checkpointer:
-        checkpointer = swarm.memory.checkpointer.as_checkpointer()
-        logger.debug(f"Using checkpointer: {checkpointer}")
-
-    cache: BaseCache = None
-    cache = InMemoryCache()
-
-    swarm_node: CompiledStateGraph = swarm_workflow.compile(
-        checkpointer=checkpointer, store=store
-    )
-
-    workflow: StateGraph = StateGraph(
-        SharedState,
-        config_schema=RunnableConfig,
-        input=SharedState,  # Changed from IncomingState since validation is done elsewhere
-        output=OutgoingState,
-    )
-
-    workflow.add_node(
-        "summarization",
-        summarization_node(config=config),
-        cache_policy=CachePolicy(ttl=60),
-    )
-    workflow.add_node("swarm", swarm_node, cache_policy=CachePolicy(ttl=60))
-
-    workflow.add_edge("summarization", "swarm")
-    workflow.set_entry_point("summarization")
-
-    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
-
-
-def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
-    """
-    Create the main DAO AI graph by directly adding validation to orchestration graphs.
-    This eliminates the wrapper while still solving the chicken-and-egg problem.
-    """
-    logger.debug("Creating DAO AI graph")
-
-    # Create the appropriate orchestration graph (with checkpointer/store/cache)
-    orchestration: OrchestrationModel = config.app.orchestration
-    if orchestration.supervisor:
-        orchestration_graph = _create_supervisor_orchestration_graph(config)
-    elif orchestration.swarm:
-        orchestration_graph = _create_swarm_orchestration_graph(config)
-    else:
-        raise ValueError("No valid orchestration model found in the configuration.")
-
-    # Create the main workflow with validation
     workflow: StateGraph = StateGraph(
         SharedState,
         config_schema=RunnableConfig,
@@ -243,17 +199,47 @@ def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
-    workflow.add_node("orchestration", orchestration_graph)
+    workflow.add_node(
+        "summarization",
+        summarization_node(config=config),
+        cache_policy=CachePolicy(ttl=60),
+    )
+    workflow.add_node("swarm", swarm_node, cache_policy=CachePolicy(ttl=60))
 
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
         {
-            "orchestration": "orchestration",
+            "summarization": "summarization",
             END: END,
         },
     )
 
+    workflow.add_edge("summarization", "swarm")
     workflow.set_entry_point("message_hook")
 
-    return workflow.compile()
+    store: BaseStore = None
+    if orchestration.memory and orchestration.memory.store:
+        store = orchestration.memory.store.as_store()
+        logger.debug(f"Using memory store: {store}")
+
+    checkpointer: BaseCheckpointSaver = None
+    if orchestration.memory and orchestration.memory.checkpointer:
+        checkpointer = orchestration.memory.checkpointer.as_checkpointer()
+        logger.debug(f"Using checkpointer: {checkpointer}")
+
+    cache: BaseCache = None
+    cache = InMemoryCache()
+
+    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
+
+
+def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
+    orchestration: OrchestrationModel = config.app.orchestration
+    if orchestration.supervisor:
+        return _create_supervisor_graph(config)
+
+    if orchestration.swarm:
+        return _create_swarm_graph(config)
+
+    raise ValueError("No valid orchestration model found in the configuration.")

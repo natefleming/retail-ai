@@ -70,7 +70,7 @@ app:
   orchestration:                                    # Agent orchestration configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *default_llm                           # LLM for routing decisions
-      memory: *memory                             # Memory for state persistence
+    memory: *memory                             # Memory for state persistence
   message_hooks: 
     - "dao_ai.hooks.require_thread_id_hook"
   input_example:

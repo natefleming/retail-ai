@@ -36,17 +36,6 @@
           "title": "Guardrails",
           "type": "array"
         },
-        "memory": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MemoryModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "prompt": {
           "anyOf": [
             {
@@ -1707,6 +1696,17 @@
             }
           ],
           "default": null
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "title": "OrchestrationModel",
@@ -2171,17 +2171,6 @@
         "model": {
           "$ref": "#/$defs/LLMModel"
         },
-        "memory": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MemoryModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "prompt": {
           "anyOf": [
             {
@@ -2252,17 +2241,6 @@
             }
           ],
           "title": "Handoffs"
-        },
-        "memory": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MemoryModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [

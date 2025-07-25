@@ -426,6 +426,7 @@ memory: &memory
     embedding_model: *embedding_model               # Model for semantic memory
     dims: 1536                                      # Embedding dimensions
     #database: *retail_database                     # Database for persistence (if needed)
+    namespace: "{user_id}"
 
 # =============================================================================
 # AGENTS CONFIGURATION
@@ -447,7 +448,6 @@ agents:
     guardrails:                                     # Quality checks (currently disabled)
       []
       #- *llm_judge_guardrail
-    memory: *memory                                 # Reference to memory configuration
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
@@ -499,7 +499,6 @@ agents:
     model: *tool_calling_llm
     tools: []                                       # No specific tools assigned (would be added as needed)
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -561,7 +560,6 @@ agents:
     guardrails:
       []
       # - *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -611,7 +609,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -675,7 +672,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -737,7 +733,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -806,7 +801,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -935,6 +929,7 @@ app:
           user_id: my_user_id
           store_num: 87887
   orchestration:                                    # Agent orchestration configuration
+    memory: *memory                     # Reference to memory configuration for state persistence
     # supervisor:                                     # Supervisor orchestration pattern
     #   model: *tool_calling_llm                      # LLM for routing decisions
     #   default_agent: *general                       # Default agent when no specific match

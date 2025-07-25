@@ -911,7 +911,6 @@ class AgentModel(BaseModel):
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
     guardrails: list[GuardrailModel] = Field(default_factory=list)
-    memory: Optional[MemoryModel] = None
     prompt: Optional[str] = None
     handoff_prompt: Optional[str] = None
     create_agent_hook: Optional[FunctionHook] = None
@@ -922,7 +921,6 @@ class AgentModel(BaseModel):
 class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
-    memory: Optional[MemoryModel] = None
     prompt: Optional[str] = None
 
 
@@ -933,13 +931,13 @@ class SwarmModel(BaseModel):
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
         default_factory=dict
     )
-    memory: Optional[MemoryModel] = None
 
 
 class OrchestrationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     supervisor: Optional[SupervisorModel] = None
     swarm: Optional[SwarmModel] = None
+    memory: Optional[MemoryModel] = None
 
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
