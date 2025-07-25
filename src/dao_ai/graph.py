@@ -146,7 +146,9 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         summarization_node(config=config),
         cache_policy=CachePolicy(ttl=60),
     )
-    workflow.add_node("triage", supervisor_node, cache_policy=CachePolicy(ttl=60))
+    workflow.add_node(
+        "orchestration", supervisor_node, cache_policy=CachePolicy(ttl=60)
+    )
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
@@ -156,7 +158,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         },
     )
 
-    workflow.add_edge("summarization", "triage")
+    workflow.add_edge("summarization", "orchestration")
     workflow.set_entry_point("message_hook")
 
     return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
@@ -204,7 +206,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         summarization_node(config=config),
         cache_policy=CachePolicy(ttl=60),
     )
-    workflow.add_node("swarm", swarm_node, cache_policy=CachePolicy(ttl=60))
+    workflow.add_node("orchestration", swarm_node, cache_policy=CachePolicy(ttl=60))
 
     workflow.add_conditional_edges(
         "message_hook",
@@ -215,7 +217,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         },
     )
 
-    workflow.add_edge("summarization", "swarm")
+    workflow.add_edge("summarization", "orchestration")
     workflow.set_entry_point("message_hook")
 
     store: BaseStore = None
