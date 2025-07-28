@@ -311,9 +311,12 @@ def summarization_node(config: AppConfig) -> RunnableLike:
             return
 
         new_messages: Sequence[BaseMessage] = state.get("messages", [])
-        all_messages: Sequence[BaseMessage] = new_messages
+        conversation_history: Sequence[BaseMessage] = state.get("conversation_history", [])
+        
+        # Combine conversation history with new messages for processing
+        all_messages: Sequence[BaseMessage] = list(conversation_history) + list(new_messages)
 
-        logger.info(f"Processing conversation with {len(all_messages)} total messages")
+        logger.info(f"Processing conversation with {len(conversation_history)} history + {len(new_messages)} new = {len(all_messages)} total messages")
 
         model: LanguageModelLike = chat_history.model.as_chat_model()
 

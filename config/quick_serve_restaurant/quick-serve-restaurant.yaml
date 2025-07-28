@@ -380,11 +380,11 @@ app:
     schema: *qsr_schema                          # Schema where model will be registered
     name: coffee_shop_agent                           # Model name in MLflow registry
   endpoint_name: coffee_shop_agent                    # Model serving endpoint name
-  environment_vars: 
-    PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
-    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
-    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
-    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
+  environment_vars: {}
+    # PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
+    # RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    # RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    # RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
