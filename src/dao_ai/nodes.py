@@ -26,8 +26,8 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     AppModel,
+    ChatHistoryModel,
     FunctionHook,
-    SummarizationModel,
     ToolModel,
 )
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
@@ -245,7 +245,7 @@ def store_conversation_history_node(
 
 
 def summarization_node(config: AppConfig) -> RunnableLike:
-    summarization_model: SummarizationModel | None = config.app.summarization
+    chat_history: ChatHistoryModel | None = config.app.chat_history
 
     def _create_summary(
         model: LanguageModelLike,
@@ -304,32 +304,47 @@ def summarization_node(config: AppConfig) -> RunnableLike:
     def summarization(state: SharedState, config: RunnableConfig) -> SharedState:
         logger.debug("Running summarization node")
 
-        if not summarization_model:
+        if not chat_history:
             logger.debug("No summarization model configured, skipping summarization")
             return
 
         new_messages: Sequence[BaseMessage] = state.get("messages", [])
         all_messages: Sequence[BaseMessage] = new_messages
 
-        model: LanguageModelLike = summarization_model.model.as_chat_model()
+        model: LanguageModelLike = chat_history.model.as_chat_model()
 
+        # Check if summarization should occur based on max_message_count
+        should_summarize = False
+        if chat_history.max_message_count is not None:
+            current_message_count = len(all_messages)
+            should_summarize = current_message_count > chat_history.max_message_count
+            logger.debug(
+                f"Message count check: {current_message_count} messages, "
+                f"max allowed: {chat_history.max_message_count}, "
+                f"should summarize: {should_summarize}"
+            )
+
+        # Determine trimming parameters
         max_tokens: int
         token_counter: Callable[..., int]
 
-        if summarization_model.retained_message_count is not None:
+        if chat_history.retained_message_count is not None:
             # For message count-based trimming, ensure we keep at least 1 message
-            max_tokens = max(1, summarization_model.retained_message_count)
+            max_tokens = max(1, chat_history.retained_message_count)
             token_counter = len
+            logger.debug(
+                f"Using message count-based trimming: retain {max_tokens} messages"
+            )
         else:
-            max_tokens = summarization_model.max_tokens
+            max_tokens = chat_history.max_tokens
             token_counter = count_tokens_approximately
-
-        logger.debug(f"max_tokens: {max_tokens}, token_counter: {token_counter}")
+            logger.debug(f"Using token count-based trimming: max {max_tokens} tokens")
 
         logger.trace(
             f"Original messages:\n{json.dumps([msg.model_dump() for msg in all_messages], indent=2)}"
         )
 
+        # Always trim messages based on retained_message_count or max_tokens
         trimmed_messages: Sequence[BaseMessage] = trim_messages(
             all_messages,
             max_tokens=max_tokens,
@@ -348,31 +363,55 @@ def summarization_node(config: AppConfig) -> RunnableLike:
             f"Trimmed messages from {len(all_messages)} to {len(trimmed_messages)}"
         )
 
-        # Handle case where trim_messages returns empty list - summarize all messages
+        # Handle case where trim_messages returns empty list - summarize all messages if summarization is enabled
         if len(trimmed_messages) == 0 and len(all_messages) > 0:
-            logger.warning(
-                "trim_messages returned empty list, summarizing all messages"
-            )
-            return _update_messages_with_summary(model, state, all_messages)
+            logger.warning("trim_messages returned empty list")
+            if should_summarize and chat_history.summarize:
+                logger.debug("Summarizing all messages due to empty trim result")
+                return _update_messages_with_summary(model, state, all_messages)
+            else:
+                logger.debug("Skipping summarization - either not needed or disabled")
+                return None
 
+        # Check if we need to summarize removed messages
         if len(trimmed_messages) < len(all_messages):
-            logger.debug(
-                f"Trimmed {len(all_messages) - len(trimmed_messages)} messages due to limit: {max_tokens} "
-                f"(using {'message count' if token_counter == len else 'token count'}). "
-                f"Kept {len(trimmed_messages)} messages."
-            )
-
             # Find messages that were removed by trimming
             trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
             messages_to_summarize: Sequence[BaseMessage] = [
                 m for m in all_messages if m.id not in trimmed_message_ids
             ]
 
-            return _update_messages_with_summary(model, state, messages_to_summarize)
+            logger.debug(
+                f"Trimmed {len(messages_to_summarize)} messages due to limit: {max_tokens} "
+                f"(using {'message count' if token_counter == len else 'token count'}). "
+                f"Kept {len(trimmed_messages)} messages."
+            )
+
+            # Only summarize if both conditions are met:
+            # 1. Summarization is enabled (summarize=True)
+            # 2. We should summarize based on max_message_count (or max_message_count is not set)
+            if chat_history.summarize and (
+                should_summarize or chat_history.max_message_count is None
+            ):
+                logger.debug("Summarizing removed messages")
+                return _update_messages_with_summary(
+                    model, state, messages_to_summarize
+                )
+            else:
+                logger.debug(
+                    f"Skipping summarization - summarize: {chat_history.summarize}, "
+                    f"should_summarize: {should_summarize}, "
+                    f"max_message_count: {chat_history.max_message_count}"
+                )
+                # Just remove the messages without summarizing
+                deleted_messages: Sequence[RemoveMessage] = [
+                    RemoveMessage(id=m.id) for m in messages_to_summarize
+                ]
+                return {"messages": deleted_messages}
         else:
             logger.debug(
                 f"No messages trimmed ({len(all_messages)} messages fit within limit: {max_tokens}). "
-                f"No summarization performed."
+                f"No action performed."
             )
 
         return None

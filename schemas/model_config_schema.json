@@ -372,10 +372,10 @@
           ],
           "default": null
         },
-        "summarization": {
+        "chat_history": {
           "anyOf": [
             {
-              "$ref": "#/$defs/SummarizationModel"
+              "$ref": "#/$defs/ChatHistoryModel"
             },
             {
               "type": "null"
@@ -428,6 +428,67 @@
         "entitlements"
       ],
       "title": "AppPermissionModel",
+      "type": "object"
+    },
+    "ChatHistoryModel": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/LLMModel"
+        },
+        "summarize": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": true,
+          "title": "Summarize"
+        },
+        "max_message_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Message Count"
+        },
+        "retained_message_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retained Message Count"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "ChatHistoryModel",
       "type": "object"
     },
     "ChatPayload": {
@@ -2126,43 +2187,6 @@
         "name"
       ],
       "title": "StoreModel",
-      "type": "object"
-    },
-    "SummarizationModel": {
-      "additionalProperties": false,
-      "properties": {
-        "model": {
-          "$ref": "#/$defs/LLMModel"
-        },
-        "retained_message_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Retained Message Count"
-        },
-        "max_tokens": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Tokens"
-        }
-      },
-      "required": [
-        "model"
-      ],
-      "title": "SummarizationModel",
       "type": "object"
     },
     "SupervisorModel": {

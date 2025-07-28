@@ -1006,21 +1006,63 @@ class ChatPayload(BaseModel):
     custom_inputs: dict
 
 
-class SummarizationModel(BaseModel):
+class ChatHistoryModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
+    summarize: Optional[bool] = False
+    max_message_count: Optional[int] = None
     retained_message_count: Optional[int] = None
     max_tokens: Optional[int] = None
 
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
-        if self.retained_message_count is not None and self.max_tokens is not None:
+        if (
+            self.retained_message_count is not None
+            or self.max_message_count is not None
+        ) and self.max_tokens is not None:
             raise ValueError(
-                "Cannot specify both retained_message_count and max_tokens. "
-                "Please provide only one of these parameters."
+                "Cannot specify both retained_message_count/max_message_count and max_tokens. "
+                "Please provide either token-based limits (max_tokens) or message-based limits "
+                "(retained_message_count and/or max_message_count)."
             )
-        if self.retained_message_count is None and self.max_tokens is None:
-            self.retained_message_count = 5  # Default value if none is provided
+        return self
+
+    @model_validator(mode="after")
+    def validate_message_count(self):
+        # Validate max_tokens if specified
+        if self.max_tokens is not None and self.max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer")
+
+        # Only process message count logic if max_tokens is not being used
+        if self.max_tokens is not None:
+            return self
+
+        # First, normalize retained_message_count to ensure it's positive
+        if self.retained_message_count is not None and self.retained_message_count <= 0:
+            self.retained_message_count = 1
+
+        # Validate positive values before using them
+        if self.max_message_count is not None and self.max_message_count <= 0:
+            raise ValueError("max_message_count must be a positive integer")
+
+        # Set defaults based on what's provided - but allow independent configuration
+        # If neither is set, provide a default for retained_message_count only
+        if self.retained_message_count is None and self.max_message_count is None:
+            self.retained_message_count = 5  # Default trimming behavior
+
+        # If only max_message_count is set, we can use it independently for summarization triggers
+        # If only retained_message_count is set, we can use it independently for trimming
+        # Both can be set independently for different purposes
+
+        # Validate the relationship between max and retained counts only if both are set
+        if (
+            self.max_message_count is not None
+            and self.retained_message_count is not None
+        ):
+            if self.max_message_count < self.retained_message_count:
+                raise ValueError(
+                    "max_message_count must be greater than or equal to retained_message_count"
+                )
 
         return self
 
@@ -1052,7 +1094,7 @@ class AppModel(BaseModel):
         default_factory=list
     )
     input_example: Optional[ChatPayload] = None
-    summarization: Optional[SummarizationModel] = None
+    chat_history: Optional[ChatHistoryModel] = None
     code_paths: list[str] = Field(default_factory=list)
     pip_requirements: list[str] = Field(default_factory=list)
 

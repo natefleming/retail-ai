@@ -956,9 +956,9 @@ app:
           thread_id: "1"
           user_id: my_user_id
           store_num: 87887
-  summarization: 
-    retained_message_count: 5
-    model: *reasoning_llm                          # Model for summarization tasks
+  chat_history: 
+    retained_message_count: 10
+    model: *fast_llm                          # Model for summarization tasks
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
