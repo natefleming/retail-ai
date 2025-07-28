@@ -329,7 +329,7 @@ def summarization_node(config: AppConfig) -> RunnableLike:
         )
 
         # Check if summarization should occur based on max_message_count
-        should_summarize = False
+        should_summarize: bool = False
         if chat_history.max_message_count is not None:
             current_message_count = len(all_messages)
             should_summarize = current_message_count > chat_history.max_message_count
