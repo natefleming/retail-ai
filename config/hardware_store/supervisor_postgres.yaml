@@ -957,7 +957,9 @@ app:
           user_id: my_user_id
           store_num: 87887
   chat_history: 
-    retained_message_count: 10
+    summarize: True
+    max_message_count: 10
+    retained_message_count: 8
     model: *fast_llm                          # Model for summarization tasks
     # swarm:
     #   model: *tool_calling_llm
