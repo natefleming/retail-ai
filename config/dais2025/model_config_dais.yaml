@@ -41,7 +41,7 @@ resources:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
       endpoint:
-        name: rct-store-ops-dais
+        name: dbdemos_vs_endpoint
         type: STANDARD
       index:
         schema: *dais_schema
@@ -572,7 +572,6 @@ agents:
       - *dais_find_store_by_number_tool
       - *dais_find_store_details_by_location_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -611,7 +610,6 @@ agents:
     model: *tool_calling_llm
     tools: []
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -667,7 +665,6 @@ agents:
     tools:
       - *find_product_details_by_description_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -716,7 +713,6 @@ agents:
       - *find_product_details_by_description_tool
       - *dais_genie_query_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -790,7 +786,6 @@ agents:
       - *dais_find_nearby_stores_inventory_tool
       - *dais_place_item_hold_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -890,7 +885,6 @@ agents:
       - *find_product_details_by_description_tool
       - *find_product_by_sku_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -958,7 +952,6 @@ agents:
       - *find_product_details_by_description_tool
       - *dais_genie_query_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -1061,7 +1054,6 @@ agents:
       - *dais_task_extraction_tool
       - *dais_employee_insights_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -1130,7 +1122,6 @@ agents:
       - *dais_stylist_notification_tool
       - *dais_inventory_preselection_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -1198,7 +1189,6 @@ agents:
       - *dais_customer_profile_intelligence_tool
     #  - *dais_find_similar_products_with_inventory_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -1241,7 +1231,6 @@ agents:
     tools:
       - *dais_executive_insights_tool
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -1328,7 +1317,7 @@ app:
   permissions:
     - principals: [users]
       entitlements:
-        - CAN_MANAGE
+        - CAN_QUERY
   agents:
     - *orders
     - *diy

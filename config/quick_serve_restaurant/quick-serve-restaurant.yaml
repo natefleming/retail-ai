@@ -106,7 +106,7 @@ resources:
     items_description_vector_store: &items_description_vector_store
       embedding_model: *embedding_model             # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
-        name: one-env-shared-endpoint-12            # Databricks vector search endpoint
+        name: dbdemos_vs_endpoint            # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
         schema: *qsr_schema                      # Unity Catalog schema for the index
@@ -391,7 +391,7 @@ app:
   permissions:                                      # Model serving permissions
     - principals: [users]                           # Grant access to all users
       entitlements:
-        - CAN_MANAGE                                # Full management permissions
+        - CAN_QUERY                                # Full management permissions
   agents:                                           # List of agents included in the system
     - *barista  
   orchestration:                                    # Agent orchestration configuration

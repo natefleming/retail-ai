@@ -343,7 +343,7 @@ def test_summarization_validation_prevents_invalid_combinations(
             max_tokens=100,
             summarize=True,
         )
-    
+
     with pytest.raises(ValueError, match="Cannot specify both retained_message_count"):
         ChatHistoryModel(
             model=mock_llm_model,
@@ -363,7 +363,7 @@ def test_summarization_with_max_message_count_vs_retained_count(
     summarization_config = ChatHistoryModel(
         model=mock_llm_model,
         retained_message_count=2,  # Keep 2 messages (should take precedence)
-        max_message_count=5,       # Max 5 messages (should be ignored)
+        max_message_count=5,  # Max 5 messages (should be ignored)
         summarize=True,
     )
 
@@ -388,7 +388,7 @@ def test_summarization_with_max_message_count_vs_retained_count(
     # Assert
     assert result is not None
     assert "summary" in result
-    
+
     # Should use retained_message_count (2), not max_message_count (5)
     # So remove 6 messages (8 total - 2 retained)
     assert len(result["messages"]) == 6
@@ -403,7 +403,7 @@ def test_summarization_with_max_tokens_separate_test(
     # Arrange
     summarization_config = ChatHistoryModel(
         model=mock_llm_model,
-        max_tokens=14,             # Keep ~2 messages worth of tokens (stricter limit)
+        max_tokens=14,  # Keep ~2 messages worth of tokens (stricter limit)
         summarize=True,
     )
 
@@ -428,7 +428,7 @@ def test_summarization_with_max_tokens_separate_test(
     # Assert
     assert result is not None
     assert "summary" in result
-    
+
     # Should remove some messages based on token limit
     removed_messages = result["messages"]
     assert len(removed_messages) > 0  # Should remove some messages
@@ -468,7 +468,7 @@ def test_summarization_with_retained_count_separate_test(
     # Assert
     assert result is not None
     assert "summary" in result
-    
+
     # Should remove 6 messages (8 total - 2 retained)
     assert len(result["messages"]) == 6
 
@@ -509,8 +509,6 @@ def test_no_summarization_with_default_summarize_false(
     assert "summary" not in result  # No summary should be created
     assert len(result["messages"]) == 8  # 10 total - 2 retained
     # Note: as_chat_model() may be called for setup even if summarization doesn't occur
-
-
 
 
 def test_summarization_with_very_low_max_tokens(
@@ -590,8 +588,10 @@ def test_summarization_with_existing_summary(
     # Assert
     assert result is not None
     assert "summary" in result
-    assert result["summary"] == "This is a summary."  # New summary should replace old one
-    
+    assert (
+        result["summary"] == "This is a summary."
+    )  # New summary should replace old one
+
     # Should remove 4 messages (6 total - 2 retained)
     assert len(result["messages"]) == 4
 
@@ -605,7 +605,7 @@ def test_no_summarization_when_message_count_equals_retained_count(
     # Arrange
     # Reset the mock to ensure clean state
     mock_llm_model.reset_mock()
-    
+
     summarization_config = ChatHistoryModel(
         model=mock_llm_model,
         retained_message_count=5,
@@ -679,8 +679,8 @@ def test_summarization_with_max_message_count_threshold(
     # Arrange
     summarization_config = ChatHistoryModel(
         model=mock_llm_model,
-        max_message_count=4,      # Trigger summarization when more than 4 messages
-        retained_message_count=2, # But only keep 2 messages (always trim to this)
+        max_message_count=4,  # Trigger summarization when more than 4 messages
+        retained_message_count=2,  # But only keep 2 messages (always trim to this)
         summarize=True,
     )
 
@@ -696,9 +696,11 @@ def test_summarization_with_max_message_count_threshold(
     app_config = AppConfig(app=app_model)
 
     # Test with messages below summarization threshold but above trim threshold
-    messages_below = create_test_messages(3)  # 3 > retained_message_count(2) but <= max_message_count(4)
+    messages_below = create_test_messages(
+        3
+    )  # 3 > retained_message_count(2) but <= max_message_count(4)
     state_below = {"messages": messages_below, "summary": ""}
-    
+
     result_below = summarization_node(app_config)(state_below, {})
     # Should trim messages but not create summary (below max_message_count threshold)
     assert result_below is not None
@@ -709,7 +711,7 @@ def test_summarization_with_max_message_count_threshold(
     # Test with messages above summarization threshold
     messages_above = create_test_messages(6)  # Above max_message_count(4)
     state_above = {"messages": messages_above, "summary": ""}
-    
+
     result_above = summarization_node(app_config)(state_above, {})
     # Should trim messages and create summary (above max_message_count threshold)
     assert result_above is not None
@@ -727,9 +729,9 @@ def test_summarization_trims_without_summary_when_disabled(
     # Arrange
     summarization_config = ChatHistoryModel(
         model=mock_llm_model,
-        max_message_count=3,      # Should trigger trimming when exceeded
-        retained_message_count=2, # Keep only 2 messages
-        summarize=False,          # But don't create summaries
+        max_message_count=3,  # Should trigger trimming when exceeded
+        retained_message_count=2,  # Keep only 2 messages
+        summarize=False,  # But don't create summaries
     )
 
     app_model = AppModel(
@@ -755,6 +757,6 @@ def test_summarization_trims_without_summary_when_disabled(
     assert "messages" in result
     assert "summary" not in result  # No summary should be created
     assert len(result["messages"]) == 6  # 8 total - 2 retained
-    
+
     # Verify all returned messages are RemoveMessages
     assert all(isinstance(msg, RemoveMessage) for msg in result["messages"])
