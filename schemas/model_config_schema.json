@@ -36,17 +36,6 @@
           "title": "Guardrails",
           "type": "array"
         },
-        "memory": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MemoryModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "prompt": {
           "anyOf": [
             {
@@ -383,10 +372,10 @@
           ],
           "default": null
         },
-        "summarization": {
+        "chat_history": {
           "anyOf": [
             {
-              "$ref": "#/$defs/SummarizationModel"
+              "$ref": "#/$defs/ChatHistoryModel"
             },
             {
               "type": "null"
@@ -439,6 +428,60 @@
         "entitlements"
       ],
       "title": "AppPermissionModel",
+      "type": "object"
+    },
+    "ChatHistoryModel": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/LLMModel"
+        },
+        "max_tokens": {
+          "default": 256,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "max_tokens_before_summary": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens Before Summary"
+        },
+        "max_messages_before_summary": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Messages Before Summary"
+        },
+        "max_summary_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Summary Tokens"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "ChatHistoryModel",
       "type": "object"
     },
     "ChatPayload": {
@@ -1225,18 +1268,35 @@
       "additionalProperties": false,
       "properties": {
         "review_prompt": {
+          "default": "Please review the tool call",
           "title": "Review Prompt",
           "type": "string"
         },
-        "interupt_config": {
+        "interrupt_config": {
           "additionalProperties": true,
-          "title": "Interupt Config",
+          "title": "Interrupt Config",
           "type": "object"
+        },
+        "decline_message": {
+          "default": "Tool call declined by user",
+          "title": "Decline Message",
+          "type": "string"
+        },
+        "custom_actions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Custom Actions"
         }
       },
-      "required": [
-        "review_prompt"
-      ],
       "title": "HumanInTheLoopModel",
       "type": "object"
     },
@@ -1690,6 +1750,17 @@
             }
           ],
           "default": null
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "title": "OrchestrationModel",
@@ -2111,59 +2182,23 @@
       "title": "StoreModel",
       "type": "object"
     },
-    "SummarizationModel": {
-      "additionalProperties": false,
-      "properties": {
-        "model": {
-          "$ref": "#/$defs/LLMModel"
-        },
-        "retained_message_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Retained Message Count"
-        },
-        "max_tokens": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Tokens"
-        }
-      },
-      "required": [
-        "model"
-      ],
-      "title": "SummarizationModel",
-      "type": "object"
-    },
     "SupervisorModel": {
       "additionalProperties": false,
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel"
         },
-        "memory": {
+        "prompt": {
           "anyOf": [
             {
-              "$ref": "#/$defs/MemoryModel"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Prompt"
         }
       },
       "required": [
@@ -2223,17 +2258,6 @@
             }
           ],
           "title": "Handoffs"
-        },
-        "memory": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MemoryModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [

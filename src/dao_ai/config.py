@@ -22,7 +22,6 @@ from databricks.sdk.credentials_provider import (
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
-    ChatDatabricks,
     DatabricksFunctionClient,
 )
 from langchain_core.language_models import LanguageModelLike
@@ -43,6 +42,8 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+
+from dao_ai.chat_models import ChatDatabricksFiltered
 
 
 class HasValue(ABC):
@@ -274,7 +275,7 @@ class LLMModel(BaseModel, IsDatabricksResource):
         # chat_client: LanguageModelLike = self.as_open_ai_client()
 
         # Create ChatDatabricksWrapper instance directly
-        chat_client: LanguageModelLike = ChatDatabricks(
+        chat_client: LanguageModelLike = ChatDatabricksFiltered(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
 
@@ -910,7 +911,6 @@ class AgentModel(BaseModel):
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
     guardrails: list[GuardrailModel] = Field(default_factory=list)
-    memory: Optional[MemoryModel] = None
     prompt: Optional[str] = None
     handoff_prompt: Optional[str] = None
     create_agent_hook: Optional[FunctionHook] = None
@@ -921,7 +921,7 @@ class AgentModel(BaseModel):
 class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
-    memory: Optional[MemoryModel] = None
+    prompt: Optional[str] = None
 
 
 class SwarmModel(BaseModel):
@@ -931,13 +931,13 @@ class SwarmModel(BaseModel):
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
         default_factory=dict
     )
-    memory: Optional[MemoryModel] = None
 
 
 class OrchestrationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     supervisor: Optional[SupervisorModel] = None
     swarm: Optional[SwarmModel] = None
+    memory: Optional[MemoryModel] = None
 
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
@@ -1006,23 +1006,13 @@ class ChatPayload(BaseModel):
     custom_inputs: dict
 
 
-class SummarizationModel(BaseModel):
+class ChatHistoryModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
-    retained_message_count: Optional[int] = None
-    max_tokens: Optional[int] = None
-
-    @model_validator(mode="after")
-    def validate_mutually_exclusive(self):
-        if self.retained_message_count is not None and self.max_tokens is not None:
-            raise ValueError(
-                "Cannot specify both retained_message_count and max_tokens. "
-                "Please provide only one of these parameters."
-            )
-        if self.retained_message_count is None and self.max_tokens is None:
-            self.retained_message_count = 5  # Default value if none is provided
-
-        return self
+    max_tokens: int = 256
+    max_tokens_before_summary: Optional[int] = None
+    max_messages_before_summary: Optional[int] = None
+    max_summary_tokens: Optional[int] = None
 
 
 class AppModel(BaseModel):
@@ -1039,6 +1029,7 @@ class AppModel(BaseModel):
     workload_size: Optional[WorkloadSize] = "Small"
     permissions: Optional[list[AppPermissionModel]] = Field(default_factory=list)
     agents: list[AgentModel] = Field(default_factory=list)
+
     orchestration: OrchestrationModel
     alias: Optional[str] = None
     initialization_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
@@ -1051,7 +1042,7 @@ class AppModel(BaseModel):
         default_factory=list
     )
     input_example: Optional[ChatPayload] = None
-    summarization: Optional[SummarizationModel] = None
+    chat_history: Optional[ChatHistoryModel] = None
     code_paths: list[str] = Field(default_factory=list)
     pip_requirements: list[str] = Field(default_factory=list)
 

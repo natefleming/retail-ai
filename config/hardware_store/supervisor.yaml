@@ -12,12 +12,12 @@
 # Define Unity Catalog schemas where data and functions will be stored
 schemas:
   retail_schema: &retail_schema
-    catalog_name: nfleming                    # Unity Catalog name
-    schema_name: retail_ai                    # Schema within the catalog
-    permissions:                              # Access permissions for the schema
-      - principals: [users]                   # Grant access to all users
-        privileges:
-          - ALL_PRIVILEGES                    # Full permissions for demo purposes
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: hardware_store                    # Schema within the catalog
+    # permissions:                              # Access permissions for the schema
+    #   - principals: [users]                   # Grant access to all users
+    #     privileges:
+    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -70,7 +70,7 @@ resources:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model             # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
-        name: one-env-shared-endpoint-12            # Databricks vector search endpoint
+        name: dbdemos_vs_endpoint            # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
         schema: *retail_schema                      # Unity Catalog schema for the index
@@ -336,26 +336,26 @@ tools:
   # Tools that directly call Unity Catalog functions
   
   # Product lookup tools using Unity Catalog functions
-  find_product_by_sku_uc_tool: &find_product_by_sku_uc_tool
+  find_product_by_sku_tool: &find_product_by_sku_tool
     name: find_product_by_sku_uc
     function:
       type: unity_catalog                           # Tool type: Unity Catalog function
       <<: *find_product_by_sku                      # Merge function configuration
 
-  find_product_by_upc_uc_tool: &find_product_by_upc_uc_tool
+  find_product_by_upc_tool: &find_product_by_upc_tool
     name: find_product_by_upc_uc
     function:
       type: unity_catalog
       <<: *find_product_by_upc
 
   # Inventory lookup tools using Unity Catalog functions
-  find_inventory_by_sku_uc_tool: &find_inventory_by_sku_uc_tool
+  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
     name: find_inventory_by_sku_uc
     function:
       type: unity_catalog
       <<: *find_inventory_by_sku
 
-  find_inventory_by_upc_uc_tool: &find_inventory_by_upc_uc_tool
+  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
     name: find_inventory_by_upc_uc
     function:
       type: unity_catalog
@@ -373,69 +373,9 @@ tools:
     function:
       type: unity_catalog
       <<: *find_store_inventory_by_upc
+      
 
-  # ---------------------------------------------------------------------------
-  # FACTORY TOOLS FOR DATA ACCESS
-  # ---------------------------------------------------------------------------
-  # Tools that wrap database functions with additional logic
-  
-  # Product lookup tools with enhanced functionality
-  find_product_by_sku_tool: &find_product_by_sku_tool
-    name: find_product_by_sku
-    function:
-      type: factory
-      name: hardware_store.tools.create_find_product_by_sku_tool
-      args:
-        schema: *retail_schema                      # Reference to schema configuration
-        warehouse: *shared_endpoint_warehouse       # Reference to warehouse configuration
-
-  find_product_by_upc_tool: &find_product_by_upc_tool
-    name: find_product_by_upc
-    function:
-      type: factory
-      name: hardware_store.tools.create_find_product_by_upc_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
-
-  # Inventory lookup tools with enhanced functionality
-  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
-    name: find_inventory_by_sku
-    function:
-      type: factory
-      name: hardware_store.tools.create_find_inventory_by_sku_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
-
-  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
-    name: find_inventory_by_upc
-    function:
-      type: factory
-      name: hardware_store.tools.create_find_inventory_by_upc_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
-
-  # Store-specific inventory tools with enhanced functionality
-  find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
-    name: find_store_inventory_by_sku
-    function:
-      type: factory
-      name: hardware_store.tools.create_find_store_inventory_by_sku_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
-
-  find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
-    name: find_store_inventory_by_upc
-    function:
-      type: factory
-      name: hardware_store.tools.create_find_store_inventory_by_upc_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
-
+      
 # =============================================================================
 # GUARDRAILS CONFIGURATION
 # =============================================================================
@@ -508,7 +448,6 @@ agents:
     guardrails:                                     # Quality checks (currently disabled)
       []
       #- *llm_judge_guardrail
-    memory: *memory                                 # Reference to memory configuration
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
@@ -562,7 +501,6 @@ agents:
     model: *tool_calling_llm
     tools: []                                       # No specific tools assigned (would be added as needed)
     guardrails: []
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -624,7 +562,6 @@ agents:
     guardrails:
       []
       # - *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -674,7 +611,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -738,7 +674,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -800,7 +735,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -869,7 +803,6 @@ agents:
     guardrails:
       []
       #- *llm_judge_guardrail
-    memory: *memory
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -976,7 +909,7 @@ app:
   permissions:                                      # Model serving permissions
     - principals: [users]                           # Grant access to all users
       entitlements:
-        - CAN_MANAGE                                # Full management permissions
+        - CAN_QUERY                                # Full management permissions
   agents:                                           # List of agents included in the system
     - *orders                                       # Order management agent
     - *diy                                          # DIY and tutorials agent
@@ -986,6 +919,7 @@ app:
     - *recommendation                               # Product recommendation agent
     - *general                                      # General purpose agent
   orchestration:                                    # Agent orchestration configuration
+    memory: *memory                                 # Reference to memory configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
   message_hooks: 

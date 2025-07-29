@@ -4,10 +4,10 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: nfleming                    # Unity Catalog name
     schema_name: retail_ai                    # Schema within the catalog
-    permissions:                              # Access permissions for the schema
-      - principals: [users]                   # Grant access to all users
-        privileges:
-          - ALL_PRIVILEGES                    # Full permissions for demo purposes
+    # permissions:                              # Access permissions for the schema
+    #   - principals: [users]                   # Grant access to all users
+    #     privileges:
+    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
 resources:
   llms:

@@ -8,19 +8,26 @@ from dao_ai.tools.core import BaseTool
 
 
 def insert_coffee_order_tool(
-    host: CompositeVariableModel | dict[str, Any],
-    token: CompositeVariableModel | dict[str, Any],
     tool: ToolModel | dict[str, Any],
+    host: CompositeVariableModel | dict[str, Any],
+    client_id: CompositeVariableModel | dict[str, Any] | None = None,
+    client_secret: CompositeVariableModel | dict[str, Any] | None = None,
 ) -> Callable[[list[str]], tuple]:
     logger.debug(
-        f"Creating insert_coffee_order tool with host: {host}, token: {token}, tool: {tool}"
+        f"Creating insert_coffee_order_tool with tool: {tool}, "
+        f"host: {host}, client_id: {client_id}"
     )
-    if isinstance(host, dict):
-        host = CompositeVariableModel(**host)
-    if isinstance(token, dict):
-        token = CompositeVariableModel(**token)
     if isinstance(tool, dict):
         tool = ToolModel(**tool)
+    if isinstance(host, dict):
+        host = CompositeVariableModel(**host)
+    if isinstance(client_id, dict):
+        client_id = CompositeVariableModel(**client_id)
+    if isinstance(client_secret, dict):
+        client_secret = CompositeVariableModel(**client_secret)
+
+    if client_id is None or client_secret is None:
+        raise ValueError("Both 'client_id' and 'client_secret' must be provided.")
 
     @create_tool
     def insert_coffee_order(coffee_name: str, size: str, session_id: str) -> str:
@@ -52,7 +59,8 @@ def insert_coffee_order_tool(
         result: str = unity_catalog_tool.invoke(
             {
                 "host": host.as_value(),
-                "token": token.as_value(),
+                "client_id": client_id.as_value(),
+                "client_secret": client_secret.as_value(),
                 "coffee_name": coffee_name,
                 "size": size,
                 "session_id": session_id,

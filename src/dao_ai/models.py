@@ -1,3 +1,4 @@
+import uuid
 from os import PathLike
 from pathlib import Path
 from typing import Any, Generator, Optional, Sequence
@@ -5,7 +6,6 @@ from typing import Any, Generator, Optional, Sequence
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel
@@ -65,9 +65,6 @@ class LanggraphChatModel(ChatModel):
 
         config: SharedState = self._convert_to_config(params)
 
-        if self._is_interrupted(config):
-            logger.info("Graph is currently interrupted")
-
         response: dict[str, Sequence[BaseMessage]] = self.graph.invoke(
             request, config=config
         )
@@ -96,6 +93,15 @@ class LanggraphChatModel(ChatModel):
             if "configurable" in custom_inputs:
                 configurable: dict[str, Any] = custom_inputs.pop("configurable")
 
+        if "user_id" in configurable:
+            configurable["user_id"] = configurable["user_id"].replace(".", "_")
+
+        if "conversation_id" in configurable and "thread_id" not in configurable:
+            configurable["thread_id"] = configurable["conversation_id"]
+
+        if "thread_id" not in configurable:
+            configurable["thread_id"] = str(uuid.uuid4())
+
         agent_config: RunnableConfig = RunnableConfig(**{"configurable": configurable})
         return agent_config
 
@@ -109,9 +115,6 @@ class LanggraphChatModel(ChatModel):
         request = {"messages": self._convert_messages_to_dict(messages)}
 
         config: SharedState = self._convert_to_config(params)
-
-        if self._is_interrupted(config):
-            logger.info("Graph is currently interrupted")
 
         for message, metadata in self.graph.stream(
             request, config=config, stream_mode="messages"
@@ -144,24 +147,6 @@ class LanggraphChatModel(ChatModel):
         self, messages: list[ChatMessage]
     ) -> list[dict[str, Any]]:
         return [m.to_dict() for m in messages]
-
-    def _is_interrupted(self, config: dict[str, Any]) -> bool:
-        has_thread_id: bool = (
-            config.get("configurable", {}).get("thread_id") is not None
-        )
-        has_checkpointer: bool = self.graph.checkpointer is not None
-
-        if has_thread_id and has_checkpointer:
-            state: StateSnapshot = self.graph.get_state(config, subgraphs=True)
-            if state and state.tasks:
-                for task in state.tasks:
-                    if task.interrupts:
-                        logger.info(
-                            f"Graph is currently interrupted by task: {task.name}"
-                        )
-                        logger.debug(f"Interrupts Details: {task.interrupts}")
-                        return True
-        return False
 
 
 def create_agent(graph: CompiledStateGraph) -> ChatAgent:

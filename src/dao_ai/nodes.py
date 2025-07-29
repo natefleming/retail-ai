@@ -1,107 +1,97 @@
-import json
 from typing import Any, Callable, Optional, Sequence
 
 import mlflow
-from langchain.prompts import PromptTemplate
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    trim_messages,
-)
-from langchain_core.messages.base import messages_to_dict
-from langchain_core.messages.modifier import RemoveMessage
-from langchain_core.messages.utils import count_tokens_approximately, messages_from_dict
+from langchain_core.messages import AIMessage, AnyMessage, BaseMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import BaseTool
-from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
-from langgraph.store.base import BaseStore, Item
 from langmem import create_manage_memory_tool, create_search_memory_tool
+from langmem.short_term import SummarizationNode
+from langmem.short_term.summarization import TokenCounter
 from loguru import logger
-from pydantic import BaseModel, Field
 
 from dao_ai.config import (
     AgentModel,
     AppConfig,
+    AppModel,
+    ChatHistoryModel,
     FunctionHook,
-    SummarizationModel,
     ToolModel,
 )
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
 from dao_ai.hooks.core import create_hooks
-from dao_ai.messages import last_human_message
+from dao_ai.prompts import make_prompt
 from dao_ai.state import IncomingState, SharedState
 from dao_ai.tools import create_tools
 
 
-def _serialize_messages(
-    messages: Sequence[BaseMessage],
-) -> dict[str, Sequence[dict[str, Any]]]:
-    """Convert LangChain messages to JSON-serializable dictionaries."""
-    logger.debug(f"Serializing {len(messages)} messages to JSON format")
-    serialized_messages: dict[str, Sequence[dict[str, Any]]] = {
-        "messages": messages_to_dict(messages)
-    }
+def summarization_node(app_model: AppModel) -> RunnableLike:
+    chat_history: ChatHistoryModel | None = app_model.chat_history
+    if chat_history is None:
+        raise ValueError(
+            "AppModel must have chat_history configured to use summarization"
+        )
 
-    logger.trace(f"Serialized {len(serialized_messages)} messages to JSON format")
-    logger.trace(f"Serialized messages: {serialized_messages}")
+    max_tokens: int = chat_history.max_tokens
+    max_tokens_before_summary: int | None = chat_history.max_tokens_before_summary
+    max_messages_before_summary: int | None = chat_history.max_messages_before_summary
+    max_summary_tokens: int | None = chat_history.max_summary_tokens
+    token_counter: TokenCounter = (
+        count_tokens_approximately if max_tokens_before_summary else len
+    )
 
-    return serialized_messages
+    logger.debug(
+        f"Creating summarization node with max_tokens: {max_tokens}, "
+        f"max_tokens_before_summary: {max_tokens_before_summary}, "
+        f"max_messages_before_summary: {max_messages_before_summary}, "
+        f"max_summary_tokens: {max_summary_tokens}"
+    )
+
+    summarization_model: LanguageModelLike = chat_history.model.as_chat_model()
+    node: RunnableLike = SummarizationNode(
+        model=summarization_model,
+        max_tokens=max_tokens,
+        max_tokens_before_summary=max_tokens_before_summary
+        or max_messages_before_summary,
+        max_summary_tokens=max_summary_tokens,
+        token_counter=token_counter,
+        input_messages_key="messages",
+        output_messages_key="summarized_messages",
+    )
+    return node
 
 
-def _deserialize_messages(
-    serialized_messages: dict[str, Sequence[dict[str, Any]]],
-) -> Sequence[BaseMessage]:
-    """Convert JSON-serializable dictionaries back to LangChain messages."""
-    serialized_messages = serialized_messages.get("messages", [])
-    logger.debug(f"Deserializing {len(serialized_messages)} messages from JSON format")
-    messages = messages_from_dict(serialized_messages)
+def call_agent_with_summarized_messages(agent: CompiledStateGraph) -> RunnableLike:
+    def call_agent(state: SharedState, config: RunnableConfig) -> SharedState:
+        logger.debug(f"Calling agent {agent.name} with summarized messages")
 
-    logger.trace(f"Deserialized {len(messages)} messages from JSON format")
-    logger.trace(f"Deserialized messages: {[m.model_dump() for m in messages]}")
+        # Get the summarized messages from the summarization node
+        messages: Sequence[AnyMessage] = state.get("summarized_messages", [])
+        logger.debug(f"Found {len(messages)} summarized messages")
+        logger.trace(f"Summarized messages: {[m.model_dump() for m in messages]}")
 
-    return messages
+        input: dict[str, Any] = {
+            "messages": messages,
+        }
 
+        response: dict[str, Any] = agent.invoke(input=input, config=config)
+        response_messages = response.get("messages", [])
+        logger.debug(f"Agent returned {len(response_messages)} messages")
 
-def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], list]:
-    logger.debug(f"make_prompt: {base_system_prompt}")
+        return {"messages": response_messages}
 
-    def prompt(state: SharedState, config: RunnableConfig) -> list:
-        system_prompt: str = ""
-        if base_system_prompt:
-            prompt_template: PromptTemplate = PromptTemplate.from_template(
-                base_system_prompt
-            )
-
-            params: dict[str, Any] = {
-                input_variable: "" for input_variable in prompt_template.input_variables
-            }
-            params |= config.get("configurable", {})
-
-            system_prompt: str = prompt_template.format(**params)
-
-        summary: str = state.get("summary", "")
-        if summary:
-            system_prompt += (
-                f"\n\n## Previous Conversation Summary\n\n{summary}\n\n---\n"
-            )
-
-        messages: Sequence[BaseMessage] = state["messages"]
-        if system_prompt:
-            messages = [SystemMessage(content=system_prompt)] + messages
-
-        return messages
-
-    return prompt
+    return call_agent
 
 
 def create_agent_node(
-    agent: AgentModel, additional_tools: Optional[Sequence[BaseTool]] = None
+    app: AppModel,
+    agent: AgentModel,
+    additional_tools: Optional[Sequence[BaseTool]] = None,
 ) -> RunnableLike:
     """
     Factory function that creates a LangGraph node for a specialized agent.
@@ -130,25 +120,16 @@ def create_agent_node(
         additional_tools = []
     tools: Sequence[BaseTool] = create_tools(tool_models) + additional_tools
 
-    store: BaseStore = None
-    if agent.memory and agent.memory.store:
-        store = agent.memory.store.as_store()
-        logger.debug(f"Using memory store: {store}")
-
+    if app.orchestration.memory and app.orchestration.memory.store:
         namespace: tuple[str, ...] = ("memory",)
-        if agent.memory.store.namespace:
-            namespace = namespace + (agent.memory.store.namespace,)
+        if app.orchestration.memory.store.namespace:
+            namespace = namespace + (app.orchestration.memory.store.namespace,)
         logger.debug(f"Memory store namespace: {namespace}")
 
         tools += [
-            create_manage_memory_tool(namespace=namespace, store=store),
-            create_search_memory_tool(namespace=namespace, store=store),
+            create_manage_memory_tool(namespace=namespace),
+            create_search_memory_tool(namespace=namespace),
         ]
-
-    checkpointer: BaseCheckpointSaver = None
-    if agent.memory and agent.memory.checkpointer:
-        checkpointer = agent.memory.checkpointer.as_checkpointer()
-        logger.debug(f"Using memory checkpointer: {checkpointer}")
 
     pre_agent_hook: Callable[..., Any] = next(
         iter(create_hooks(agent.pre_agent_hook)), None
@@ -165,10 +146,10 @@ def create_agent_node(
         model=llm,
         prompt=make_prompt(agent.prompt),
         tools=tools,
-        store=store,
+        store=True,
         state_schema=SharedState,
         config_schema=RunnableConfig,
-        checkpointer=checkpointer,
+        checkpointer=True,
         pre_model_hook=pre_agent_hook,
         post_model_hook=post_agent_hook,
     )
@@ -179,230 +160,31 @@ def create_agent_node(
 
     compiled_agent.name = agent.name
 
-    return compiled_agent
+    agent_node: CompiledStateGraph
 
+    chat_history: ChatHistoryModel = app.chat_history
 
-def load_conversation_node(store: BaseStore) -> RunnableLike:
-    """
-    Create a node that loads the conversation history from the database.
-
-    This node retrieves the conversation history for a given thread ID and returns it
-    as a sequence of messages.
-    """
-
-    @mlflow.trace()
-    def load_conversation(state: IncomingState, config: RunnableConfig) -> SharedState:
-        logger.debug("Running load_conversation node")
-        messages: Sequence[BaseMessage] = []
-
-        #  store: BaseStore = get_store()
-        configurable: dict[str, Any] = config.get("configurable", {})
-
-        if store and "thread_id" in configurable and "user_id" in configurable:
-            thread_id: str = configurable.get("thread_id")
-            user_id: str = configurable.get("user_id")
-            logger.debug(
-                f"Using store: {store} to load thread ID: {thread_id} for user ID: {user_id}"
-            )
-
-            # Use consistent namespace pattern like in graph.py
-            namespace = ("conversations", user_id)
-            conversation_history: Item = store.get(namespace, thread_id)
-
-            if conversation_history:
-                logger.debug(f"Loaded conversation history: {conversation_history}")
-                # Deserialize the stored messages from JSON back to LangChain message objects
-                serialized_messages: dict[str, Any] = conversation_history.value
-                messages = _deserialize_messages(serialized_messages)
-                logger.debug(f"Deserialized {len(messages)} messages from store")
-
-            else:
-                logger.debug(
-                    f"No conversation history found for thread ID: {thread_id}"
-                )
-        else:
-            logger.debug(
-                "No store available or missing thread_id/user_id, starting with empty conversation"
-            )
-
-        return {"messages": messages}
-
-    return load_conversation
-
-
-def save_conversation_node(store: BaseStore) -> RunnableLike:
-    """
-    Create a node that saves the conversation history to the database.
-
-    This node saves the current conversation messages for a given thread ID and user ID
-    to the store for future retrieval.
-    """
-
-    @mlflow.trace()
-    def save_conversation(state: SharedState, config: RunnableConfig) -> SharedState:
-        logger.debug("Running save_conversation node")
-        configurable: dict[str, Any] = config.get("configurable", {})
-
-        if store and "thread_id" in configurable and "user_id" in configurable:
-            thread_id: str = configurable.get("thread_id")
-            user_id: str = configurable.get("user_id")
-            messages: Sequence[BaseMessage] = state.get("messages", [])
-
-            logger.debug(
-                f"Saving conversation for thread ID: {thread_id} for user ID: {user_id}"
-            )
-
-            # Use consistent namespace pattern like in graph.py
-            namespace = ("conversations", user_id)
-
-            # Serialize the messages to JSON-safe format before storing
-            serialized_messages = _serialize_messages(messages)
-            store.put(namespace, thread_id, serialized_messages)
-            logger.debug(f"Saved {len(messages)} serialized messages to store")
-        else:
-            logger.debug(
-                "No store available or missing thread_id/user_id, cannot save conversation"
-            )
-
-        # Return the state unchanged - this is a side-effect node
-        return state
-
-    return save_conversation
-
-
-def summarization_node(config: AppConfig) -> RunnableLike:
-    summarization_model: SummarizationModel | None = config.app.summarization
-
-    def _create_summary(
-        model: LanguageModelLike,
-        messages_to_summarize: Sequence[BaseMessage],
-        existing_summary: str,
-    ) -> str:
-        summary_message: str
-        if existing_summary:
-            summary_message = (
-                f"This is a summary of the conversation so far: {existing_summary}\n\n"
-                "Extend the summary by taking into account the new messages above:"
-            )
-        else:
-            summary_message = "Create a summary of the conversation above:"
-
-        messages: Sequence[BaseMessage] = messages_to_summarize + [
-            HumanMessage(content=summary_message)
-        ]
-        response: AIMessage = model.invoke(input=messages)
-        return response.content
-
-    def _update_messages_with_summary(
-        model: LanguageModelLike,
-        state: SharedState,
-        messages_to_summarize: Sequence[BaseMessage],
-    ) -> dict[str, Any]:
-        """Helper function to create summary and update messages."""
-        existing_summary: str = state.get("summary", "")
-
-        logger.trace(
-            f"Creating summary for {len(messages_to_summarize)} messages with existing summary: {existing_summary}"
+    if chat_history is None:
+        agent_node = compiled_agent
+    else:
+        workflow: StateGraph = StateGraph(
+            SharedState,
+            config_schema=RunnableConfig,
+            input=SharedState,
+            output=SharedState,
         )
-
-        new_summary: str = _create_summary(
-            model, messages_to_summarize, existing_summary
+        workflow.add_node(
+            "summarization", summarization_node(chat_history=chat_history)
         )
-
-        deleted_messages: Sequence[RemoveMessage] = [
-            RemoveMessage(id=m.id) for m in messages_to_summarize
-        ]
-
-        logger.debug(
-            f"Summarized {len(messages_to_summarize)} messages, created new summary"
+        workflow.add_node(
+            "agent",
+            call_agent_with_summarized_messages(agent=compiled_agent),
         )
+        workflow.add_edge("summarization", "agent")
+        workflow.set_entry_point("summarization")
+        agent_node = workflow.compile(name=agent.name)
 
-        logger.trace(
-            f"New summary: {new_summary}\n"
-            f"Deleted messages: {[m.id for m in messages_to_summarize]}"
-        )
-
-        return {
-            "messages": deleted_messages,
-            "summary": new_summary,
-        }
-
-    def summarization(state: SharedState, config: RunnableConfig) -> SharedState:
-        logger.debug("Running summarization node")
-
-        if not summarization_model:
-            logger.debug("No summarization model configured, skipping summarization")
-            return
-
-        messages: Sequence[BaseMessage] = state["messages"]
-
-        model: LanguageModelLike = summarization_model.model.as_chat_model()
-
-        max_tokens: int
-        token_counter: Callable[..., int]
-
-        if summarization_model.retained_message_count is not None:
-            # For message count-based trimming, ensure we keep at least 1 message
-            max_tokens = max(1, summarization_model.retained_message_count)
-            token_counter = len
-        else:
-            max_tokens = summarization_model.max_tokens
-            token_counter = count_tokens_approximately
-
-        logger.debug(f"max_tokens: {max_tokens}, token_counter: {token_counter}")
-
-        logger.trace(
-            f"Original messages:\n{json.dumps([msg.model_dump() for msg in messages], indent=2)}"
-        )
-
-        trimmed_messages: Sequence[BaseMessage] = trim_messages(
-            messages,
-            max_tokens=max_tokens,
-            strategy="last",
-            token_counter=token_counter,
-            allow_partial=False,
-            include_system=True,
-            start_on="human",
-            #   end_on=("human", "tool"),
-        )
-        logger.trace(
-            f"Trimmed messages:\n{json.dumps([msg.model_dump() for msg in trimmed_messages], indent=2)}"
-        )
-
-        logger.debug(
-            f"Trimmed messages from {len(messages)} to {len(trimmed_messages)}"
-        )
-
-        # Safety check: ensure we always have at least one message
-        if len(trimmed_messages) == 0 and len(messages) > 0:
-            logger.warning(
-                "trim_messages returned empty list, keeping the last message to avoid API error"
-            )
-            trimmed_messages = messages[-1:]
-
-        if len(trimmed_messages) < len(messages):
-            logger.debug(
-                f"Trimmed {len(messages) - len(trimmed_messages)} messages due to limit: {max_tokens} "
-                f"(using {'message count' if token_counter == len else 'token count'}). "
-                f"Kept {len(trimmed_messages)} messages."
-            )
-
-            # Find messages that were removed by trimming
-            trimmed_message_ids: set[str] = {m.id for m in trimmed_messages}
-            messages_to_summarize: Sequence[BaseMessage] = [
-                m for m in messages if m.id not in trimmed_message_ids
-            ]
-
-            return _update_messages_with_summary(model, state, messages_to_summarize)
-        else:
-            logger.debug(
-                f"No messages trimmed ({len(messages)} messages fit within limit: {max_tokens}). "
-                f"No summarization performed."
-            )
-
-        return None
-
-    return summarization
+    return agent_node
 
 
 def message_hook_node(config: AppConfig) -> RunnableLike:
@@ -439,55 +221,3 @@ def message_hook_node(config: AppConfig) -> RunnableLike:
         return response
 
     return message_hook
-
-
-def process_images_node(config: AppConfig) -> RunnableLike:
-    process_image_config: AgentModel = config.agents.get("process_image", {})
-    prompt: str = process_image_config.prompt
-
-    @mlflow.trace()
-    def process_images(
-        state: SharedState, config: RunnableConfig
-    ) -> dict[str, BaseMessage]:
-        logger.debug("process_images")
-
-        class ImageDetails(BaseModel):
-            summary: str = Field(..., description="The summary of the image")
-            product_names: Optional[Sequence[str]] = Field(
-                ..., description="The name of the product", default_factory=list
-            )
-            upcs: Optional[Sequence[str]] = Field(
-                ..., description="The UPC of the image", default_factory=list
-            )
-
-        class ImageProcessor(BaseModel):
-            prompts: Sequence[str] = Field(
-                ...,
-                description="The prompts to use to process the image",
-                default_factory=list,
-            )
-            image_details: Sequence[ImageDetails] = Field(
-                ..., description="The details of the image", default_factory=list
-            )
-
-        ImageProcessor.__doc__ = prompt
-
-        llm: LanguageModelLike = process_image_config.model.as_chat_model()
-
-        last_message: HumanMessage = last_human_message(state["messages"])
-        messages: Sequence[BaseMessage] = [last_message]
-
-        llm_with_schema: LanguageModelLike = llm.with_structured_output(ImageProcessor)
-
-        image_processor: ImageProcessor = llm_with_schema.invoke(input=messages)
-
-        logger.debug(f"image_processor: {image_processor}")
-
-        response_messages: Sequence[BaseMessage] = [
-            RemoveMessage(last_message.id),
-            HumanMessage(content=image_processor.model_dump_json()),
-        ]
-
-        return {"messages": response_messages}
-
-    return process_images

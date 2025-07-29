@@ -1,3 +1,4 @@
+import json
 from typing import Any, Callable, Sequence
 
 from loguru import logger
@@ -83,7 +84,6 @@ Please update your configuration and try again.
         corrected_user_id = user_id.replace(".", "_")
 
         # Create corrected configuration for the error message
-        import json
 
         # Corrected config with fixed user_id
         corrected_config = {
