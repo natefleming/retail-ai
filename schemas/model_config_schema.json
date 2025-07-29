@@ -436,43 +436,12 @@
         "model": {
           "$ref": "#/$defs/LLMModel"
         },
-        "summarize": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": true,
-          "title": "Summarize"
-        },
-        "max_message_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Message Count"
-        },
-        "retained_message_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Retained Message Count"
-        },
         "max_tokens": {
+          "default": 256,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "max_tokens_before_summary": {
           "anyOf": [
             {
               "type": "integer"
@@ -482,7 +451,31 @@
             }
           ],
           "default": null,
-          "title": "Max Tokens"
+          "title": "Max Tokens Before Summary"
+        },
+        "max_messages_before_summary": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Messages Before Summary"
+        },
+        "max_summary_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Summary Tokens"
         }
       },
       "required": [

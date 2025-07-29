@@ -11,41 +11,36 @@ variables:
     default_value: localhost                                             
     options:
       - env: PGHOST                              # Environment variable
-      - scope: retail_ai                         # Databricks secret scope
+      - scope: retail_consumer_goods                         # Databricks secret scope
         secret: PGHOST                           # Secret name
   port_var: &port_var
     default_value: 5432
     options:
     - env: PGPORT 
-    - scope: retail_ai
+    - scope: retail_consumer_goods
       secret: PGPORT
   database_var: &database_var
     default_value: databricks_postgres           # Default database name
     options:
     - env: PGDATABASE 
-    - scope: retail_ai
+    - scope: retail_consumer_goods
       secret: PGDATABASE
   client_id_var: &client_id_var
     options:
       - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-      - scope: retail_ai
+      - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_CLIENT_ID
   client_secret_var: &client_secret_var
     options:
       - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-      - scope: retail_ai
+      - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
   workspace_host_var: &workspace_host_var
     options:
       - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-      - scope: retail_ai
+      - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_HOST
-        host:
-  pat_var: &pat_var
-    options:
-      - env: RETAIL_AI_DATABRICKS_TOKEN          
-      - scope: retail_ai
-        secret: RETAIL_AI_DATABRICKS_TOKEN
+
 
 # =============================================================================
 # DATABRICKS SCHEMAS
@@ -55,10 +50,10 @@ schemas:
   qsr_schema: &qsr_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: quick_serve_restaurant                    # Schema within the catalog
-    permissions:                              # Access permissions for the schema
-      - principals: [users]                   # Grant access to all users
-        privileges:
-          - ALL_PRIVILEGES                    # Full permissions for demo purposes
+    # permissions:                              # Access permissions for the schema
+    #   - principals: [users]                   # Grant access to all users
+    #     privileges:
+    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -260,9 +255,10 @@ tools:
       type: factory
       name: quick_serve_restaurant.tools.insert_coffee_order_tool
       args:
-        host: *workspace_host_var
-        token: *pat_var
         tool: *insert_coffee_order_uc_tool
+        host: *workspace_host_var
+        client_id: *client_id_var
+        client_secret: *client_secret_var
 
   current_time_tool: &current_time_tool
     name: current_time
@@ -287,8 +283,8 @@ memory: &memory
   # Long-term memory store for agent context
   store: 
     name: default_store                             # Store identifier
-    type: postgres                                    # Store type (memory or postgres)
-    #type: memory
+    #type: postgres                                    # Store type (memory or postgres)
+    type: memory
     embedding_model: *embedding_model               # Model for semantic memory
     dims: 1536                                      # Embedding dimensions
     database: *qsr_database                      # Database for persistence (if needed)
@@ -380,11 +376,11 @@ app:
     schema: *qsr_schema                          # Schema where model will be registered
     name: coffee_shop_agent                           # Model name in MLflow registry
   endpoint_name: coffee_shop_agent                    # Model serving endpoint name
-  environment_vars: {}
-    # PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
-    # RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
-    # RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
-    # RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
+  environment_vars: 
+    # PGHOST: "{{secrets/retail_consumer_goods/PGHOST}}"  # Databricks host URL
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_HOST}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
@@ -451,6 +447,10 @@ evaluation:
     schema: *qsr_schema
     name: evaluation
   num_evals: 25
+  custom_inputs:
+    configurable:
+      thread_id: "1"
+      user_id: my_user_id
 
 # =============================================================================
 # DATASETS CONFIGURATION

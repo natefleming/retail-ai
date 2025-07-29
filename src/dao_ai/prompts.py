@@ -28,12 +28,6 @@ def make_prompt(base_system_prompt: str) -> Callable[[dict, RunnableConfig], lis
 
             system_prompt: str = prompt_template.format(**params)
 
-        summary: str = state.get("summary", "")
-        if summary:
-            system_prompt += (
-                f"\n\n## Summary of Conversation History:\n\n{summary}\n\n---\n"
-            )
-
         messages: Sequence[BaseMessage] = state["messages"]
         if system_prompt:
             messages = [SystemMessage(content=system_prompt)] + messages

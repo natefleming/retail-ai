@@ -1,6 +1,7 @@
 create or replace function {catalog_name}.{schema_name}.insert_coffee_order(
   host string comment "Databricks workspace host URL - automatically provided by the system context. Do not ask customers for this value."
-, token string comment "Databricks authentication token - automatically provided by the system context. Do not ask customers for this value."
+, client_id string comment "Databricks client ID for authentication - automatically provided by the system context. Do not ask customers for this value."
+, client_secret string comment "Databricks client secret for authentication - automatically provided by the system context. Do not ask customers for this value."
 , coffee_name string comment "Exact name of the coffee item being ordered. Examples: 'Cappuccino', 'Iced Latte', 'Cold Brew', 'Caramel Macchiato'. Use the exact menu item name from previous searches or customer specifications."
 , size string comment "Size of the coffee order. Valid options: 'Small', 'Medium', 'Large', or 'N/A' for single-size items. Always confirm size with customer before placing order."
 , session_id string comment "Unique session identifier for this customer conversation - automatically provided by the system as thread_id. Do not ask customers for this value."
@@ -28,7 +29,8 @@ def run_sql_statement(w, statement: str):
                                                                               ).as_dict()
     return statement_execute_response_dict["status"]['state']
 
-w = WorkspaceClient(host=host, token=token)
+w = WorkspaceClient(host=host, client_id=client_id, client_secret=client_secret)
+
 uuid = str(uuid.uuid4())
 uuid = f"'{uuid}'"
 statement = f"insert into {catalog_name}.{schema_name}.fulfil_item_orders(uuid, coffee_name, size, session_id) values ({uuid}, '{coffee_name}', '{size}', '{session_id}')"

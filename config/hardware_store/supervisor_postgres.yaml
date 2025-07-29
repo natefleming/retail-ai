@@ -957,9 +957,9 @@ app:
           user_id: my_user_id
           store_num: 87887
   chat_history: 
-    summarize: True
-    max_message_count: 15
-    retained_message_count: 8
+    #max_tokens: 256
+    max_messages_before_summary: 5
+    max_summary_tokens: 128
     model: *fast_llm                          # Model for summarization tasks
     # swarm:
     #   model: *tool_calling_llm
@@ -1031,7 +1031,7 @@ evaluation:
   custom_inputs:
     configurable:
       thread_id: "1"
-      user_id: nate.fleming
+      user_id: nate_fleming
       store_num: 87887
 
 # =============================================================================

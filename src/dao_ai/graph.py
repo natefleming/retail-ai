@@ -27,7 +27,6 @@ from dao_ai.config import (
 from dao_ai.nodes import (
     create_agent_node,
     message_hook_node,
-    summarization_node,
 )
 from dao_ai.prompts import make_prompt
 from dao_ai.state import IncomingState, OutgoingState, SharedState
@@ -36,7 +35,7 @@ from dao_ai.state import IncomingState, OutgoingState, SharedState
 def route_message(state: SharedState) -> str:
     if not state["is_valid"]:
         return END
-    return "summarization"
+    return "orchestration"
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -142,23 +141,16 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     workflow.add_node("message_hook", message_hook_node(config=config))
 
     workflow.add_node(
-        "summarization",
-        summarization_node(config=config),
-        cache_policy=CachePolicy(ttl=60),
-    )
-    workflow.add_node(
         "orchestration", supervisor_node, cache_policy=CachePolicy(ttl=60)
     )
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
         {
-            "summarization": "summarization",
+            "orchestration": "orchestration",
             END: END,
         },
     )
-
-    workflow.add_edge("summarization", "orchestration")
     workflow.set_entry_point("message_hook")
 
     return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
@@ -201,23 +193,17 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
-    workflow.add_node(
-        "summarization",
-        summarization_node(config=config),
-        cache_policy=CachePolicy(ttl=60),
-    )
     workflow.add_node("orchestration", swarm_node, cache_policy=CachePolicy(ttl=60))
 
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
         {
-            "summarization": "summarization",
+            "orchestration": "orchestration",
             END: END,
         },
     )
 
-    workflow.add_edge("summarization", "orchestration")
     workflow.set_entry_point("message_hook")
 
     store: BaseStore = None

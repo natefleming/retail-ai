@@ -1,6 +1,4 @@
-from typing import Sequence
-
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AnyMessage
 from langgraph.graph import MessagesState
 from langgraph.managed import RemainingSteps
 
@@ -27,8 +25,7 @@ class SharedState(MessagesState):
     active_agent: str  # langgraph-swarm
     remaining_steps: RemainingSteps  # langgraph-supervisor
 
-    summary: str  # summarization node
-    conversation_history: Sequence[BaseMessage]
+    summarized_messages: list[AnyMessage]
 
     is_valid: bool  # message validation node
     message_error: str
