@@ -68,6 +68,18 @@ def has_postgres_env() -> bool:
     )
 
 
+def has_retail_ai_env() -> bool:
+    required_vars: Sequence[str] = [
+        "RETAIL_AI_DATABRICKS_HOST",
+        "RETAIL_AI_DATABRICKS_CLIENT_ID",
+        "RETAIL_AI_DATABRICKS_CLIENT_SECRET",
+        "RETAIL_AI_DATABRICKS_TOKEN",
+    ]
+    return "PG_CONNECTION_STRING" in os.environ or all(
+        var in os.environ for var in required_vars
+    )
+
+
 @pytest.fixture
 def development_config() -> Path:
     return config_dir / "test_model_config.yaml"

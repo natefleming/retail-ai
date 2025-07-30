@@ -781,7 +781,8 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
                 "Please provide either OAuth credentials or user credentials."
             )
 
-        if (has_oauth or has_user_auth) and "Authentication" not in self.headers:
+        # Create authentication token only if no Authorization header exists and auth credentials are provided
+        if "Authorization" not in self.headers:
             from dao_ai.providers.databricks import DatabricksProvider
 
             provider: DatabricksProvider = DatabricksProvider(
