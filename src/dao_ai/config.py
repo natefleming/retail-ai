@@ -766,7 +766,6 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     @model_validator(mode="after")
     def validate_auth_methods(self):
         oauth_fields: Sequence[Any] = [
-            self.workspace_host,
             self.client_id,
             self.client_secret,
         ]
@@ -779,6 +778,11 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             raise ValueError(
                 "Cannot use both OAuth and user authentication methods. "
                 "Please provide either OAuth credentials or user credentials."
+            )
+
+        if (has_oauth or has_user_auth) and not self.workspace_host:
+            raise ValueError(
+                "Workspace host must be provided when using OAuth or user credentials."
             )
 
         # Create authentication token only if no Authorization header exists and auth credentials are provided
