@@ -215,11 +215,12 @@ def test_mcp_function_model_pat_authentication() -> None:
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com",
             pat="test_pat",
+            workspace_host="https://test-workspace.cloud.databricks.com",
         )
 
         # Verify DatabricksProvider was called with correct parameters
         mock_provider_class.assert_called_once_with(
-            workspace_host=None,
+            workspace_host="https://test-workspace.cloud.databricks.com",
             client_id=None,
             client_secret=None,
             pat="test_pat",
@@ -235,7 +236,7 @@ def test_mcp_function_model_pat_authentication() -> None:
 @pytest.mark.unit
 def test_mcp_function_model_no_authentication() -> None:
     """Test that when no authentication is provided, it creates a default WorkspaceClient."""
-    with patch('dao_ai.providers.databricks.DatabricksProvider') as mock_provider_class:
+    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         # Mock the provider instance and its create_token method
         mock_provider = Mock()
         mock_provider.create_token.return_value = "default_token"
@@ -254,12 +255,14 @@ def test_mcp_function_model_no_authentication() -> None:
             client_secret=None,
             pat=None,
         )
-        
+
         # Verify create_token was called
         mock_provider.create_token.assert_called_once()
-        
+
         # Verify Authorization header was set
         assert mcp_function.headers["Authorization"] == "Bearer default_token"
+
+
 @pytest.mark.unit
 def test_mcp_function_model_authentication_with_environment_variables() -> None:
     """Test authentication using environment variables."""
@@ -306,33 +309,36 @@ def test_mcp_function_model_mixed_auth_methods_error() -> None:
 @pytest.mark.unit
 def test_mcp_function_model_partial_oauth_credentials() -> None:
     """Test that partial OAuth credentials still trigger default authentication."""
-    with patch('dao_ai.providers.databricks.DatabricksProvider') as mock_provider_class:
+    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = Mock()
         mock_provider.create_token.return_value = "fallback_token"
         mock_provider_class.return_value = mock_provider
 
-        # Only provide client_id and client_secret, missing workspace_host
+        # Only provide client_id and client_secret, with workspace_host
         mcp_function = McpFunctionModel(
             name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com",
             client_id="test_client_id",
             client_secret="test_client_secret",
+            workspace_host="https://test-workspace.cloud.databricks.com",
         )
 
-        # Should create DatabricksProvider with partial credentials (falls back to default auth)
+        # Should create DatabricksProvider with OAuth credentials
         mock_provider_class.assert_called_once_with(
-            workspace_host=None,
+            workspace_host="https://test-workspace.cloud.databricks.com",
             client_id="test_client_id",
             client_secret="test_client_secret",
             pat=None,
         )
-        
+
         # Verify create_token was called
         mock_provider.create_token.assert_called_once()
-        
+
         # Verify Authorization header was set
         assert mcp_function.headers["Authorization"] == "Bearer fallback_token"
+
+
 @pytest.mark.unit
 def test_mcp_function_model_existing_authorization_header() -> None:
     """Test that existing Authorization header is preserved and authentication is skipped."""
@@ -343,6 +349,7 @@ def test_mcp_function_model_existing_authorization_header() -> None:
             url="https://example.com",
             headers={"Authorization": "Bearer existing_token"},
             pat="test_pat",
+            workspace_host="https://test-workspace.cloud.databricks.com",
         )
 
         # DatabricksProvider should not be called since Authorization header exists
@@ -367,6 +374,7 @@ def test_mcp_function_model_authentication_failure() -> None:
                 transport=TransportType.STREAMABLE_HTTP,
                 url="https://example.com",
                 pat="invalid_pat",
+                workspace_host="https://test-workspace.cloud.databricks.com",
             )
 
             # Should log the error
@@ -415,6 +423,7 @@ def test_mcp_function_model_real_pat_authentication() -> None:
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         pat=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_TOKEN"),
+        workspace_host=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_HOST"),
     )
 
     # Should have Authorization header set
