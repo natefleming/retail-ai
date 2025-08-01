@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../../schemas/model_config_schema.json
+
+variables:
+  client_id: &client_id                          # Service principal client ID
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret: &client_secret                  # Service principal secret
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+  workspace_host: &workspace_host                # Databricks workspace URL
+    options:
+      - env: RETAIL_AI_DATABRICKS_HOST
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_HOST
+
+schemas:
+  retail_consumer_goods_schema: &retail_consumer_goods_schema                  # Unity Catalog schema configuration
+    catalog_name: nfleming                       # Unity Catalog name
+    schema_name: retail_consumer_goods                       # Schema within the catalog
+
+resources:
+  llms:
+    default_llm: &default_llm                    # Default LLM configuration
+      name: databricks-claude-3-7-sonnet        # Databricks serving endpoint name
+
+tools:
+  jira_mcp: &jira_mcp          # Unity Catalog MCP tool configuration
+    name: jira_mcp                                  
+    function:
+      type: mcp                                  # MCP function type
+      name: jira_mcp                              
+      url:  https://mcp-harbor-freight-984752964297111.11.azure.databricksapps.com/mcp/
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+agents:
+  jira_agent: &jira_agent                          # MCP agent configuration
+    name: jira_agent                              # Agent identifier
+    model: *default_llm                          # Reference to LLM configuration
+    tools:                                       # Tools available to this agent
+      - *jira_mcp
+      
+      
+app:
+  name: jira_app                                # Application name  
+  log_level: DEBUG                               # Logging level for the application
+  registered_model:                              # MLflow registered model configuration
+    schema: *retail_consumer_goods_schema                       # Schema where model will be registered
+    name: jira_agent                              # Model name in MLflow registry
+  agents:                                        # List of agents included in the system
+    - *jira_agent                                 # MCP agent
+  orchestration:                                 # Agent orchestration configuration
+    swarm:                                       # Supervisor orchestration pattern
+      model: *default_llm                        # LLM for routing decisions

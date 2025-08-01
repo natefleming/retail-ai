@@ -785,22 +785,6 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
                 "Workspace host must be provided when using OAuth or user credentials."
             )
 
-        # Create authentication token only if no Authorization header exists and auth credentials are provided
-        if "Authorization" not in self.headers:
-            from dao_ai.providers.databricks import DatabricksProvider
-
-            provider: DatabricksProvider = DatabricksProvider(
-                workspace_host=value_of(self.workspace_host),
-                client_id=value_of(self.client_id),
-                client_secret=value_of(self.client_secret),
-                pat=value_of(self.pat),
-            )
-            try:
-                bearer_token: str = provider.create_token()
-                self.headers["Authorization"] = f"Bearer {bearer_token}"
-            except Exception as e:
-                logger.error(f"Failed to create token: {e}")
-
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
