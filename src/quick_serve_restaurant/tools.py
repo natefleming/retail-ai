@@ -5,7 +5,7 @@ from loguru import logger
 
 from dao_ai.config import CompositeVariableModel, ToolModel, UnityCatalogFunctionModel
 from dao_ai.tools.core import BaseTool
-
+import mlflow
 
 def insert_coffee_order_tool(
     tool: ToolModel | dict[str, Any],
@@ -52,12 +52,16 @@ def insert_coffee_order_tool(
         if isinstance(unity_catalog_function, dict):
             unity_catalog_function = UnityCatalogFunctionModel(**unity_catalog_function)
 
-        unity_catalog_tool: BaseTool = next(
-            iter(unity_catalog_function.as_tools() or []), None
-        )
-        logger.debug(f"Invoking Unity Catalog tool: {unity_catalog_tool.name}")
-        result: str = unity_catalog_tool.invoke(
-            {
+
+        
+        from databricks_langchain import DatabricksFunctionClient
+        
+        client = DatabricksFunctionClient()
+        logger.debug(f"Calling Unity Catalog function directly: {unity_catalog_function.full_name}")
+        
+        result = client.execute_function(
+            function_name=unity_catalog_function.full_name,
+            parameters={
                 "host": host.as_value(),
                 "client_id": client_id.as_value(),
                 "client_secret": client_secret.as_value(),
@@ -66,7 +70,14 @@ def insert_coffee_order_tool(
                 "session_id": session_id,
             }
         )
-        logger.debug(f"Order result: {result}")
-        return result
+        
+        # Handle the result from execute_function
+        if hasattr(result, 'error') and result.error:
+            logger.error(f"Unity Catalog function error: {result.error}")
+            raise RuntimeError(f"Function execution failed: {result.error}")
+        
+        result_value = result.value if hasattr(result, 'value') else str(result)
+        logger.debug(f"Order result: {result_value}")
+        return result_value
 
     return insert_coffee_order
