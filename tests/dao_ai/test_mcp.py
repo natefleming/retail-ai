@@ -74,9 +74,8 @@ def test_mcp_function_model_creation():
     assert mcp_function_model.name == "databricks-mcp-server"
     assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
     assert mcp_function_model.url is not None
-
-    # Authorization header should not be set during model creation
-    assert "Authorization" not in mcp_function_model.headers
+    assert "Authorization" in mcp_function_model.headers
+    assert mcp_function_model.headers["Authorization"].startswith("Bearer ")
 
     # Verify we can create tools
     tools = mcp_function_model.as_tools()

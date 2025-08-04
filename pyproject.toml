@@ -42,7 +42,7 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = [
-    "databricks-agents>=0.20.0",
+    "databricks-agents>=1.2.0",
     "databricks-langchain>=0.4.2",
     "databricks-sdk[openai]>=0.55.0",
     "databricks-vectorsearch>=0.56",

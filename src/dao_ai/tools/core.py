@@ -200,8 +200,6 @@ def create_mcp_tools(
         else:
             logger.debug("Using existing authentication token")
 
-        logger.debug(f"Connection headers: {headers}")
-
         response = {
             "url": function.url,
             "transport": function.transport,
@@ -230,7 +228,9 @@ def create_mcp_tools(
         logger.debug(f"Retrieved {len(mcp_tools)} MCP tools")
     except Exception as e:
         logger.error(f"Failed to get tools from MCP server: {e}")
-        return []
+        raise RuntimeError(
+            f"Failed to list MCP tools for function '{function.name}' with transport '{function.transport}' and URL '{function.url}': {e}"
+        )
 
     # Create wrapper tools with fresh session per invocation
     def _create_tool_wrapper(mcp_tool: Tool) -> RunnableLike:
