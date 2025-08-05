@@ -44,7 +44,7 @@ from mlflow.models.resources import (
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from dao_ai.chat_models import ChatDatabricksFiltered
-
+from databricks_langchain import ChatDatabricks
 
 class HasValue(ABC):
     @abstractmethod
@@ -275,10 +275,13 @@ class LLMModel(BaseModel, IsDatabricksResource):
         # chat_client: LanguageModelLike = self.as_open_ai_client()
 
         # Create ChatDatabricksWrapper instance directly
-        chat_client: LanguageModelLike = ChatDatabricksFiltered(
+        # chat_client: LanguageModelLike = ChatDatabricksFiltered(
+        #     model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
+        # )
+        chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
-
+        
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
             fallback: str | LLMModel

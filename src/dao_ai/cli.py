@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import traceback
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Optional, Sequence
@@ -388,7 +389,9 @@ def handle_chat_command(options: Namespace) -> None:
 
                 except Exception as e:
                     print(f"\n❌ Error during streaming: {e}")
+                    print(f"Stack trace:\n{traceback.format_exc()}")
                     logger.error(f"Streaming error: {e}")
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
 
             except EOFError:
                 # Handle Ctrl-D

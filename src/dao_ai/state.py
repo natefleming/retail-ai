@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from langchain_core.messages import AnyMessage
 from langgraph.graph import MessagesState
 from langgraph.managed import RemainingSteps
@@ -29,3 +31,10 @@ class SharedState(MessagesState):
 
     is_valid: bool  # message validation node
     message_error: str
+
+
+@dataclass
+class Context:
+    user_id: str | None = None
+    thread_id: str | None = None
+    store_num: int | None = None

@@ -29,7 +29,7 @@ from dao_ai.nodes import (
     message_hook_node,
 )
 from dao_ai.prompts import make_prompt
-from dao_ai.state import IncomingState, OutgoingState, SharedState
+from dao_ai.state import Context, IncomingState, OutgoingState, SharedState
 
 
 def route_message(state: SharedState) -> str:
@@ -127,15 +127,22 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         tools=tools,
         state_schema=SharedState,
         config_schema=RunnableConfig,
+        output_mode="last_message",
+        add_handoff_messages=False,
+        add_handoff_back_messages=False,
+        context_schema=Context,
+        # output_mode="full",
+        # add_handoff_messages=True,
+        # add_handoff_back_messages=True,
     )
 
     supervisor_node: CompiledStateGraph = supervisor_workflow.compile()
 
     workflow: StateGraph = StateGraph(
         SharedState,
-        config_schema=RunnableConfig,
         input=IncomingState,
         output=OutgoingState,
+        context_schema=Context,
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
@@ -180,16 +187,16 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         agents=agents,
         default_active_agent=default_agent,
         state_schema=SharedState,
-        config_schema=RunnableConfig,
+        context_schema=Context,
     )
 
     swarm_node: CompiledStateGraph = swarm_workflow.compile()
 
     workflow: StateGraph = StateGraph(
         SharedState,
-        config_schema=RunnableConfig,
         input=IncomingState,
         output=OutgoingState,
+        context_schema=Context,
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
