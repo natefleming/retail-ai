@@ -929,7 +929,7 @@ app:
     RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
-    streaming: true                                 # Indicates streaming capabilities
+    streaming: True                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
     - principals: [users]                           # Grant access to all users
       entitlements:

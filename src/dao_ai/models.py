@@ -99,7 +99,7 @@ class LanggraphChatModel(ChatModel):
         if "thread_id" not in configurable:
             configurable["thread_id"] = str(uuid.uuid4())
 
-        context: Context = Context(**{"configurable": configurable})
+        context: Context = Context(**configurable)
         return context
 
     def predict_stream(

@@ -166,8 +166,10 @@ def create_agent_node(
     chat_history: ChatHistoryModel = app.chat_history
 
     if chat_history is None:
+        logger.debug("No chat history configured, using compiled agent directly")
         agent_node = compiled_agent
     else:
+        logger.debug("Creating agent node with chat history summarization")
         workflow: StateGraph = StateGraph(
             SharedState,
             config_schema=RunnableConfig,
