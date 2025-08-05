@@ -63,9 +63,10 @@ class LanggraphChatModel(ChatModel):
         request = {"messages": self._convert_messages_to_dict(messages)}
 
         context: Context = self._convert_to_context(params)
+        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
         response: dict[str, Sequence[BaseMessage]] = self.graph.invoke(
-            request, context=context
+            request, context=context, config=custom_inputs
         )
         logger.trace(f"response: {response}")
 
@@ -111,14 +112,21 @@ class LanggraphChatModel(ChatModel):
         request = {"messages": self._convert_messages_to_dict(messages)}
 
         context: Context = self._convert_to_context(params)
+        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
         for nodes, stream_mode, messages_batch in self.graph.stream(
-            request, context=context, stream_mode=["messages", "custom"], subgraphs=True
+            request,
+            context=context,
+            config=custom_inputs,
+            stream_mode=["messages", "custom"],
+            subgraphs=True,
         ):
             nodes: tuple[str, ...]
             stream_mode: str
             messages_batch: Sequence[BaseMessage]
-            logger.trace(f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages_batch}")
+            logger.trace(
+                f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages_batch}"
+            )
             for message in messages_batch:
                 if (
                     isinstance(
@@ -185,13 +193,22 @@ def _process_langchain_messages_stream(
 
     logger.debug(f"Processing messages: {messages}, custom_inputs: {custom_inputs}")
 
+    custom_inputs = custom_inputs.get("configurable", custom_inputs or {})
+    context: Context = Context(**custom_inputs)
+
     for nodes, stream_mode, messages in app.stream(
-        {"messages": messages}, config=custom_inputs, stream_mode=["messages", "custom"], subgraphs=True
+        {"messages": messages},
+        context=context,
+        config=custom_inputs,
+        stream_mode=["messages", "custom"],
+        subgraphs=True,
     ):
         nodes: tuple[str, ...]
         stream_mode: str
         messages: Sequence[BaseMessage]
-        logger.trace(f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages}")
+        logger.trace(
+            f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages}"
+        )
         for message in messages:
             if (
                 isinstance(
@@ -205,7 +222,6 @@ def _process_langchain_messages_stream(
                 and "summarization" not in nodes
             ):
                 yield message
-
 
 
 def _process_mlflow_messages(

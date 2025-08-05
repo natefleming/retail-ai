@@ -22,6 +22,7 @@ from databricks.sdk.credentials_provider import (
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
+    ChatDatabricks,
     DatabricksFunctionClient,
 )
 from langchain_core.language_models import LanguageModelLike
@@ -43,8 +44,6 @@ from mlflow.models.resources import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
-from dao_ai.chat_models import ChatDatabricksFiltered
-from databricks_langchain import ChatDatabricks
 
 class HasValue(ABC):
     @abstractmethod
@@ -281,7 +280,7 @@ class LLMModel(BaseModel, IsDatabricksResource):
         chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
-        
+
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
             fallback: str | LLMModel
