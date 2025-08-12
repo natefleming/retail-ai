@@ -161,6 +161,7 @@ resources:
       schema: *dais_schema
       name: dais_rct
 
+
   functions:
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *dais_schema
@@ -413,14 +414,20 @@ tools:
       args:
         llm_model: *tool_calling_llm
 
+  # dais_find_store_by_number_tool: &dais_find_store_by_number_tool
+  #   name: dais_find_store_by_number
+  #   function:
+  #     type: factory
+  #     name: dais2025.tools.store.create_find_store_by_number_tool
+  #     args:
+  #       schema: *dais_schema
+  #       warehouse: *dais_warehouse
+
   dais_find_store_by_number_tool: &dais_find_store_by_number_tool
     name: dais_find_store_by_number
     function:
-      type: factory
-      name: dais2025.tools.store.create_find_store_by_number_tool
-      args:
-        schema: *dais_schema
-        warehouse: *dais_warehouse
+      type: unity_catalog
+      <<: *find_store_by_number
 
   dais_store_number_extraction_tool: &dais_store_number_extraction_tool
     name: dais_store_number_extraction
@@ -1343,6 +1350,10 @@ evaluation:
     schema: *dais_schema
     name: evaluation
   num_evals: 25
+  custom_inputs:
+    configurable:
+      thread_id: "1"
+      user_id: my_user_id
 
 datasets:
   # Core product and inventory tables
