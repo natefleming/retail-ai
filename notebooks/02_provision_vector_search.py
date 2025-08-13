@@ -1,5 +1,7 @@
 # Databricks notebook source
 # MAGIC %pip install --quiet -r ../requirements.txt
+# MAGIC %pip uninstall -y databricks-connect pyspark pyspark-connect
+# MAGIC %pip install databricks-connect
 # MAGIC %restart_python
 
 # COMMAND ----------

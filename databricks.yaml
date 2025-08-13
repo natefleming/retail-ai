@@ -86,25 +86,11 @@ resources:
           environment_key: default
           
 targets:
-  azure:
-    default: True
-    workspace:
-      host: https://adb-984752964297111.11.azuredatabricks.net
-      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
+  dev:
+    mode: development
+    default: true
 
-  aws:
-    workspace:
-      host: https://e2-demo-field-eng.cloud.databricks.com
-      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
-  gcp:
-    workspace:
-      host: https://416411475796958.8.gcp.databricks.com/
-      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
 
-  retail:
-    workspace:
-      host: https://adb-6447127900489650.10.azuredatabricks.net/
-      root_path: /Users/${workspace.current_user.userName}/.bundle/${var.app_name}/${bundle.target}
 
 
 
