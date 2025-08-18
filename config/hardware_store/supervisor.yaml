@@ -919,7 +919,7 @@ app:
     - *recommendation                               # Product recommendation agent
     - *general                                      # General purpose agent
   orchestration:                                    # Agent orchestration configuration
-    memory: *memory                                 # Reference to memory configuration
+    #memory: *memory                                 # Reference to memory configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
   message_hooks: 

@@ -1097,6 +1097,13 @@
           "additionalProperties": true,
           "title": "Custom Inputs",
           "type": "object"
+        },
+        "guidelines": {
+          "items": {
+            "$ref": "#/$defs/GuidelineModel"
+          },
+          "title": "Guidelines",
+          "type": "array"
         }
       },
       "required": [
@@ -1262,6 +1269,28 @@
         "prompt"
       ],
       "title": "GuardrailModel",
+      "type": "object"
+    },
+    "GuidelineModel": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "guidelines": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Guidelines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "guidelines"
+      ],
+      "title": "GuidelineModel",
       "type": "object"
     },
     "HumanInTheLoopModel": {

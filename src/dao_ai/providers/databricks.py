@@ -355,6 +355,20 @@ class DatabricksProvider(ServiceProvider):
 
         latest_version: int = get_latest_model_version(registered_model_name)
 
+        # Check if endpoint exists to determine deployment strategy
+        endpoint_exists: bool = False
+        try:
+            agents.get_deployments(endpoint_name)
+            endpoint_exists = True
+            logger.debug(
+                f"Endpoint {endpoint_name} already exists, updating without tags to avoid conflicts..."
+            )
+        except Exception:
+            logger.debug(
+                f"Endpoint {endpoint_name} doesn't exist, creating new with tags..."
+            )
+
+        # Deploy - skip tags for existing endpoints to avoid conflicts
         agents.deploy(
             endpoint_name=endpoint_name,
             model_name=registered_model_name,
@@ -362,7 +376,7 @@ class DatabricksProvider(ServiceProvider):
             scale_to_zero=scale_to_zero,
             environment_vars=environment_vars,
             workload_size=workload_size,
-            tags=tags,
+            tags=tags if not endpoint_exists else None,
         )
 
         registered_model_name: str = config.app.registered_model.full_name

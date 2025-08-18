@@ -1059,12 +1059,19 @@ class AppModel(BaseModel):
         return self
 
 
+class GuidelineModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    guidelines: list[str]
+
+
 class EvaluationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     table: TableModel
     num_evals: int
     custom_inputs: dict[str, Any] = Field(default_factory=dict)
+    guidelines: list[GuidelineModel] = Field(default_factory=list)
 
 
 class DatasetFormat(str, Enum):

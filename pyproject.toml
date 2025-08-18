@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dao-ai"
-version = "0.0.6"
+version = "0.0.7"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 license = { text = "MIT" }
@@ -49,7 +49,7 @@ dependencies = [
     "duckduckgo-search>=8.0.2",
     "grandalf>=0.8",
     "langchain>=0.3.27",
-    "langchain-mcp-adapters>=0.1.r94",
+    "langchain-mcp-adapters>=0.1.9",
     "langgraph>=0.6.5",
     "langgraph-checkpoint-postgres>=2.0.23",
     "langgraph-supervisor>=0.0.29",
