@@ -36,7 +36,7 @@ resources:
   llms:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-gpt-oss-120b  # Databricks serving endpoint name
+      name: databricks-claude-3-7-sonnet # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
@@ -47,7 +47,7 @@ resources:
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
-      name: databricks-gpt-oss-120b
+      name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 8192
       fallbacks:                                     # Fallback models if primary fails
@@ -959,11 +959,11 @@ app:
           thread_id: "1"
           user_id: my_user_id
           store_num: 87887
-  chat_history: 
-    #max_tokens: 256
-    max_messages_before_summary: 5
-    max_summary_tokens: 128
-    model: *fast_llm                          # Model for summarization tasks
+  # chat_history: 
+  #   #max_tokens: 256
+  #   max_messages_before_summary: 5
+  #   max_summary_tokens: 128
+  #   model: *fast_llm                          # Model for summarization tasks
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
