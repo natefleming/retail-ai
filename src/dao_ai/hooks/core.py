@@ -1,10 +1,12 @@
 import json
 from typing import Any, Callable, Sequence
 
+from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.runtime import Runtime
 from loguru import logger
 
 from dao_ai.config import AppConfig, FunctionHook, PythonFunctionModel
+from dao_ai.messages import last_human_message
 from dao_ai.state import Context
 
 
@@ -36,6 +38,50 @@ def null_initialization_hook(config: AppConfig) -> None:
 
 def null_shutdown_hook(config: AppConfig) -> None:
     logger.debug("Executing null shutdown hook")
+
+
+def filter_last_human_message_hook(
+    state: dict[str, Any], runtime: Runtime[Context]
+) -> dict[str, Any]:
+    """
+    Filter messages to keep only the last human message.
+
+    This hook removes all messages except for the most recent human message,
+    which can be useful for scenarios where you want to process only the
+    latest user input without conversation history.
+
+    Args:
+        state: The current state containing messages
+        runtime: The runtime context (unused in this hook)
+
+    Returns:
+        Updated state with filtered messages
+    """
+    logger.debug("Executing filter_last_human_message hook")
+
+    messages: list[BaseMessage] = state.get("messages", [])
+
+    if not messages:
+        logger.debug("No messages found in state")
+        return state
+
+    # Use the helper function to find the last human message
+    last_message: HumanMessage = last_human_message(messages)
+
+    if last_message is None:
+        logger.debug("No human messages found in state")
+        # Return empty messages if no human message found
+        updated_state = state.copy()
+        updated_state["messages"] = []
+        return updated_state
+
+    logger.debug(f"Filtered {len(messages)} messages down to 1 (last human message)")
+
+    # Update state with only the last human message
+    updated_state = state.copy()
+    updated_state["messages"] = [last_message]
+
+    return updated_state
 
 
 def require_user_id_hook(
