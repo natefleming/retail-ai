@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from pydantic import ValidationError
 
 from dao_ai.config import (
     AgentModel,
@@ -326,7 +327,7 @@ class TestSummarizationNode:
         assert chat_history.max_tokens == 256
         assert chat_history.max_tokens_before_summary is None
         assert chat_history.max_messages_before_summary is None
-        assert chat_history.max_summary_tokens == 256
+        assert chat_history.max_summary_tokens == 255
 
     def test_chat_history_model_custom_values(self, mock_llm_model):
         """Test that ChatHistoryModel accepts custom values."""
@@ -383,19 +384,39 @@ class TestSummarizationNode:
         )
 
     def test_summarization_node_with_zero_max_tokens(self, mock_llm_model):
-        """Test edge case with zero max_tokens."""
-        app_model = AppModel(
-            name="test_app",
-            registered_model=RegisteredModelModel(name="test_model"),
-            orchestration=OrchestrationModel(
-                supervisor=SupervisorModel(model=mock_llm_model)
-            ),
-            agents=[AgentModel(name="test_agent", model=mock_llm_model)],
-            chat_history=ChatHistoryModel(model=mock_llm_model, max_tokens=0),
-        )
+        """Test edge case with zero max_tokens should raise validation error."""
+        with pytest.raises(
+            ValidationError, match="max_summary_tokens .* must be less than max_tokens"
+        ):
+            ChatHistoryModel(model=mock_llm_model, max_tokens=0)
 
-        node = summarization_node(app_model)
-        assert node is not None
+    def test_chat_history_model_validator(self, mock_llm_model):
+        """Test the validator that ensures max_summary_tokens < max_tokens."""
+        # Valid case: max_summary_tokens < max_tokens
+        valid_chat_history = ChatHistoryModel(
+            model=mock_llm_model, max_tokens=1000, max_summary_tokens=500
+        )
+        assert valid_chat_history.max_tokens == 1000
+        assert valid_chat_history.max_summary_tokens == 500
+
+        # Invalid case: max_summary_tokens >= max_tokens
+        with pytest.raises(
+            ValidationError, match="max_summary_tokens .* must be less than max_tokens"
+        ):
+            ChatHistoryModel(
+                model=mock_llm_model,
+                max_tokens=256,
+                max_summary_tokens=256,  # Equal, should fail
+            )
+
+        with pytest.raises(
+            ValidationError, match="max_summary_tokens .* must be less than max_tokens"
+        ):
+            ChatHistoryModel(
+                model=mock_llm_model,
+                max_tokens=256,
+                max_summary_tokens=300,  # Greater, should fail
+            )
 
     def test_summarization_node_with_large_values(self, mock_llm_model):
         """Test summarization node with large parameter values."""

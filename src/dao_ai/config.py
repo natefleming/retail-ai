@@ -1006,6 +1006,14 @@ class ChatHistoryModel(BaseModel):
     max_messages_before_summary: Optional[int] = None
     max_summary_tokens: int = 255
 
+    @model_validator(mode="after")
+    def validate_max_summary_tokens(self) -> "ChatHistoryModel":
+        if self.max_summary_tokens >= self.max_tokens:
+            raise ValueError(
+                f"max_summary_tokens ({self.max_summary_tokens}) must be less than max_tokens ({self.max_tokens})"
+            )
+        return self
+
 
 class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")

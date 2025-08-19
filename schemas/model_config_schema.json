@@ -466,16 +466,9 @@
           "title": "Max Messages Before Summary"
         },
         "max_summary_tokens": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Summary Tokens"
+          "default": 255,
+          "title": "Max Summary Tokens",
+          "type": "integer"
         }
       },
       "required": [
