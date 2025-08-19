@@ -112,9 +112,10 @@ class TestSummarizationInference:
             input={"messages": test_messages}, context=mock_runtime.context
         )
 
-        # Verify result contains agent response
+        # Verify result contains only agent response (LangGraph state handles combining)
         assert "messages" in result
-        assert len(result["messages"]) == 1
+        assert len(result["messages"]) == 1  # 1 agent response
+        # Check that the message is the agent response
         assert result["messages"][0].content == "Agent response"
 
     def test_call_agent_with_summarized_messages_empty_state(self, mock_runtime):
@@ -287,7 +288,9 @@ class TestSummarizationInference:
             "Calling agent test_agent with summarized messages"
         )
         mock_logger.debug.assert_any_call("Found 3 summarized messages")
-        mock_logger.debug.assert_any_call("Agent returned 2 messages")
+        mock_logger.debug.assert_any_call(
+            "Agent returned 2 messages"
+        )  # 2 agent response messages
 
     def test_call_agent_with_different_message_types(self, mock_runtime):
         """Test call_agent_with_summarized_messages with different message types."""
@@ -318,7 +321,9 @@ class TestSummarizationInference:
 
         # Verify result
         assert "messages" in result
-        assert len(result["messages"]) == 1
+        assert len(result["messages"]) == 1  # 1 agent response
+        # Check that the message is the agent response
+        assert result["messages"][0].content == "Agent response"
 
     def test_agent_response_format(self, mock_runtime):
         """Test that agent response is properly formatted."""
@@ -336,19 +341,23 @@ class TestSummarizationInference:
         state = {"summarized_messages": [HumanMessage(content="Test")]}
 
         result = call_agent_func(state, mock_runtime)
-        assert result == {"messages": [AIMessage(content="Normal response")]}
+        # Should contain only the agent response (LangGraph state handles combining)
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].content == "Normal response"  # agent response
 
         # Test case 2: Response with empty messages
         mock_agent.invoke.return_value = {"messages": [], "other_data": "ignored"}
 
         result = call_agent_func(state, mock_runtime)
-        assert result == {"messages": []}
+        # Should contain empty messages (no agent response)
+        assert len(result["messages"]) == 0
 
         # Test case 3: Response without messages key
         mock_agent.invoke.return_value = {"other_data": "no_messages"}
 
         result = call_agent_func(state, mock_runtime)
-        assert result == {"messages": []}
+        # Should contain no messages (no agent response, no messages key)
+        assert len(result["messages"]) == 0
 
 
 if __name__ == "__main__":

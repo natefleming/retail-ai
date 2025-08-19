@@ -78,6 +78,12 @@ def convert_to_langchain_messages(messages: dict[str, Any]) -> Sequence[BaseMess
     return langchain_messages
 
 
+def has_human_message(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
+    if isinstance(messages, BaseMessage):
+        messages = [messages]
+    return any(isinstance(m, HumanMessage) for m in messages)
+
+
 def has_langchain_messages(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
     if isinstance(messages, BaseMessage):
         messages = [messages]
