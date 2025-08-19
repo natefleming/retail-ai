@@ -557,10 +557,10 @@ class DatabricksProvider(ServiceProvider):
                     pipeline_status = index_status.get('status', {}).get('detailed_state', 'UNKNOWN')
                     logger.debug(f"Index pipeline status: {pipeline_status}")
                     
-                    if pipeline_status in ['COMPLETED', 'FAILED', 'CANCELED']:
+                    if pipeline_status in ['COMPLETED', 'FAILED', 'CANCELED', 'ONLINE_PIPELINE_FAILED']:
                         logger.debug(f"Index is ready to sync (status: {pipeline_status})")
                         break
-                    elif pipeline_status in ['WAITING_FOR_RESOURCES', 'PROVISIONING', 'INITIALIZING', 'INDEXING']:
+                    elif pipeline_status in ['WAITING_FOR_RESOURCES', 'PROVISIONING', 'INITIALIZING', 'INDEXING', 'ONLINE']:
                         logger.debug(f"Index not ready yet (status: {pipeline_status}), waiting {wait_interval} seconds...")
                         time.sleep(wait_interval)
                         elapsed += wait_interval
