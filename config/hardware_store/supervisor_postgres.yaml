@@ -434,8 +434,8 @@ memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
     name: default_checkpointer                      # Checkpointer identifier
-    #type: postgres                                    # Store type (memory or postgres)
-    type: memory
+    type: postgres                                    # Store type (memory or postgres)
+    #type: memory
     database: *retail_database                     # Reference to database configuration
 
   # Long-term memory store for agent context
@@ -953,7 +953,6 @@ app:
   message_hooks: 
     - dao_ai.hooks.null_hook
     - hardware_store.hooks.require_store_num_hook
-    - dao_ai.hooks.filter_last_human_message_hook
   input_example:
       messages:
         - role: user
@@ -1038,6 +1037,12 @@ evaluation:
       thread_id: "1"
       user_id: nate_fleming
       store_num: 87887
+  guidelines:
+    - name: MyRelevanceGuideline
+      guidelines:
+        - Ensure responses are relevant to the user's query
+        - Prioritize information from the user's context
+        - Avoid unnecessary jargon or technical details
 
 # =============================================================================
 # DATASETS CONFIGURATION

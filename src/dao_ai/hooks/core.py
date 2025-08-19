@@ -1,7 +1,7 @@
 import json
 from typing import Any, Callable, Sequence
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, RemoveMessage
 from langgraph.runtime import Runtime
 from loguru import logger
 
@@ -77,9 +77,11 @@ def filter_last_human_message_hook(
 
     logger.debug(f"Filtered {len(messages)} messages down to 1 (last human message)")
 
-    # Update state with only the last human message
-    updated_state = state.copy()
-    updated_state["messages"] = [last_message]
+    removed_messages: Sequence[BaseMessage] = [RemoveMessage(id=message.id) for message in messages if message.id != last_message.id]
+
+    updated_state: dict[str, Sequence[BaseMessage]] = {
+        "messages": removed_messages
+    }
 
     return updated_state
 

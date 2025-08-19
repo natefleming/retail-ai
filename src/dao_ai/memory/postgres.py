@@ -4,8 +4,8 @@ import threading
 from typing import Any, Optional
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.postgres import ShallowPostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncShallowPostgresSaver
 from langgraph.store.base import BaseStore
 from langgraph.store.postgres import PostgresStore
 from langgraph.store.postgres.aio import AsyncPostgresStore
@@ -141,7 +141,7 @@ class AsyncPostgresCheckpointerManager(CheckpointManagerBase):
     def __init__(self, checkpointer_model: CheckpointerModel):
         self.checkpointer_model = checkpointer_model
         self.pool: Optional[AsyncConnectionPool] = None
-        self._checkpointer: Optional[AsyncPostgresSaver] = None
+        self._checkpointer: Optional[AsyncShallowPostgresSaver] = None
         self._setup_complete = False
 
     def checkpointer(self) -> BaseCheckpointSaver:
@@ -183,7 +183,7 @@ class AsyncPostgresCheckpointerManager(CheckpointManagerBase):
             )
 
             # Create checkpointer with the shared pool
-            self._checkpointer = AsyncPostgresSaver(conn=self.pool)
+            self._checkpointer = AsyncShallowPostgresSaver(conn=self.pool)
             await self._checkpointer.setup()
 
             self._setup_complete = True
@@ -315,7 +315,7 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
     def __init__(self, checkpointer_model: CheckpointerModel):
         self.checkpointer_model = checkpointer_model
         self.pool: Optional[ConnectionPool] = None
-        self._checkpointer: Optional[PostgresSaver] = None
+        self._checkpointer: Optional[ShallowPostgresSaver] = None
         self._setup_complete = False
 
     def checkpointer(self) -> BaseCheckpointSaver:
@@ -345,7 +345,7 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
             self.pool = PostgresPoolManager.get_pool(self.checkpointer_model.database)
 
             # Create checkpointer with the shared pool
-            self._checkpointer = PostgresSaver(conn=self.pool)
+            self._checkpointer = ShallowPostgresSaver(conn=self.pool)
             self._checkpointer.setup()
 
             self._setup_complete = True

@@ -54,6 +54,7 @@ def summarization_node(app_model: AppModel) -> RunnableLike:
     )
 
     summarization_model: LanguageModelLike = chat_history.model.as_chat_model()
+
     node: RunnableLike = SummarizationNode(
         model=summarization_model,
         max_tokens=max_tokens,
