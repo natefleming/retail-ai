@@ -8,7 +8,7 @@ version = "0.0.7"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     { name = "Nate Fleming", email = "nate.fleming@databricks.com" },
     { name = "Nate Fleming", email = "nate.fleming@gmail.com" },
@@ -48,21 +48,20 @@ dependencies = [
     "databricks-vectorsearch>=0.56",
     "duckduckgo-search>=8.0.2",
     "grandalf>=0.8",
-    "langchain>=0.3.24",
-    "langchain-mcp-adapters>=0.1.4",
-    "langgraph<=0.4.10",
-    "langgraph-checkpoint-postgres>=2.0.21",
-    "langgraph-prebuilt<=0.2.3",
-    "langgraph-supervisor>=0.0.27",
-    "langgraph-swarm>=0.0.11",
-    "langmem>=0.0.27",
+    "langchain>=0.3.27",
+    "langchain-mcp-adapters>=0.1.9",
+    "langgraph>=0.6.5",
+    "langgraph-checkpoint-postgres>=2.0.23",
+    "langgraph-supervisor>=0.0.29",
+    "langgraph-swarm>=0.0.14",
+    "langmem>=0.0.29",
     "loguru>=0.7.3",
     "mcp>=1.9.1",
     "mlflow>=3.1.1",
     "nest-asyncio>=1.6.0",
     "openevals>=0.0.19",
     "openpyxl>=3.1.5",
-    "psycopg[binary,pool]>=3.2.6",
+    "psycopg[binary,pool]>=3.2.9",
     "pydantic>=2.11.3",
     "python-dotenv>=1.1.0",
     "pyyaml>=6.0.2",

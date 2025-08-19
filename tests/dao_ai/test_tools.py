@@ -9,7 +9,7 @@ from langgraph.prebuilt.interrupt import HumanInterruptConfig
 
 from dao_ai.config import AppConfig, FunctionType, ToolModel
 from dao_ai.tools import create_tools
-from dao_ai.tools.core import add_human_in_the_loop
+from dao_ai.tools.human_in_the_loop import add_human_in_the_loop
 
 excluded_tools: Sequence[str] = [
     "vector_search",
@@ -40,7 +40,7 @@ def test_add_human_in_the_loop_with_callable():
         return f"processed: {input_text}"
 
     # Mock the interrupt function
-    with patch("dao_ai.tools.core.interrupt") as mock_interrupt:
+    with patch("dao_ai.tools.human_in_the_loop.interrupt") as mock_interrupt:
         # Test accept scenario
         mock_interrupt.return_value = [{"type": "accept"}]
 
@@ -71,7 +71,7 @@ def test_add_human_in_the_loop_with_base_tool():
         """Multiply input by 2."""
         return value * 2
 
-    with patch("dao_ai.tools.core.interrupt") as mock_interrupt:
+    with patch("dao_ai.tools.human_in_the_loop.interrupt") as mock_interrupt:
         mock_interrupt.return_value = [{"type": "accept"}]
 
         wrapped_tool = add_human_in_the_loop(existing_function)
@@ -94,7 +94,7 @@ def test_add_human_in_the_loop_edit_response():
         """Echo the message with prefix."""
         return f"echo: {message}"
 
-    with patch("dao_ai.tools.core.interrupt") as mock_interrupt:
+    with patch("dao_ai.tools.human_in_the_loop.interrupt") as mock_interrupt:
         # Mock edit response
         mock_interrupt.return_value = [
             {"type": "edit", "args": {"args": {"message": "edited_message"}}}
@@ -120,7 +120,7 @@ def test_add_human_in_the_loop_response_type():
         """Process query."""
         return f"processed: {query}"
 
-    with patch("dao_ai.tools.core.interrupt") as mock_interrupt:
+    with patch("dao_ai.tools.human_in_the_loop.interrupt") as mock_interrupt:
         # Mock direct response
         mock_interrupt.return_value = [
             {"type": "response", "args": "custom human response"}
@@ -150,7 +150,7 @@ def test_add_human_in_the_loop_custom_interrupt_config():
         """Process data."""
         return f"result: {data}"
 
-    with patch("dao_ai.tools.core.interrupt") as mock_interrupt:
+    with patch("dao_ai.tools.human_in_the_loop.interrupt") as mock_interrupt:
         mock_interrupt.return_value = [{"type": "accept"}]
 
         wrapped_tool = add_human_in_the_loop(
@@ -174,7 +174,7 @@ def test_add_human_in_the_loop_invalid_response_type():
         """Process input."""
         return f"output: {input_data}"
 
-    with patch("dao_ai.tools.core.interrupt") as mock_interrupt:
+    with patch("dao_ai.tools.human_in_the_loop.interrupt") as mock_interrupt:
         # Mock invalid response type
         mock_interrupt.return_value = [{"type": "unknown_type"}]
 
@@ -197,7 +197,7 @@ def test_add_human_in_the_loop_default_interrupt_config():
         """Process text."""
         return f"default: {text}"
 
-    with patch("dao_ai.tools.core.interrupt") as mock_interrupt:
+    with patch("dao_ai.tools.human_in_the_loop.interrupt") as mock_interrupt:
         mock_interrupt.return_value = [{"type": "accept"}]
 
         wrapped_tool = add_human_in_the_loop(default_config_function)

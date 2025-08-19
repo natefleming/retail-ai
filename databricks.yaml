@@ -1,6 +1,5 @@
 # yaml-language-server: $schema=./schemas/bundle_config_schema.json
 
-
 bundle:
   name: dao-ai-bundle
 
@@ -31,11 +30,11 @@ resources:
             spark_version: 16.2.x-scala2.12
             num_workers: 1
       environments:
-        - environment_key: default
+        - environment_key: dao-ai-env
           spec:
-            client: "3"
+            client: "4"
             dependencies:
-              - "-r ${workspace.file_path}/requirements.txt"
+              - -r ${workspace.file_path}/requirements.txt
       tasks:
         - task_key: ingest-and-transform
           notebook_task:
@@ -50,7 +49,7 @@ resources:
             notebook_path: ./notebooks/02_provision_vector_search.py
             base_parameters:
               config-path: ${var.config_path}
-          environment_key: default
+          environment_key: dao-ai-env
         - task_key: generate-evaluation-data
           depends_on:
             - task_key: provision-vector-search
@@ -58,7 +57,7 @@ resources:
             notebook_path: ./notebooks/03_generate_evaluation_data.py
             base_parameters:
               config-path: ${var.config_path}
-          environment_key: default
+          environment_key: dao-ai-env
         - task_key: unity-catalog-tools
           depends_on:
             - task_key: provision-vector-search
@@ -66,7 +65,7 @@ resources:
             notebook_path: ./notebooks/04_unity_catalog_tools.py
             base_parameters:
               config-path: ${var.config_path}
-          environment_key: default
+          environment_key: dao-ai-env
         - task_key: deploy-agents
           depends_on:
             - task_key: unity-catalog-tools
@@ -74,7 +73,7 @@ resources:
             notebook_path: ./notebooks/05_agent_as_code_driver.py
             base_parameters:
               config-path: ${var.config_path}
-          environment_key: default
+          environment_key: dao-ai-env
         - task_key: run-evaluation
           depends_on:
             - task_key: deploy-agents
@@ -83,7 +82,7 @@ resources:
             notebook_path: ./notebooks/06_run_evaluation.py
             base_parameters:
               config-path: ${var.config_path}
-          environment_key: default
+          environment_key: dao-ai-env
           
 targets:
   dev:

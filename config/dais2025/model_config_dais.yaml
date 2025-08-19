@@ -61,7 +61,7 @@ resources:
     store_vector_store: &store_vector_store
       embedding_model: *embedding_model
       endpoint:
-        name: rct-store-ops-dais
+        name: dbdemos_vs_endpoint
         type: STANDARD
       index:
         schema: *dais_schema

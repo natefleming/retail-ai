@@ -43,8 +43,6 @@ from mlflow.models.resources import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
-from dao_ai.chat_models import ChatDatabricksFiltered
-
 
 class HasValue(ABC):
     @abstractmethod
@@ -275,9 +273,14 @@ class LLMModel(BaseModel, IsDatabricksResource):
         # chat_client: LanguageModelLike = self.as_open_ai_client()
 
         # Create ChatDatabricksWrapper instance directly
+        from dao_ai.chat_models import ChatDatabricksFiltered
+
         chat_client: LanguageModelLike = ChatDatabricksFiltered(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
+        # chat_client: LanguageModelLike = ChatDatabricks(
+        #     model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
+        # )
 
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
@@ -1001,7 +1004,15 @@ class ChatHistoryModel(BaseModel):
     max_tokens: int = 256
     max_tokens_before_summary: Optional[int] = None
     max_messages_before_summary: Optional[int] = None
-    max_summary_tokens: Optional[int] = None
+    max_summary_tokens: int = 255
+
+    @model_validator(mode="after")
+    def validate_max_summary_tokens(self) -> "ChatHistoryModel":
+        if self.max_summary_tokens >= self.max_tokens:
+            raise ValueError(
+                f"max_summary_tokens ({self.max_summary_tokens}) must be less than max_tokens ({self.max_tokens})"
+            )
+        return self
 
 
 class AppModel(BaseModel):
@@ -1057,12 +1068,19 @@ class AppModel(BaseModel):
         return self
 
 
+class GuidelineModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    guidelines: list[str]
+
+
 class EvaluationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     table: TableModel
     num_evals: int
     custom_inputs: dict[str, Any] = Field(default_factory=dict)
+    guidelines: list[GuidelineModel] = Field(default_factory=list)
 
 
 class DatasetFormat(str, Enum):

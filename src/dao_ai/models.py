@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Generator, Optional, Sequence
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
-from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow import MlflowClient
@@ -20,7 +19,7 @@ from mlflow.types.llm import (
 )
 
 from dao_ai.messages import has_langchain_messages, has_mlflow_messages
-from dao_ai.state import SharedState
+from dao_ai.state import Context
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -63,10 +62,11 @@ class LanggraphChatModel(ChatModel):
 
         request = {"messages": self._convert_messages_to_dict(messages)}
 
-        config: SharedState = self._convert_to_config(params)
+        context: Context = self._convert_to_context(params)
+        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
         response: dict[str, Sequence[BaseMessage]] = self.graph.invoke(
-            request, config=config
+            request, context=context, config=custom_inputs
         )
         logger.trace(f"response: {response}")
 
@@ -75,12 +75,9 @@ class LanggraphChatModel(ChatModel):
         response_message = ChatMessage(role="assistant", content=last_message.content)
         return ChatCompletionResponse(choices=[ChatChoice(message=response_message)])
 
-    def _convert_to_config(
+    def _convert_to_context(
         self, params: Optional[ChatParams | dict[str, Any]]
-    ) -> RunnableConfig:
-        if not params:
-            return {}
-
+    ) -> Context:
         input_data = params
         if isinstance(params, ChatParams):
             input_data = params.to_dict()
@@ -102,8 +99,8 @@ class LanggraphChatModel(ChatModel):
         if "thread_id" not in configurable:
             configurable["thread_id"] = str(uuid.uuid4())
 
-        agent_config: RunnableConfig = RunnableConfig(**{"configurable": configurable})
-        return agent_config
+        context: Context = Context(**configurable)
+        return context
 
     def predict_stream(
         self, context, messages: list[ChatMessage], params: ChatParams
@@ -114,25 +111,36 @@ class LanggraphChatModel(ChatModel):
 
         request = {"messages": self._convert_messages_to_dict(messages)}
 
-        config: SharedState = self._convert_to_config(params)
+        context: Context = self._convert_to_context(params)
+        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
-        for message, metadata in self.graph.stream(
-            request, config=config, stream_mode="messages"
+        for nodes, stream_mode, messages_batch in self.graph.stream(
+            request,
+            context=context,
+            config=custom_inputs,
+            stream_mode=["messages", "custom"],
+            subgraphs=True,
         ):
-            logger.trace(f"message_type: {type(message)}, message: {message}")
-            if (
-                isinstance(
-                    message,
-                    (
-                        AIMessageChunk,
-                        AIMessage,
-                    ),
-                )
-                and message.content
-                and metadata["langgraph_node"] not in ["summarization"]
-            ):
-                content = message.content
-                yield self._create_chat_completion_chunk(content)
+            nodes: tuple[str, ...]
+            stream_mode: str
+            messages_batch: Sequence[BaseMessage]
+            logger.trace(
+                f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages_batch}"
+            )
+            for message in messages_batch:
+                if (
+                    isinstance(
+                        message,
+                        (
+                            AIMessageChunk,
+                            AIMessage,
+                        ),
+                    )
+                    and message.content
+                    and "summarization" not in nodes
+                ):
+                    content = message.content
+                    yield self._create_chat_completion_chunk(content)
 
     def _create_chat_completion_chunk(self, content: str) -> ChatCompletionChunk:
         return ChatCompletionChunk(
@@ -183,11 +191,37 @@ def _process_langchain_messages_stream(
     if isinstance(app, LanggraphChatModel):
         app = app.graph
 
-    for message, _ in app.stream(
-        {"messages": messages}, config=custom_inputs, stream_mode="messages"
+    logger.debug(f"Processing messages: {messages}, custom_inputs: {custom_inputs}")
+
+    custom_inputs = custom_inputs.get("configurable", custom_inputs or {})
+    context: Context = Context(**custom_inputs)
+
+    for nodes, stream_mode, messages in app.stream(
+        {"messages": messages},
+        context=context,
+        config=custom_inputs,
+        stream_mode=["messages", "custom"],
+        subgraphs=True,
     ):
-        message: AIMessageChunk
-        yield message
+        nodes: tuple[str, ...]
+        stream_mode: str
+        messages: Sequence[BaseMessage]
+        logger.trace(
+            f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages}"
+        )
+        for message in messages:
+            if (
+                isinstance(
+                    message,
+                    (
+                        AIMessageChunk,
+                        AIMessage,
+                    ),
+                )
+                and message.content
+                and "summarization" not in nodes
+            ):
+                yield message
 
 
 def _process_mlflow_messages(

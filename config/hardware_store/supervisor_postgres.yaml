@@ -14,10 +14,13 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: hardware_store                    # Schema within the catalog
-    # permissions:                              # Access permissions for the schema
-    #   - principals: [users]                   # Grant access to all users
-    #     privileges:
-    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
+    permissions:                              # Access permissions for the schema
+       - principals: [users]                   # Grant access to all users
+         privileges:
+           - USE_CATALOG                    # Full permissions for demo purposes
+           - USE_SCHEMA                    # Full permissions for demo purposes
+           - SELECT                    # Full permissions for demo purposes
+           - EXECUTE                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -33,7 +36,7 @@ resources:
   llms:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-3-7-sonnet  # Databricks serving endpoint name
+      name: databricks-claude-3-7-sonnet # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
@@ -462,8 +465,8 @@ agents:
     model: *tool_calling_llm                       # Reference to LLM configuration
     tools:                                          # Tools available to this agent
       - *find_product_details_by_description_tool
-    guardrails:                                      # Quality checks (currently disabled)
-      - *llm_judge_guardrail
+    guardrails: []                                    # Quality checks (currently disabled)
+     # - *llm_judge_guardrail
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
@@ -912,13 +915,13 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: hardware_store_postgres                      # Application name  
+  name: hardware_store_postgres_beta                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
   log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
-    name: hardware_store_postgres                  # Model name in MLflow registry
-  endpoint_name: hardware_store_postgres           # Model serving endpoint name
+    name: hardware_store_postgres_beta                  # Model name in MLflow registry
+  endpoint_name: hardware_store_postgres_beta           # Model serving endpoint name
   environment_vars: 
     PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
@@ -926,7 +929,7 @@ app:
     RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
-    streaming: true                                 # Indicates streaming capabilities
+    streaming: True                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
     - principals: [users]                           # Grant access to all users
       entitlements:
@@ -943,6 +946,9 @@ app:
     memory: *memory                            # Memory store for conversation context
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
+    # swarm:
+    #   model: *tool_calling_llm
+    #   default_agent: *general
 
   message_hooks: 
     - dao_ai.hooks.null_hook
@@ -956,14 +962,11 @@ app:
           thread_id: "1"
           user_id: my_user_id
           store_num: 87887
-  #chat_history: 
+  chat_history: 
     #max_tokens: 256
-  #  max_messages_before_summary: 5
-  #  max_summary_tokens: 128
-  #  model: *fast_llm                          # Model for summarization tasks
-    # swarm:
-    #   model: *tool_calling_llm
-    #   default_agent: *general
+    max_messages_before_summary: 5
+    model: *fast_llm                          # Model for summarization tasks
+
 
 # =============================================================================
 # UNITY CATALOG FUNCTIONS DEPLOYMENT
@@ -1033,6 +1036,12 @@ evaluation:
       thread_id: "1"
       user_id: nate_fleming
       store_num: 87887
+  guidelines:
+    - name: MyRelevanceGuideline
+      guidelines:
+        - Ensure responses are relevant to the user's query
+        - Prioritize information from the user's context
+        - Avoid unnecessary jargon or technical details
 
 # =============================================================================
 # DATASETS CONFIGURATION

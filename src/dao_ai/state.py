@@ -1,6 +1,7 @@
 from langchain_core.messages import AnyMessage
 from langgraph.graph import MessagesState
 from langgraph.managed import RemainingSteps
+from pydantic import BaseModel
 
 
 class IncomingState(MessagesState): ...
@@ -29,3 +30,9 @@ class SharedState(MessagesState):
 
     is_valid: bool  # message validation node
     message_error: str
+
+
+class Context(BaseModel):
+    user_id: str | None = None
+    thread_id: str | None = None
+    store_num: int | None = None

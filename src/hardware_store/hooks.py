@@ -1,34 +1,41 @@
 import json
 from typing import Any
 
+from langgraph.runtime import Runtime
 from loguru import logger
+
+from dao_ai.state import Context
 
 
 def require_store_num_hook(
-    state: dict[str, Any], config: dict[str, Any]
+    state: dict[str, Any], runtime: Runtime[Context]
 ) -> dict[str, Any]:
     logger.debug("Executing validation hook for required fields")
 
-    config = config.get("custom_inputs", config)
-
-    configurable: dict[str, Any] = config.get("configurable", {})
+    context: Context = runtime.context or Context()
 
     # Check for missing required fields
-    required_fields = ["thread_id", "user_id", "store_num"]
-    missing_fields = []
+    thread_id: str | None = context.thread_id
+    user_id: str | None = context.user_id
+    store_num: int | None = context.store_num
 
-    for field in required_fields:
-        if field not in configurable or not configurable[field]:
-            missing_fields.append(field)
+    required_fields = []
+    if not thread_id:
+        required_fields.append("thread_id")
+    if not user_id:
+        required_fields.append("user_id")
+    if not store_num:
+        required_fields.append("store_num")
 
-    if missing_fields:
-        logger.error(f"Required fields are missing: {', '.join(missing_fields)}")
+    if required_fields:
+        logger.error(f"Required fields are missing: {', '.join(required_fields)}")
 
+        # Create corrected configuration using any provided context parameters
         corrected_config = {
             "configurable": {
-                "thread_id": configurable.get("thread_id", "1"),
-                "user_id": configurable.get("user_id", "my_user_id"),
-                "store_num": configurable.get("store_num", 87887),
+                "thread_id": thread_id or "1",
+                "user_id": user_id or "my_user_id",
+                "store_num": store_num or 87887,
             }
         }
 
@@ -38,7 +45,7 @@ def require_store_num_hook(
         error_message = f"""
 ## Authentication Required
 
-The following required fields are missing: **{", ".join(missing_fields)}**
+The following required fields are missing: **{", ".join(required_fields)}**
 
 ### Required Configuration Format
 

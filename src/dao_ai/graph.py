@@ -3,13 +3,10 @@ from typing import Sequence
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from langgraph.cache.base import BaseCache
-from langgraph.cache.memory import InMemoryCache
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
-from langgraph.types import CachePolicy
 from langgraph_supervisor import create_handoff_tool as supervisor_handoff_tool
 from langgraph_supervisor import create_supervisor
 from langgraph_swarm import create_handoff_tool as swarm_handoff_tool
@@ -29,7 +26,7 @@ from dao_ai.nodes import (
     message_hook_node,
 )
 from dao_ai.prompts import make_prompt
-from dao_ai.state import IncomingState, OutgoingState, SharedState
+from dao_ai.state import Context, IncomingState, OutgoingState, SharedState
 
 
 def route_message(state: SharedState) -> str:
@@ -113,9 +110,6 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         checkpointer = orchestration.memory.checkpointer.as_checkpointer()
         logger.debug(f"Using checkpointer: {checkpointer}")
 
-    cache: BaseCache = None
-    cache = InMemoryCache()
-
     prompt: str = supervisor.prompt
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
@@ -127,22 +121,29 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         tools=tools,
         state_schema=SharedState,
         config_schema=RunnableConfig,
+        output_mode="last_message",
+        add_handoff_messages=False,
+        add_handoff_back_messages=False,
+        context_schema=Context,
+        # output_mode="full",
+        # add_handoff_messages=True,
+        # add_handoff_back_messages=True,
     )
 
-    supervisor_node: CompiledStateGraph = supervisor_workflow.compile()
+    supervisor_node: CompiledStateGraph = supervisor_workflow.compile(
+        checkpointer=checkpointer, store=store
+    )
 
     workflow: StateGraph = StateGraph(
         SharedState,
-        config_schema=RunnableConfig,
         input=IncomingState,
         output=OutgoingState,
+        context_schema=Context,
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
 
-    workflow.add_node(
-        "orchestration", supervisor_node, cache_policy=CachePolicy(ttl=60)
-    )
+    workflow.add_node("orchestration", supervisor_node)
     workflow.add_conditional_edges(
         "message_hook",
         route_message,
@@ -153,7 +154,7 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     )
     workflow.set_entry_point("message_hook")
 
-    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
+    return workflow.compile(checkpointer=checkpointer, store=store)
 
 
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
@@ -172,6 +173,16 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     orchestration: OrchestrationModel = config.app.orchestration
     swarm: SwarmModel = orchestration.swarm
 
+    store: BaseStore = None
+    if orchestration.memory and orchestration.memory.store:
+        store = orchestration.memory.store.as_store()
+        logger.debug(f"Using memory store: {store}")
+
+    checkpointer: BaseCheckpointSaver = None
+    if orchestration.memory and orchestration.memory.checkpointer:
+        checkpointer = orchestration.memory.checkpointer.as_checkpointer()
+        logger.debug(f"Using checkpointer: {checkpointer}")
+
     default_agent: AgentModel = swarm.default_agent
     if isinstance(default_agent, AgentModel):
         default_agent = default_agent.name
@@ -180,20 +191,22 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         agents=agents,
         default_active_agent=default_agent,
         state_schema=SharedState,
-        config_schema=RunnableConfig,
+        context_schema=Context,
     )
 
-    swarm_node: CompiledStateGraph = swarm_workflow.compile()
+    swarm_node: CompiledStateGraph = swarm_workflow.compile(
+        checkpointer=checkpointer, store=store
+    )
 
     workflow: StateGraph = StateGraph(
         SharedState,
-        config_schema=RunnableConfig,
         input=IncomingState,
         output=OutgoingState,
+        context_schema=Context,
     )
 
     workflow.add_node("message_hook", message_hook_node(config=config))
-    workflow.add_node("orchestration", swarm_node, cache_policy=CachePolicy(ttl=60))
+    workflow.add_node("orchestration", swarm_node)
 
     workflow.add_conditional_edges(
         "message_hook",
@@ -206,20 +219,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.set_entry_point("message_hook")
 
-    store: BaseStore = None
-    if orchestration.memory and orchestration.memory.store:
-        store = orchestration.memory.store.as_store()
-        logger.debug(f"Using memory store: {store}")
-
-    checkpointer: BaseCheckpointSaver = None
-    if orchestration.memory and orchestration.memory.checkpointer:
-        checkpointer = orchestration.memory.checkpointer.as_checkpointer()
-        logger.debug(f"Using checkpointer: {checkpointer}")
-
-    cache: BaseCache = None
-    cache = InMemoryCache()
-
-    return workflow.compile(checkpointer=checkpointer, store=store, cache=cache)
+    return workflow.compile(checkpointer=checkpointer, store=store)
 
 
 def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:

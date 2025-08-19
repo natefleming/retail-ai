@@ -10,6 +10,7 @@ from langchain_core.tools import BaseTool
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
+from langgraph.runtime import Runtime
 from langmem import create_manage_memory_tool, create_search_memory_tool
 from langmem.short_term import SummarizationNode
 from langmem.short_term.summarization import TokenCounter
@@ -26,7 +27,7 @@ from dao_ai.config import (
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
 from dao_ai.hooks.core import create_hooks
 from dao_ai.prompts import make_prompt
-from dao_ai.state import IncomingState, SharedState
+from dao_ai.state import Context, IncomingState, SharedState
 from dao_ai.tools import create_tools
 
 
@@ -53,6 +54,7 @@ def summarization_node(app_model: AppModel) -> RunnableLike:
     )
 
     summarization_model: LanguageModelLike = chat_history.model.as_chat_model()
+
     node: RunnableLike = SummarizationNode(
         model=summarization_model,
         max_tokens=max_tokens,
@@ -67,7 +69,7 @@ def summarization_node(app_model: AppModel) -> RunnableLike:
 
 
 def call_agent_with_summarized_messages(agent: CompiledStateGraph) -> RunnableLike:
-    def call_agent(state: SharedState, config: RunnableConfig) -> SharedState:
+    def call_agent(state: SharedState, runtime: Runtime[Context]) -> SharedState:
         logger.debug(f"Calling agent {agent.name} with summarized messages")
 
         # Get the summarized messages from the summarization node
@@ -79,7 +81,7 @@ def call_agent_with_summarized_messages(agent: CompiledStateGraph) -> RunnableLi
             "messages": messages,
         }
 
-        response: dict[str, Any] = agent.invoke(input=input, config=config)
+        response: dict[str, Any] = agent.invoke(input=input, context=runtime.context)
         response_messages = response.get("messages", [])
         logger.debug(f"Agent returned {len(response_messages)} messages")
 
@@ -147,9 +149,9 @@ def create_agent_node(
         prompt=make_prompt(agent.prompt),
         tools=tools,
         store=True,
-        state_schema=SharedState,
-        config_schema=RunnableConfig,
         checkpointer=True,
+        state_schema=SharedState,
+        context_schema=Context,
         pre_model_hook=pre_agent_hook,
         post_model_hook=post_agent_hook,
     )
@@ -165,17 +167,17 @@ def create_agent_node(
     chat_history: ChatHistoryModel = app.chat_history
 
     if chat_history is None:
+        logger.debug("No chat history configured, using compiled agent directly")
         agent_node = compiled_agent
     else:
+        logger.debug("Creating agent node with chat history summarization")
         workflow: StateGraph = StateGraph(
             SharedState,
             config_schema=RunnableConfig,
             input=SharedState,
             output=SharedState,
         )
-        workflow.add_node(
-            "summarization", summarization_node(chat_history=chat_history)
-        )
+        workflow.add_node("summarization", summarization_node(app))
         workflow.add_node(
             "agent",
             call_agent_with_summarized_messages(agent=compiled_agent),
@@ -191,7 +193,7 @@ def message_hook_node(config: AppConfig) -> RunnableLike:
     message_hooks: Sequence[Callable[..., Any]] = create_hooks(config.app.message_hooks)
 
     @mlflow.trace()
-    def message_hook(state: IncomingState, config: RunnableConfig) -> SharedState:
+    def message_hook(state: IncomingState, runtime: Runtime[Context]) -> SharedState:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "message_error": None}
 
@@ -201,7 +203,7 @@ def message_hook_node(config: AppConfig) -> RunnableLike:
                 try:
                     hook_response: dict[str, Any] = message_hook(
                         state=state,
-                        config=config,
+                        runtime=runtime,
                     )
                     response.update(hook_response)
                     logger.debug(f"Hook response: {hook_response}")

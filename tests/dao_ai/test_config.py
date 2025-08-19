@@ -1,5 +1,5 @@
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -116,7 +116,7 @@ def test_mcp_function_model_validate_bearer_header_with_composite_variable_exist
 
 @pytest.mark.unit
 def test_mcp_function_model_validate_bearer_header_no_authorization_header() -> None:
-    """Test that validate_bearer_header creates default auth when no Authorization header exists."""
+    """Test that model creation doesn't add Authorization header - auth is per-invocation."""
     mcp_function = McpFunctionModel(
         name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
@@ -124,16 +124,15 @@ def test_mcp_function_model_validate_bearer_header_no_authorization_header() -> 
         headers={"Content-Type": "application/json"},
     )
 
-    # Should add Authorization header with default auth
-    assert "Authorization" in mcp_function.headers
-    assert mcp_function.headers["Authorization"].startswith("Bearer ")
+    # Headers should remain as provided - no Authorization header added at creation time
+    assert "Authorization" not in mcp_function.headers
     assert "Content-Type" in mcp_function.headers
     assert mcp_function.headers["Content-Type"] == "application/json"
 
 
 @pytest.mark.unit
 def test_mcp_function_model_validate_bearer_header_empty_headers() -> None:
-    """Test that validate_bearer_header works with empty headers dict and creates default auth."""
+    """Test that model creation with empty headers stays empty - auth is per-invocation."""
     mcp_function = McpFunctionModel(
         name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
@@ -141,10 +140,9 @@ def test_mcp_function_model_validate_bearer_header_empty_headers() -> None:
         headers={},
     )
 
-    # Should add Authorization header with default auth
-    assert len(mcp_function.headers) == 1
-    assert "Authorization" in mcp_function.headers
-    assert mcp_function.headers["Authorization"].startswith("Bearer ")
+    # Headers should remain empty - no Authorization header added at creation time
+    assert len(mcp_function.headers) == 0
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.unit
@@ -170,123 +168,87 @@ def test_mcp_function_model_validate_bearer_header_with_other_headers() -> None:
 # Authentication Tests
 @pytest.mark.unit
 def test_mcp_function_model_oauth_authentication() -> None:
-    """Test OAuth authentication with client_id, client_secret, and workspace_host."""
-    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        # Mock the provider instance and its create_token method
-        mock_provider = Mock()
-        mock_provider.create_token.return_value = "test_oauth_token"
-        mock_provider_class.return_value = mock_provider
+    """Test OAuth authentication configuration is stored but not applied at creation time."""
+    mcp_function = McpFunctionModel(
+        name="test_mcp",
+        transport=TransportType.STREAMABLE_HTTP,
+        url="https://example.com",
+        workspace_host="https://test.databricks.com",
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+    )
 
-        mcp_function = McpFunctionModel(
-            name="test_mcp",
-            transport=TransportType.STREAMABLE_HTTP,
-            url="https://example.com",
-            workspace_host="https://test.databricks.com",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-        )
+    # Verify authentication config is stored
+    assert mcp_function.workspace_host == "https://test.databricks.com"
+    assert mcp_function.client_id == "test_client_id"
+    assert mcp_function.client_secret == "test_client_secret"
 
-        # Verify DatabricksProvider was called with correct parameters
-        mock_provider_class.assert_called_once_with(
-            workspace_host="https://test.databricks.com",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            pat=None,
-        )
-
-        # Verify create_token was called
-        mock_provider.create_token.assert_called_once()
-
-        # Verify Authorization header was set
-        assert mcp_function.headers["Authorization"] == "Bearer test_oauth_token"
+    # But no Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.unit
 def test_mcp_function_model_pat_authentication() -> None:
-    """Test PAT authentication."""
-    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        # Mock the provider instance and its create_token method
-        mock_provider = Mock()
-        mock_provider.create_token.return_value = "test_pat_token"
-        mock_provider_class.return_value = mock_provider
+    """Test PAT authentication configuration is stored but not applied at creation time."""
+    mcp_function = McpFunctionModel(
+        name="test_mcp",
+        transport=TransportType.STREAMABLE_HTTP,
+        url="https://example.com",
+        pat="test_pat",
+        workspace_host="https://test-workspace.cloud.databricks.com",
+    )
 
-        mcp_function = McpFunctionModel(
-            name="test_mcp",
-            transport=TransportType.STREAMABLE_HTTP,
-            url="https://example.com",
-            pat="test_pat",
-            workspace_host="https://test-workspace.cloud.databricks.com",
-        )
+    # Verify authentication config is stored
+    assert mcp_function.pat == "test_pat"
+    assert mcp_function.workspace_host == "https://test-workspace.cloud.databricks.com"
 
-        # Verify DatabricksProvider was called with correct parameters
-        mock_provider_class.assert_called_once_with(
-            workspace_host="https://test-workspace.cloud.databricks.com",
-            client_id=None,
-            client_secret=None,
-            pat="test_pat",
-        )
-
-        # Verify create_token was called
-        mock_provider.create_token.assert_called_once()
-
-        # Verify Authorization header was set
-        assert mcp_function.headers["Authorization"] == "Bearer test_pat_token"
+    # But no Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.unit
 def test_mcp_function_model_no_authentication() -> None:
-    """Test that when no authentication is provided, it creates a default WorkspaceClient."""
-    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        # Mock the provider instance and its create_token method
-        mock_provider = Mock()
-        mock_provider.create_token.return_value = "default_token"
-        mock_provider_class.return_value = mock_provider
+    """Test that when no authentication is provided, model stores None values for per-invocation auth."""
+    mcp_function = McpFunctionModel(
+        name="test_mcp",
+        transport=TransportType.STREAMABLE_HTTP,
+        url="https://example.com",
+    )
 
-        mcp_function = McpFunctionModel(
-            name="test_mcp",
-            transport=TransportType.STREAMABLE_HTTP,
-            url="https://example.com",
-        )
+    # Verify default authentication config values
+    assert mcp_function.workspace_host is None
+    assert mcp_function.client_id is None
+    assert mcp_function.client_secret is None
+    assert mcp_function.pat is None
 
-        # Verify DatabricksProvider was called with all None parameters (default auth)
-        mock_provider_class.assert_called_once_with(
-            workspace_host=None,
-            client_id=None,
-            client_secret=None,
-            pat=None,
-        )
-
-        # Verify create_token was called
-        mock_provider.create_token.assert_called_once()
-
-        # Verify Authorization header was set
-        assert mcp_function.headers["Authorization"] == "Bearer default_token"
+    # No Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.unit
 def test_mcp_function_model_authentication_with_environment_variables() -> None:
-    """Test authentication using environment variables."""
-    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        # Mock the provider instance and its create_token method
-        mock_provider = Mock()
-        mock_provider.create_token.return_value = "env_token"
-        mock_provider_class.return_value = mock_provider
+    """Test authentication using environment variables stores config for per-invocation auth."""
+    mcp_function = McpFunctionModel(
+        name="test_mcp",
+        transport=TransportType.STREAMABLE_HTTP,
+        url="https://example.com",
+        workspace_host=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_HOST"),
+        client_id=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_CLIENT_ID"),
+        client_secret=EnvironmentVariableModel(
+            env="RETAIL_AI_DATABRICKS_CLIENT_SECRET"
+        ),
+    )
 
-        mcp_function = McpFunctionModel(
-            name="test_mcp",
-            transport=TransportType.STREAMABLE_HTTP,
-            url="https://example.com",
-            workspace_host=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_HOST"),
-            client_id=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_CLIENT_ID"),
-            client_secret=EnvironmentVariableModel(
-                env="RETAIL_AI_DATABRICKS_CLIENT_SECRET"
-            ),
-        )
+    # Verify environment variable config is stored
+    assert isinstance(mcp_function.workspace_host, EnvironmentVariableModel)
+    assert mcp_function.workspace_host.env == "RETAIL_AI_DATABRICKS_HOST"
+    assert isinstance(mcp_function.client_id, EnvironmentVariableModel)
+    assert mcp_function.client_id.env == "RETAIL_AI_DATABRICKS_CLIENT_ID"
+    assert isinstance(mcp_function.client_secret, EnvironmentVariableModel)
+    assert mcp_function.client_secret.env == "RETAIL_AI_DATABRICKS_CLIENT_SECRET"
 
-        # The actual environment variable values will be resolved during validation
-        mock_provider_class.assert_called_once()
-        mock_provider.create_token.assert_called_once()
-        assert mcp_function.headers["Authorization"] == "Bearer env_token"
+    # No Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.unit
@@ -308,35 +270,25 @@ def test_mcp_function_model_mixed_auth_methods_error() -> None:
 
 @pytest.mark.unit
 def test_mcp_function_model_partial_oauth_credentials() -> None:
-    """Test that partial OAuth credentials still trigger default authentication."""
-    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        mock_provider = Mock()
-        mock_provider.create_token.return_value = "fallback_token"
-        mock_provider_class.return_value = mock_provider
+    """Test that partial OAuth credentials are stored for per-invocation authentication."""
+    # Only provide client_id and client_secret, with workspace_host
+    mcp_function = McpFunctionModel(
+        name="test_mcp",
+        transport=TransportType.STREAMABLE_HTTP,
+        url="https://example.com",
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        workspace_host="https://test-workspace.cloud.databricks.com",
+    )
 
-        # Only provide client_id and client_secret, with workspace_host
-        mcp_function = McpFunctionModel(
-            name="test_mcp",
-            transport=TransportType.STREAMABLE_HTTP,
-            url="https://example.com",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            workspace_host="https://test-workspace.cloud.databricks.com",
-        )
+    # Verify OAuth credentials are stored
+    assert mcp_function.client_id == "test_client_id"
+    assert mcp_function.client_secret == "test_client_secret"
+    assert mcp_function.workspace_host == "https://test-workspace.cloud.databricks.com"
+    assert mcp_function.pat is None
 
-        # Should create DatabricksProvider with OAuth credentials
-        mock_provider_class.assert_called_once_with(
-            workspace_host="https://test-workspace.cloud.databricks.com",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            pat=None,
-        )
-
-        # Verify create_token was called
-        mock_provider.create_token.assert_called_once()
-
-        # Verify Authorization header was set
-        assert mcp_function.headers["Authorization"] == "Bearer fallback_token"
+    # No Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.unit
@@ -361,27 +313,21 @@ def test_mcp_function_model_existing_authorization_header() -> None:
 
 @pytest.mark.unit
 def test_mcp_function_model_authentication_failure() -> None:
-    """Test that authentication failure is handled gracefully."""
-    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        with patch("dao_ai.config.logger") as mock_logger:
-            # Mock the provider to raise an exception
-            mock_provider = Mock()
-            mock_provider.create_token.side_effect = Exception("Authentication failed")
-            mock_provider_class.return_value = mock_provider
+    """Test that authentication credentials are stored even if they might fail during invocation."""
+    mcp_function = McpFunctionModel(
+        name="test_mcp",
+        transport=TransportType.STREAMABLE_HTTP,
+        url="https://example.com",
+        pat="invalid_pat",
+        workspace_host="https://test-workspace.cloud.databricks.com",
+    )
 
-            mcp_function = McpFunctionModel(
-                name="test_mcp",
-                transport=TransportType.STREAMABLE_HTTP,
-                url="https://example.com",
-                pat="invalid_pat",
-                workspace_host="https://test-workspace.cloud.databricks.com",
-            )
+    # Authentication config should be stored (validation happens during invocation)
+    assert mcp_function.pat == "invalid_pat"
+    assert mcp_function.workspace_host == "https://test-workspace.cloud.databricks.com"
 
-            # Should log the error
-            mock_logger.error.assert_called_once_with(
-                "Failed to create initial token: Authentication failed"
-            )  # Should not set Authorization header on failure
-            assert "Authorization" not in mcp_function.headers
+    # No Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.system
@@ -402,13 +348,13 @@ def test_mcp_function_model_real_authentication() -> None:
         ),
     )
 
-    # Should have Authorization header set
-    assert "Authorization" in mcp_function.headers
-    assert mcp_function.headers["Authorization"].startswith("Bearer ")
+    # Verify environment variable config is stored for per-invocation auth
+    assert isinstance(mcp_function.workspace_host, EnvironmentVariableModel)
+    assert isinstance(mcp_function.client_id, EnvironmentVariableModel)
+    assert isinstance(mcp_function.client_secret, EnvironmentVariableModel)
 
-    # Token should not be empty
-    token = mcp_function.headers["Authorization"].replace("Bearer ", "")
-    assert len(token) > 0
+    # No Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers
 
 
 @pytest.mark.system
@@ -426,10 +372,9 @@ def test_mcp_function_model_real_pat_authentication() -> None:
         workspace_host=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_HOST"),
     )
 
-    # Should have Authorization header set
-    assert "Authorization" in mcp_function.headers
-    assert mcp_function.headers["Authorization"].startswith("Bearer ")
+    # Verify environment variable config is stored for per-invocation auth
+    assert isinstance(mcp_function.pat, EnvironmentVariableModel)
+    assert isinstance(mcp_function.workspace_host, EnvironmentVariableModel)
 
-    # Token should not be empty
-    token = mcp_function.headers["Authorization"].replace("Bearer ", "")
-    assert len(token) > 0
+    # No Authorization header should be set at creation time (per-invocation auth)
+    assert "Authorization" not in mcp_function.headers

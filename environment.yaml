@@ -1,0 +1,52 @@
+environment_version: '3'
+dependencies:
+  - --index-url https://pypi.org/simple
+  # Core framework dependencies
+  - langchain==0.3.27
+  - langchain-core==0.3.72
+  - langchain-community==0.3.26
+  - langchain-anthropic==0.3.18
+  - langchain-openai==0.3.24
+  - langgraph==0.6.5
+  - langgraph-checkpoint==2.1.1
+  - langgraph-checkpoint-postgres==2.0.23
+  - langgraph-prebuilt==0.6.3
+  - langgraph-supervisor==0.0.29
+  - langmem==0.0.29
+  - langsmith==0.4.1
+  # Databricks dependencies
+  - databricks-agents==1.2.0
+  - databricks-ai-bridge==0.5.1
+  - databricks-langchain==0.5.1
+  - databricks-sdk==0.61.0
+  - databricks-vectorsearch==0.56
+  - unitycatalog-ai==0.3.1
+  - unitycatalog-langchain==0.2.0
+  # MLflow and AI model dependencies
+  - mlflow==3.1.1
+  - anthropic==0.60.0
+  - openai==1.90.0
+  - tiktoken==0.9.0
+  # Data processing dependencies
+  - pandas==2.3.0
+  - numpy==1.26.4
+  - pyarrow==20.0.0
+  - sqlparse==0.5.3
+  - pydantic==2.11.7
+  - pydantic-settings==2.10.0
+  # Database dependencies
+  - psycopg==3.2.9
+  - psycopg-binary==3.2.9
+  - psycopg-pool==3.2.6
+  - sqlalchemy==2.0.41
+  # Web framework dependencies
+  - fastapi==0.115.13
+  - uvicorn==0.34.3
+  - starlette==0.46.2
+  # Utilities
+  - loguru==0.7.3
+  - python-dotenv==1.1.0
+  - pyyaml==6.0.2
+  - requests==2.32.4
+  - tenacity==9.1.2
+  - typing-extensions==4.14.0

@@ -225,14 +225,20 @@ eval_df: pd.DataFrame = spark.read.table(payload_table).toPandas()
 
 evaluation_table_name: str = config.evaluation.table.full_name
 
-scorers_list = [Safety(), clarity, response_completeness, tool_call_efficiency]
+scorers = [Safety(), clarity, response_completeness, tool_call_efficiency]
+custom_scorers = []
+
+if config.evaluation.guidelines:
+    custom_scorers = [Guidelines(name=guideline.name, guidelines=guideline.guidelines) for guideline in config.evaluation.guidelines]
+
+scorers += custom_scorers
 
 with mlflow.start_run(run_id=model_version.run_id):
   eval_results = mlflow.genai.evaluate(
       data=eval_df,
       predict_fn=predict_fn,
       model_id=model_version.model_id,
-      scorers=scorers_list,
+      scorers=scorers,
   )
 
 

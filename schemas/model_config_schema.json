@@ -466,16 +466,9 @@
           "title": "Max Messages Before Summary"
         },
         "max_summary_tokens": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Summary Tokens"
+          "default": 255,
+          "title": "Max Summary Tokens",
+          "type": "integer"
         }
       },
       "required": [
@@ -1097,6 +1090,13 @@
           "additionalProperties": true,
           "title": "Custom Inputs",
           "type": "object"
+        },
+        "guidelines": {
+          "items": {
+            "$ref": "#/$defs/GuidelineModel"
+          },
+          "title": "Guidelines",
+          "type": "array"
         }
       },
       "required": [
@@ -1262,6 +1262,28 @@
         "prompt"
       ],
       "title": "GuardrailModel",
+      "type": "object"
+    },
+    "GuidelineModel": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "guidelines": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Guidelines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "guidelines"
+      ],
+      "title": "GuidelineModel",
       "type": "object"
     },
     "HumanInTheLoopModel": {
