@@ -540,40 +540,66 @@ class DatabricksProvider(ServiceProvider):
                 columns_to_sync=vector_store.columns,
             )
         else:
-            logger.debug(f"Index {vector_store.index.full_name} already exists, checking status and syncing...")
+            logger.debug(
+                f"Index {vector_store.index.full_name} already exists, checking status and syncing..."
+            )
             index = self.vsc.get_index(
                 vector_store.endpoint.name, vector_store.index.full_name
             )
-            
+
             # Wait for index to be in a syncable state
             import time
+
             max_wait_time = 600  # 10 minutes
-            wait_interval = 10   # 10 seconds
+            wait_interval = 10  # 10 seconds
             elapsed = 0
-            
+
             while elapsed < max_wait_time:
                 try:
                     index_status = index.describe()
-                    pipeline_status = index_status.get('status', {}).get('detailed_state', 'UNKNOWN')
+                    pipeline_status = index_status.get("status", {}).get(
+                        "detailed_state", "UNKNOWN"
+                    )
                     logger.debug(f"Index pipeline status: {pipeline_status}")
-                    
-                    if pipeline_status in ['COMPLETED', 'FAILED', 'CANCELED', 'ONLINE_PIPELINE_FAILED']:
-                        logger.debug(f"Index is ready to sync (status: {pipeline_status})")
+
+                    if pipeline_status in [
+                        "COMPLETED",
+                        "FAILED",
+                        "CANCELED",
+                        "ONLINE_PIPELINE_FAILED",
+                    ]:
+                        logger.debug(
+                            f"Index is ready to sync (status: {pipeline_status})"
+                        )
                         break
-                    elif pipeline_status in ['WAITING_FOR_RESOURCES', 'PROVISIONING', 'INITIALIZING', 'INDEXING', 'ONLINE']:
-                        logger.debug(f"Index not ready yet (status: {pipeline_status}), waiting {wait_interval} seconds...")
+                    elif pipeline_status in [
+                        "WAITING_FOR_RESOURCES",
+                        "PROVISIONING",
+                        "INITIALIZING",
+                        "INDEXING",
+                        "ONLINE",
+                    ]:
+                        logger.debug(
+                            f"Index not ready yet (status: {pipeline_status}), waiting {wait_interval} seconds..."
+                        )
                         time.sleep(wait_interval)
                         elapsed += wait_interval
                     else:
-                        logger.warning(f"Unknown pipeline status: {pipeline_status}, attempting sync anyway")
+                        logger.warning(
+                            f"Unknown pipeline status: {pipeline_status}, attempting sync anyway"
+                        )
                         break
                 except Exception as status_error:
-                    logger.warning(f"Could not check index status: {status_error}, attempting sync anyway")
+                    logger.warning(
+                        f"Could not check index status: {status_error}, attempting sync anyway"
+                    )
                     break
-            
+
             if elapsed >= max_wait_time:
-                logger.warning(f"Timed out waiting for index to be ready after {max_wait_time} seconds")
-            
+                logger.warning(
+                    f"Timed out waiting for index to be ready after {max_wait_time} seconds"
+                )
+
             # Now attempt to sync
             try:
                 index.sync()

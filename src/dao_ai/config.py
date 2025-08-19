@@ -22,7 +22,6 @@ from databricks.sdk.credentials_provider import (
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
-    ChatDatabricks,
     DatabricksFunctionClient,
 )
 from langchain_core.language_models import LanguageModelLike
@@ -274,12 +273,14 @@ class LLMModel(BaseModel, IsDatabricksResource):
         # chat_client: LanguageModelLike = self.as_open_ai_client()
 
         # Create ChatDatabricksWrapper instance directly
-        # chat_client: LanguageModelLike = ChatDatabricksFiltered(
-        #     model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
-        # )
-        chat_client: LanguageModelLike = ChatDatabricks(
+        from dao_ai.chat_models import ChatDatabricksFiltered
+
+        chat_client: LanguageModelLike = ChatDatabricksFiltered(
             model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
+        # chat_client: LanguageModelLike = ChatDatabricks(
+        #     model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
+        # )
 
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
@@ -1003,7 +1004,7 @@ class ChatHistoryModel(BaseModel):
     max_tokens: int = 256
     max_tokens_before_summary: Optional[int] = None
     max_messages_before_summary: Optional[int] = None
-    max_summary_tokens: Optional[int] = None
+    max_summary_tokens: int = 256
 
 
 class AppModel(BaseModel):

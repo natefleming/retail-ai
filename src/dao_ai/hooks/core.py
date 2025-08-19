@@ -77,11 +77,13 @@ def filter_last_human_message_hook(
 
     logger.debug(f"Filtered {len(messages)} messages down to 1 (last human message)")
 
-    removed_messages: Sequence[BaseMessage] = [RemoveMessage(id=message.id) for message in messages if message.id != last_message.id]
+    removed_messages: Sequence[BaseMessage] = [
+        RemoveMessage(id=message.id)
+        for message in messages
+        if message.id != last_message.id
+    ]
 
-    updated_state: dict[str, Sequence[BaseMessage]] = {
-        "messages": removed_messages
-    }
+    updated_state: dict[str, Sequence[BaseMessage]] = {"messages": removed_messages}
 
     return updated_state
 

@@ -326,7 +326,7 @@ class TestSummarizationNode:
         assert chat_history.max_tokens == 256
         assert chat_history.max_tokens_before_summary is None
         assert chat_history.max_messages_before_summary is None
-        assert chat_history.max_summary_tokens is None
+        assert chat_history.max_summary_tokens == 256
 
     def test_chat_history_model_custom_values(self, mock_llm_model):
         """Test that ChatHistoryModel accepts custom values."""
