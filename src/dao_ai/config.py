@@ -1004,7 +1004,7 @@ class ChatHistoryModel(BaseModel):
     max_tokens: int = 256
     max_tokens_before_summary: Optional[int] = None
     max_messages_before_summary: Optional[int] = None
-    max_summary_tokens: int = 256
+    max_summary_tokens: int = 255
 
 
 class AppModel(BaseModel):
