@@ -13,6 +13,7 @@ from typing import (
     TypeAlias,
     Union,
 )
+import sys
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
@@ -1198,6 +1199,13 @@ class AppConfig(BaseModel):
 
     def initialize(self) -> None:
         from dao_ai.hooks.core import create_hooks
+
+        # Add code_paths to sys.path for module importing
+        for code_path in self.app.code_paths:
+            absolute_path = os.path.abspath(code_path)
+            if absolute_path not in sys.path:
+                sys.path.insert(0, absolute_path)
+                logger.debug(f"Added code path to sys.path: {absolute_path}")
 
         logger.debug("Calling initialization hooks...")
         initialization_functions: Sequence[Callable[..., Any]] = create_hooks(

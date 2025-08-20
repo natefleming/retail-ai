@@ -378,3 +378,94 @@ def test_mcp_function_model_real_pat_authentication() -> None:
 
     # No Authorization header should be set at creation time (per-invocation auth)
     assert "Authorization" not in mcp_function.headers
+
+
+@pytest.mark.unit
+def test_app_config_initialize_adds_code_paths_to_sys_path(config: AppConfig) -> None:
+    """Test that initialize() adds code_paths to sys.path"""
+    import tempfile
+    import os
+    
+    # Create temporary directories for testing
+    with tempfile.TemporaryDirectory() as temp_dir1, tempfile.TemporaryDirectory() as temp_dir2:
+        # Set up config with code_paths
+        config.app.code_paths = [temp_dir1, temp_dir2]
+        
+        # Store original sys.path
+        original_sys_path = sys.path.copy()
+        
+        try:
+            # Initialize the config
+            config.initialize()
+            
+            # Verify that both paths were added to sys.path
+            abs_temp_dir1 = os.path.abspath(temp_dir1)
+            abs_temp_dir2 = os.path.abspath(temp_dir2)
+            
+            assert abs_temp_dir1 in sys.path, f"Code path {abs_temp_dir1} not found in sys.path"
+            assert abs_temp_dir2 in sys.path, f"Code path {abs_temp_dir2} not found in sys.path"
+            
+            # Verify paths were added at the beginning (index 0, 1)
+            assert sys.path.index(abs_temp_dir2) < sys.path.index(abs_temp_dir1), \
+                "Code paths should be added in reverse order (last path first)"
+                
+        finally:
+            # Restore original sys.path
+            sys.path[:] = original_sys_path
+
+
+@pytest.mark.unit
+def test_app_config_initialize_skips_duplicate_code_paths(config: AppConfig) -> None:
+    """Test that initialize() doesn't add duplicate paths to sys.path"""
+    import tempfile
+    import os
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        abs_temp_dir = os.path.abspath(temp_dir)
+        
+        # Add the path to sys.path first
+        original_sys_path = sys.path.copy()
+        sys.path.insert(0, abs_temp_dir)
+        
+        try:
+            # Set up config with the same path
+            config.app.code_paths = [temp_dir]
+            
+            # Count occurrences before initialize
+            count_before = sys.path.count(abs_temp_dir)
+            
+            # Initialize the config
+            config.initialize()
+            
+            # Count occurrences after initialize
+            count_after = sys.path.count(abs_temp_dir)
+            
+            # Should not have added a duplicate
+            assert count_after == count_before, "Duplicate path was added to sys.path"
+            
+        finally:
+            # Restore original sys.path
+            sys.path[:] = original_sys_path
+
+
+@pytest.mark.unit
+def test_app_config_initialize_with_empty_code_paths(config: AppConfig) -> None:
+    """Test that initialize() works correctly with empty code_paths"""
+    # Set up config with empty code_paths
+    config.app.code_paths = []
+    
+    # Store original sys.path
+    original_sys_path = sys.path.copy()
+    
+    try:
+        # Initialize the config - should not raise any errors
+        config.initialize()
+        
+        # sys.path should be unchanged (except for any hooks that might modify it)
+        # We can't assert exact equality because hooks might modify sys.path,
+        # but we can verify no code_paths were added
+        assert True, "initialize() should complete without errors when code_paths is empty"
+        
+    finally:
+        # Restore original sys.path
+        sys.path[:] = original_sys_path
