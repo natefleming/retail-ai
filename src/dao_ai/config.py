@@ -1,5 +1,6 @@
 import atexit
 import os
+import sys
 from abc import ABC, abstractmethod
 from enum import Enum
 from os import PathLike
@@ -13,7 +14,6 @@ from typing import (
     TypeAlias,
     Union,
 )
-import sys
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
@@ -1070,6 +1070,15 @@ class AppModel(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def add_code_paths_to_sys_path(self):
+        for code_path in self.code_paths:
+            absolute_path = os.path.abspath(code_path)
+            if absolute_path not in sys.path:
+                sys.path.insert(0, absolute_path)
+                logger.debug(f"Added code path to sys.path: {absolute_path}")
+        return self
+
 
 class GuidelineModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1199,13 +1208,6 @@ class AppConfig(BaseModel):
 
     def initialize(self) -> None:
         from dao_ai.hooks.core import create_hooks
-
-        # Add code_paths to sys.path for module importing
-        for code_path in self.app.code_paths:
-            absolute_path = os.path.abspath(code_path)
-            if absolute_path not in sys.path:
-                sys.path.insert(0, absolute_path)
-                logger.debug(f"Added code path to sys.path: {absolute_path}")
 
         logger.debug("Calling initialization hooks...")
         initialization_functions: Sequence[Callable[..., Any]] = create_hooks(
