@@ -33,6 +33,7 @@ from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
     DatabricksResource,
 )
+from importlib.metadata import version
 from pyspark.sql import SparkSession
 from unitycatalog.ai.core.base import FunctionExecutionResult
 from unitycatalog.ai.core.databricks import DatabricksFunctionClient
@@ -277,7 +278,7 @@ class DatabricksProvider(ServiceProvider):
 
         if is_installed():
             pip_requirements += [
-                f"dao-ai=={dao_ai.__version__}",
+                f"dao-ai=={version('dao-ai')}",
             ]
         else:
             src_path: Path = model_root_path.parent
