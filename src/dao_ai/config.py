@@ -28,6 +28,7 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.runnables.base import RunnableLike
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from loguru import logger
 from mlflow.models import ModelConfig
@@ -41,6 +42,7 @@ from mlflow.models.resources import (
     DatabricksUCConnection,
     DatabricksVectorSearchIndex,
 )
+from mlflow.pyfunc import ChatModel
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 
@@ -1320,3 +1322,16 @@ class AppConfig(BaseModel):
         return [
             guardrail for guardrail in self.guardrails.values() if predicate(guardrail)
         ]
+
+    def as_graph(self) -> CompiledStateGraph:
+        from dao_ai.graph import create_dao_ai_graph
+
+        graph: CompiledStateGraph = create_dao_ai_graph(config=self)
+        return graph
+
+    def as_chat_model(self) -> ChatModel:
+        from dao_ai.models import create_agent
+
+        graph: CompiledStateGraph = self.as_graph()
+        app: ChatModel = create_agent(graph)
+        return app

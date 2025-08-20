@@ -962,10 +962,10 @@ app:
           thread_id: "1"
           user_id: my_user_id
           store_num: 87887
-  chat_history: 
-    #max_tokens: 256
-    max_messages_before_summary: 5
-    model: *fast_llm                          # Model for summarization tasks
+  #chat_history: 
+  #  #max_tokens: 256
+  #  max_messages_before_summary: 5
+  #  model: *fast_llm                          # Model for summarization tasks
 
 
 # =============================================================================
