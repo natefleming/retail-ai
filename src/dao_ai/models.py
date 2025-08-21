@@ -266,7 +266,7 @@ def _process_config_messages_stream(
 def process_messages_stream(
     app: LanggraphChatModel,
     messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
-    custom_inputs: dict[str, Any] = None,
+    custom_inputs: Optional[dict[str, Any]] = None,
 ) -> Generator[ChatCompletionChunk | AIMessageChunk, None, None]:
     """
     Process messages through a ChatAgent in streaming mode.
