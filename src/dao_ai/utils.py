@@ -92,6 +92,10 @@ def load_function(function_name: str) -> Callable[..., Any]:
         >>> version = func("my_model")
     """
     logger.debug(f"Loading function: {function_name}")
+    
+    import sys
+    logger.debug(f"path: {sys.path}")
+    
     try:
         # Split the FQN into module path and function name
         module_path, func_name = function_name.rsplit(".", 1)
