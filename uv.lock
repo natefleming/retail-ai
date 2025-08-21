@@ -434,13 +434,12 @@ wheels = [
 
 [[package]]
 name = "dao-ai"
-version = "0.0.9"
+version = "0.0.10"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-agents" },
     { name = "databricks-langchain" },
     { name = "databricks-sdk", extra = ["openai"] },
-    { name = "databricks-vectorsearch" },
     { name = "duckduckgo-search" },
     { name = "grandalf" },
     { name = "langchain" },
@@ -478,10 +477,18 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
+local-dev = [
+    { name = "databricks-connect" },
+    { name = "databricks-vectorsearch" },
+    { name = "pyspark" },
+]
 test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
+]
+vectorsearch = [
+    { name = "databricks-vectorsearch" },
 ]
 
 [package.dev-dependencies]
@@ -507,18 +514,28 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
+local-dev = [
+    { name = "databricks-connect" },
+    { name = "databricks-vectorsearch" },
+    { name = "pyspark" },
+]
 test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
 ]
+vectorsearch = [
+    { name = "databricks-vectorsearch" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "databricks-agents", specifier = ">=1.2.0" },
+    { name = "databricks-connect", marker = "extra == 'local-dev'", specifier = ">=15.0.0" },
     { name = "databricks-langchain", specifier = ">=0.4.2" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.55.0" },
-    { name = "databricks-vectorsearch", specifier = ">=0.56" },
+    { name = "databricks-vectorsearch", marker = "extra == 'local-dev'", specifier = ">=0.56" },
+    { name = "databricks-vectorsearch", marker = "extra == 'vectorsearch'", specifier = ">=0.56" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
     { name = "grandalf", specifier = ">=0.8" },
     { name = "langchain", specifier = ">=0.3.27" },
@@ -541,6 +558,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.9" },
     { name = "pydantic", specifier = ">=2.11.3" },
+    { name = "pyspark", marker = "extra == 'local-dev'", specifier = ">=3.5.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
@@ -553,7 +571,7 @@ requires-dist = [
     { name = "sqlparse", specifier = ">=0.5.3" },
     { name = "unitycatalog-ai", extras = ["databricks"], specifier = ">=0.3.0" },
 ]
-provides-extras = ["dev", "docs", "test"]
+provides-extras = ["dev", "docs", "test", "vectorsearch", "local-dev"]
 
 [package.metadata.requires-dev]
 all = [
@@ -578,11 +596,17 @@ docs = [
     { name = "mkdocs-material", specifier = ">=9.0.0" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.24.0" },
 ]
+local-dev = [
+    { name = "databricks-connect", specifier = ">=15.0.0" },
+    { name = "databricks-vectorsearch", specifier = ">=0.56" },
+    { name = "pyspark", specifier = ">=3.5.0" },
+]
 test = [
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-cov", specifier = ">=4.0.0" },
     { name = "pytest-mock", specifier = ">=3.10.0" },
 ]
+vectorsearch = [{ name = "databricks-vectorsearch", specifier = ">=0.56" }]
 
 [[package]]
 name = "databricks-agents"
@@ -2797,6 +2821,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/bb/22/f1129e69d94ffff62
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/e7/df2285f3d08fee213f2d041540fa4fc9ca6c2d44cf36d3a035bf2a8d2bcc/pyparsing-3.2.3-py3-none-any.whl", hash = "sha256:a749938e02d6fd0b59b356ca504a24982314bb090c383e3cf201c95ef7e2bfcf", size = 111120, upload-time = "2025-03-25T05:01:24.908Z" },
 ]
+
+[[package]]
+name = "pyspark"
+version = "3.5.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "py4j" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2e/62/36e50d38e5fe158e97cddec983b44f9417b1e205b02320e3c463b5f802fa/pyspark-3.5.6.tar.gz", hash = "sha256:f8b1c4360e41ab398c64904fae08740503bcb6bd389457d659fa6d9f2952cc48", size = 317359167, upload-time = "2025-05-27T08:24:20.82Z" }
 
 [[package]]
 name = "pytest"
