@@ -1077,8 +1077,10 @@ class AppModel(BaseModel):
             if absolute_path not in sys.path:   
                 logger.debug(f"Added code path to sys.path: {absolute_path}")
                 sys.path.insert(0, absolute_path)
+                sys.path.insert(0, str(Path(absolute_path).parent))
             if code_path not in sys.path:
                 sys.path.insert(0, code_path)
+                sys.path.insert(0, str(Path(code_path).parent))
                 logger.debug(f"Added code path to sys.path: {code_path}")
         return self
 
