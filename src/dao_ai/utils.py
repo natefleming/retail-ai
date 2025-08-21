@@ -92,58 +92,13 @@ def load_function(function_name: str) -> Callable[..., Any]:
         >>> version = func("my_model")
     """
     logger.debug(f"Loading function: {function_name}")
-
-    import sys
-
-    # Light diagnostics: path and meta importers (helpful in Databricks Serverless)
-    try:
-        meta_finders = [
-            getattr(f, "__class__", type(f)).__name__ for f in sys.meta_path
-        ]
-        logger.debug(f"sys.path ({len(sys.path)}): {sys.path}")
-        logger.debug(f"sys.meta_path ({len(sys.meta_path)}): {meta_finders}")
-    except Exception:
-        # Do not fail if diagnostics can't be collected
-        pass
-
+        
     try:
         # Split the FQN into module path and function name
         module_path, func_name = function_name.rsplit(".", 1)
 
-        # Invalidate caches to ensure new finders/paths are considered (important on first import)
-        importlib.invalidate_caches()
-
-        # Progressive import: import parents first to initialize namespace packages/loaders
-        # e.g., for "a.b.c.d", import "a", then "a.b", then "a.b.c", then full module
-        parts = module_path.split(".")
-        parents = [".".join(parts[:i]) for i in range(1, len(parts))]
-        for parent in parents:
-            if parent and parent not in sys.modules:
-                try:
-                    importlib.import_module(parent)
-                    logger.debug(f"Imported parent package: {parent}")
-                except ImportError as pe:
-                    # Parent import may fail for some structures; continue to try full module
-                    logger.debug(f"Parent import failed for {parent}: {pe}")
-
-        # Try to dynamically import the target module
-        try:
-            module = importlib.import_module(module_path)
-        except ImportError as first_error:
-            # Retry once after another cache invalidation; this often helps after a kernel just started
-            importlib.invalidate_caches()
-            try:
-                module = importlib.import_module(module_path)
-            except ImportError as second_error:
-                # Provide richer context, including whether top-level package is present
-                top_level = parts[0] if parts else module_path
-                in_sys_modules = top_level in sys.modules
-                msg = (
-                    f"Failed to import {module_path}. "
-                    f"top_level_present={in_sys_modules}, top_level={top_level}. "
-                    f"first_error={first_error}, second_error={second_error}"
-                )
-                raise ImportError(msg)
+        # Dynamically import the module
+        module = importlib.import_module(module_path)
 
         # Get the function from the module
         func = getattr(module, func_name)

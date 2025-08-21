@@ -14,7 +14,7 @@ from typing import (
     TypeAlias,
     Union,
 )
-
+import importlib
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
@@ -1077,6 +1077,7 @@ class AppModel(BaseModel):
             if parent_path not in sys.path:
                 sys.path.insert(0, parent_path)
                 logger.debug(f"Added code path to sys.path: {parent_path}")
+        importlib.invalidate_caches()
         return self
 
 
