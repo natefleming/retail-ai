@@ -76,7 +76,7 @@ def load_function(function_name: str) -> Callable[..., Any]:
     without hardcoding import statements.
 
     Args:
-        fqn: Fully qualified name of the function to import, in the format
+        function_name: Fully qualified name of the function to import, in the format
              "module.submodule.function_name"
 
     Returns:
@@ -88,7 +88,7 @@ def load_function(function_name: str) -> Callable[..., Any]:
         TypeError: If the resolved object is not callable
 
     Example:
-        >>> func = callable_from_fqn("dao_ai.models.get_latest_model_version")
+        >>> func = load_function("dao_ai.models.get_latest_model_version")
         >>> version = func("my_model")
     """
     logger.debug(f"Loading function: {function_name}")
@@ -96,8 +96,33 @@ def load_function(function_name: str) -> Callable[..., Any]:
         # Split the FQN into module path and function name
         module_path, func_name = function_name.rsplit(".", 1)
 
-        # Dynamically import the module
-        module = importlib.import_module(module_path)
+        # Try to dynamically import the module
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError as import_error:
+            # If import fails, try to add common source paths and retry
+            # This helps with Databricks Serverless environments
+            logger.debug(f"Initial import failed for {module_path}, trying to add source paths")
+            
+            # Add common source directories to sys.path if not already present
+            import sys
+            potential_paths = ['./src', 'src', '.']
+            for path in potential_paths:
+                abs_path = os.path.abspath(path)
+                if abs_path not in sys.path:
+                    sys.path.insert(0, abs_path)
+                    logger.debug(f"Added {abs_path} to sys.path for module resolution")
+            
+            # Force reload of importlib to pick up new paths
+            importlib.invalidate_caches()
+            
+            # Retry the import
+            try:
+                module = importlib.import_module(module_path)
+                logger.debug(f"Successfully imported {module_path} after adding source paths")
+            except ImportError:
+                # If it still fails, raise the original error
+                raise import_error
 
         # Get the function from the module
         func = getattr(module, func_name)
