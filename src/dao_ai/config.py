@@ -1,4 +1,5 @@
 import atexit
+import importlib
 import os
 import sys
 from abc import ABC, abstractmethod
@@ -14,7 +15,7 @@ from typing import (
     TypeAlias,
     Union,
 )
-import importlib
+
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
