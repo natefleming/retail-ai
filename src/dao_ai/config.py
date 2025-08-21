@@ -1074,9 +1074,11 @@ class AppModel(BaseModel):
     def add_code_paths_to_sys_path(self):
         for code_path in self.code_paths:
             absolute_path = os.path.abspath(code_path)
-            if absolute_path not in sys.path:
-                sys.path.insert(0, absolute_path)
+            if absolute_path not in sys.path:   
                 logger.debug(f"Added code path to sys.path: {absolute_path}")
+            if code_path not in sys.path:
+                sys.path.insert(0, code_path)
+                logger.debug(f"Added code path to sys.path: {code_path}")
         return self
 
 
