@@ -1,4 +1,5 @@
 import base64
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Callable, Final, Sequence
 
@@ -33,7 +34,6 @@ from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
     DatabricksResource,
 )
-from importlib.metadata import version
 from pyspark.sql import SparkSession
 from unitycatalog.ai.core.base import FunctionExecutionResult
 from unitycatalog.ai.core.databricks import DatabricksFunctionClient
@@ -58,7 +58,12 @@ from dao_ai.config import (
 )
 from dao_ai.models import get_latest_model_version
 from dao_ai.providers.base import ServiceProvider
-from dao_ai.utils import get_installed_packages, is_installed, normalize_name
+from dao_ai.utils import (
+    get_installed_packages,
+    is_installed,
+    is_lib_provided,
+    normalize_name,
+)
 from dao_ai.vector_search import endpoint_exists, index_exists
 
 MAX_NUM_INDEXES: Final[int] = 50
@@ -263,10 +268,6 @@ class DatabricksProvider(ServiceProvider):
         )
         logger.debug(f"auth_policy: {auth_policy}")
 
-        pip_requirements: Sequence[str] = (
-            get_installed_packages() + config.app.pip_requirements
-        )
-
         code_paths: list[str] = config.app.code_paths
         for path in code_paths:
             path = Path(path)
@@ -276,16 +277,21 @@ class DatabricksProvider(ServiceProvider):
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "agent_as_code.py"
 
+        pip_requirements: Sequence[str] = config.app.pip_requirements
+
         if is_installed():
-            pip_requirements += [
-                f"dao-ai=={version('dao-ai')}",
-            ]
+            if not is_lib_provided("dao-ai", pip_requirements):
+                pip_requirements += [
+                    f"dao-ai=={version('dao-ai')}",
+                ]
         else:
             src_path: Path = model_root_path.parent
             directories: Sequence[Path] = [d for d in src_path.iterdir() if d.is_dir()]
             for directory in directories:
                 directory: Path
                 code_paths.append(directory.as_posix())
+
+            pip_requirements += get_installed_packages()
 
         logger.debug(f"pip_requirements: {pip_requirements}")
         logger.debug(f"code_paths: {code_paths}")

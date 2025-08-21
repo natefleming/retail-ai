@@ -1,6 +1,6 @@
 import pytest
 
-from dao_ai.utils import load_function
+from dao_ai.utils import is_lib_provided, load_function
 
 
 @pytest.mark.unit
@@ -45,3 +45,17 @@ def test_load_function_no_dot_separator() -> None:
     """Test loading with invalid function name format."""
     with pytest.raises(ValueError):
         load_function("invalid_format")
+
+
+@pytest.mark.unit
+def test_is_lib_provided() -> None:
+    """Test if a library is provided in the pip requirements."""
+    assert is_lib_provided("dao-ai", ["dao-ai", "pandas"]) is True
+    assert is_lib_provided("dao-ai", ["dao-ai>=0.0.1", "pandas"]) is True
+    assert is_lib_provided("dao-ai", ["numpy", "pandas"]) is False
+    assert (
+        is_lib_provided(
+            "dao-ai", ["git+https://github.com/natefleming/dao-ai.git", "numpy"]
+        )
+        is True
+    )

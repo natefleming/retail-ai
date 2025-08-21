@@ -11,6 +11,13 @@ from loguru import logger
 import dao_ai
 
 
+def is_lib_provided(lib_name: str, pip_requirements: Sequence[str]) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(lib_name)}\b", requirement)
+        for requirement in pip_requirements
+    )
+
+
 def is_installed():
     current_file = os.path.abspath(dao_ai.__file__)
     site_packages = [os.path.abspath(path) for path in site.getsitepackages()]
