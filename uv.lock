@@ -466,6 +466,11 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+databricks = [
+    { name = "databricks-connect" },
+    { name = "databricks-vectorsearch" },
+    { name = "pyspark" },
+]
 dev = [
     { name = "mypy" },
     { name = "pre-commit" },
@@ -477,18 +482,10 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
-local-dev = [
-    { name = "databricks-connect" },
-    { name = "databricks-vectorsearch" },
-    { name = "pyspark" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
-]
-vectorsearch = [
-    { name = "databricks-vectorsearch" },
 ]
 
 [package.dev-dependencies]
@@ -503,6 +500,11 @@ all = [
     { name = "pytest-mock" },
     { name = "ruff" },
 ]
+databricks = [
+    { name = "databricks-connect" },
+    { name = "databricks-vectorsearch" },
+    { name = "pyspark" },
+]
 dev = [
     { name = "mypy" },
     { name = "pre-commit" },
@@ -514,28 +516,19 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
-local-dev = [
-    { name = "databricks-connect" },
-    { name = "databricks-vectorsearch" },
-    { name = "pyspark" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
 ]
-vectorsearch = [
-    { name = "databricks-vectorsearch" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "databricks-agents", specifier = ">=1.2.0" },
-    { name = "databricks-connect", marker = "extra == 'local-dev'", specifier = ">=15.0.0" },
+    { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=15.0.0" },
     { name = "databricks-langchain", specifier = ">=0.4.2" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.55.0" },
-    { name = "databricks-vectorsearch", marker = "extra == 'local-dev'", specifier = ">=0.56" },
-    { name = "databricks-vectorsearch", marker = "extra == 'vectorsearch'", specifier = ">=0.56" },
+    { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.56" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
     { name = "grandalf", specifier = ">=0.8" },
     { name = "langchain", specifier = ">=0.3.27" },
@@ -558,7 +551,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.9" },
     { name = "pydantic", specifier = ">=2.11.3" },
-    { name = "pyspark", marker = "extra == 'local-dev'", specifier = ">=3.5.0" },
+    { name = "pyspark", marker = "extra == 'databricks'", specifier = ">=3.5.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
@@ -571,7 +564,7 @@ requires-dist = [
     { name = "sqlparse", specifier = ">=0.5.3" },
     { name = "unitycatalog-ai", extras = ["databricks"], specifier = ">=0.3.0" },
 ]
-provides-extras = ["dev", "docs", "test", "vectorsearch", "local-dev"]
+provides-extras = ["dev", "docs", "test", "databricks"]
 
 [package.metadata.requires-dev]
 all = [
@@ -585,6 +578,11 @@ all = [
     { name = "pytest-mock", specifier = ">=3.10.0" },
     { name = "ruff", specifier = ">=0.11.11" },
 ]
+databricks = [
+    { name = "databricks-connect", specifier = ">=15.0.0" },
+    { name = "databricks-vectorsearch", specifier = ">=0.56" },
+    { name = "pyspark", specifier = ">=3.5.0" },
+]
 dev = [
     { name = "mypy", specifier = ">=1.0.0" },
     { name = "pre-commit", specifier = ">=3.0.0" },
@@ -596,17 +594,11 @@ docs = [
     { name = "mkdocs-material", specifier = ">=9.0.0" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.24.0" },
 ]
-local-dev = [
-    { name = "databricks-connect", specifier = ">=15.0.0" },
-    { name = "databricks-vectorsearch", specifier = ">=0.56" },
-    { name = "pyspark", specifier = ">=3.5.0" },
-]
 test = [
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-cov", specifier = ">=4.0.0" },
     { name = "pytest-mock", specifier = ">=3.10.0" },
 ]
-vectorsearch = [{ name = "databricks-vectorsearch", specifier = ">=0.56" }]
 
 [[package]]
 name = "databricks-agents"

@@ -22,7 +22,6 @@ databricks-agents==1.2.0
 databricks-ai-bridge==0.5.1
 databricks-langchain==0.5.1
 databricks-sdk==0.61.0
-databricks-vectorsearch==0.56
 dataclasses-json==0.6.7
 deprecation==2.1.0
 distlib==0.3.9
