@@ -5,11 +5,10 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: nfleming                    # Unity Catalog name
     schema_name: retail_ai                    # Schema within the catalog
-    # permissions:                              # Access permissions for the schema
-    #   - principals: [users]                   # Grant access to all users
-    #     privileges:
-    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
+  quick_serve_retaurant_schema: &quick_serve_retaurant_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: quick_serve_restaurant                    # Schema within the catalog
 
 resources:
   llms:
@@ -20,6 +19,40 @@ resources:
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: False
 
+  tables:
+    product_table: &product_table
+      schema: *quick_serve_retaurant_schema                        # Reference to schema defined above
+      name: products                                # Table name
+    
+    inventory_table: &inventory_table
+      schema: *quick_serve_retaurant_schema
+      name: inventory
+
+    items_description: &items_description
+      schema: *quick_serve_retaurant_schema
+      name: items_description
+
+    fulfil_item_orders: &fulfil_item_orders
+      schema: *quick_serve_retaurant_schema
+      name: fulfil_item_orders
+
+    orders: &orders
+      schema: *quick_serve_retaurant_schema
+      name: orders
+
+  functions:
+
+    lookup_items_by_descriptions: &lookup_items_by_descriptions
+      schema: *quick_serve_retaurant_schema
+      name: lookup_items_by_descriptions
+
+    match_item_by_description_and_price: &match_item_by_description_and_price
+      schema: *quick_serve_retaurant_schema
+      name: match_item_by_description_and_price     
+    
+    match_historical_item_order_by_date: &match_historical_item_order_by_date
+      schema: *quick_serve_retaurant_schema
+      name: match_historical_item_order_by_date     
 
   genie_rooms:
     # Genie space for retail data queries
@@ -37,7 +70,7 @@ tools:
       name: dao_ai.tools.create_genie_tool       # Factory function path
       args:                                         # Arguments passed to factory
         name: my_genie_tool
-        description: My Answers questions about genie
+        description: Answers questions about retail products and inventory
         genie_room: *retail_genie_room              # Reference to Genie room config
 
 
@@ -49,9 +82,8 @@ agents:
     tools:                                          # Tools available to this agent
       - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
-      Answers foobar questions about genie
-    handoff_prompt: |                               # Conditions for routing to this agent
-      Answers all foobar questions
+      Answers questions about retail products and inventory
+
 
 app:
   name: genie_example                      # Application name  
