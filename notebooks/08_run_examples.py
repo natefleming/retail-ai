@@ -1,7 +1,7 @@
 # Databricks notebook source
-# MAGIC %pip install --quiet -r ../requirements.txt
-# MAGIC %pip uninstall -y databricks-connect pyspark pyspark-connect
-# MAGIC %pip install databricks-connect
+# MAGIC %pip install --quiet --upgrade -r ../requirements.txt
+# MAGIC %pip uninstall --quiet -y databricks-connect pyspark pyspark-connect
+# MAGIC %pip install --quiet databricks-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -50,15 +50,7 @@ mlflow.langchain.autolog()
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
-log_level: str = config.app.log_level
-
-logger.remove()
-logger.add(sys.stderr, level=log_level)
-
-graph: CompiledStateGraph = create_dao_ai_graph(config=config)
-
-app: ChatModel = create_agent(graph)
-
+app: ChatModel = config.as_chat_model()
 
 # COMMAND ----------
 

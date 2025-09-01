@@ -1,8 +1,8 @@
 # Databricks notebook source
 # DBTITLE 1,Install Required Python Packages and Restart Kernel
-# MAGIC %pip install --quiet -r ../requirements.txt
-# MAGIC %pip uninstall -y databricks-connect pyspark pyspark-connect
-# MAGIC %pip install databricks-connect
+# MAGIC %pip install --quiet --upgrade -r ../requirements.txt
+# MAGIC %pip uninstall --quiet -y databricks-connect pyspark pyspark-connect
+# MAGIC %pip install --quiet databricks-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
