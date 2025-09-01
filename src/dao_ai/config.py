@@ -409,6 +409,9 @@ class VolumePathModel(BaseModel, HasFullName):
             return f"/Volumes/{catalog_name}/{schema_name}/{volume_name}{path}"
         return self.path
 
+    def as_path(self) -> Path:
+        return Path(self.full_name)
+
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.databricks import DatabricksProvider
 
