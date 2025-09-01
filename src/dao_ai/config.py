@@ -1232,6 +1232,10 @@ class AppConfig(BaseModel):
     def initialize(self) -> None:
         from dao_ai.hooks.core import create_hooks
 
+        if self.app and self.app.log_level:
+            logger.remove()
+            logger.add(sys.stderr, level=self.app.log_level)
+
         logger.debug("Calling initialization hooks...")
         initialization_functions: Sequence[Callable[..., Any]] = create_hooks(
             self.app.initialization_hooks
