@@ -20,8 +20,6 @@ log_level: str = config.app.log_level
 logger.remove()
 logger.add(sys.stderr, level=log_level)
 
-graph: CompiledStateGraph = create_dao_ai_graph(config=config)
-
-app: ChatModel = create_agent(graph)
+app: ChatModel = config.as_chat_model()
 
 mlflow.models.set_model(app)
