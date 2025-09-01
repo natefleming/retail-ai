@@ -351,12 +351,82 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
         )
 
 
+class GenieRoomModel(BaseModel, IsDatabricksResource):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    description: Optional[str] = None
+    space_id: str
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "dashboards.genie",
+        ]
+
+    def as_resource(self) -> DatabricksResource:
+        return DatabricksGenieSpace(
+            genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user
+        )
+
+
+class VolumeModel(BaseModel, HasFullName):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    name: str
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_volume(self)
+
+
+class VolumePathModel(BaseModel, HasFullName):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    volume: Optional[VolumeModel] = None
+    path: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_path_or_volume(self):
+        if not self.volume and not self.path:
+            raise ValueError("Either 'volume' or 'path' must be provided")
+        return self
+
+    @property
+    def full_name(self) -> str:
+        if self.volume and self.volume.schema_model:
+            catalog_name: str = self.volume.schema_model.catalog_name
+            schema_name: str = self.volume.schema_model.schema_name
+            volume_name: str = self.volume.name
+            path = f"/{self.path}" if self.path else ""
+            return f"/Volumes/{catalog_name}/{schema_name}/{volume_name}{path}"
+        return self.path
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        if self.volume:
+            self.volume.create(w=w)
+
+        provider: DatabricksProvider = DatabricksProvider(w=w)
+        provider.create_path(self)
+
+
 class VectorStoreModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     embedding_model: Optional[LLMModel] = None
     index: Optional[IndexModel] = None
     endpoint: Optional[VectorSearchEndpoint] = None
     source_table: TableModel
+    source_path: Optional[VolumePathModel] = None
+    checkpoint_path: Optional[VolumePathModel] = None
     primary_key: Optional[str] = None
     columns: Optional[list[str]] = Field(default_factory=list)
     doc_uri: Optional[str] = None
@@ -446,43 +516,6 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 
         provider: ServiceProvider = DatabricksProvider(vsc=vsc)
         provider.create_vector_store(self)
-
-
-class GenieRoomModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    description: Optional[str] = None
-    space_id: str
-
-    @property
-    def api_scopes(self) -> Sequence[str]:
-        return [
-            "dashboards.genie",
-        ]
-
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksGenieSpace(
-            genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user
-        )
-
-
-class VolumeModel(BaseModel, HasFullName):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
-
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
-
-    def create(self, w: WorkspaceClient | None = None) -> None:
-        from dao_ai.providers.base import ServiceProvider
-        from dao_ai.providers.databricks import DatabricksProvider
-
-        provider: ServiceProvider = DatabricksProvider(w=w)
-        provider.create_volume(self)
 
 
 class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
@@ -1105,21 +1138,6 @@ class DatasetFormat(str, Enum):
     ORC = "orc"
     SQL = "sql"
     EXCEL = "excel"
-
-
-class VolumePathModel(BaseModel, HasFullName):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    volume: VolumeModel
-    path: str
-
-    @property
-    def full_name(self) -> str:
-        if self.volume.schema_model:
-            catalog_name: str = self.volume.schema_model.catalog_name
-            schema_name: str = self.volume.schema_model.schema_name
-            volume_name: str = self.volume.name
-            return f"/Volumes/{catalog_name}/{schema_name}/{volume_name}/{self.path}"
-        return f"/Volumes/{volume_name}/{self.path}"
 
 
 class DatasetModel(BaseModel):

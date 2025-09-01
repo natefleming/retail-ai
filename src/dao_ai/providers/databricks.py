@@ -54,6 +54,7 @@ from dao_ai.config import (
     UnityCatalogFunctionSqlModel,
     VectorStoreModel,
     VolumeModel,
+    VolumePathModel,
     WarehouseModel,
 )
 from dao_ai.models import get_latest_model_version
@@ -440,6 +441,12 @@ class DatabricksProvider(ServiceProvider):
                 volume_type=VolumeType.MANAGED,
             )
         return volume_info
+
+    def create_path(self, volume_path: VolumePathModel) -> Path:
+        path: Path = volume_path.full_name
+        logger.info(f"Creating volume path: {path}")
+        self.w.files.create_directory(path)
+        return path
 
     def create_dataset(self, dataset: DatasetModel) -> None:
         current_dir: Path = "file:///" / Path.cwd().relative_to("/")
