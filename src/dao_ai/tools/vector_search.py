@@ -51,7 +51,9 @@ def create_vector_search_tool(
 
     vector_search_tool: BaseTool = VectorSearchRetrieverTool(
         name=name,
+        tool_name=name,
         description=description,
+        tool_description=description,
         index_name=index_name,
         columns=columns,
         **search_parameters,
