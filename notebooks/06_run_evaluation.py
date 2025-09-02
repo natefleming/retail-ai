@@ -127,11 +127,6 @@ from mlflow.genai.scorers import scorer, Safety, Guidelines
 from mlflow.entities import Feedback, Trace
 
 
-clarity = Guidelines(
-    name="clarity",
-    guidelines=["The response must be clear, coherent, and concise"],
-)
-
 @scorer
 def response_completeness(outputs: dict[str, Any]) -> Feedback:
 
@@ -225,7 +220,7 @@ eval_df: pd.DataFrame = spark.read.table(payload_table).toPandas()
 
 evaluation_table_name: str = config.evaluation.table.full_name
 
-scorers = [Safety(), clarity, response_completeness, tool_call_efficiency]
+scorers = [Safety(), response_completeness, tool_call_efficiency]
 custom_scorers = []
 
 if config.evaluation.guidelines:

@@ -65,26 +65,43 @@ for _, vector_store in config.resources.vector_stores.items():
     spark.table(vector_store.source_table.full_name)
     .withColumn("id", F.col(vector_store.primary_key))
     .withColumn("content", F.col(vector_store.embedding_source_column))
-    .withColumn("doc_uri", F.lit("source"))
+    .withColumn("doc_uri", doc_uri)
   )
   parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
 
   display(parsed_docs_pdf)
 
-  agent_description = f"""
-  The agent is a RAG chatbot that answers questions about retail hardware and gives recommendations for purchases. 
-  """
-  question_guidelines = f"""
-  # User personas
-  - An employee or client asking about products and inventory
+  agent_description: str = evaluation.agent_description
+  if not agent_description:
+      agent_description = """
+  A general-purpose chatbot AI agent is designed to engage in natural conversations 
+  across diverse topics and tasks, drawing from broad knowledge to answer questions, 
+  assist with writing, solve problems, and provide explanations while maintaining 
+  context throughout interactions. It aims to be a versatile, adaptable assistant 
+  that can help with the wide spectrum of things people encounter in daily life, 
+  adjusting its communication style and level of detail based on user needs.
+      """
 
+  question_guidelines: str = evaluation.question_guidelines
+  if not question_guidelines:
+      question_guidelines = f"""
+# User personas
+- A curious individual seeking information or explanations
+- A student looking for homework help or learning assistance  
+- A professional needing quick research or writing support
+- A creative person brainstorming ideas or seeking inspiration
 
-  # Example questions
-  - What grills do you have in stock?
-  - Can you recommend a accessories for my Toro lawn mower?
+# Example questions
+- Can you explain how photosynthesis works?
+- Help me write a professional email to my boss
+- What are some good books similar to Harry Potter?
+- How do I fix a leaky faucet?
 
-  # Additional Guidelines
-  - Questions should be succinct, and human-like
+# Additional Guidelines  
+- Questions should be conversational and natural
+- Users may ask follow-up questions to dig deeper into topics
+- Requests can range from simple facts to complex multi-step tasks
+- Tone can vary from casual chat to formal assistance
   """
 
   evals_pdf: pd.DataFrame = generate_evals_df(

@@ -1129,6 +1129,8 @@ class EvaluationModel(BaseModel):
     model: LLMModel
     table: TableModel
     num_evals: int
+    agent_description: Optional[str] = None
+    question_guidelines: Optional[str] = None
     custom_inputs: dict[str, Any] = Field(default_factory=dict)
     guidelines: list[GuidelineModel] = Field(default_factory=list)
 

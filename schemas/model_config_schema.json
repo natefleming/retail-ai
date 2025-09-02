@@ -1086,6 +1086,30 @@
           "title": "Num Evals",
           "type": "integer"
         },
+        "agent_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Description"
+        },
+        "question_guidelines": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question Guidelines"
+        },
         "custom_inputs": {
           "additionalProperties": true,
           "title": "Custom Inputs",
