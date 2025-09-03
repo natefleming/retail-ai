@@ -36,16 +36,39 @@ def route_message(state: SharedState) -> str:
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
-    """
-    DEPRECATED: This function is no longer used in swarm orchestration.
-    Handoffs are now handled internally by the LangGraph Swarm create_swarm function.
-    Individual agents should not have handoff tools attached to them.
-    """
-    logger.warning(
-        f"_handoffs_for_agent is deprecated and should not be used for swarm orchestration. "
-        f"Agent {agent.name} handoffs are handled by the swarm itself."
+    handoff_tools: list[BaseTool] = []
+
+    handoffs: dict[str, Sequence[AgentModel | str]] = (
+        config.app.orchestration.swarm.handoffs or {}
     )
-    return []
+    agent_handoffs: Sequence[AgentModel | str] = handoffs.get(agent.name)
+    if agent_handoffs is None:
+        agent_handoffs = config.app.agents
+
+    for handoff_to_agent in agent_handoffs:
+        if isinstance(handoff_to_agent, str):
+            handoff_to_agent = next(
+                iter(config.find_agents(lambda a: a.name == handoff_to_agent)), None
+            )
+
+        if handoff_to_agent is None:
+            logger.warning(
+                f"Handoff agent {handoff_to_agent} not found in configuration for agent {agent.name}"
+            )
+            continue
+        if agent.name == handoff_to_agent.name:
+            continue
+        logger.debug(
+            f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}"
+        )
+        handoff_tools.append(
+            swarm_handoff_tool(
+                agent_name=handoff_to_agent.name,
+                description=f"Ask {handoff_to_agent.name} for help with: "
+                + handoff_to_agent.handoff_prompt,
+            )
+        )
+    return handoff_tools
 
 
 def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
@@ -136,13 +159,14 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
 
 def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     logger.debug("Creating swarm graph")
-    
-    # Create agents without handoff tools - the swarm will handle handoffs internally
     agents: list[CompiledStateGraph] = []
     for registered_agent in config.app.agents:
+        handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
+            agent=registered_agent, config=config
+        )
         agents.append(
             create_agent_node(
-                app=config.app, agent=registered_agent, additional_tools=[]
+                app=config.app, agent=registered_agent, additional_tools=handoff_tools
             )
         )
 
@@ -163,20 +187,9 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     if isinstance(default_agent, AgentModel):
         default_agent = default_agent.name
 
-    # Create swarm with proper handoffs configuration
-    handoffs: dict[str, list[str]] = {}
-    for agent_name, agent_handoffs in (swarm.handoffs or {}).items():
-        handoffs[agent_name] = []
-        for handoff in agent_handoffs:
-            if isinstance(handoff, str):
-                handoffs[agent_name].append(handoff)
-            elif isinstance(handoff, AgentModel):
-                handoffs[agent_name].append(handoff.name)
-
     swarm_workflow: StateGraph = create_swarm(
         agents=agents,
         default_active_agent=default_agent,
-        handoffs=handoffs,
         state_schema=SharedState,
         context_schema=Context,
     )
