@@ -195,6 +195,50 @@ guardrails:
       ### Response: {outputs}
 
 agents:
+  # Agent 0: Research Coordinator and Executive Interface
+  research_coordinator: &research_coordinator
+    name: research_coordinator
+    description: "Research Coordinator and Executive Interface Specialist"
+    model: *default_llm
+    tools:
+      - *executive_research_genie_tool
+      - *tavily_search_tool
+    guardrails:
+      - *deep_research_validator
+    prompt: |
+      You are the Research Coordinator serving as the primary interface between executives and the deep research team. Your role is to understand executive inquiries, develop comprehensive research strategies, and orchestrate the team of specialists to deliver thorough analysis and strategic recommendations.
+
+      ## Your Responsibilities:
+      - **Inquiry Assessment**: Understand the executive's specific research needs and context
+      - **Research Planning**: Develop comprehensive research strategies across all domains
+      - **Team Coordination**: Direct specialists based on research requirements
+      - **Quality Assurance**: Ensure comprehensive coverage of all relevant aspects
+      - **Executive Communication**: Provide status updates and manage expectations
+
+      ## Research Strategy Framework:
+      1. **Scope Definition**: Clarify research objectives and success criteria
+      2. **Domain Mapping**: Identify which specialist teams are needed (KPI, market, financial, operations)
+      3. **Sequencing**: Determine optimal research workflow and dependencies
+      4. **Timeline Planning**: Establish research milestones and deadlines
+      5. **Quality Standards**: Set expectations for depth and comprehensiveness
+
+      ## When to Handoff:
+      - **Always start** with **kpi_researcher** for foundational data analysis
+      - Hand off to **market_analyst** when external market context is critical
+      - Hand off to **financial_strategist** when financial modeling or ROI analysis is needed
+      - Hand off to **operations_optimizer** when operational improvements are in scope
+      - Coordinate with **executive_synthesizer** to ensure all findings are integrated
+
+      ## Communication Style:
+      - **Executive-Level**: Professional, strategic, and focused on business impact
+      - **Action-Oriented**: Clear next steps and deliverables
+      - **Comprehensive**: Consider all relevant business dimensions
+      - **Time-Conscious**: Respect executive time constraints while ensuring thoroughness
+
+      You serve as the intelligent orchestrator ensuring that complex executive research questions receive comprehensive, coordinated analysis from all relevant specialist teams.
+    handoff_prompt: |
+      Hand off to me when starting any new executive research inquiry, when research scope needs to be defined, when multiple specialist teams need coordination, or when ensuring comprehensive coverage across all business dimensions.
+
   # Agent 1: KPI Research Specialist
   kpi_researcher: &kpi_researcher
     name: kpi_researcher
@@ -230,7 +274,7 @@ agents:
 
       Always provide comprehensive data foundation with specific metrics, trends, and preliminary insights.
     handoff_prompt: |
-      Hand off to market analyst when external market context is needed, to financial strategist for complex financial analysis, to operations optimizer for operational issues, or to executive synthesizer when KPI research is complete.
+      Hand off to me when foundational data analysis is needed, when KPI research is required, when historical trends need analysis, when performance metrics need benchmarking, or when starting comprehensive business analysis.
 
   # Agent 2: Market Intelligence Analyst
   market_analyst: &market_analyst
@@ -267,7 +311,7 @@ agents:
 
       Focus on external market dynamics and how they impact internal performance metrics.
     handoff_prompt: |
-      Hand off to financial strategist for financial implications, to operations optimizer for operational impacts, to KPI researcher for internal data validation, or to executive synthesizer when market analysis is complete.
+      Hand off to me when external market context is needed, when competitive intelligence is required, when industry benchmarking is necessary, when market trends analysis is needed, or when understanding market dynamics that impact business performance.
 
   # Agent 3: Financial Strategy Analyst
   financial_strategist: &financial_strategist
@@ -304,7 +348,7 @@ agents:
 
       Focus on translating insights into financial impact and strategic investment recommendations.
     handoff_prompt: |
-      Hand off to operations optimizer for operational improvements, to market analyst for market context, to KPI researcher for granular data, or to executive synthesizer when financial analysis is complete.
+      Hand off to me when financial analysis is required, when ROI modeling is needed, when cost-benefit analysis is necessary, when financial implications of strategies need evaluation, or when investment recommendations are required.
 
   # Agent 4: Operations Optimization Specialist
   operations_optimizer: &operations_optimizer
@@ -341,7 +385,7 @@ agents:
 
       Focus on practical, implementable operational improvements with clear success metrics.
     handoff_prompt: |
-      Hand off to financial strategist for financial modeling, to market analyst for market context, to KPI researcher for detailed metrics, or to executive synthesizer when operational analysis is complete.
+      Hand off to me when operational efficiency analysis is needed, when process optimization is required, when implementation planning is necessary, when operational cost reduction strategies are needed, or when tactical execution plans are required.
 
   # Agent 5: Executive Synthesis and Strategy Lead
   executive_synthesizer: &executive_synthesizer
@@ -386,7 +430,7 @@ agents:
 
       You are the final authority on strategic synthesis and executive communication.
     handoff_prompt: |
-      Hand off to other specialists only if critical gaps are identified that would compromise the strategic recommendations. Otherwise, provide final executive synthesis.
+      Hand off to me when strategic synthesis is needed, when executive-level recommendations are required, when integrating findings from multiple specialists, when creating comprehensive strategic narratives, or when final executive deliverables are needed.
 
 app:
   name: deep_research_executive_assistant                        
@@ -407,6 +451,7 @@ app:
       entitlements:
         - CAN_QUERY                               
   agents:                                        
+    - *research_coordinator
     - *kpi_researcher
     - *market_analyst
     - *financial_strategist
@@ -415,7 +460,14 @@ app:
   orchestration:                                  
     swarm:                                    
       model: *default_llm
+      default_agent: research_coordinator
       handoffs:
+        research_coordinator:
+          - kpi_researcher
+          - market_analyst
+          - financial_strategist
+          - operations_optimizer
+          - executive_synthesizer
         kpi_researcher:
           - market_analyst
           - financial_strategist
