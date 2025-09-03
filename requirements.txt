@@ -70,6 +70,7 @@ langchain-community==0.3.26
 langchain-core==0.3.72
 langchain-mcp-adapters==0.1.9
 langchain-openai==0.3.24
+langchain-tavily==0.2.11
 langchain-text-splitters==0.3.9
 langgraph==0.6.5
 langgraph-checkpoint==2.1.1

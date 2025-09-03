@@ -48,6 +48,7 @@ def get_installed_packages() -> dict[str, str]:
         f"langchain=={version('langchain')}",
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
         f"langchain-openai=={version('langchain-openai')}",
+        f"langchain-tavily=={version('langchain-tavily')}",
         f"langgraph=={version('langgraph')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
         f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
