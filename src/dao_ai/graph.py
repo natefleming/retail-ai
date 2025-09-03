@@ -219,6 +219,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.set_entry_point("message_hook")
 
+    return swarm_node
     return workflow.compile(checkpointer=checkpointer, store=store)
 
 
