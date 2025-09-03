@@ -1,17 +1,15 @@
-from typing import Annotated, Sequence
+from typing import Sequence
 
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, InjectedToolCallId, tool
+from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import InjectedState
 from langgraph.store.base import BaseStore
-from langgraph.types import Command
 from langgraph_supervisor import create_handoff_tool as supervisor_handoff_tool
 from langgraph_supervisor import create_supervisor
+from langgraph_swarm import create_handoff_tool as swarm_handoff_tool
 from langgraph_swarm import create_swarm
 from langmem import create_manage_memory_tool, create_search_memory_tool
 from loguru import logger
@@ -31,36 +29,83 @@ from dao_ai.prompts import make_prompt
 from dao_ai.state import Context, IncomingState, OutgoingState, SharedState
 
 
-def route_message(state: SharedState) -> str:
-    if not state["is_valid"]:
-        return END
-    return "orchestration"
+from typing import Annotated, Any
 
+from langchain_core.tools import tool, BaseTool, InjectedToolCallId
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
+from langgraph.prebuilt import InjectedState
+import re
+from dataclasses import is_dataclass
+from typing import Annotated, Any
 
-def route_message_to_agent(state: SharedState) -> str:
-    """Route messages directly to the default agent if valid, otherwise end."""
-    if not state.get("is_valid", True):
-        return END
-    # Return the name of the default agent - this will be filled in dynamically
-    # For now, just return the first agent as a placeholder
-    return state.get("active_agent", "research_lead")
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool, InjectedToolCallId, tool
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import InjectedState, ToolNode
+from langgraph.types import Command
+from pydantic import BaseModel
 
+WHITESPACE_RE = re.compile(r"\s+")
+METADATA_KEY_HANDOFF_DESTINATION = "__handoff_destination"
 
-def create_nested_handoff_tool(
-    agent_name: str, description: str | None = None
-) -> BaseTool:
-    """Create a handoff tool that works within a nested graph structure.
+def _get_field(obj: Any, key: str) -> Any:
+    """Get a field from an object.
 
-    This creates a tool that returns a simple message update without trying
-    to manipulate the active_agent field, letting the swarm handle routing.
+    This function retrieves a field from a dictionary, dataclass, or Pydantic model.
+
+    Args:
+        obj: The object from which to retrieve the field.
+        key: The key or attribute name of the field to retrieve.
+
+    Returns:
+        The value of the specified field.
+
     """
-    name = f"transfer_to_{agent_name}"
+    if isinstance(obj, dict):
+        return obj[key]
+    if is_dataclass(obj) or isinstance(obj, BaseModel):
+        return getattr(obj, key)
+    msg = f"Unsupported type for state: {type(obj)}"
+    raise TypeError(msg)
+
+def _normalize_agent_name(agent_name: str) -> str:
+    """Normalize an agent name to be used inside the tool name."""
+    return WHITESPACE_RE.sub("_", agent_name.strip()).lower()
+
+def create_custom_swarm_handoff_tool(
+    *,
+    agent_name: str,
+    name: str | None = None,
+    description: str | None = None,
+) -> BaseTool:
+    """Create a tool that can handoff control to the requested agent.
+
+    Args:
+        agent_name: The name of the agent to handoff control to, i.e.
+            the name of the agent node in the multi-agent graph.
+            Agent names should be simple, clear and unique, preferably in snake_case,
+            although you are only limited to the names accepted by LangGraph
+            nodes as well as the tool names accepted by LLM providers
+            (the tool name will look like this: `transfer_to_<agent_name>`).
+        name: Optional name of the tool to use for the handoff.
+            If not provided, the tool name will be `transfer_to_<agent_name>`.
+        description: Optional description for the handoff tool.
+            If not provided, the tool description will be `Ask agent <agent_name> for help`.
+
+    """
+    if name is None:
+        name = f"transfer_to_{_normalize_agent_name(agent_name)}"
+
     if description is None:
         description = f"Ask agent '{agent_name}' for help"
 
     @tool(name, description=description)
     def handoff_to_agent(
-        state: Annotated[dict, InjectedState],
+        # Annotation is typed as Any instead of StateLike. StateLike
+        # trigger validation issues from Pydantic / langchain_core interaction.
+        # https://github.com/langchain-ai/langchain/issues/32067
+        state: Annotated[Any, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
         tool_message = ToolMessage(
@@ -68,16 +113,22 @@ def create_nested_handoff_tool(
             name=name,
             tool_call_id=tool_call_id,
         )
-        # Simple approach: just goto the agent, let swarm handle active_agent
         return Command(
             goto=agent_name,
+            graph=None,
             update={
-                "messages": [*state.get("messages", []), tool_message],
+                "messages": [*_get_field(state, "messages"), tool_message],
+                "active_agent": agent_name,
             },
         )
 
-    handoff_to_agent.metadata = {"__handoff_destination": agent_name}
+    handoff_to_agent.metadata = {METADATA_KEY_HANDOFF_DESTINATION: agent_name}
     return handoff_to_agent
+
+def route_message(state: SharedState) -> str:
+    if not state["is_valid"]:
+        return END
+    return "orchestration"
 
 
 def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTool]:
@@ -107,7 +158,7 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
             f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}"
         )
         handoff_tools.append(
-            create_nested_handoff_tool(
+            create_custom_swarm_handoff_tool(
                 agent_name=handoff_to_agent.name,
                 description=f"Ask {handoff_to_agent.name} for help with: "
                 + handoff_to_agent.handoff_prompt,
@@ -206,7 +257,6 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     logger.debug("Creating swarm graph")
     agents: list[CompiledStateGraph] = []
     for registered_agent in config.app.agents:
-        # Use our custom handoff tools since standard ones cause active_agent conflicts
         handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
             agent=registered_agent, config=config
         )
@@ -233,7 +283,6 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     if isinstance(default_agent, AgentModel):
         default_agent = default_agent.name
 
-    # Create swarm workflow
     swarm_workflow: StateGraph = create_swarm(
         agents=agents,
         default_active_agent=default_agent,
@@ -241,29 +290,33 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         context_schema=Context,
     )
 
-    # Add message_hook as the entry point to the swarm
-    swarm_workflow.add_node("message_hook", message_hook_node(config=config))
+    swarm_node: CompiledStateGraph = swarm_workflow.compile(
+        checkpointer=checkpointer, store=store
+    )
 
-    # Add conditional edges from message_hook to default agent or end
-    def route_to_default_agent(state: SharedState) -> str:
-        if not state.get("is_valid", True):
-            return END
-        return default_agent
+    workflow: StateGraph = StateGraph(
+        SharedState,
+        input=IncomingState,
+        output=OutgoingState,
+        context_schema=Context,
+    )
 
-    swarm_workflow.add_conditional_edges(
+    workflow.add_node("message_hook", message_hook_node(config=config))
+    workflow.add_node("orchestration", swarm_node)
+
+    workflow.add_conditional_edges(
         "message_hook",
-        route_to_default_agent,
+        route_message,
         {
-            default_agent: default_agent,
+            "orchestration": "orchestration",
             END: END,
         },
     )
 
-    # Set message_hook as entry point
-    swarm_workflow.set_entry_point("message_hook")
+    workflow.set_entry_point("message_hook")
 
-    # Return the compiled swarm directly (no parent wrapper)
-    return swarm_workflow.compile(checkpointer=checkpointer, store=store)
+
+    return workflow.compile(checkpointer=checkpointer, store=store)
 
 
 def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
