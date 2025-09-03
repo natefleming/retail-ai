@@ -219,8 +219,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow.set_entry_point("message_hook")
 
-    return swarm_workflow
-    #return workflow.compile(checkpointer=checkpointer, store=store)
+    return workflow.compile(checkpointer=checkpointer, store=store)
 
 
 def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:
