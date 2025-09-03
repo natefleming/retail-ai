@@ -1,0 +1,38 @@
+# DAIS Examples for Retail AI Agent System
+# Extracted from retail_ai.orig/notebooks/agent_config.yaml
+# These examples demonstrate various agent interactions and use cases
+
+examples:
+  comprehensive_executive_research:
+    messages:
+      - role: user
+        content: |
+          I need a comprehensive executive research report analyzing our Q3 2025 performance and strategic positioning. Please conduct a deep dive analysis covering:
+
+          **Core Analysis Areas:**
+          1. **Customer KPI Performance**: Analyze customer acquisition cost (CAC), lifetime value (LTV), churn rates, retention metrics, Net Promoter Score (NPS), and customer satisfaction trends over the past 12 months
+          2. **Financial Performance**: Examine revenue growth, margin trends, profitability metrics, cash flow patterns, and ROI on key initiatives
+          3. **Operational Efficiency**: Review inventory turnover, productivity ratios, supply chain performance, and operational cost trends
+          4. **Market Position**: Assess our competitive standing, market share trends, industry benchmarks, and external market dynamics affecting our business
+
+          **Strategic Questions to Address:**
+          - Where are we underperforming relative to industry benchmarks and why?
+          - What are the top 3 strategic opportunities for growth in the next 6-12 months?
+          - What operational improvements could deliver the highest ROI?
+          - How do current market trends impact our strategic priorities?
+          - What are the financial implications of recommended strategic initiatives?
+
+          **Deliverable Requirements:**
+          - Executive summary with 3-4 key strategic insights
+          - Integrated analysis across all business dimensions
+          - Prioritized strategic recommendations with clear rationale
+          - Implementation roadmap with timelines and resource requirements
+          - Risk assessment and mitigation strategies
+          - Success metrics for tracking progress
+
+          Please ensure the analysis is comprehensive, data-driven, and provides actionable insights suitable for C-suite decision-making. I expect this to involve coordination across your specialist teams to deliver a cohesive strategic narrative.
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "ali_ghodsi"
+        store_num: 101
