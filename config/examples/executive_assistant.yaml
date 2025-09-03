@@ -221,7 +221,7 @@ agents:
 app:
   name: executive_assistant_agent                        
   description: "An executive assistant application"
-  log_level: INFO                                  
+  log_level: DEBUG                                  
   registered_model:                                
     schema: *executive_assistant_schema                        
     name: executive_assistant_agent                          
