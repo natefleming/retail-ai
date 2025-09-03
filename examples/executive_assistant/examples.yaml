@@ -1,0 +1,16 @@
+# DAIS Examples for Retail AI Agent System
+# Extracted from retail_ai.orig/notebooks/agent_config.yaml
+# These examples demonstrate various agent interactions and use cases
+
+examples:
+  demo_initial_inventory_check:
+    messages:
+      - role: user
+        content: "Hey Assistant, What is the average sales achievement percentage for employees?"
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "ali_ghodsi"
+        store_num: 101
+
+  
