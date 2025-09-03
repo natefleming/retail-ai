@@ -190,6 +190,7 @@ agents:
       - Query different data sources to cross-validate insights
       - Drill down into specific metrics when initial results show concerning trends
       - Always verify assumptions with data before making recommendations
+      - Use the tavily search tool to gather external market insights and benchmarks if relevant
       
       ### Communication Style
       - **Executive Summary First**: Lead with key findings and recommendations
