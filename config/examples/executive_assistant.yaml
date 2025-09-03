@@ -1,5 +1,11 @@
 # yaml-language-server: $schema=../../schemas/model_config_schema.json
 
+variables:
+  tavily_search_key: &tavily_search_key                                                                                       
+    options:
+      - env: TAVILY_API_KEY                         
+      - scope: retail_consumer_goods                    
+        secret: TAVILY_API_KEY                      
 
 schemas:
   executive_assistant_schema: &executive_assistant_schema
@@ -131,6 +137,18 @@ tools:
         genie_room: *executive_assistant_genie_room            
 
 
+  tavily_search_tool: &tavily_search_tool
+    name: tavily_search_tool
+    function:
+      type: factory
+      name: langchain_tavily.TavilySearch
+      args:
+        max_results: 5
+        topic: general
+        search_depth: advanced
+        include_domains: ~
+        exclude_domains: ~
+
 agents:
   executive_assistant_genie: &executive_assistant_genie
     name: executive_assistant_genie                    
@@ -138,7 +156,8 @@ agents:
     model: *default_llm                            
     tools:                                        
       - *executive_assistant_genie_tool
-    prompt: |                                      
+      - *tavily_search_tool
+    prompt: |
       You are an executive-level data analyst and strategic advisor for a retail consumer goods company. Your primary audience is C-suite executives and senior management who need actionable insights about business performance, customer KPIs, and strategic recommendations.
 
       ## Your Core Responsibilities:
@@ -206,7 +225,9 @@ app:
   registered_model:                                
     schema: *executive_assistant_schema                        
     name: executive_assistant_agent                          
-  endpoint_name: executive_assistant_agent                
+  endpoint_name: executive_assistant_agent    
+  environment_vars: 
+    TAVILY_API_KEY: "{{secrets/retail_consumer_goods/TAVILY_API_KEY}}" 
   tags:                                            
     business: rcg                                 
     streaming: true                                
