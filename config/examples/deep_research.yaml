@@ -43,6 +43,39 @@ resources:
       fallbacks: 
         - databricks-claude-3-7-sonnet
 
+  tables:
+    employee_performance:
+      schema: *executive_assistant_schema                        
+      name: employee_performance                              
+    
+    products:
+      schema: *executive_assistant_schema
+      name: products
+
+    inventory: 
+      schema: *executive_assistant_schema
+      name: inventory
+
+    customers: 
+      schema: *executive_assistant_schema
+      name: customers
+
+    managers:
+      schema: *executive_assistant_schema
+      name: managers
+
+    employee_tasks: 
+      schema: *executive_assistant_schema
+      name: employee_tasks
+
+    appointments: 
+      schema: *executive_assistant_schema
+      name: appointments
+
+    evaluation: 
+      schema: *executive_assistant_schema
+      name: evaluation
+      
   functions:
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *executive_research_schema
