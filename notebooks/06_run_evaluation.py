@@ -14,6 +14,12 @@ print(config_path)
 
 # COMMAND ----------
 
+from dotenv import find_dotenv, load_dotenv
+
+_ = load_dotenv(find_dotenv())
+
+# COMMAND ----------
+
 # DBTITLE 1,Add Source Directory to System Path
 import sys
 

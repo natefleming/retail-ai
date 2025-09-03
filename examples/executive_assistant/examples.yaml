@@ -43,8 +43,6 @@ examples:
           Please ensure the analysis is comprehensive, data-driven, and provides actionable insights suitable for C-suite decision-making. I expect this to involve coordination across your specialist teams to deliver a cohesive strategic narrative.
     custom_inputs:
       configurable:
-        thread_id: "exec_research_001"
-        user_id: "ceo"
-        store_num: null
-
-  
+        thread_id: "1"
+        user_id: "ali_ghodsi"
+        store_num: 101

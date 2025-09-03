@@ -10,6 +10,12 @@ print(config_path)
 
 # COMMAND ----------
 
+from dotenv import find_dotenv, load_dotenv
+
+_ = load_dotenv(find_dotenv())
+
+# COMMAND ----------
+
 import sys
 
 sys.path.insert(0, "../src")
