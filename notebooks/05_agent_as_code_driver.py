@@ -49,6 +49,12 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+from dotenv import find_dotenv, load_dotenv
+
+_ = load_dotenv(find_dotenv())
+
+# COMMAND ----------
+
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -65,7 +71,6 @@ config.display_graph()
 # COMMAND ----------
 
 config.create_agent()
-
 
 # COMMAND ----------
 
