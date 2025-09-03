@@ -3,7 +3,7 @@
 # These examples demonstrate various agent interactions and use cases
 
 examples:
-  demo_initial_inventory_check:
+  average_sales_percentage:
     messages:
       - role: user
         content: "Hey Assistant, What is the average sales achievement percentage for employees?"
