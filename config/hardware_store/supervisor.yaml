@@ -926,7 +926,7 @@ app:
     - dao_ai.hooks.null_hook
     - hardware_store.hooks.require_store_num_hook
   input_example:
-      messages:
+      input:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:

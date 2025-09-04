@@ -1034,7 +1034,7 @@ class Message(BaseModel):
 
 class ChatPayload(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    messages: list[Message]
+    input: list[Message]
     custom_inputs: dict
 
 

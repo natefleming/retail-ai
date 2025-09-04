@@ -3,7 +3,7 @@ import sys
 import mlflow
 from loguru import logger
 from mlflow.models import ModelConfig
-from mlflow.pyfunc import ChatModel
+from mlflow.pyfunc import ResponsesAgent
 
 from dao_ai.config import AppConfig
 
@@ -17,6 +17,6 @@ log_level: str = config.app.log_level
 logger.remove()
 logger.add(sys.stderr, level=log_level)
 
-app: ChatModel = config.as_chat_model()
+app: ResponsesAgent = config.as_responses_agent()
 
 mlflow.models.set_model(app)
