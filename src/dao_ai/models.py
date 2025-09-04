@@ -332,14 +332,24 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
     def _convert_request_to_context(self, request: ResponsesAgentRequest) -> Context:
         """Convert ResponsesAgent context to internal Context."""
-        configurable = {}
+
+        configurable: dict[str, Any] = {}
+
+        if request.custom_inputs:
+            if "configurable" in request.custom_inputs:
+                configurable.update(request.custom_inputs.pop("configurable"))
+
+            configurable.update(request.custom_inputs)
 
         if request.context:
             if hasattr(request.context, "conversation_id"):
                 configurable["conversation_id"] = request.context.conversation_id
                 configurable["thread_id"] = request.context.conversation_id
             if hasattr(request.context, "user_id"):
-                configurable["user_id"] = request.context.user_id.replace(".", "_")
+                configurable["user_id"] = request.context.user_id
+
+        if "user_id" in configurable:
+            configurable["user_id"] = configurable["user_id"].replace(".", "_")
 
         if "thread_id" not in configurable:
             configurable["thread_id"] = str(uuid.uuid4())
