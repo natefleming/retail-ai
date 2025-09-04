@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow import MlflowClient
-from mlflow.pyfunc import ChatAgent, ChatModel
+from mlflow.pyfunc import ChatAgent, ChatModel, ResponsesAgent
 from mlflow.types.llm import (
     ChatChoice,
     ChatChoiceDelta,
@@ -16,6 +16,11 @@ from mlflow.types.llm import (
     ChatCompletionResponse,
     ChatMessage,
     ChatParams,
+)
+from mlflow.types.responses import (
+    ResponsesAgentRequest,
+    ResponsesAgentResponse,
+    ResponsesAgentStreamEvent,
 )
 
 from dao_ai.messages import has_langchain_messages, has_mlflow_messages
@@ -185,6 +190,163 @@ class LanggraphChatModel(ChatModel):
         return [m.to_dict() for m in messages]
 
 
+class LanggraphResponsesAgent(ResponsesAgent):
+    """
+    ResponsesAgent that delegates requests to a LangGraph CompiledStateGraph.
+
+    This is the modern replacement for LanggraphChatModel, providing better
+    support for streaming, tool calling, and async execution.
+    """
+
+    def __init__(self, graph: CompiledStateGraph) -> None:
+        self.graph = graph
+
+    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        """
+        Process a ResponsesAgentRequest and return a ResponsesAgentResponse.
+        """
+        logger.debug(f"ResponsesAgent request: {request}")
+
+        # Convert ResponsesAgent input to LangChain messages
+        messages = self._convert_request_to_langchain_messages(request)
+
+        # Prepare context
+        context = self._convert_request_to_context(request)
+        custom_inputs = {"configurable": context.model_dump()}
+
+        # Use async ainvoke internally for parallel execution
+        import asyncio
+
+        async def _async_invoke():
+            return await self.graph.ainvoke(
+                {"messages": messages}, config=custom_inputs
+            )
+
+        loop = asyncio.get_event_loop()
+        response: dict[str, Sequence[BaseMessage]] = loop.run_until_complete(
+            _async_invoke()
+        )
+
+        # Convert response to ResponsesAgent format
+        last_message: BaseMessage = response["messages"][-1]
+
+        output_item = self.create_text_output_item(
+            text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
+        )
+
+        return ResponsesAgentResponse(
+            output=[output_item], custom_outputs=request.custom_inputs
+        )
+
+    def predict_stream(
+        self, request: ResponsesAgentRequest
+    ) -> Generator[ResponsesAgentStreamEvent, None, None]:
+        """
+        Process a ResponsesAgentRequest and yield ResponsesAgentStreamEvent objects.
+        """
+        logger.debug(f"ResponsesAgent stream request: {request}")
+
+        # Convert ResponsesAgent input to LangChain messages
+        messages = self._convert_request_to_langchain_messages(request)
+
+        # Prepare context
+        context = self._convert_request_to_context(request)
+        custom_inputs = {"configurable": context.model_dump()}
+
+        # Use async astream internally for parallel execution
+        import asyncio
+
+        async def _async_stream():
+            item_id = f"msg_{uuid.uuid4().hex[:8]}"
+            accumulated_content = ""
+
+            async for nodes, stream_mode, messages_batch in self.graph.astream(
+                {"messages": messages},
+                config=custom_inputs,
+                stream_mode=["messages", "custom"],
+                subgraphs=True,
+            ):
+                nodes: tuple[str, ...]
+                stream_mode: str
+                messages_batch: Sequence[BaseMessage]
+
+                for message in messages_batch:
+                    if (
+                        isinstance(
+                            message,
+                            (
+                                AIMessageChunk,
+                                AIMessage,
+                            ),
+                        )
+                        and message.content
+                        and "summarization" not in nodes
+                    ):
+                        content = message.content
+                        accumulated_content += content
+
+                        # Yield streaming delta
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(delta=content, item_id=item_id)
+                        )
+
+            # Yield final output item
+            yield ResponsesAgentStreamEvent(
+                type="response.output_item.done",
+                item=self.create_text_output_item(text=accumulated_content, id=item_id),
+                custom_outputs=request.custom_inputs,
+            )
+
+        # Convert async generator to sync generator
+        loop = asyncio.get_event_loop()
+        async_gen = _async_stream()
+
+        try:
+            while True:
+                try:
+                    item = loop.run_until_complete(async_gen.__anext__())
+                    yield item
+                except StopAsyncIteration:
+                    break
+        finally:
+            loop.run_until_complete(async_gen.aclose())
+
+    def _convert_request_to_langchain_messages(
+        self, request: ResponsesAgentRequest
+    ) -> list[dict[str, Any]]:
+        """Convert ResponsesAgent input to LangChain message format."""
+        messages = []
+        for input_item in request.input:
+            if hasattr(input_item, "role") and hasattr(input_item, "content"):
+                # Simple message format
+                messages.append(
+                    {"role": input_item.role, "content": input_item.content}
+                )
+            elif isinstance(input_item, dict):
+                # Handle dict format
+                if "role" in input_item and "content" in input_item:
+                    messages.append(
+                        {"role": input_item["role"], "content": input_item["content"]}
+                    )
+        return messages
+
+    def _convert_request_to_context(self, request: ResponsesAgentRequest) -> Context:
+        """Convert ResponsesAgent context to internal Context."""
+        configurable = {}
+
+        if request.context:
+            if hasattr(request.context, "conversation_id"):
+                configurable["conversation_id"] = request.context.conversation_id
+                configurable["thread_id"] = request.context.conversation_id
+            if hasattr(request.context, "user_id"):
+                configurable["user_id"] = request.context.user_id.replace(".", "_")
+
+        if "thread_id" not in configurable:
+            configurable["thread_id"] = str(uuid.uuid4())
+
+        return Context(**configurable)
+
+
 def create_agent(graph: CompiledStateGraph) -> ChatAgent:
     """
     Create an MLflow-compatible ChatAgent from a LangGraph state machine.
@@ -199,6 +361,22 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
         An MLflow-compatible ChatAgent instance
     """
     return LanggraphChatModel(graph)
+
+
+def create_responses_agent(graph: CompiledStateGraph) -> ResponsesAgent:
+    """
+    Create an MLflow-compatible ResponsesAgent from a LangGraph state machine.
+
+    Factory function that wraps a compiled LangGraph in the LanggraphResponsesAgent
+    class to make it deployable through MLflow.
+
+    Args:
+        graph: A compiled LangGraph state machine
+
+    Returns:
+        An MLflow-compatible ResponsesAgent instance
+    """
+    return LanggraphResponsesAgent(graph)
 
 
 def _process_langchain_messages(

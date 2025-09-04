@@ -44,7 +44,7 @@ from mlflow.models.resources import (
     DatabricksUCConnection,
     DatabricksVectorSearchIndex,
 )
-from mlflow.pyfunc import ChatModel
+from mlflow.pyfunc import ChatModel, ResponsesAgent
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 
@@ -1373,4 +1373,11 @@ class AppConfig(BaseModel):
 
         graph: CompiledStateGraph = self.as_graph()
         app: ChatModel = create_agent(graph)
+        return app
+
+    def as_responses_agent(self) -> ResponsesAgent:
+        from dao_ai.models import create_responses_agent
+
+        graph: CompiledStateGraph = self.as_graph()
+        app: ResponsesAgent = create_responses_agent(graph)
         return app
