@@ -50,7 +50,7 @@ def add_human_in_the_loop(
     logger.debug(f"Wrapping tool {tool} with human-in-the-loop functionality")
 
     @create_tool(tool.name, description=tool.description, args_schema=tool.args_schema)
-    def call_tool_with_interrupt(config: RunnableConfig, **tool_input) -> Any:
+    async def call_tool_with_interrupt(config: RunnableConfig, **tool_input) -> Any:
         logger.debug(f"call_tool_with_interrupt: {tool.name} with input: {tool_input}")
         request: HumanInterrupt = {
             "action_request": {
@@ -66,10 +66,10 @@ def add_human_in_the_loop(
         logger.debug(f"Human interrupt response: {response}")
 
         if response["type"] == "accept":
-            tool_response = tool.invoke(tool_input, config=config)
+            tool_response = await tool.ainvoke(tool_input, config=config)
         elif response["type"] == "edit":
             tool_input = response["args"]["args"]
-            tool_response = tool.invoke(tool_input, config=config)
+            tool_response = await tool.ainvoke(tool_input, config=config)
         elif response["type"] == "response":
             user_feedback = response["args"]
             tool_response = user_feedback

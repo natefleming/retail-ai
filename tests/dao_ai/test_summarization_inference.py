@@ -1,5 +1,6 @@
 """Tests for inference with summarization node enabled."""
 
+import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -29,6 +30,23 @@ def create_test_messages(count: int, prefix: str = "Message") -> list[BaseMessag
         else:
             messages.append(AIMessage(content=f"{prefix} {i}", id=f"ai-{i}"))
     return messages
+
+
+def make_async_mock_agent(name: str, return_value: dict):
+    """Helper function to create a mock agent with async ainvoke method."""
+    mock_agent = MagicMock()
+    mock_agent.name = name
+
+    async def mock_ainvoke(**kwargs):
+        return return_value
+
+    mock_agent.ainvoke = MagicMock(side_effect=mock_ainvoke)
+    return mock_agent
+
+
+def run_async_test(async_func, *args):
+    """Helper function to run async functions in tests."""
+    return asyncio.run(async_func(*args))
 
 
 @pytest.fixture
@@ -92,11 +110,10 @@ class TestSummarizationInference:
     def test_call_agent_with_summarized_messages_basic(self, mock_runtime):
         """Test basic functionality of call_agent_with_summarized_messages."""
         # Mock agent
-        mock_agent = MagicMock()
-        mock_agent.name = "test_agent"
-        mock_agent.invoke.return_value = {
-            "messages": [AIMessage(content="Agent response", id="response-1")]
-        }
+        mock_agent = make_async_mock_agent(
+            "test_agent",
+            {"messages": [AIMessage(content="Agent response", id="response-1")]},
+        )
 
         # Create the function
         call_agent_func = call_agent_with_summarized_messages(mock_agent)
@@ -105,10 +122,11 @@ class TestSummarizationInference:
         test_messages = create_test_messages(5, "Summarized")
         state = {"summarized_messages": test_messages}
 
-        result = call_agent_func(state, mock_runtime)
+        # Run the async function
+        result = run_async_test(call_agent_func, state, mock_runtime)
 
         # Verify agent was called with correct input
-        mock_agent.invoke.assert_called_once_with(
+        mock_agent.ainvoke.assert_called_once_with(
             input={"messages": test_messages}, context=mock_runtime.context
         )
 
@@ -121,9 +139,7 @@ class TestSummarizationInference:
     def test_call_agent_with_summarized_messages_empty_state(self, mock_runtime):
         """Test call_agent_with_summarized_messages with empty state."""
         # Mock agent
-        mock_agent = MagicMock()
-        mock_agent.name = "test_agent"
-        mock_agent.invoke.return_value = {"messages": []}
+        mock_agent = make_async_mock_agent("test_agent", {"messages": []})
 
         # Create the function
         call_agent_func = call_agent_with_summarized_messages(mock_agent)
@@ -131,10 +147,10 @@ class TestSummarizationInference:
         # Test with empty state
         state = {}
 
-        result = call_agent_func(state, mock_runtime)
+        result = run_async_test(call_agent_func, state, mock_runtime)
 
         # Verify agent was called with empty messages
-        mock_agent.invoke.assert_called_once_with(
+        mock_agent.ainvoke.assert_called_once_with(
             input={"messages": []}, context=mock_runtime.context
         )
 
@@ -145,11 +161,9 @@ class TestSummarizationInference:
     def test_call_agent_with_summarized_messages_no_summarized_key(self, mock_runtime):
         """Test call_agent_with_summarized_messages when summarized_messages key is missing."""
         # Mock agent
-        mock_agent = MagicMock()
-        mock_agent.name = "test_agent"
-        mock_agent.invoke.return_value = {
-            "messages": [AIMessage(content="Agent response")]
-        }
+        mock_agent = make_async_mock_agent(
+            "test_agent", {"messages": [AIMessage(content="Agent response")]}
+        )
 
         # Create the function
         call_agent_func = call_agent_with_summarized_messages(mock_agent)
@@ -157,10 +171,10 @@ class TestSummarizationInference:
         # Test with state missing summarized_messages key
         state = {"other_key": "other_value"}
 
-        call_agent_func(state, mock_runtime)
+        run_async_test(call_agent_func, state, mock_runtime)
 
         # Verify agent was called with empty messages (default value)
-        mock_agent.invoke.assert_called_once_with(
+        mock_agent.ainvoke.assert_called_once_with(
             input={"messages": []}, context=mock_runtime.context
         )
 
@@ -265,14 +279,15 @@ class TestSummarizationInference:
     ):
         """Test that call_agent_with_summarized_messages logs correctly."""
         # Mock agent
-        mock_agent = MagicMock()
-        mock_agent.name = "test_agent"
-        mock_agent.invoke.return_value = {
-            "messages": [
-                AIMessage(content="Response 1"),
-                AIMessage(content="Response 2"),
-            ]
-        }
+        mock_agent = make_async_mock_agent(
+            "test_agent",
+            {
+                "messages": [
+                    AIMessage(content="Response 1"),
+                    AIMessage(content="Response 2"),
+                ]
+            },
+        )
 
         # Create the function
         call_agent_func = call_agent_with_summarized_messages(mock_agent)
@@ -281,7 +296,7 @@ class TestSummarizationInference:
         test_messages = create_test_messages(3, "Test")
         state = {"summarized_messages": test_messages}
 
-        call_agent_func(state, mock_runtime)
+        run_async_test(call_agent_func, state, mock_runtime)
 
         # Verify logging calls
         mock_logger.debug.assert_any_call(
@@ -295,11 +310,9 @@ class TestSummarizationInference:
     def test_call_agent_with_different_message_types(self, mock_runtime):
         """Test call_agent_with_summarized_messages with different message types."""
         # Mock agent
-        mock_agent = MagicMock()
-        mock_agent.name = "test_agent"
-        mock_agent.invoke.return_value = {
-            "messages": [AIMessage(content="Agent response")]
-        }
+        mock_agent = make_async_mock_agent(
+            "test_agent", {"messages": [AIMessage(content="Agent response")]}
+        )
 
         # Create the function
         call_agent_func = call_agent_with_summarized_messages(mock_agent)
@@ -312,10 +325,10 @@ class TestSummarizationInference:
         ]
         state = {"summarized_messages": test_messages}
 
-        result = call_agent_func(state, mock_runtime)
+        result = run_async_test(call_agent_func, state, mock_runtime)
 
         # Verify agent was called with all message types
-        mock_agent.invoke.assert_called_once_with(
+        mock_agent.ainvoke.assert_called_once_with(
             input={"messages": test_messages}, context=mock_runtime.context
         )
 
@@ -328,34 +341,37 @@ class TestSummarizationInference:
     def test_agent_response_format(self, mock_runtime):
         """Test that agent response is properly formatted."""
         # Mock agent with different response formats
-        mock_agent = MagicMock()
-        mock_agent.name = "test_agent"
-
-        # Test case 1: Normal response with messages
-        mock_agent.invoke.return_value = {
-            "messages": [AIMessage(content="Normal response")],
-            "other_data": "should_be_ignored",
-        }
+        mock_agent = make_async_mock_agent(
+            "test_agent",
+            {
+                "messages": [AIMessage(content="Normal response")],
+                "other_data": "should_be_ignored",
+            },
+        )
 
         call_agent_func = call_agent_with_summarized_messages(mock_agent)
         state = {"summarized_messages": [HumanMessage(content="Test")]}
 
-        result = call_agent_func(state, mock_runtime)
+        result = run_async_test(call_agent_func, state, mock_runtime)
         # Should contain only the agent response (LangGraph state handles combining)
         assert len(result["messages"]) == 1
         assert result["messages"][0].content == "Normal response"  # agent response
 
         # Test case 2: Response with empty messages
-        mock_agent.invoke.return_value = {"messages": [], "other_data": "ignored"}
+        mock_agent = make_async_mock_agent(
+            "test_agent", {"messages": [], "other_data": "ignored"}
+        )
+        call_agent_func = call_agent_with_summarized_messages(mock_agent)
 
-        result = call_agent_func(state, mock_runtime)
+        result = run_async_test(call_agent_func, state, mock_runtime)
         # Should contain empty messages (no agent response)
         assert len(result["messages"]) == 0
 
         # Test case 3: Response without messages key
-        mock_agent.invoke.return_value = {"other_data": "no_messages"}
+        mock_agent = make_async_mock_agent("test_agent", {"other_data": "no_messages"})
+        call_agent_func = call_agent_with_summarized_messages(mock_agent)
 
-        result = call_agent_func(state, mock_runtime)
+        result = run_async_test(call_agent_func, state, mock_runtime)
         # Should contain no messages (no agent response, no messages key)
         assert len(result["messages"]) == 0
 

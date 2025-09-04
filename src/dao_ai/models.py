@@ -65,9 +65,19 @@ class LanggraphChatModel(ChatModel):
         context: Context = self._convert_to_context(params)
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
-        response: dict[str, Sequence[BaseMessage]] = self.graph.invoke(
-            request, context=context, config=custom_inputs
+        # Use async ainvoke internally for parallel execution
+        import asyncio
+
+        async def _async_invoke():
+            return await self.graph.ainvoke(
+                request, context=context, config=custom_inputs
+            )
+
+        loop = asyncio.get_event_loop()
+        response: dict[str, Sequence[BaseMessage]] = loop.run_until_complete(
+            _async_invoke()
         )
+
         logger.trace(f"response: {response}")
 
         last_message: BaseMessage = response["messages"][-1]
@@ -114,33 +124,51 @@ class LanggraphChatModel(ChatModel):
         context: Context = self._convert_to_context(params)
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
-        for nodes, stream_mode, messages_batch in self.graph.stream(
-            request,
-            context=context,
-            config=custom_inputs,
-            stream_mode=["messages", "custom"],
-            subgraphs=True,
-        ):
-            nodes: tuple[str, ...]
-            stream_mode: str
-            messages_batch: Sequence[BaseMessage]
-            logger.trace(
-                f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages_batch}"
-            )
-            for message in messages_batch:
-                if (
-                    isinstance(
-                        message,
-                        (
-                            AIMessageChunk,
-                            AIMessage,
-                        ),
-                    )
-                    and message.content
-                    and "summarization" not in nodes
-                ):
-                    content = message.content
-                    yield self._create_chat_completion_chunk(content)
+        # Use async astream internally for parallel execution
+        import asyncio
+
+        async def _async_stream():
+            async for nodes, stream_mode, messages_batch in self.graph.astream(
+                request,
+                context=context,
+                config=custom_inputs,
+                stream_mode=["messages", "custom"],
+                subgraphs=True,
+            ):
+                nodes: tuple[str, ...]
+                stream_mode: str
+                messages_batch: Sequence[BaseMessage]
+                logger.trace(
+                    f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages_batch}"
+                )
+                for message in messages_batch:
+                    if (
+                        isinstance(
+                            message,
+                            (
+                                AIMessageChunk,
+                                AIMessage,
+                            ),
+                        )
+                        and message.content
+                        and "summarization" not in nodes
+                    ):
+                        content = message.content
+                        yield self._create_chat_completion_chunk(content)
+
+        # Convert async generator to sync generator
+        loop = asyncio.get_event_loop()
+        async_gen = _async_stream()
+
+        try:
+            while True:
+                try:
+                    item = loop.run_until_complete(async_gen.__anext__())
+                    yield item
+                except StopAsyncIteration:
+                    break
+        finally:
+            loop.run_until_complete(async_gen.aclose())
 
     def _create_chat_completion_chunk(self, content: str) -> ChatCompletionChunk:
         return ChatCompletionChunk(
@@ -178,9 +206,18 @@ def _process_langchain_messages(
     messages: Sequence[BaseMessage],
     custom_inputs: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any] | Any:
+    """Process LangChain messages using async LangGraph calls internally."""
+    import asyncio
+
     if isinstance(app, LanggraphChatModel):
         app = app.graph
-    return app.invoke({"messages": messages}, config=custom_inputs)
+
+    # Use async ainvoke internally for parallel execution
+    async def _async_invoke():
+        return await app.ainvoke({"messages": messages}, config=custom_inputs)
+
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(_async_invoke())
 
 
 def _process_langchain_messages_stream(
@@ -188,6 +225,9 @@ def _process_langchain_messages_stream(
     messages: Sequence[BaseMessage],
     custom_inputs: Optional[dict[str, Any]] = None,
 ) -> Generator[AIMessageChunk, None, None]:
+    """Process LangChain messages in streaming mode using async LangGraph calls internally."""
+    import asyncio
+
     if isinstance(app, LanggraphChatModel):
         app = app.graph
 
@@ -196,32 +236,48 @@ def _process_langchain_messages_stream(
     custom_inputs = custom_inputs.get("configurable", custom_inputs or {})
     context: Context = Context(**custom_inputs)
 
-    for nodes, stream_mode, messages in app.stream(
-        {"messages": messages},
-        context=context,
-        config=custom_inputs,
-        stream_mode=["messages", "custom"],
-        subgraphs=True,
-    ):
-        nodes: tuple[str, ...]
-        stream_mode: str
-        messages: Sequence[BaseMessage]
-        logger.trace(
-            f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages}"
-        )
-        for message in messages:
-            if (
-                isinstance(
-                    message,
-                    (
-                        AIMessageChunk,
-                        AIMessage,
-                    ),
-                )
-                and message.content
-                and "summarization" not in nodes
-            ):
-                yield message
+    # Use async astream internally for parallel execution
+    async def _async_stream():
+        async for nodes, stream_mode, stream_messages in app.astream(
+            {"messages": messages},
+            context=context,
+            config=custom_inputs,
+            stream_mode=["messages", "custom"],
+            subgraphs=True,
+        ):
+            nodes: tuple[str, ...]
+            stream_mode: str
+            stream_messages: Sequence[BaseMessage]
+            logger.trace(
+                f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {stream_messages}"
+            )
+            for message in stream_messages:
+                if (
+                    isinstance(
+                        message,
+                        (
+                            AIMessageChunk,
+                            AIMessage,
+                        ),
+                    )
+                    and message.content
+                    and "summarization" not in nodes
+                ):
+                    yield message
+
+    # Convert async generator to sync generator
+    loop = asyncio.get_event_loop()
+    async_gen = _async_stream()
+
+    try:
+        while True:
+            try:
+                item = loop.run_until_complete(async_gen.__anext__())
+                yield item
+            except StopAsyncIteration:
+                break
+    finally:
+        loop.run_until_complete(async_gen.aclose())
 
 
 def _process_mlflow_messages(
@@ -272,7 +328,7 @@ def process_messages_stream(
     Process messages through a ChatAgent in streaming mode.
 
     Utility function that normalizes message input formats and
-    streams the agent's responses as they're generated.
+    streams the agent's responses as they're generated using async LangGraph calls internally.
 
     Args:
         app: The ChatAgent to process messages with
@@ -302,7 +358,7 @@ def process_messages(
     Process messages through a ChatAgent in batch mode.
 
     Utility function that normalizes message input formats and
-    returns the complete response from the agent.
+    returns the complete response from the agent using async LangGraph calls internally.
 
     Args:
         app: The ChatAgent to process messages with

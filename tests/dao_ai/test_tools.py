@@ -1,3 +1,4 @@
+import asyncio
 from typing import Sequence
 from unittest.mock import patch
 
@@ -10,6 +11,12 @@ from langgraph.prebuilt.interrupt import HumanInterruptConfig
 from dao_ai.config import AppConfig, FunctionType, ToolModel
 from dao_ai.tools import create_tools
 from dao_ai.tools.human_in_the_loop import add_human_in_the_loop
+
+
+def run_async_test(async_func, *args, **kwargs):
+    """Helper function to run async functions in tests."""
+    return asyncio.run(async_func(*args, **kwargs))
+
 
 excluded_tools: Sequence[str] = [
     "vector_search",
@@ -52,7 +59,9 @@ def test_add_human_in_the_loop_with_callable():
 
         # Test tool execution with accept
         config = RunnableConfig()
-        result = wrapped_tool.invoke({"input_text": "hello"}, config=config)
+        result = run_async_test(
+            wrapped_tool.ainvoke, {"input_text": "hello"}, config=config
+        )
         assert result == "processed: hello"
 
         # Verify interrupt was called with correct parameters
@@ -81,7 +90,7 @@ def test_add_human_in_the_loop_with_base_tool():
 
         # Test execution
         config = RunnableConfig()
-        result = wrapped_tool.invoke({"value": 5}, config=config)
+        result = run_async_test(wrapped_tool.ainvoke, {"value": 5}, config=config)
         assert result == 10
 
 
@@ -103,7 +112,9 @@ def test_add_human_in_the_loop_edit_response():
         wrapped_tool = add_human_in_the_loop(edit_test_function)
 
         config = RunnableConfig()
-        result = wrapped_tool.invoke({"message": "original_message"}, config=config)
+        result = run_async_test(
+            wrapped_tool.ainvoke, {"message": "original_message"}, config=config
+        )
 
         # Should use the edited message
         assert result == "echo: edited_message"
@@ -129,7 +140,9 @@ def test_add_human_in_the_loop_response_type():
         wrapped_tool = add_human_in_the_loop(response_test_function)
 
         config = RunnableConfig()
-        result = wrapped_tool.invoke({"query": "test query"}, config=config)
+        result = run_async_test(
+            wrapped_tool.ainvoke, {"query": "test query"}, config=config
+        )
 
         # Should return the human response directly
         assert result == "custom human response"
@@ -158,7 +171,7 @@ def test_add_human_in_the_loop_custom_interrupt_config():
         )
 
         config = RunnableConfig()
-        wrapped_tool.invoke({"data": "test"}, config=config)
+        run_async_test(wrapped_tool.ainvoke, {"data": "test"}, config=config)
 
         # Verify custom config was passed
         interrupt_args = mock_interrupt.call_args[0][0][0]
@@ -185,7 +198,7 @@ def test_add_human_in_the_loop_invalid_response_type():
         with pytest.raises(
             ValueError, match="Unknown interrupt response type: unknown_type"
         ):
-            wrapped_tool.invoke({"input_data": "test"}, config=config)
+            run_async_test(wrapped_tool.ainvoke, {"input_data": "test"}, config=config)
 
 
 @pytest.mark.unit
@@ -203,7 +216,7 @@ def test_add_human_in_the_loop_default_interrupt_config():
         wrapped_tool = add_human_in_the_loop(default_config_function)
 
         config = RunnableConfig()
-        wrapped_tool.invoke({"text": "test"}, config=config)
+        run_async_test(wrapped_tool.ainvoke, {"text": "test"}, config=config)
 
         # Verify default config was used
         interrupt_args = mock_interrupt.call_args[0][0][0]

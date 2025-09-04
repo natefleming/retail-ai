@@ -77,6 +77,8 @@ def create_mcp_tools(
             logger.error(f"Failed to list MCP tools: {e}")
             return []
 
+    # Note: This still needs to run sync during tool creation/registration
+    # The actual tool execution will be async
     try:
         mcp_tools: list | ListToolsResult = asyncio.run(_list_mcp_tools())
         if isinstance(mcp_tools, ListToolsResult):
@@ -96,22 +98,19 @@ def create_mcp_tools(
             description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
             args_schema=mcp_tool.inputSchema,
         )
-        def tool_wrapper(**kwargs):
+        async def tool_wrapper(**kwargs):
             """Execute MCP tool with fresh session and authentication."""
             logger.debug(f"Invoking MCP tool {mcp_tool.name} with fresh session")
 
-            async def _invoke():
-                connection = _create_fresh_connection()
-                client = MultiServerMCPClient({function.name: connection})
+            connection = _create_fresh_connection()
+            client = MultiServerMCPClient({function.name: connection})
 
-                try:
-                    async with client.session(function.name) as session:
-                        return await session.call_tool(mcp_tool.name, kwargs)
-                except Exception as e:
-                    logger.error(f"MCP tool {mcp_tool.name} failed: {e}")
-                    raise
-
-            return asyncio.run(_invoke())
+            try:
+                async with client.session(function.name) as session:
+                    return await session.call_tool(mcp_tool.name, kwargs)
+            except Exception as e:
+                logger.error(f"MCP tool {mcp_tool.name} failed: {e}")
+                raise
 
         return as_human_in_the_loop(tool_wrapper, function)
 
