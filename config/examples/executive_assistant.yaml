@@ -34,8 +34,7 @@ resources:
       max_tokens: 8192
 
     deep_reasoning_llm: &deep_reasoning_llm
-      #name: databricks-claude-sonnet-4
-      name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-claude-sonnet-4
       temperature: 0.1
       max_tokens: 8192
       fallbacks: 
@@ -149,7 +148,7 @@ agents:
   executive_assistant_genie: &executive_assistant_genie
     name: executive_assistant_genie                    
     description: "Executive Assistant Genie Agent"
-    model: *deep_reasoning_llm                            
+    model: *reasoning_llm                            
     tools:                                        
       - *executive_assistant_genie_tool
       - *tavily_search_tool

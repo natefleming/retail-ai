@@ -40,16 +40,16 @@ def create_agent_endpoint_tool(
 
     doc: str = description + "\n" + doc_signature
 
-    def agent_endpoint(prompt: str) -> AIMessage:
+    async def agent_endpoint(prompt: str) -> AIMessage:
         model: LanguageModelLike = llm.as_chat_model()
         messages: Sequence[BaseMessage] = [HumanMessage(content=prompt)]
-        response: AIMessage = model.invoke(messages)
+        response: AIMessage = await model.ainvoke(messages)
         return response
 
     name: str = name if name else agent_endpoint.__name__
 
     structured_tool: StructuredTool = StructuredTool.from_function(
-        func=agent_endpoint, name=name, description=doc, parse_docstring=False
+        coroutine=agent_endpoint, name=name, description=doc, parse_docstring=False
     )
 
     return structured_tool

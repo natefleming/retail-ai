@@ -221,7 +221,7 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     return swarm_node
 
-    #return workflow.compile(checkpointer=checkpointer, store=store)
+    # return workflow.compile(checkpointer=checkpointer, store=store)
 
 
 def create_dao_ai_graph(config: AppConfig) -> CompiledStateGraph:

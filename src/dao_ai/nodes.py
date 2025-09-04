@@ -69,7 +69,7 @@ def summarization_node(app_model: AppModel) -> RunnableLike:
 
 
 def call_agent_with_summarized_messages(agent: CompiledStateGraph) -> RunnableLike:
-    def call_agent(state: SharedState, runtime: Runtime[Context]) -> SharedState:
+    async def call_agent(state: SharedState, runtime: Runtime[Context]) -> SharedState:
         logger.debug(f"Calling agent {agent.name} with summarized messages")
 
         # Get the summarized messages from the summarization node
@@ -81,7 +81,9 @@ def call_agent_with_summarized_messages(agent: CompiledStateGraph) -> RunnableLi
             "messages": messages,
         }
 
-        response: dict[str, Any] = agent.invoke(input=input, context=runtime.context)
+        response: dict[str, Any] = await agent.ainvoke(
+            input=input, context=runtime.context
+        )
         response_messages = response.get("messages", [])
         logger.debug(f"Agent returned {len(response_messages)} messages")
 
@@ -193,7 +195,9 @@ def message_hook_node(config: AppConfig) -> RunnableLike:
     message_hooks: Sequence[Callable[..., Any]] = create_hooks(config.app.message_hooks)
 
     @mlflow.trace()
-    def message_hook(state: IncomingState, runtime: Runtime[Context]) -> SharedState:
+    async def message_hook(
+        state: IncomingState, runtime: Runtime[Context]
+    ) -> SharedState:
         logger.debug("Running message validation")
         response: dict[str, Any] = {"is_valid": True, "message_error": None}
 

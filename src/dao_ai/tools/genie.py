@@ -62,14 +62,16 @@ def create_genie_tool(
 
     doc: str = description + "\n" + doc_signature
 
-    def genie_tool(question: str) -> GenieResponse:
+    async def genie_tool(question: str) -> GenieResponse:
+        # Use sync API for now since Genie doesn't support async yet
+        # Can be easily updated to await when Genie gets async support
         response: GenieResponse = genie.ask_question(question)
         return response
 
     name: str = name if name else genie_tool.__name__
 
     structured_tool: StructuredTool = StructuredTool.from_function(
-        func=genie_tool, name=name, description=doc, parse_docstring=False
+        coroutine=genie_tool, name=name, description=doc, parse_docstring=False
     )
 
     return structured_tool
