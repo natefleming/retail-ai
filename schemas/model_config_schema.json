@@ -1222,13 +1222,18 @@
           "default": null
         },
         "name": {
-          "title": "Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
         }
       },
-      "required": [
-        "name"
-      ],
       "title": "FunctionModel",
       "type": "object"
     },
@@ -2361,13 +2366,18 @@
           "default": null
         },
         "name": {
-          "title": "Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
         }
       },
-      "required": [
-        "name"
-      ],
       "title": "TableModel",
       "type": "object"
     },
