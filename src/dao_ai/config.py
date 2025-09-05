@@ -44,8 +44,14 @@ from mlflow.models.resources import (
     DatabricksUCConnection,
     DatabricksVectorSearchIndex,
 )
-from mlflow.pyfunc import ChatModel
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+from mlflow.pyfunc import ChatModel, ResponsesAgent
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    model_validator,
+)
 
 
 class HasValue(ABC):
@@ -1034,8 +1040,36 @@ class Message(BaseModel):
 
 class ChatPayload(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    messages: list[Message]
+    input: Optional[list[Message]] = None
+    messages: Optional[list[Message]] = None
     custom_inputs: dict
+
+    @model_validator(mode="after")
+    def validate_mutual_exclusion_and_alias(self) -> "ChatPayload":
+        """Handle dual field support with automatic aliasing."""
+        # If both fields are provided and they're the same, that's okay (redundant but valid)
+        if self.input is not None and self.messages is not None:
+            # Allow if they're identical (redundant specification)
+            if self.input == self.messages:
+                return self
+            # If they're different, prefer input and copy to messages
+            else:
+                self.messages = self.input
+                return self
+
+        # If neither field is provided, that's an error
+        if self.input is None and self.messages is None:
+            raise ValueError("Must specify either 'input' or 'messages' field.")
+
+        # Create alias: copy messages to input if input is None
+        if self.input is None and self.messages is not None:
+            self.input = self.messages
+
+        # Create alias: copy input to messages if messages is None
+        elif self.messages is None and self.input is not None:
+            self.messages = self.input
+
+        return self
 
 
 class ChatHistoryModel(BaseModel):
@@ -1373,4 +1407,11 @@ class AppConfig(BaseModel):
 
         graph: CompiledStateGraph = self.as_graph()
         app: ChatModel = create_agent(graph)
+        return app
+
+    def as_responses_agent(self) -> ResponsesAgent:
+        from dao_ai.models import create_responses_agent
+
+        graph: CompiledStateGraph = self.as_graph()
+        app: ResponsesAgent = create_responses_agent(graph)
         return app

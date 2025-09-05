@@ -11,6 +11,9 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.modifier import RemoveMessage
 from mlflow.types.llm import ChatMessage
+from mlflow.types.responses import (
+    ResponsesAgentRequest,
+)
 
 
 def remove_messages(
@@ -94,6 +97,10 @@ def has_mlflow_messages(messages: ChatMessage | Sequence[ChatMessage]) -> bool:
     if isinstance(messages, ChatMessage):
         messages = [messages]
     return any(isinstance(m, ChatMessage) for m in messages)
+
+
+def has_mlflow_responses_messages(messages: ResponsesAgentRequest) -> bool:
+    return isinstance(messages, ResponsesAgentRequest)
 
 
 def has_image(messages: BaseMessage | Sequence[BaseMessage]) -> bool:

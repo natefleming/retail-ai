@@ -898,7 +898,7 @@ agents:
 app:
   name: hardware_store_supervisor                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
-  log_level: INFO                                   # Logging level for the application
+  log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: hardware_store_supervisor                           # Model name in MLflow registry
@@ -926,7 +926,7 @@ app:
     - dao_ai.hooks.null_hook
     - hardware_store.hooks.require_store_num_hook
   input_example:
-      messages:
+      input:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
