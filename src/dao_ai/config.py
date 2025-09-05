@@ -45,7 +45,7 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from mlflow.pyfunc import ChatModel, ResponsesAgent
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator, field_validator
 
 
 class HasValue(ABC):
@@ -1034,8 +1034,28 @@ class Message(BaseModel):
 
 class ChatPayload(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    input: list[Message]
+    input: Optional[list[Message]] = None
+    messages: Optional[list[Message]] = None
     custom_inputs: dict
+
+    @model_validator(mode="after")
+    def validate_mutual_exclusion_and_alias(self) -> "ChatPayload":
+        """Validate mutual exclusion between input and messages, and create alias."""
+        if self.input is not None and self.messages is not None:
+            raise ValueError("Cannot specify both 'input' and 'messages' fields. Use only one.")
+        
+        if self.input is None and self.messages is None:
+            raise ValueError("Must specify either 'input' or 'messages' field.")
+        
+        # Create alias: copy messages to input if input is None
+        if self.input is None and self.messages is not None:
+            self.input = self.messages
+        
+        # Create alias: copy input to messages if messages is None  
+        elif self.messages is None and self.input is not None:
+            self.messages = self.input
+            
+        return self
 
 
 class ChatHistoryModel(BaseModel):

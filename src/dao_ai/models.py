@@ -1,7 +1,7 @@
 import uuid
 from os import PathLike
 from pathlib import Path
-from typing import Any, Generator, Optional, Sequence
+from typing import Any, Generator, Optional, Sequence, Union
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -22,8 +22,12 @@ from mlflow.types.responses import (
     ResponsesAgentResponse,
     ResponsesAgentStreamEvent,
 )
+from mlflow.types.responses_helpers import (
+    Message,
+    ResponseInputTextParam,
+)
 
-from dao_ai.messages import has_langchain_messages, has_mlflow_messages
+from dao_ai.messages import has_langchain_messages, has_mlflow_messages, has_mlflow_responses_messages
 from dao_ai.state import Context
 
 
@@ -311,36 +315,77 @@ class LanggraphResponsesAgent(ResponsesAgent):
         finally:
             loop.run_until_complete(async_gen.aclose())
 
+    def _extract_text_from_content(
+        self, content: Union[str, list[Union[ResponseInputTextParam, str, dict[str, Any]]]]
+    ) -> str:
+        """Extract text content from various MLflow content formats.
+        
+        MLflow ResponsesAgent supports multiple content formats:
+        - str: Simple text content
+        - list[ResponseInputTextParam]: Structured text objects with .text attribute
+        - list[dict]: Dictionaries with "text" key
+        - Mixed lists of the above types
+        
+        This method normalizes all formats to a single concatenated string.
+        
+        Args:
+            content: The content to extract text from
+            
+        Returns:
+            Concatenated text string from all content items
+        """
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            text_parts = []
+            for content_item in content:
+                if isinstance(content_item, ResponseInputTextParam):
+                    text_parts.append(content_item.text)
+                elif isinstance(content_item, str):
+                    text_parts.append(content_item)
+                elif isinstance(content_item, dict) and "text" in content_item:
+                    text_parts.append(content_item["text"])
+            return "".join(text_parts)
+        else:
+            # Fallback for unknown types - try to extract text attribute
+            return getattr(content, "text", str(content))
+
     def _convert_request_to_langchain_messages(
         self, request: ResponsesAgentRequest
     ) -> list[dict[str, Any]]:
         """Convert ResponsesAgent input to LangChain message format."""
         messages = []
+        
         for input_item in request.input:
-            if hasattr(input_item, "role") and hasattr(input_item, "content"):
-                # Simple message format
-                messages.append(
-                    {"role": input_item.role, "content": input_item.content}
-                )
+            if isinstance(input_item, Message):
+                # Handle MLflow Message objects
+                content = self._extract_text_from_content(input_item.content)
+                messages.append({"role": input_item.role, "content": content})
             elif isinstance(input_item, dict):
                 # Handle dict format
                 if "role" in input_item and "content" in input_item:
-                    messages.append(
-                        {"role": input_item["role"], "content": input_item["content"]}
-                    )
+                    content = self._extract_text_from_content(input_item["content"])
+                    messages.append({"role": input_item["role"], "content": content})
+            else:
+                # Fallback for other object types with role/content attributes
+                role = getattr(input_item, "role", "user")
+                content = self._extract_text_from_content(getattr(input_item, "content", ""))
+                messages.append({"role": role, "content": content})
+                
+        return messages
         return messages
 
     def _convert_request_to_context(self, request: ResponsesAgentRequest) -> Context:
         """Convert ResponsesAgent context to internal Context."""
-
+  
         configurable: dict[str, Any] = {}
-
+  
         if request.custom_inputs:
             if "configurable" in request.custom_inputs:
                 configurable.update(request.custom_inputs.pop("configurable"))
 
             configurable.update(request.custom_inputs)
-
+ 
         if request.context:
             if hasattr(request.context, "conversation_id"):
                 configurable["conversation_id"] = request.context.conversation_id
@@ -475,6 +520,12 @@ def _process_mlflow_messages(
 ) -> ChatCompletionResponse:
     return app.predict(None, messages, custom_inputs)
 
+def _process_mlflow_response_messages(
+    app: ResponsesAgent,
+    messages: ResponsesAgentRequest,
+) -> ResponsesAgentResponse:
+    """Process MLflow ResponsesAgent request in batch mode."""
+    return app.predict(messages)
 
 def _process_mlflow_messages_stream(
     app: ChatModel,
@@ -485,33 +536,57 @@ def _process_mlflow_messages_stream(
         event: ChatCompletionChunk
         yield event
 
-
-def _process_config_messages(
-    app: ChatModel,
-    messages: dict[str, Any],
-    custom_inputs: Optional[dict[str, Any]] = None,
-) -> ChatCompletionResponse:
-    messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
-    params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
-
-    return _process_mlflow_messages(app, messages, params)
-
-
-def _process_config_messages_stream(
-    app: ChatModel, messages: dict[str, Any], custom_inputs: dict[str, Any]
-) -> Generator[ChatCompletionChunk, None, None]:
-    messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
-    params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
-
-    for event in _process_mlflow_messages_stream(app, messages, custom_inputs=params):
+def _process_mlflow_response_messages_stream(
+    app: ResponsesAgent,
+    messages: ResponsesAgentRequest,
+) -> Generator[ResponsesAgentStreamEvent, None, None]:
+    """Process MLflow ResponsesAgent request in streaming mode."""
+    for event in app.predict_stream(messages):
+        event: ResponsesAgentStreamEvent
         yield event
 
 
-def process_messages_stream(
-    app: LanggraphChatModel,
-    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
+def _process_config_messages(
+    app: LanggraphChatModel | LanggraphResponsesAgent,
+    messages: dict[str, Any],
     custom_inputs: Optional[dict[str, Any]] = None,
-) -> Generator[ChatCompletionChunk | AIMessageChunk, None, None]:
+) -> ChatCompletionResponse | ResponsesAgentResponse:
+    
+    if isinstance(app, LanggraphChatModel):
+        messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
+        params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
+        return _process_mlflow_messages(app, messages, params)
+
+    elif isinstance(app, LanggraphResponsesAgent):
+        input_messages: list[Message] = [Message(**m) for m in messages]
+        request = ResponsesAgentRequest(input=input_messages, custom_inputs=custom_inputs)
+        return _process_mlflow_response_messages(app, request)
+
+
+def _process_config_messages_stream(
+    app: LanggraphChatModel | LanggraphResponsesAgent, messages: dict[str, Any], custom_inputs: dict[str, Any]
+) -> Generator[ChatCompletionChunk | ResponsesAgentStreamEvent, None, None]:
+    if isinstance(app, LanggraphChatModel):
+        messages: Sequence[ChatMessage] = [ChatMessage(**m) for m in messages]
+        params: ChatParams = ChatParams(**{"custom_inputs": custom_inputs})
+
+        for event in _process_mlflow_messages_stream(app, messages, custom_inputs=params):
+            yield event
+    
+    elif isinstance(app, LanggraphResponsesAgent):
+        input_messages: list[Message] = [Message(**m) for m in messages]
+        request = ResponsesAgentRequest(input=input_messages, custom_inputs=custom_inputs)
+        
+        for event in _process_mlflow_response_messages_stream(app, request):
+            yield event
+
+
+
+def process_messages_stream(
+    app: LanggraphChatModel | LanggraphResponsesAgent,
+    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | ResponsesAgentRequest | dict[str, Any],
+    custom_inputs: Optional[dict[str, Any]] = None,
+) -> Generator[ChatCompletionChunk | ResponsesAgentStreamEvent | AIMessageChunk, None, None]:
     """
     Process messages through a ChatAgent in streaming mode.
 
@@ -526,7 +601,10 @@ def process_messages_stream(
         Individual message chunks from the streaming response
     """
 
-    if has_mlflow_messages(messages):
+    if has_mlflow_responses_messages(messages):
+        for event in _process_mlflow_response_messages_stream(app, messages):
+            yield event
+    elif has_mlflow_messages(messages):
         for event in _process_mlflow_messages_stream(app, messages, custom_inputs):
             yield event
     elif has_langchain_messages(messages):
@@ -538,10 +616,10 @@ def process_messages_stream(
 
 
 def process_messages(
-    app: LanggraphChatModel,
-    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | dict[str, Any],
+    app: LanggraphChatModel | LanggraphResponsesAgent,
+    messages: Sequence[BaseMessage] | Sequence[ChatMessage] | ResponsesAgentRequest | dict[str, Any],
     custom_inputs: Optional[dict[str, Any]] = None,
-) -> ChatCompletionResponse | dict[str, Any] | Any:
+) -> ChatCompletionResponse | ResponsesAgentResponse | dict[str, Any] | Any:
     """
     Process messages through a ChatAgent in batch mode.
 
@@ -556,7 +634,9 @@ def process_messages(
         Complete response from the agent
     """
 
-    if has_mlflow_messages(messages):
+    if has_mlflow_responses_messages(messages):
+        return _process_mlflow_response_messages(app, messages)
+    elif has_mlflow_messages(messages):
         return _process_mlflow_messages(app, messages, custom_inputs)
     elif has_langchain_messages(messages):
         return _process_langchain_messages(app, messages, custom_inputs)

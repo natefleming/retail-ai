@@ -480,12 +480,35 @@
     "ChatPayload": {
       "additionalProperties": false,
       "properties": {
+        "input": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input"
+        },
         "messages": {
-          "items": {
-            "$ref": "#/$defs/Message"
-          },
-          "title": "Messages",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
         },
         "custom_inputs": {
           "additionalProperties": true,
@@ -494,7 +517,6 @@
         }
       },
       "required": [
-        "messages",
         "custom_inputs"
       ],
       "title": "ChatPayload",
