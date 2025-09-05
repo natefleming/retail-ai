@@ -50,68 +50,68 @@ resources:
 
 
   tables:
-    employee_performance:
+    all_tables:
       schema: *executive_assistant_schema                        
-      name: employee_performance                              
+    #   name: employee_performance                              
     
-    products:
-      schema: *executive_assistant_schema
-      name: products
+    # products:
+    #   schema: *executive_assistant_schema
+    #   name: products
 
-    inventory: 
-      schema: *executive_assistant_schema
-      name: inventory
+    # inventory: 
+    #   schema: *executive_assistant_schema
+    #   name: inventory
 
-    customers: 
-      schema: *executive_assistant_schema
-      name: customers
+    # customers: 
+    #   schema: *executive_assistant_schema
+    #   name: customers
 
-    managers:
-      schema: *executive_assistant_schema
-      name: managers
+    # managers:
+    #   schema: *executive_assistant_schema
+    #   name: managers
 
-    employee_tasks: 
-      schema: *executive_assistant_schema
-      name: employee_tasks
+    # employee_tasks: 
+    #   schema: *executive_assistant_schema
+    #   name: employee_tasks
 
-    appointments: 
-      schema: *executive_assistant_schema
-      name: appointments
+    # appointments: 
+    #   schema: *executive_assistant_schema
+    #   name: appointments
 
-    evaluation: 
-      schema: *executive_assistant_schema
-      name: evaluation
+    # evaluation: 
+    #   schema: *executive_assistant_schema
+    #   name: evaluation
 
 
   functions:
 
-    find_inventory_by_sku: &find_inventory_by_sku
+    all_functions: 
       schema: *executive_assistant_schema
-      name: find_inventory_by_sku
+    #   name: find_inventory_by_sku
 
-    find_inventory_by_upc: &find_inventory_by_upc
-      schema: *executive_assistant_schema
-      name: find_inventory_by_upc     
+    # find_inventory_by_upc: &find_inventory_by_upc
+    #   schema: *executive_assistant_schema
+    #   name: find_inventory_by_upc     
     
-    find_product_by_sku: &find_product_by_sku
-      schema: *executive_assistant_schema
-      name: find_product_by_sku     
+    # find_product_by_sku: &find_product_by_sku
+    #   schema: *executive_assistant_schema
+    #   name: find_product_by_sku     
 
-    find_product_by_upc: &find_product_by_upc
-      schema: *executive_assistant_schema
-      name: find_product_by_upc     
+    # find_product_by_upc: &find_product_by_upc
+    #   schema: *executive_assistant_schema
+    #   name: find_product_by_upc     
 
-    find_store_by_number: &find_store_by_number
-      schema: *executive_assistant_schema
-      name: find_store_by_number     
+    # find_store_by_number: &find_store_by_number
+    #   schema: *executive_assistant_schema
+    #   name: find_store_by_number     
     
-    find_store_inventory_by_sku: &find_store_inventory_by_sku
-      schema: *executive_assistant_schema
-      name: find_store_inventory_by_sku     
+    # find_store_inventory_by_sku: &find_store_inventory_by_sku
+    #   schema: *executive_assistant_schema
+    #   name: find_store_inventory_by_sku     
 
-    find_store_inventory_by_upc: &find_store_inventory_by_upc
-      schema: *executive_assistant_schema
-      name: find_store_inventory_by_upc
+    # find_store_inventory_by_upc: &find_store_inventory_by_upc
+    #   schema: *executive_assistant_schema
+    #   name: find_store_inventory_by_upc
 
   genie_rooms:
     executive_assistant_genie_room: &executive_assistant_genie_room
