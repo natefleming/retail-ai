@@ -235,12 +235,16 @@ class DatabricksProvider(ServiceProvider):
             + connections
         )
 
-        # all_resources: Sequence[DatabricksResource] = [
-        #     r.as_resource() for r in resources
-        # ]
+        # Flatten all resources from all models into a single list
+        all_resources: list[DatabricksResource] = []
+        for r in resources:
+            all_resources.extend(r.as_resources())
 
         system_resources: Sequence[DatabricksResource] = [
-            r.as_resource() for r in resources if not r.on_behalf_of_user
+            resource
+            for r in resources
+            for resource in r.as_resources()
+            if not r.on_behalf_of_user
         ]
         logger.debug(f"system_resources: {[r.name for r in system_resources]}")
 

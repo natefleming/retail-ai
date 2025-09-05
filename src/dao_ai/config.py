@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import (
     Any,
     Callable,
+    Iterator,
     Literal,
     Optional,
     Sequence,
@@ -21,6 +22,7 @@ from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
     ModelServingUserCredentials,
 )
+from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -75,7 +77,7 @@ class IsDatabricksResource(ABC):
     on_behalf_of_user: Optional[bool] = False
 
     @abstractmethod
-    def as_resource(self) -> DatabricksResource: ...
+    def as_resources(self) -> Sequence[DatabricksResource]: ...
 
     @property
     @abstractmethod
@@ -241,22 +243,56 @@ class SchemaModel(BaseModel, HasFullName):
 class TableModel(BaseModel, HasFullName, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
+    name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_name_or_schema_required(self) -> "TableModel":
+        if not self.name and not self.schema_model:
+            raise ValueError(
+                "Either 'name' or 'schema_model' must be provided for TableModel"
+            )
+        return self
 
     @property
     def full_name(self) -> str:
         if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+            name: str = ""
+            if self.name:
+                name = f".{self.name}"
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
         return self.name
 
     @property
     def api_scopes(self) -> Sequence[str]:
         return []
 
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksTable(
-            table_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
-        )
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        resources: list[DatabricksResource] = []
+
+        if self.name:
+            resources.append(
+                DatabricksTable(
+                    table_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
+                )
+            )
+        else:
+            w: WorkspaceClient = self.workspace_client
+            schema_full_name: str = self.schema_model.full_name
+            tables: Iterator[TableInfo] = w.tables.list(
+                catalog_name=self.schema_model.catalog_name,
+                schema_name=self.schema_model.schema_name,
+            )
+            resources.extend(
+                [
+                    DatabricksTable(
+                        table_name=f"{schema_full_name}.{table.name}",
+                        on_behalf_of_user=self.on_behalf_of_user,
+                    )
+                    for table in tables
+                ]
+            )
+
+        return resources
 
 
 class LLMModel(BaseModel, IsDatabricksResource):
@@ -272,10 +308,12 @@ class LLMModel(BaseModel, IsDatabricksResource):
             "serving.serving-endpoints",
         ]
 
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksServingEndpoint(
-            endpoint_name=self.name, on_behalf_of_user=self.on_behalf_of_user
-        )
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksServingEndpoint(
+                endpoint_name=self.name, on_behalf_of_user=self.on_behalf_of_user
+            )
+        ]
 
     def as_chat_model(self) -> LanguageModelLike:
         # Retrieve langchain chat client from workspace client to enable OBO
@@ -351,10 +389,12 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksVectorSearchIndex(
-            index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
-        )
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksVectorSearchIndex(
+                index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
+            )
+        ]
 
 
 class GenieRoomModel(BaseModel, IsDatabricksResource):
@@ -369,10 +409,12 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
             "dashboards.genie",
         ]
 
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksGenieSpace(
-            genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user
-        )
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksGenieSpace(
+                genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user
+            )
+        ]
 
 
 class VolumeModel(BaseModel, HasFullName):
@@ -400,7 +442,7 @@ class VolumePathModel(BaseModel, HasFullName):
     path: Optional[str] = None
 
     @model_validator(mode="after")
-    def validate_path_or_volume(self):
+    def validate_path_or_volume(self) -> "VolumePathModel":
         if not self.volume and not self.path:
             raise ValueError("Either 'volume' or 'path' must be provided")
         return self
@@ -508,8 +550,8 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
             "serving.serving-endpoints",
         ] + self.index.api_scopes
 
-    def as_resource(self) -> DatabricksResource:
-        return self.index.as_resource()
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return self.index.as_resources()
 
     def as_index(self, vsc: VectorSearchClient | None = None) -> VectorSearchIndex:
         from dao_ai.providers.base import ServiceProvider
@@ -530,18 +572,52 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
     model_config = ConfigDict()
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
+    name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_name_or_schema_required(self) -> "FunctionModel":
+        if not self.name and not self.schema_model:
+            raise ValueError(
+                "Either 'name' or 'schema_model' must be provided for FunctionModel"
+            )
+        return self
 
     @property
     def full_name(self) -> str:
         if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+            name: str = ""
+            if self.name:
+                name = f".{self.name}"
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
         return self.name
 
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksFunction(
-            function_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
-        )
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        resources: list[DatabricksResource] = []
+        if self.name:
+            resources.append(
+                DatabricksFunction(
+                    function_name=self.full_name,
+                    on_behalf_of_user=self.on_behalf_of_user,
+                )
+            )
+        else:
+            w: WorkspaceClient = self.workspace_client
+            schema_full_name: str = self.schema_model.full_name
+            functions: Iterator[FunctionInfo] = w.functions.list(
+                catalog_name=self.schema_model.catalog_name,
+                schema_name=self.schema_model.schema_name,
+            )
+            resources.extend(
+                [
+                    DatabricksFunction(
+                        function_name=f"{schema_full_name}.{function.name}",
+                        on_behalf_of_user=self.on_behalf_of_user,
+                    )
+                    for function in functions
+                ]
+            )
+
+        return resources
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -562,10 +638,12 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
             "catalog.connections",
         ]
 
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksUCConnection(
-            connection_name=self.name, on_behalf_of_user=self.on_behalf_of_user
-        )
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksUCConnection(
+                connection_name=self.name, on_behalf_of_user=self.on_behalf_of_user
+            )
+        ]
 
 
 class WarehouseModel(BaseModel, IsDatabricksResource):
@@ -581,10 +659,12 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
             "sql.statement-execution",
         ]
 
-    def as_resource(self) -> DatabricksResource:
-        return DatabricksSQLWarehouse(
-            warehouse_id=self.warehouse_id, on_behalf_of_user=self.on_behalf_of_user
-        )
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksSQLWarehouse(
+                warehouse_id=self.warehouse_id, on_behalf_of_user=self.on_behalf_of_user
+            )
+        ]
 
 
 class DatabaseModel(BaseModel):
