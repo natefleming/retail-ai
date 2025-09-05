@@ -45,7 +45,13 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from mlflow.pyfunc import ChatModel, ResponsesAgent
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    model_validator,
+)
 
 
 class HasValue(ABC):
@@ -1050,19 +1056,19 @@ class ChatPayload(BaseModel):
             else:
                 self.messages = self.input
                 return self
-        
+
         # If neither field is provided, that's an error
         if self.input is None and self.messages is None:
             raise ValueError("Must specify either 'input' or 'messages' field.")
-        
+
         # Create alias: copy messages to input if input is None
         if self.input is None and self.messages is not None:
             self.input = self.messages
-        
-        # Create alias: copy input to messages if messages is None  
+
+        # Create alias: copy input to messages if messages is None
         elif self.messages is None and self.input is not None:
             self.messages = self.input
-            
+
         return self
 
 
