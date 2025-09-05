@@ -50,7 +50,7 @@ resources:
 
 
   tables:
-    employee_performance:
+    all_tables:
       schema: *executive_assistant_schema                        
     #   name: employee_performance                              
     
@@ -85,7 +85,7 @@ resources:
 
   functions:
 
-    find_inventory_by_sku: &find_inventory_by_sku
+    all_functions: 
       schema: *executive_assistant_schema
     #   name: find_inventory_by_sku
 
