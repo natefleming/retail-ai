@@ -1040,10 +1040,18 @@ class ChatPayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_mutual_exclusion_and_alias(self) -> "ChatPayload":
-        """Validate mutual exclusion between input and messages, and create alias."""
+        """Handle dual field support with automatic aliasing."""
+        # If both fields are provided and they're the same, that's okay (redundant but valid)
         if self.input is not None and self.messages is not None:
-            raise ValueError("Cannot specify both 'input' and 'messages' fields. Use only one.")
+            # Allow if they're identical (redundant specification)
+            if self.input == self.messages:
+                return self
+            # If they're different, prefer input and copy to messages
+            else:
+                self.messages = self.input
+                return self
         
+        # If neither field is provided, that's an error
         if self.input is None and self.messages is None:
             raise ValueError("Must specify either 'input' or 'messages' field.")
         
