@@ -386,7 +386,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
         """Convert ResponsesAgent context to internal Context."""
 
         logger.debug(f"request.context: {request.context}")
-        logger.dbug(f"request.custom_inputs: {request.custom_inputs}")
+        logger.debug(f"request.custom_inputs: {request.custom_inputs}")
 
         configurable: dict[str, Any] = {}
 
