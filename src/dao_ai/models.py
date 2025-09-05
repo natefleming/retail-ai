@@ -220,15 +220,15 @@ class LanggraphResponsesAgent(ResponsesAgent):
         messages = self._convert_request_to_langchain_messages(request)
 
         # Prepare context
-        context = self._convert_request_to_context(request)
-        custom_inputs = {"configurable": context.model_dump()}
+        context: Context = self._convert_request_to_context(request)
+        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
         # Use async ainvoke internally for parallel execution
         import asyncio
 
         async def _async_invoke():
             return await self.graph.ainvoke(
-                {"messages": messages}, config=custom_inputs
+                {"messages": messages}, context=context, config=custom_inputs
             )
 
         loop = asyncio.get_event_loop()
@@ -256,11 +256,13 @@ class LanggraphResponsesAgent(ResponsesAgent):
         logger.debug(f"ResponsesAgent stream request: {request}")
 
         # Convert ResponsesAgent input to LangChain messages
-        messages = self._convert_request_to_langchain_messages(request)
+        messages: list[BaseMessage] = self._convert_request_to_langchain_messages(
+            request
+        )
 
         # Prepare context
-        context = self._convert_request_to_context(request)
-        custom_inputs = {"configurable": context.model_dump()}
+        context: Context = self._convert_request_to_context(request)
+        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
         # Use async astream internally for parallel execution
         import asyncio
@@ -271,6 +273,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
             async for nodes, stream_mode, messages_batch in self.graph.astream(
                 {"messages": messages},
+                context=context,
                 config=custom_inputs,
                 stream_mode=["messages", "custom"],
                 subgraphs=True,
@@ -390,12 +393,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
         configurable: dict[str, Any] = {}
 
-        if request.custom_inputs:
-            if "configurable" in request.custom_inputs:
-                configurable.update(request.custom_inputs.pop("configurable"))
-
-            configurable.update(request.custom_inputs)
-
+        # Process context values first (lower priority)
         # Use strong typing with forward-declared type hints instead of hasattr checks
         chat_context: Optional[ChatContext] = request.context
         if chat_context is not None:
@@ -408,6 +406,13 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
             if user_id is not None:
                 configurable["user_id"] = user_id
+
+        # Process custom_inputs after context so they can override context values (higher priority)
+        if request.custom_inputs:
+            if "configurable" in request.custom_inputs:
+                configurable.update(request.custom_inputs.pop("configurable"))
+
+            configurable.update(request.custom_inputs)
 
         if "user_id" in configurable:
             configurable["user_id"] = configurable["user_id"].replace(".", "_")
