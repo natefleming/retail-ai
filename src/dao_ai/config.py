@@ -269,6 +269,16 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         resources: list[DatabricksResource] = []
 
+        excluded_suffixes: Sequence[str] = [
+            "_payload",
+            "_assessment_logs",
+            "_request_logs",
+        ]
+        
+        excluded_prefixes: Sequence[str] = [
+            "trace_logs_"
+        ]
+
         if self.name:
             resources.append(
                 DatabricksTable(
@@ -289,6 +299,8 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
                         on_behalf_of_user=self.on_behalf_of_user,
                     )
                     for table in tables
+                    if not any(table.name.endswith(suffix) for suffix in excluded_suffixes)
+                    and not any(table.name.startswith(prefix) for prefix in excluded_prefixes)
                 ]
             )
 
