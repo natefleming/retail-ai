@@ -6,8 +6,37 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
-config_path: str = dbutils.widgets.get("config-path")
+from typing import Sequence
+import os
+
+def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
+    if not os.path.exists(base_path):
+        raise FileNotFoundError(f"Base path does not exist: {base_path}")
+    
+    if not os.path.isdir(base_path):
+        raise NotADirectoryError(f"Base path is not a directory: {base_path}")
+    
+    yaml_files = []
+    
+    for root, dirs, files in os.walk(base_path):
+        for file in files:
+            if file.lower().endswith(('.yaml', '.yml')):
+                yaml_files.append(os.path.join(root, file))
+    
+    return sorted(yaml_files)
+
+# COMMAND ----------
+
+dbutils.widgets.text(name="config-path", defaultValue="")
+
+config_files: Sequence[str] = find_yaml_files_os_walk("../config")
+dbutils.widgets.dropdown(name="projects", choices=config_files, defaultValue=next(iter(config_files), ""))
+
+config_path: str | None = dbutils.widgets.get("config-path") or None
+project_path: str = dbutils.widgets.get("projects") or None
+
+config_path: str = config_path or project_path
+
 print(config_path)
 
 # COMMAND ----------
