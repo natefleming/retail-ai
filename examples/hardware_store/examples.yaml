@@ -2,7 +2,7 @@
     recommendation_example:
       messages:
         - role: user
-          content: Can you recommend a lamp to match my oak side tables?
+          content: Can you a stain color to go with my beige lawn furniture?
       custom_inputs:
         configurable:
           thread_id: "1"
@@ -12,7 +12,7 @@
     inventory_example:
       messages:
         - role: user
-          content: How many oak tables do we have in stock?
+          content: How many big green egg grills do you have in stock?
       custom_inputs:
         configurable:
           thread_id: "1"

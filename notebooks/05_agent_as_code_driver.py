@@ -30,10 +30,10 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
 dbutils.widgets.text(name="config-path", defaultValue="")
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
-dbutils.widgets.dropdown(name="projects", choices=config_files, defaultValue=next(iter(config_files), ""))
+dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
 
 config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str = dbutils.widgets.get("projects") or None
+project_path: str = dbutils.widgets.get("config-paths") or None
 
 config_path: str = config_path or project_path
 

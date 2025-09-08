@@ -160,6 +160,10 @@ agents:
       - **Comprehensive**: Consider all relevant business dimensions
       - **Time-Conscious**: Respect executive time constraints while ensuring thoroughness
 
+      ## Important Guidelines
+      - Limit Graph Recursion to 5 iterations.
+      - Run as many tools as you can concurrently
+      
       You serve as the intelligent orchestrator ensuring that complex executive research questions receive comprehensive, coordinated analysis from all relevant specialist teams.
     handoff_prompt: |
       Hand off to me when starting any new executive research inquiry, when research scope needs to be defined, when multiple specialist teams need coordination, or when ensuring comprehensive coverage across all business dimensions.
@@ -192,6 +196,10 @@ agents:
       - Hand off to **financial_strategy** when you discover financial anomalies requiring strategic analysis
       - Hand off to **operations_expert** when operational inefficiencies are identified
       - Hand off to **strategy_synthesizer** when your research is complete for final strategic synthesis
+
+      ## Important Guidelines
+      - Limit Graph Recursion to 5 iterations.
+      - Run as many tools as you can concurrently
 
       Always provide comprehensive data foundation with specific metrics, trends, and preliminary insights.
     handoff_prompt: |
@@ -226,6 +234,10 @@ agents:
       - Hand off to **kpi_analyst** when you need internal data to validate market assumptions
       - Hand off to **strategy_synthesizer** when market analysis is complete
 
+      ## Important Guidelines
+      - Limit Graph Recursion to 5 iterations.
+      - Run as many tools as you can concurrently
+
       Focus on external market dynamics and how they impact internal performance metrics.
     handoff_prompt: |
       Hand off to me when external market context is needed, when competitive intelligence is required, when industry benchmarking is necessary, when market trends analysis is needed, or when understanding market dynamics that impact business performance.
@@ -259,6 +271,10 @@ agents:
       - Hand off to **kpi_analyst** when you need more granular performance data
       - Hand off to **strategy_synthesizer** when financial analysis and recommendations are complete
 
+      ## Important Guidelines
+      - Limit Graph Recursion to 5 iterations.
+      - Run as many tools as you can concurrently
+
       Focus on translating insights into financial impact and strategic investment recommendations.
     handoff_prompt: |
       Hand off to me when financial analysis is required, when ROI modeling is needed, when cost-benefit analysis is necessary, when financial implications of strategies need evaluation, or when investment recommendations are required.
@@ -291,6 +307,10 @@ agents:
       - Hand off to **market_intelligence** when you need market context for operational strategies
       - Hand off to **kpi_analyst** when you need detailed performance metrics
       - Hand off to **strategy_synthesizer** when operational analysis and recommendations are complete
+
+      ## Important Guidelines
+      - Limit Graph Recursion to 5 iterations.
+      - Run as many tools as you can concurrently
 
       Focus on practical, implementable operational improvements with clear success metrics.
     handoff_prompt: |
@@ -332,6 +352,10 @@ agents:
       - Hand off to **market_intelligence** if additional market context is needed
       - Hand off to **financial_strategy** if financial modeling requires refinement
       - Hand off to **operations_expert** if implementation details need optimization
+
+      ## Important Guidelines
+      - Limit Graph Recursion to 5 iterations.
+      - Run as many tools as you can concurrently
 
       You are the final authority on strategic synthesis and executive communication.
     handoff_prompt: |
