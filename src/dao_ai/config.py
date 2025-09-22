@@ -274,10 +274,8 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
             "_assessment_logs",
             "_request_logs",
         ]
-        
-        excluded_prefixes: Sequence[str] = [
-            "trace_logs_"
-        ]
+
+        excluded_prefixes: Sequence[str] = ["trace_logs_"]
 
         if self.name:
             resources.append(
@@ -299,8 +297,12 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
                         on_behalf_of_user=self.on_behalf_of_user,
                     )
                     for table in tables
-                    if not any(table.name.endswith(suffix) for suffix in excluded_suffixes)
-                    and not any(table.name.startswith(prefix) for prefix in excluded_prefixes)
+                    if not any(
+                        table.name.endswith(suffix) for suffix in excluded_suffixes
+                    )
+                    and not any(
+                        table.name.startswith(prefix) for prefix in excluded_prefixes
+                    )
                 ]
             )
 
@@ -1196,7 +1198,7 @@ class AppModel(BaseModel):
     permissions: Optional[list[AppPermissionModel]] = Field(default_factory=list)
     agents: list[AgentModel] = Field(default_factory=list)
 
-    orchestration: OrchestrationModel
+    orchestration: Optional[OrchestrationModel] = None
     alias: Optional[str] = None
     initialization_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
         default_factory=list
@@ -1215,7 +1217,27 @@ class AppModel(BaseModel):
     @model_validator(mode="after")
     def validate_agents_not_empty(self):
         if not self.agents:
-            raise ValueError("agents must contain at least one item")
+            raise ValueError("At least one agent must be specified")
+        return self
+
+    @model_validator(mode="after")
+    def set_default_orchestration(self):
+        if self.orchestration is None:
+            if len(self.agents) > 1:
+                default_agent: AgentModel = self.agents[0]
+                self.orchestration = OrchestrationModel(
+                    swarm=SupervisorModel(model=default_agent.model)
+                )
+            elif len(self.agents) == 1:
+                default_agent: AgentModel = self.agents[0]
+                self.orchestration = OrchestrationModel(
+                    supervisor=SwarmModel(
+                        model=default_agent.model, default_agent=default_agent
+                    )
+                )
+            else:
+                raise ValueError("At least one agent must be specified")
+
         return self
 
     @model_validator(mode="after")

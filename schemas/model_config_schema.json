@@ -248,7 +248,15 @@
           "type": "array"
         },
         "orchestration": {
-          "$ref": "#/$defs/OrchestrationModel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrchestrationModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "alias": {
           "anyOf": [
@@ -400,8 +408,7 @@
       },
       "required": [
         "name",
-        "registered_model",
-        "orchestration"
+        "registered_model"
       ],
       "title": "AppModel",
       "type": "object"

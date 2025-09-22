@@ -107,12 +107,12 @@ def test_table_model_as_resources_discovery_mode_with_filtering(monkeypatch):
     """Test TableModel.as_resources discovery mode with excluded suffixes and prefixes filtering."""
     # Mock the workspace client and table listing with tables that should be filtered
     mock_workspace_client = Mock()
-    
+
     # Create mock tables - some should be filtered out
     mock_tables = []
     table_names = [
         "valid_table1",  # Should be included
-        "valid_table2",  # Should be included  
+        "valid_table2",  # Should be included
         "data_payload",  # Should be excluded (ends with _payload)
         "test_assessment_logs",  # Should be excluded (ends with _assessment_logs)
         "app_request_logs",  # Should be excluded (ends with _request_logs)
@@ -120,7 +120,7 @@ def test_table_model_as_resources_discovery_mode_with_filtering(monkeypatch):
         "trace_logs_hourly",  # Should be excluded (starts with trace_logs_)
         "normal_trace_table",  # Should be included (contains trace but doesn't start with trace_logs_)
     ]
-    
+
     for name in table_names:
         mock_table = Mock(spec=TableInfo)
         mock_table.name = name
@@ -142,23 +142,23 @@ def test_table_model_as_resources_discovery_mode_with_filtering(monkeypatch):
         # Should only have 3 tables (the valid ones that weren't filtered)
         assert len(resources) == 3
         assert all(isinstance(r, DatabricksTable) for r in resources)
-        
+
         # Check that only the expected tables are included
         resource_names = [r.name for r in resources]
         expected_names = [
             "main.default.valid_table1",
-            "main.default.valid_table2", 
-            "main.default.normal_trace_table"
+            "main.default.valid_table2",
+            "main.default.normal_trace_table",
         ]
         assert sorted(resource_names) == sorted(expected_names)
-        
+
         # Verify that filtered tables are not included
         filtered_out_names = [
             "main.default.data_payload",
             "main.default.test_assessment_logs",
             "main.default.app_request_logs",
             "main.default.trace_logs_daily",
-            "main.default.trace_logs_hourly"
+            "main.default.trace_logs_hourly",
         ]
         for filtered_name in filtered_out_names:
             assert filtered_name not in resource_names
