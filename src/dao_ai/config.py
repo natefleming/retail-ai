@@ -415,7 +415,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
-    space_id: str
+    space_id: AnyVariable
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -429,6 +429,11 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
                 genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user
             )
         ]
+
+    @model_validator(mode="after")
+    def update_space_id(self):
+        self.space_id = value_of(self.space_id)
+        return self
 
 
 class VolumeModel(BaseModel, HasFullName):
@@ -664,7 +669,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict()
     name: str
     description: Optional[str] = None
-    warehouse_id: str
+    warehouse_id: AnyVariable
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -679,6 +684,11 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
                 warehouse_id=self.warehouse_id, on_behalf_of_user=self.on_behalf_of_user
             )
         ]
+
+    @model_validator(mode="after")
+    def update_warehouse_id(self):
+        self.warehouse_id = value_of(self.warehouse_id)
+        return self
 
 
 class DatabaseModel(BaseModel):
