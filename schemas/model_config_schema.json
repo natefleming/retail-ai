@@ -194,7 +194,34 @@
         "environment_vars": {
           "anyOf": [
             {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CompositeVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/EnvironmentVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/PrimitiveVariableModel"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
               "type": "object"
             },
             {

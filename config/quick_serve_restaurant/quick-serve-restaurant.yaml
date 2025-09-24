@@ -175,7 +175,7 @@ resources:
   databases:
     # PostgreSQL database for agent memory and checkpoints
     qsr_database: &qsr_database
-      name: "Retail Database"                                  
+      name: "retail-consumer-goods"
       description: "Database for agent memory and checkpoints" 
       
       # Database connection parameters

@@ -39,6 +39,7 @@ from mlflow.models import ModelConfig
 from mlflow.models.resources import (
     DatabricksFunction,
     DatabricksGenieSpace,
+    DatabricksLakebase,
     DatabricksResource,
     DatabricksServingEndpoint,
     DatabricksSQLWarehouse,
@@ -655,6 +656,7 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
     def api_scopes(self) -> Sequence[str]:
         return [
             "catalog.connections",
+            "serving.serving-endpoints",
         ]
 
     def as_resources(self) -> Sequence[DatabricksResource]:
@@ -691,7 +693,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
         return self
 
 
-class DatabaseModel(BaseModel):
+class DatabaseModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict(frozen=True)
     name: str
     description: Optional[str] = None
@@ -706,6 +708,18 @@ class DatabaseModel(BaseModel):
     client_id: Optional[AnyVariable] = None
     client_secret: Optional[AnyVariable] = None
     workspace_host: Optional[AnyVariable] = None
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return []
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksLakebase(
+                database_instance_name=self.name,
+                on_behalf_of_user=self.on_behalf_of_user,
+            )
+        ]
 
     @model_validator(mode="after")
     def validate_auth_methods(self):
@@ -1202,7 +1216,7 @@ class AppModel(BaseModel):
     endpoint_name: Optional[str] = None
     tags: Optional[dict[str, Any]] = Field(default_factory=dict)
     scale_to_zero: Optional[bool] = True
-    environment_vars: Optional[dict[str, Any]] = Field(default_factory=dict)
+    environment_vars: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
     budget_policy_id: Optional[str] = None
     workload_size: Optional[WorkloadSize] = "Small"
     permissions: Optional[list[AppPermissionModel]] = Field(default_factory=list)
@@ -1228,6 +1242,17 @@ class AppModel(BaseModel):
     def validate_agents_not_empty(self):
         if not self.agents:
             raise ValueError("At least one agent must be specified")
+        return self
+
+    @model_validator(mode="after")
+    def update_environment_vars(self):
+        for key, value in self.environment_vars.items():
+            if isinstance(value, SecretVariableModel):
+                updated_value = str(value)
+            else:
+                updated_value = value_of(value)
+
+            self.environment_vars[key] = updated_value
         return self
 
     @model_validator(mode="after")

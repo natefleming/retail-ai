@@ -136,8 +136,8 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow: StateGraph = StateGraph(
         SharedState,
-        input=IncomingState,
-        output=OutgoingState,
+        input_schema=IncomingState,
+        output_schema=OutgoingState,
         context_schema=Context,
     )
 
@@ -200,8 +200,8 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     workflow: StateGraph = StateGraph(
         SharedState,
-        input=IncomingState,
-        output=OutgoingState,
+        input_schema=IncomingState,
+        output_schema=OutgoingState,
         context_schema=Context,
     )
 

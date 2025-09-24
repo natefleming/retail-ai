@@ -243,8 +243,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
             text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
         )
 
+        custom_outputs = custom_inputs
         return ResponsesAgentResponse(
-            output=[output_item], custom_outputs=request.custom_inputs
+            output=[output_item], custom_outputs=custom_outputs
         )
 
     def predict_stream(

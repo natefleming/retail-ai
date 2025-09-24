@@ -42,6 +42,7 @@ import dao_ai
 from dao_ai.config import (
     AppConfig,
     ConnectionModel,
+    DatabaseModel,
     DatasetModel,
     FunctionModel,
     GenieRoomModel,
@@ -224,6 +225,7 @@ class DatabricksProvider(ServiceProvider):
         connections: Sequence[ConnectionModel] = list(
             config.resources.connections.values()
         )
+        databases: Sequence[DatabaseModel] = list(config.resources.databases.values())
 
         resources: Sequence[IsDatabricksResource] = (
             llms
@@ -233,6 +235,7 @@ class DatabricksProvider(ServiceProvider):
             + functions
             + tables
             + connections
+            + databases
         )
 
         # Flatten all resources from all models into a single list
