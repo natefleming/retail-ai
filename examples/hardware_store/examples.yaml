@@ -93,3 +93,23 @@
           thread_id: "1"
           user_id: john_smith
           store_num: 87887
+
+    favorite_color_is:
+      messages:
+        - role: user
+          content: My favorite color is red?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: john_smith
+          store_num: 87887
+
+    what_is_my_favorite_color:
+      messages:
+        - role: user
+          content: What is my favorite color?
+      custom_inputs:
+        configurable:
+          thread_id: "1"
+          user_id: john_smith
+          store_num: 87887

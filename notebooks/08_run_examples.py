@@ -23,6 +23,12 @@ sys.path.insert(0, "../src")
 
 # COMMAND ----------
 
+import dao_ai.providers
+import dao_ai.providers.base
+import dao_ai.providers.databricks
+
+# COMMAND ----------
+
 import nest_asyncio
 nest_asyncio.apply()
 
