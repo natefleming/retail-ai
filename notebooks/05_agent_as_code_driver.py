@@ -73,6 +73,12 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+import dao_ai.providers
+import dao_ai.providers.base
+import dao_ai.providers.databricks
+
+# COMMAND ----------
+
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
 
