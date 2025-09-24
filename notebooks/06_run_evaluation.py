@@ -27,6 +27,12 @@ sys.path.insert(0, "../src")
 
 # COMMAND ----------
 
+import dao_ai.providers
+import dao_ai.providers.base
+import dao_ai.providers.databricks
+
+# COMMAND ----------
+
 # DBTITLE 1,Enable Nest Asyncio for Compatibility
 import nest_asyncio
 nest_asyncio.apply()
