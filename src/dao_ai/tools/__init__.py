@@ -16,12 +16,13 @@ from dao_ai.tools.time import (
     time_in_timezone_tool,
     time_until_tool,
 )
-from dao_ai.tools.unity_catalog import create_uc_tools
+from dao_ai.tools.unity_catalog import create_authenticating_uc_tool, create_uc_tools
 from dao_ai.tools.vector_search import create_vector_search_tool
 
 __all__ = [
     "add_time_tool",
     "create_agent_endpoint_tool",
+    "create_authenticating_uc_tool",
     "create_factory_tool",
     "create_genie_tool",
     "create_hooks",

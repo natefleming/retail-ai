@@ -249,11 +249,22 @@ tools:
       type: unity_catalog
       <<: *lookup_items_by_descriptions
 
+  # insert_coffee_order_tool: &insert_coffee_order_tool
+  #   name: insert_coffee_order
+  #   function:
+  #     type: factory
+  #     name: quick_serve_restaurant.tools.insert_coffee_order_tool
+  #     args:
+  #       tool: *insert_coffee_order_uc_tool
+  #       host: *workspace_host_var
+  #       client_id: *client_id_var
+  #       client_secret: *client_secret_var
+
   insert_coffee_order_tool: &insert_coffee_order_tool
     name: insert_coffee_order
     function:
       type: factory
-      name: quick_serve_restaurant.tools.insert_coffee_order_tool
+      name: dao_ai.tools.create_authenticating_uc_tool
       args:
         tool: *insert_coffee_order_uc_tool
         host: *workspace_host_var

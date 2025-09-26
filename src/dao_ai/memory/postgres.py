@@ -20,137 +20,6 @@ from dao_ai.memory.base import (
 )
 
 
-class PatchedAsyncPostgresStore(AsyncPostgresStore):
-    """
-    Patched version of AsyncPostgresStore that properly handles event loop initialization
-    and task lifecycle management.
-
-    The issues occur because:
-    1. AsyncBatchedBaseStore.__init__ calls asyncio.get_running_loop() and fails if no event loop is running
-    2. The background _task can complete/fail, causing assertions in asearch/other methods to fail
-    3. Destructor tries to access _task even when it doesn't exist
-
-    This patch ensures proper initialization and handles task lifecycle robustly.
-    """
-
-    def __init__(self, *args, **kwargs):
-        # Ensure we have a running event loop before calling super().__init__()
-        loop = None
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No running loop - create one temporarily for initialization
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        try:
-            super().__init__(*args, **kwargs)
-        except Exception as e:
-            # If parent initialization fails, ensure _task is at least defined
-            if not hasattr(self, "_task"):
-                self._task = None
-            logger.warning(f"AsyncPostgresStore initialization failed: {e}")
-            raise
-
-    def _ensure_task_running(self):
-        """
-        Ensure the background task is running. Recreate it if necessary.
-        """
-        if not hasattr(self, "_task") or self._task is None:
-            logger.error("AsyncPostgresStore task not initialized")
-            raise RuntimeError("Store task not properly initialized")
-
-        if self._task.done():
-            logger.warning(
-                "AsyncPostgresStore background task completed, attempting to restart"
-            )
-            # Try to get the task exception for debugging
-            try:
-                exception = self._task.exception()
-                if exception:
-                    logger.error(f"Background task failed with: {exception}")
-                else:
-                    logger.info("Background task completed normally")
-            except Exception as e:
-                logger.warning(f"Could not determine task completion reason: {e}")
-
-            # Try to restart the task
-            try:
-                import weakref
-
-                from langgraph.store.base.batch import _run
-
-                self._task = self._loop.create_task(
-                    _run(self._aqueue, weakref.ref(self))
-                )
-                logger.info("Successfully restarted AsyncPostgresStore background task")
-            except Exception as e:
-                logger.error(f"Failed to restart background task: {e}")
-                raise RuntimeError(
-                    f"Store background task failed and could not be restarted: {e}"
-                )
-
-    async def asearch(
-        self,
-        namespace_prefix,
-        /,
-        *,
-        query=None,
-        filter=None,
-        limit=10,
-        offset=0,
-        refresh_ttl=None,
-    ):
-        """
-        Override asearch to handle task lifecycle issues gracefully.
-        """
-        self._ensure_task_running()
-
-        # Call parent implementation if task is healthy
-        return await super().asearch(
-            namespace_prefix,
-            query=query,
-            filter=filter,
-            limit=limit,
-            offset=offset,
-            refresh_ttl=refresh_ttl,
-        )
-
-    async def aget(self, namespace, key, /, *, refresh_ttl=None):
-        """Override aget with task lifecycle management."""
-        self._ensure_task_running()
-        return await super().aget(namespace, key, refresh_ttl=refresh_ttl)
-
-    async def aput(self, namespace, key, value, /, *, refresh_ttl=None):
-        """Override aput with task lifecycle management."""
-        self._ensure_task_running()
-        return await super().aput(namespace, key, value, refresh_ttl=refresh_ttl)
-
-    async def adelete(self, namespace, key):
-        """Override adelete with task lifecycle management."""
-        self._ensure_task_running()
-        return await super().adelete(namespace, key)
-
-    async def alist_namespaces(self, *, prefix=None):
-        """Override alist_namespaces with task lifecycle management."""
-        self._ensure_task_running()
-        return await super().alist_namespaces(prefix=prefix)
-
-    def __del__(self):
-        """
-        Override destructor to handle missing _task attribute gracefully.
-        """
-        try:
-            # Only try to cancel if _task exists and is not None
-            if hasattr(self, "_task") and self._task is not None:
-                if not self._task.done():
-                    self._task.cancel()
-        except Exception as e:
-            # Log but don't raise - destructors should not raise exceptions
-            logger.debug(f"AsyncPostgresStore destructor cleanup: {e}")
-            pass
-
-
 class AsyncPostgresPoolManager:
     _pools: dict[str, AsyncConnectionPool] = {}
     _lock: asyncio.Lock = asyncio.Lock()
@@ -251,7 +120,7 @@ class AsyncPostgresStoreManager(StoreManagerBase):
             )
 
             # Create store with the shared pool (using patched version)
-            self._store = PatchedAsyncPostgresStore(conn=self.pool)
+            self._store = AsyncPostgresStore(conn=self.pool)
 
             await self._store.setup()
 

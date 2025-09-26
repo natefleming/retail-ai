@@ -87,12 +87,12 @@ def judge_node(guardrails: GuardrailModel) -> RunnableLike:
         )
 
         if eval_result["score"]:
-            logger.debug("✅ Response approved by judge")
+            logger.debug("Response approved by judge")
             logger.debug(f"Judge's comment: {eval_result['comment']}")
             return
         else:
             # Otherwise, return the judge's critique as a new user message
-            logger.warning("⚠️ Judge requested improvements")
+            logger.warning("Judge requested improvements")
             comment: str = eval_result["comment"]
             logger.warning(f"Judge's critique: {comment}")
             content: str = "\n".join([human_message.content, comment])
