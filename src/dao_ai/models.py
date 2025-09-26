@@ -227,14 +227,28 @@ class LanggraphResponsesAgent(ResponsesAgent):
         import asyncio
 
         async def _async_invoke():
-            return await self.graph.ainvoke(
-                {"messages": messages}, context=context, config=custom_inputs
-            )
+            try:
+                return await self.graph.ainvoke(
+                    {"messages": messages}, context=context, config=custom_inputs
+                )
+            except Exception as e:
+                logger.error(f"Error in graph.ainvoke: {e}")
+                raise
 
-        loop = asyncio.get_event_loop()
-        response: dict[str, Sequence[BaseMessage]] = loop.run_until_complete(
-            _async_invoke()
-        )
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # Handle case where no event loop exists (common in some deployment scenarios)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        try:
+            response: dict[str, Sequence[BaseMessage]] = loop.run_until_complete(
+                _async_invoke()
+            )
+        except Exception as e:
+            logger.error(f"Error in async execution: {e}")
+            raise
 
         # Convert response to ResponsesAgent format
         last_message: BaseMessage = response["messages"][-1]
@@ -272,46 +286,59 @@ class LanggraphResponsesAgent(ResponsesAgent):
             item_id = f"msg_{uuid.uuid4().hex[:8]}"
             accumulated_content = ""
 
-            async for nodes, stream_mode, messages_batch in self.graph.astream(
-                {"messages": messages},
-                context=context,
-                config=custom_inputs,
-                stream_mode=["messages", "custom"],
-                subgraphs=True,
-            ):
-                nodes: tuple[str, ...]
-                stream_mode: str
-                messages_batch: Sequence[BaseMessage]
+            try:
+                async for nodes, stream_mode, messages_batch in self.graph.astream(
+                    {"messages": messages},
+                    context=context,
+                    config=custom_inputs,
+                    stream_mode=["messages", "custom"],
+                    subgraphs=True,
+                ):
+                    nodes: tuple[str, ...]
+                    stream_mode: str
+                    messages_batch: Sequence[BaseMessage]
 
-                for message in messages_batch:
-                    if (
-                        isinstance(
-                            message,
-                            (
-                                AIMessageChunk,
-                                AIMessage,
-                            ),
-                        )
-                        and message.content
-                        and "summarization" not in nodes
-                    ):
-                        content = message.content
-                        accumulated_content += content
+                    for message in messages_batch:
+                        if (
+                            isinstance(
+                                message,
+                                (
+                                    AIMessageChunk,
+                                    AIMessage,
+                                ),
+                            )
+                            and message.content
+                            and "summarization" not in nodes
+                        ):
+                            content = message.content
+                            accumulated_content += content
 
-                        # Yield streaming delta
-                        yield ResponsesAgentStreamEvent(
-                            **self.create_text_delta(delta=content, item_id=item_id)
-                        )
+                            # Yield streaming delta
+                            yield ResponsesAgentStreamEvent(
+                                **self.create_text_delta(delta=content, item_id=item_id)
+                            )
 
-            # Yield final output item
-            yield ResponsesAgentStreamEvent(
-                type="response.output_item.done",
-                item=self.create_text_output_item(text=accumulated_content, id=item_id),
-                custom_outputs=request.custom_inputs,
-            )
+                custom_outputs = custom_inputs
+                # Yield final output item
+                yield ResponsesAgentStreamEvent(
+                    type="response.output_item.done",
+                    item=self.create_text_output_item(
+                        text=accumulated_content, id=item_id
+                    ),
+                    custom_outputs=custom_outputs,
+                )
+            except Exception as e:
+                logger.error(f"Error in graph.astream: {e}")
+                raise
 
         # Convert async generator to sync generator
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # Handle case where no event loop exists (common in some deployment scenarios)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
         async_gen = _async_stream()
 
         try:
@@ -321,8 +348,14 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     yield item
                 except StopAsyncIteration:
                     break
+                except Exception as e:
+                    logger.error(f"Error in streaming: {e}")
+                    raise
         finally:
-            loop.run_until_complete(async_gen.aclose())
+            try:
+                loop.run_until_complete(async_gen.aclose())
+            except Exception as e:
+                logger.warning(f"Error closing async generator: {e}")
 
     def _extract_text_from_content(
         self,
@@ -523,7 +556,14 @@ def _process_langchain_messages_stream(
                     yield message
 
     # Convert async generator to sync generator
-    loop = asyncio.get_event_loop()
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # Handle case where no event loop exists (common in some deployment scenarios)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     async_gen = _async_stream()
 
     try:

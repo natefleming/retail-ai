@@ -68,11 +68,11 @@ class StoreManager:
                     store_manager = InMemoryStoreManager(store_model)
                     cls.store_managers[store_model.name] = store_manager
             case StorageType.POSTGRES:
-                from dao_ai.memory.postgres import AsyncPostgresStoreManager
+                from dao_ai.memory.postgres import PostgresStoreManager
 
                 store_manager = cls.store_managers.get(store_model.database.name)
                 if store_manager is None:
-                    store_manager = AsyncPostgresStoreManager(store_model)
+                    store_manager = PostgresStoreManager(store_model)
                     cls.store_managers[store_model.database.name] = store_manager
             case _:
                 raise ValueError(f"Unknown store type: {store_model.type}")
