@@ -427,7 +427,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksGenieSpace(
-                genie_space_id=self.space_id, on_behalf_of_user=self.on_behalf_of_user
+                genie_space_id=value_of(self.space_id), on_behalf_of_user=self.on_behalf_of_user
             )
         ]
 
@@ -683,7 +683,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksSQLWarehouse(
-                warehouse_id=self.warehouse_id, on_behalf_of_user=self.on_behalf_of_user
+                warehouse_id=value_of(self.warehouse_id), on_behalf_of_user=self.on_behalf_of_user
             )
         ]
 
