@@ -867,7 +867,7 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
+    args: Optional[dict[str, Any]] = Field(default_factory=dict)
     type: Literal[FunctionType.FACTORY] = FunctionType.FACTORY
 
     @property
@@ -879,6 +879,11 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
 
         return [create_factory_tool(self, **kwargs)]
 
+    @model_validator(mode="after")
+    def update_args(self):
+        for key, value in self.args.items():
+            self.args[key] = value_of(value)
+        return self
 
 class TransportType(str, Enum):
     STREAMABLE_HTTP = "streamable_http"
@@ -976,6 +981,8 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
         from dao_ai.tools import create_uc_tools
 
         return create_uc_tools(self)
+    
+
 
 
 AnyTool: TypeAlias = (
