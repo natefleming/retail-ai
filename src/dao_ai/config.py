@@ -867,7 +867,7 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    args: Optional[dict[str, Any]] = Field(default_factory=dict)
+    args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
     type: Literal[FunctionType.FACTORY] = FunctionType.FACTORY
 
     @property
@@ -963,6 +963,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
 class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    partial_args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
     type: Literal[FunctionType.UNITY_CATALOG] = FunctionType.UNITY_CATALOG
 
     @property

@@ -87,7 +87,11 @@ def as_human_in_the_loop(
     if isinstance(function, BaseFunctionModel):
         human_in_the_loop: HumanInTheLoopModel | None = function.human_in_the_loop
         if human_in_the_loop:
-            logger.debug(f"Adding human-in-the-loop to tool: {tool.name}")
+            # Get tool name safely - handle RunnableBinding objects
+            tool_name = getattr(tool, "name", None) or getattr(
+                getattr(tool, "bound", None), "name", "unknown_tool"
+            )
+            logger.debug(f"Adding human-in-the-loop to tool: {tool_name}")
             tool = add_human_in_the_loop(
                 tool=tool,
                 interrupt_config=human_in_the_loop.interupt_config,

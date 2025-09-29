@@ -1,3 +1,4 @@
+import os
 from typing import Sequence
 
 import pytest
@@ -6,6 +7,11 @@ from langchain_core.tools import BaseTool
 from dao_ai.config import McpFunctionModel, SchemaModel, TransportType
 
 
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.getenv("DATABRICKS_HOST") or not os.getenv("DATABRICKS_TOKEN"),
+    reason="Databricks credentials not available",
+)
 def test_should_invoke_mcp_function_tool():
     """Test MCP function tool invocation with proper error handling."""
 
@@ -16,7 +22,7 @@ def test_should_invoke_mcp_function_tool():
 
     mcp_function_model: McpFunctionModel = McpFunctionModel(
         name="databricks-mcp-server",
-        url=f"https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
+        url=f"{os.getenv('DATABRICKS_HOST')}/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
     )
 
     print(f"MCP Function Model: {mcp_function_model.full_name}")
@@ -57,6 +63,11 @@ def test_should_invoke_mcp_function_tool():
         pytest.skip(f"MCP tool invocation failed (expected for direct calls): {e}")
 
 
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.getenv("DATABRICKS_HOST") or not os.getenv("DATABRICKS_TOKEN"),
+    reason="Databricks credentials not available",
+)
 def test_mcp_function_model_creation():
     """Test that MCP function model can be created and configured properly."""
 
@@ -67,7 +78,7 @@ def test_mcp_function_model_creation():
 
     mcp_function_model: McpFunctionModel = McpFunctionModel(
         name="databricks-mcp-server",
-        url=f"https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
+        url=f"{os.getenv('DATABRICKS_HOST')}/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
     )
 
     # Verify the model was created correctly
@@ -83,6 +94,11 @@ def test_mcp_function_model_creation():
     assert isinstance(tools, (list, tuple))
 
 
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.getenv("DATABRICKS_HOST") or not os.getenv("DATABRICKS_TOKEN"),
+    reason="Databricks credentials not available",
+)
 def test_mcp_function_tool_through_agent_context():
     """Test MCP function tool invocation through agent-like context."""
 
@@ -93,7 +109,7 @@ def test_mcp_function_tool_through_agent_context():
 
     mcp_function_model: McpFunctionModel = McpFunctionModel(
         name="databricks-mcp-server",
-        url=f"https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
+        url=f"{os.getenv('DATABRICKS_HOST')}/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
     )
 
     # Create tools

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.catalog import PermissionsChange, Privilege
@@ -6,16 +6,13 @@ from databricks_langchain import DatabricksFunctionClient, UCFunctionToolkit
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import StructuredTool
 from loguru import logger
-from pydantic import BaseModel, Field, create_model
-from unitycatalog.ai.langchain.toolkit import (
-    generate_function_input_params_schema,
-    get_tool_name,
-)
 
 from dao_ai.config import (
+    AnyVariable,
     CompositeVariableModel,
     ToolModel,
     UnityCatalogFunctionModel,
+    value_of,
 )
 from dao_ai.tools.human_in_the_loop import as_human_in_the_loop
 
@@ -39,127 +36,51 @@ def create_uc_tools(
 
     logger.debug(f"create_uc_tools: {function}")
 
+    original_function_model = None
     if isinstance(function, UnityCatalogFunctionModel):
-        function = function.full_name
+        original_function_model = function
+        function_name = function.full_name
+    else:
+        function_name = function
 
-    client: DatabricksFunctionClient = DatabricksFunctionClient()
-
-    toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=[function], client=client
-    )
-
-    tools = toolkit.tools or []
-
-    logger.debug(f"Retrieved tools: {tools}")
-
-    tools = [as_human_in_the_loop(tool=tool, function=function) for tool in tools]
-
-    return tools
-
-
-def _normalize_inputs(
-    tool: Union[ToolModel, Dict[str, Any]],
-    host: Union[CompositeVariableModel, Dict[str, Any]],
-    client_id: Optional[Union[CompositeVariableModel, Dict[str, Any]]],
-    client_secret: Optional[Union[CompositeVariableModel, Dict[str, Any]]],
-) -> Tuple[
-    ToolModel,
-    CompositeVariableModel,
-    Optional[CompositeVariableModel],
-    Optional[CompositeVariableModel],
-    Any,
-]:
-    """Normalize input parameters to their proper types."""
-    if isinstance(tool, dict):
-        tool = ToolModel(**tool)
-    if isinstance(host, dict):
-        host = CompositeVariableModel(**host)
-    if isinstance(client_id, dict) and client_id:
-        client_id = CompositeVariableModel(**client_id)
-    if isinstance(client_secret, dict) and client_secret:
-        client_secret = CompositeVariableModel(**client_secret)
-
-    unity_catalog_function = tool.function
-    if isinstance(unity_catalog_function, dict):
-        unity_catalog_function = UnityCatalogFunctionModel(**unity_catalog_function)
-
-    return tool, host, client_id, client_secret, unity_catalog_function
-
-
-def _get_base_fields(schema: type[BaseModel]) -> Dict[str, Any]:
-    """Extract fields from Pydantic v2 schema."""
-    return schema.model_fields
-
-
-def _create_auth_fields(
-    base_fields: Dict[str, Any],
-    host: Optional[CompositeVariableModel],
-    client_id: Optional[CompositeVariableModel],
-    client_secret: Optional[CompositeVariableModel],
-) -> Dict[str, Tuple[type, Any]]:
-    """Create authentication fields that don't conflict with existing function parameters."""
-    auth_fields: Dict[str, Tuple[type, Any]] = {}
-
-    if "host" not in base_fields and host:
-        auth_fields["host"] = (
-            str,
-            Field(default=host.as_value(), description="Host URL for authentication"),
-        )
-    if "client_id" not in base_fields and client_id:
-        auth_fields["client_id"] = (
-            str,
-            Field(
-                default=client_id.as_value(), description="Client ID for authentication"
-            ),
-        )
-    if "client_secret" not in base_fields and client_secret:
-        auth_fields["client_secret"] = (
-            str,
-            Field(
-                default=client_secret.as_value(),
-                description="Client secret for authentication",
-            ),
+    # Determine which tools to create
+    if original_function_model and original_function_model.partial_args:
+        logger.debug("Found partial_args, creating custom tool with partial arguments")
+        # Create a ToolModel wrapper for the with_partial_args function
+        tool_model = ToolModel(
+            name=original_function_model.name, function=original_function_model
         )
 
-    return auth_fields
+        # Use with_partial_args to create the authenticated tool
+        tools = [with_partial_args(tool_model, original_function_model.partial_args)]
+    else:
+        # Fallback to standard UC toolkit approach
+        client: DatabricksFunctionClient = DatabricksFunctionClient()
 
+        toolkit: UCFunctionToolkit = UCFunctionToolkit(
+            function_names=[function_name], client=client
+        )
 
-def _merge_schema_fields(
-    base_schema: type[BaseModel], auth_fields: Dict[str, Tuple[type, Any]]
-) -> Dict[str, Tuple[type, Any]]:
-    """Merge base schema fields with auth fields (Pydantic v2)."""
-    base_fields = _get_base_fields(base_schema)
+        tools = toolkit.tools or []
+        logger.debug(f"Retrieved tools: {tools}")
 
-    all_fields = {
-        **{name: (field.annotation, field) for name, field in base_fields.items()},
-        **auth_fields,
-    }
-
-    return all_fields
+    # Apply human-in-the-loop wrapper to all tools and return
+    return [as_human_in_the_loop(tool=tool, function=function_name) for tool in tools]
 
 
 def _execute_uc_function(
     client: DatabricksFunctionClient,
     function_name: str,
-    host: Optional[CompositeVariableModel],
-    client_id: Optional[CompositeVariableModel],
-    client_secret: Optional[CompositeVariableModel],
+    partial_args: Dict[str, str] = None,
     **kwargs: Any,
 ) -> str:
-    """Execute Unity Catalog function with authentication and provided parameters."""
-    # Prepare authentication parameters
-    auth_params: Dict[str, Optional[str]] = {
-        k: v.as_value() if v else None
-        for k, v in [
-            ("host", host),
-            ("client_id", client_id),
-            ("client_secret", client_secret),
-        ]
-        if v is not None
-    }
+    """Execute Unity Catalog function with partial args and provided parameters."""
 
-    # Merge all parameters
-    all_params: Dict[str, Any] = {**auth_params, **kwargs}
+    # Start with partial args if provided
+    all_params: Dict[str, Any] = dict(partial_args) if partial_args else {}
+
+    # Add any additional kwargs
+    all_params.update(kwargs)
 
     logger.debug(
         f"Calling UC function {function_name} with parameters: {list(all_params.keys())}"
@@ -270,139 +191,175 @@ def _grant_function_permissions(
         pass
 
 
-def create_authenticating_uc_tool(
+def _create_filtered_schema(original_schema: type, exclude_fields: set[str]) -> type:
+    """
+    Create a new Pydantic model that excludes specified fields from the original schema.
+
+    Args:
+        original_schema: The original Pydantic model class
+        exclude_fields: Set of field names to exclude from the schema
+
+    Returns:
+        A new Pydantic model class with the specified fields removed
+    """
+    from pydantic import BaseModel, Field, create_model
+    from pydantic.fields import PydanticUndefined
+
+    try:
+        # Get the original model's fields (Pydantic v2)
+        original_fields = original_schema.model_fields
+        filtered_field_definitions = {}
+
+        for name, field in original_fields.items():
+            if name not in exclude_fields:
+                # Reconstruct the field definition for create_model
+                field_type = field.annotation
+                field_default = (
+                    field.default if field.default is not PydanticUndefined else ...
+                )
+                field_info = Field(default=field_default, description=field.description)
+                filtered_field_definitions[name] = (field_type, field_info)
+
+        # If no fields remain after filtering, return a generic empty schema
+        if not filtered_field_definitions:
+
+            class EmptySchema(BaseModel):
+                """Unity Catalog function with all parameters provided via partial args."""
+
+                pass
+
+            return EmptySchema
+
+        # Create the new model dynamically
+        model_name = f"Filtered{original_schema.__name__}"
+        docstring = getattr(
+            original_schema, "__doc__", "Filtered Unity Catalog function parameters."
+        )
+
+        filtered_model = create_model(
+            model_name, __doc__=docstring, **filtered_field_definitions
+        )
+        return filtered_model
+
+    except Exception as e:
+        logger.warning(f"Failed to create filtered schema: {e}")
+
+        # Fallback to generic schema
+        class GenericFilteredSchema(BaseModel):
+            """Generic filtered schema for Unity Catalog function."""
+
+            pass
+
+        return GenericFilteredSchema
+
+
+def with_partial_args(
     tool: Union[ToolModel, Dict[str, Any]],
-    host: Union[CompositeVariableModel, Dict[str, Any]],
-    client_id: Optional[Union[CompositeVariableModel, Dict[str, Any]]] = None,
-    client_secret: Optional[Union[CompositeVariableModel, Dict[str, Any]]] = None,
+    partial_args: dict[str, AnyVariable] = {},
 ) -> StructuredTool:
     """
-    Create a generalized authenticated Unity Catalog tool.
+    Create a Unity Catalog tool with partial arguments pre-filled.
 
-    This function dynamically introspects the Unity Catalog function schema
-    to create a StructuredTool with the correct parameters and description.
+    This function creates a wrapper tool that calls the UC function with partial arguments
+    already resolved, so the caller only needs to provide the remaining parameters.
 
     Args:
         tool: ToolModel containing the Unity Catalog function configuration
-        host: Host URL for authentication
-        client_id: Client ID for authentication (optional)
-        client_secret: Client secret for authentication (optional)
+        partial_args: Dictionary of arguments to pre-fill in the tool
 
     Returns:
-        StructuredTool: A LangChain tool that can invoke the UC function with authentication
+        StructuredTool: A LangChain tool with partial arguments pre-filled
     """
+    from unitycatalog.ai.langchain.toolkit import generate_function_input_params_schema
 
-    logger.debug(f"create_authenticating_uc_tool: {tool}")
-    # Normalize inputs
-    (
-        normalized_tool,
-        normalized_host,
-        normalized_client_id,
-        normalized_client_secret,
-        unity_catalog_function,
-    ) = _normalize_inputs(tool, host, client_id, client_secret)
+    logger.debug(f"with_partial_args: {tool}")
 
-    logger.debug(f"Creating authenticated UC tool: {normalized_tool.name}")
+    # Convert dict-based variables to CompositeVariableModel and resolve their values
+    resolved_args = {}
+    for k, v in partial_args.items():
+        if isinstance(v, dict):
+            resolved_args[k] = value_of(CompositeVariableModel(**v))
+        else:
+            resolved_args[k] = value_of(v)
 
-    client: DatabricksFunctionClient = DatabricksFunctionClient()
+    logger.debug(f"Resolved partial args: {resolved_args.keys()}")
+
+    if isinstance(tool, dict):
+        tool = ToolModel(**tool)
+
+    unity_catalog_function = tool.function
+    if isinstance(unity_catalog_function, dict):
+        unity_catalog_function = UnityCatalogFunctionModel(**unity_catalog_function)
+
     function_name: str = unity_catalog_function.full_name
+    logger.debug(f"Creating UC tool with partial args for: {function_name}")
 
-    # Grant permissions to the service principal if client_id is provided
-    if normalized_client_id:
-        client_id_value = normalized_client_id.as_value()
-        host_value = normalized_host.as_value() if normalized_host else None
-        _grant_function_permissions(function_name, client_id_value, host_value)
+    # Grant permissions if we have credentials
+    if "client_id" in resolved_args:
+        client_id: str = resolved_args["client_id"]
+        host: Optional[str] = resolved_args.get("host")
+        try:
+            _grant_function_permissions(function_name, client_id, host)
+        except Exception as e:
+            logger.warning(f"Failed to grant permissions: {e}")
 
-    # Try to get function schema
+    # Create the client for function execution
+    client: DatabricksFunctionClient = DatabricksFunctionClient()
+
+    # Try to get the function schema for better tool definition
     try:
         function_info = client.get_function(function_name)
         schema_info = generate_function_input_params_schema(function_info)
-        base_schema: type[BaseModel] = schema_info.pydantic_model
-
-        # Create enhanced schema with auth parameters
-        base_fields: Dict[str, Any] = _get_base_fields(base_schema)
-        auth_fields: Dict[str, Tuple[type, Any]] = _create_auth_fields(
-            base_fields, normalized_host, normalized_client_id, normalized_client_secret
-        )
-        all_fields: Dict[str, Tuple[type, Any]] = _merge_schema_fields(
-            base_schema, auth_fields
-        )
-
-        enhanced_schema_name: str = (
-            f"{get_tool_name(function_name)}_AuthenticatedParams"
-        )
-        EnhancedSchema = create_model(enhanced_schema_name, **all_fields)  # type: ignore[call-overload]
-
-        tool_name: str = get_tool_name(function_name)
-        description: str = (
+        tool_description = (
             function_info.comment or f"Unity Catalog function: {function_name}"
+        )
+
+        logger.debug(
+            f"Generated schema for function {function_name}: {schema_info.pydantic_model}"
+        )
+        logger.debug(f"Tool description: {tool_description}")
+
+        # Create a modified schema that excludes partial args
+        original_schema = schema_info.pydantic_model
+        schema_model = _create_filtered_schema(original_schema, resolved_args.keys())
+        logger.debug(
+            f"Filtered schema excludes partial args: {list(resolved_args.keys())}"
         )
 
     except Exception as e:
         logger.warning(f"Could not introspect function {function_name}: {e}")
-        return _create_fallback_authenticated_tool(
-            normalized_tool,
-            unity_catalog_function,
-            normalized_host,
-            normalized_client_id,
-            normalized_client_secret,
-        )
+        # Fallback to a generic schema
+        from pydantic import BaseModel
 
-    # Create the tool function
-    async def authenticated_tool_func(**kwargs: Any) -> str:
-        """Execute the Unity Catalog function with authentication parameters."""
+        class GenericUCParams(BaseModel):
+            """Generic parameters for Unity Catalog function."""
+
+            pass
+
+        schema_model = GenericUCParams
+        tool_description = f"Unity Catalog function: {function_name}"
+
+    # Create a wrapper function that calls _execute_uc_function with partial args
+    def uc_function_wrapper(**kwargs) -> str:
+        """Wrapper function that executes Unity Catalog function with partial args."""
         return _execute_uc_function(
-            client,
-            function_name,
-            normalized_host,
-            normalized_client_id,
-            normalized_client_secret,
+            client=client,
+            function_name=function_name,
+            partial_args=resolved_args,
             **kwargs,
         )
 
-    structured_tool = StructuredTool.from_function(
-        coroutine=authenticated_tool_func,
-        name=tool_name,
-        description=description,
-        args_schema=EnhancedSchema,
-        parse_docstring=False,
+    # Set the function name for the decorator
+    uc_function_wrapper.__name__ = tool.name or function_name.replace(".", "_")
+
+    # Create the tool using LangChain's StructuredTool
+    from langchain_core.tools import StructuredTool
+
+    partial_tool = StructuredTool.from_function(
+        func=uc_function_wrapper,
+        name=tool.name or function_name.replace(".", "_"),
+        description=tool_description,
+        args_schema=schema_model,
     )
 
-    return as_human_in_the_loop(tool=structured_tool, function=function_name)
-
-
-def _create_fallback_authenticated_tool(
-    tool: ToolModel,
-    unity_catalog_function: UnityCatalogFunctionModel,
-    host: CompositeVariableModel,
-    client_id: Optional[CompositeVariableModel],
-    client_secret: Optional[CompositeVariableModel],
-) -> StructuredTool:
-    """Create a fallback tool when function introspection fails."""
-
-    class FallbackSchema(BaseModel):
-        """Fallback schema for when function introspection fails"""
-
-        parameters: Dict[str, Any] = Field(
-            description="Function parameters as key-value pairs", default_factory=dict
-        )
-
-    client: DatabricksFunctionClient = DatabricksFunctionClient()
-    function_name: str = unity_catalog_function.full_name
-
-    async def fallback_tool_func(parameters: Dict[str, Any]) -> str:
-        """Execute the Unity Catalog function with fallback parameter handling."""
-        logger.debug(f"Calling UC function {function_name} with fallback parameters")
-        return _execute_uc_function(
-            client, function_name, host, client_id, client_secret, **parameters
-        )
-
-    structured_tool = StructuredTool.from_function(
-        coroutine=fallback_tool_func,
-        name=tool.name,
-        description=f"Unity Catalog function: {unity_catalog_function.full_name}",
-        args_schema=FallbackSchema,
-        parse_docstring=False,
-    )
-
-    return as_human_in_the_loop(tool=structured_tool, function=function_name)
+    return partial_tool

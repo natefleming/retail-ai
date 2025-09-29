@@ -664,6 +664,18 @@
     },
     "DatabaseModel": {
       "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -1214,7 +1226,34 @@
         "args": {
           "anyOf": [
             {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CompositeVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/EnvironmentVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/PrimitiveVariableModel"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
               "type": "object"
             },
             {
@@ -2517,6 +2556,45 @@
             }
           ],
           "default": null
+        },
+        "partial_args": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CompositeVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/EnvironmentVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/PrimitiveVariableModel"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Partial Args"
         }
       },
       "required": [
