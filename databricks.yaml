@@ -32,7 +32,7 @@ resources:
       environments:
         - environment_key: dao-ai-env
           spec:
-            client: "4"
+            environment_version: "4"
             dependencies:
               - -r ${workspace.file_path}/requirements.txt
       tasks:
