@@ -427,7 +427,8 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksGenieSpace(
-                genie_space_id=value_of(self.space_id), on_behalf_of_user=self.on_behalf_of_user
+                genie_space_id=value_of(self.space_id),
+                on_behalf_of_user=self.on_behalf_of_user,
             )
         ]
 
@@ -683,7 +684,8 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksSQLWarehouse(
-                warehouse_id=value_of(self.warehouse_id), on_behalf_of_user=self.on_behalf_of_user
+                warehouse_id=value_of(self.warehouse_id),
+                on_behalf_of_user=self.on_behalf_of_user,
             )
         ]
 
@@ -885,6 +887,7 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
             self.args[key] = value_of(value)
         return self
 
+
 class TransportType(str, Enum):
     STREAMABLE_HTTP = "streamable_http"
     STDIO = "stdio"
@@ -981,8 +984,6 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
         from dao_ai.tools import create_uc_tools
 
         return create_uc_tools(self)
-    
-
 
 
 AnyTool: TypeAlias = (
@@ -1269,12 +1270,12 @@ class AppModel(BaseModel):
             if len(self.agents) > 1:
                 default_agent: AgentModel = self.agents[0]
                 self.orchestration = OrchestrationModel(
-                    swarm=SupervisorModel(model=default_agent.model)
+                    supervisor=SupervisorModel(model=default_agent.model)
                 )
             elif len(self.agents) == 1:
                 default_agent: AgentModel = self.agents[0]
                 self.orchestration = OrchestrationModel(
-                    supervisor=SwarmModel(
+                    swarm=SwarmModel(
                         model=default_agent.model, default_agent=default_agent
                     )
                 )

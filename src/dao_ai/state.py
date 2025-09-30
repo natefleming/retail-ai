@@ -31,6 +31,9 @@ class SharedState(MessagesState):
     is_valid: bool  # message validation node
     message_error: str
 
+    # A mapping of genie space_id to conversation_id
+    genie_conversation_ids: dict[str, str]  # Genie
+
 
 class Context(BaseModel):
     user_id: str | None = None

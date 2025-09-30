@@ -14,51 +14,28 @@ resources:
   llms:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: False
 
   tables:
-    product_table: &product_table
+    all: 
       schema: *quick_serve_retaurant_schema                        # Reference to schema defined above
-      name: products                                # Table name
-    
-    inventory_table: &inventory_table
-      schema: *quick_serve_retaurant_schema
-      name: inventory
 
-    items_description: &items_description
-      schema: *quick_serve_retaurant_schema
-      name: items_description
-
-    fulfil_item_orders: &fulfil_item_orders
-      schema: *quick_serve_retaurant_schema
-      name: fulfil_item_orders
-
-    orders: &orders
-      schema: *quick_serve_retaurant_schema
-      name: orders
 
   functions:
+    all: 
+      schema: *quick_serve_retaurant_schema
 
-    lookup_items_by_descriptions: &lookup_items_by_descriptions
-      schema: *quick_serve_retaurant_schema
-      name: lookup_items_by_descriptions
 
-    match_item_by_description_and_price: &match_item_by_description_and_price
-      schema: *quick_serve_retaurant_schema
-      name: match_item_by_description_and_price     
-    
-    match_historical_item_order_by_date: &match_historical_item_order_by_date
-      schema: *quick_serve_retaurant_schema
-      name: match_historical_item_order_by_date     
+
 
   genie_rooms:
     # Genie space for retail data queries
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                        # Human-readable name
-      description: "A room for Genie agents to interact"  # Description
+      description: "Answer questions about quick serve restaurant, ingredients, inventory, processes and operations."  # Description
       space_id: 01f01c91f1f414d59daaefd2b7ec82ea          # Databricks Genie space ID
 
 
@@ -70,7 +47,7 @@ tools:
       name: dao_ai.tools.create_genie_tool       # Factory function path
       args:                                         # Arguments passed to factory
         name: my_genie_tool
-        description: Answers questions about retail products and inventory
+        description: "Answer questions about quick serve restaurant, ingredients, inventory, processes and operations."
         genie_room: *retail_genie_room              # Reference to Genie room config
 
 
@@ -82,13 +59,13 @@ agents:
     tools:                                          # Tools available to this agent
       - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
-      Answers questions about retail products and inventory
+      Answer questions about quick serve restaurant, ingredients, inventory, processes and operations.
 
 
 app:
   name: genie_example                      # Application name  
   description: "Multi-agent system that talks to genie"
-  log_level: INFO                                   # Logging level for the application
+  log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: retail_ai_agenie                          # Model name in MLflow registry
@@ -102,8 +79,6 @@ app:
         - CAN_QUERY                                # Full management permissions
   agents:                                           # List of agents included in the system
     - *genie                                        # Order management agent
-  orchestration:                                    # Agent orchestration configuration
-    swarm:                                     # Supervisor orchestration pattern
-      model: *default_llm                           # LLM for routing decisions
+
 
 
