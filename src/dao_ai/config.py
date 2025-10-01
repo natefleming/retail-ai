@@ -427,7 +427,8 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksGenieSpace(
-                genie_space_id=value_of(self.space_id), on_behalf_of_user=self.on_behalf_of_user
+                genie_space_id=value_of(self.space_id),
+                on_behalf_of_user=self.on_behalf_of_user,
             )
         ]
 
@@ -437,7 +438,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
         return self
 
 
-class VolumeModel(BaseModel, HasFullName):
+class VolumeModel(BaseModel, HasFullName, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
@@ -454,6 +455,13 @@ class VolumeModel(BaseModel, HasFullName):
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_volume(self)
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return ["files.files", "catalog.volumes"]
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return []
 
 
 class VolumePathModel(BaseModel, HasFullName):
@@ -683,7 +691,8 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksSQLWarehouse(
-                warehouse_id=value_of(self.warehouse_id), on_behalf_of_user=self.on_behalf_of_user
+                warehouse_id=value_of(self.warehouse_id),
+                on_behalf_of_user=self.on_behalf_of_user,
             )
         ]
 
@@ -885,6 +894,7 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
             self.args[key] = value_of(value)
         return self
 
+
 class TransportType(str, Enum):
     STREAMABLE_HTTP = "streamable_http"
     STDIO = "stdio"
@@ -981,8 +991,6 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
         from dao_ai.tools import create_uc_tools
 
         return create_uc_tools(self)
-    
-
 
 
 AnyTool: TypeAlias = (

@@ -6,10 +6,7 @@ from databricks_ai_bridge.genie import GenieResponse
 from databricks_langchain.genie import Genie
 from langchain_core.tools import StructuredTool
 
-from dao_ai.config import (
-    GenieRoomModel,
-    value_of, CompositeVariableModel, AnyVariable
-)
+from dao_ai.config import AnyVariable, CompositeVariableModel, GenieRoomModel, value_of
 
 
 def create_genie_tool(
@@ -35,7 +32,9 @@ def create_genie_tool(
     if isinstance(genie_room, dict):
         genie_room = GenieRoomModel(**genie_room)
 
-    space_id: AnyVariable = genie_room.space_id or os.environ.get("DATABRICKS_GENIE_SPACE_ID")
+    space_id: AnyVariable = genie_room.space_id or os.environ.get(
+        "DATABRICKS_GENIE_SPACE_ID"
+    )
     if isinstance(space_id, dict):
         space_id = CompositeVariableModel(**space_id)
     space_id = value_of(space_id)
