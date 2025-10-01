@@ -129,7 +129,7 @@ class Genie:
         self,
         space_id,
         client: WorkspaceClient | None = None,
-        truncate_results: bool = False, 
+        truncate_results: bool = False,
         polling_interval: int = DEFAULT_POLLING_INTERVAL_SECS,
     ):
         self.space_id = space_id
@@ -145,7 +145,7 @@ class Genie:
             raise ValueError("poll_interval must be between 1 and 30 seconds")
         self.poll_interval = polling_interval
 
-    @mlflow.trace() 
+    @mlflow.trace()
     def start_conversation(self, content):
         resp = self.genie._api.do(
             "POST",

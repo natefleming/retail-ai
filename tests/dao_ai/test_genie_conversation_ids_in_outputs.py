@@ -39,7 +39,12 @@ class TestGenieConversationIdsInOutputs:
                 "space_456": "conv_def",
             }
         }
-        mock_graph.get_state.return_value = mock_state_snapshot
+
+        # Mock async aget_state
+        async def mock_aget_state(*args, **kwargs):
+            return mock_state_snapshot
+
+        mock_graph.aget_state = mock_aget_state
 
         # Test the function
         result = get_state_snapshot(mock_graph, "thread_123")
@@ -50,9 +55,6 @@ class TestGenieConversationIdsInOutputs:
             "space_123": "conv_abc",
             "space_456": "conv_def",
         }
-        mock_graph.get_state.assert_called_once_with(
-            {"configurable": {"thread_id": "thread_123"}}
-        )
 
     def test_get_genie_conversation_ids_from_state_success(self):
         """Test successful extraction of genie_conversation_ids from state snapshot."""
@@ -93,7 +95,11 @@ class TestGenieConversationIdsInOutputs:
         """Test when no state exists for thread_id."""
         mock_graph = MagicMock(spec=CompiledStateGraph)
         mock_graph.checkpointer = MagicMock()
-        mock_graph.get_state.return_value = None
+
+        async def mock_aget_state(*args, **kwargs):
+            return None
+
+        mock_graph.aget_state = mock_aget_state
 
         result = get_state_snapshot(mock_graph, "thread_123")
 
@@ -121,7 +127,11 @@ class TestGenieConversationIdsInOutputs:
         """Test exception handling in get_state_snapshot."""
         mock_graph = MagicMock(spec=CompiledStateGraph)
         mock_graph.checkpointer = MagicMock()
-        mock_graph.get_state.side_effect = Exception("Database error")
+
+        async def mock_aget_state(*args, **kwargs):
+            raise Exception("Database error")
+
+        mock_graph.aget_state = mock_aget_state
 
         result = get_state_snapshot(mock_graph, "thread_123")
 
@@ -158,7 +168,11 @@ class TestGenieConversationIdsInOutputs:
         mock_state_snapshot.values = {
             "genie_conversation_ids": {"space_123": "conv_abc"}
         }
-        mock_graph.get_state.return_value = mock_state_snapshot
+
+        async def mock_aget_state(*args, **kwargs):
+            return mock_state_snapshot
+
+        mock_graph.aget_state = mock_aget_state
 
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)
@@ -197,9 +211,12 @@ class TestGenieConversationIdsInOutputs:
         mock_graph.ainvoke = mock_ainvoke
 
         # Mock state without genie_conversation_ids
-        mock_state_snapshot = MagicMock()
-        mock_state_snapshot.values = {}
-        mock_graph.get_state.return_value = mock_state_snapshot
+        async def mock_aget_state(*args, **kwargs):
+            mock_snapshot = MagicMock()
+            mock_snapshot.values = {}
+            return mock_snapshot
+
+        mock_graph.aget_state = mock_aget_state
 
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)
@@ -238,7 +255,11 @@ class TestGenieConversationIdsInOutputs:
         mock_state_snapshot.values = {
             "genie_conversation_ids": {"space_456": "conv_def"}
         }
-        mock_graph.get_state.return_value = mock_state_snapshot
+
+        async def mock_aget_state(*args, **kwargs):
+            return mock_state_snapshot
+
+        mock_graph.aget_state = mock_aget_state
 
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)
@@ -279,9 +300,12 @@ class TestGenieConversationIdsInOutputs:
         mock_graph.astream = mock_astream
 
         # Mock state without genie_conversation_ids
-        mock_state_snapshot = MagicMock()
-        mock_state_snapshot.values = {}
-        mock_graph.get_state.return_value = mock_state_snapshot
+        async def mock_aget_state(*args, **kwargs):
+            mock_snapshot = MagicMock()
+            mock_snapshot.values = {}
+            return mock_snapshot
+
+        mock_graph.aget_state = mock_aget_state
 
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)

@@ -60,11 +60,11 @@ def get_latest_model_version(model_name: str) -> int:
     return latest_version
 
 
-def get_state_snapshot(
+async def get_state_snapshot_async(
     graph: CompiledStateGraph, thread_id: str
 ) -> Optional[StateSnapshot]:
     """
-    Retrieve the state snapshot from the graph for a given thread_id.
+    Retrieve the state snapshot from the graph for a given thread_id asynchronously.
 
     This utility function accesses the graph's checkpointer to retrieve the current
     state snapshot, which contains the full state values and metadata.
@@ -76,15 +76,16 @@ def get_state_snapshot(
     Returns:
         StateSnapshot if found, None otherwise
     """
+    logger.debug(f"Retrieving state snapshot for thread_id: {thread_id}")
     try:
         # Check if graph has a checkpointer
         if graph.checkpointer is None:
             logger.debug("No checkpointer available in graph")
             return None
 
-        # Get the current state from the checkpointer
+        # Get the current state from the checkpointer (use async version)
         config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
-        state_snapshot: Optional[StateSnapshot] = graph.get_state(config)
+        state_snapshot: Optional[StateSnapshot] = await graph.aget_state(config)
 
         if state_snapshot is None:
             logger.debug(f"No state found for thread_id: {thread_id}")
@@ -94,6 +95,37 @@ def get_state_snapshot(
 
     except Exception as e:
         logger.warning(f"Error retrieving state snapshot for thread {thread_id}: {e}")
+        return None
+
+
+def get_state_snapshot(
+    graph: CompiledStateGraph, thread_id: str
+) -> Optional[StateSnapshot]:
+    """
+    Retrieve the state snapshot from the graph for a given thread_id.
+
+    This is a synchronous wrapper around get_state_snapshot_async.
+    Use this for backward compatibility in synchronous contexts.
+
+    Args:
+        graph: The compiled LangGraph state machine
+        thread_id: The thread/conversation ID to retrieve state for
+
+    Returns:
+        StateSnapshot if found, None otherwise
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    try:
+        return loop.run_until_complete(get_state_snapshot_async(graph, thread_id))
+    except Exception as e:
+        logger.warning(f"Error in synchronous state snapshot retrieval: {e}")
         return None
 
 
@@ -337,8 +369,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
         custom_outputs: dict[str, Any] = custom_inputs.copy()
         thread_id: Optional[str] = context.thread_id
         if thread_id:
-            state_snapshot: Optional[StateSnapshot] = get_state_snapshot(
-                self.graph, thread_id
+            state_snapshot: Optional[StateSnapshot] = loop.run_until_complete(
+                get_state_snapshot_async(self.graph, thread_id)
             )
             genie_conversation_ids: dict[str, str] = (
                 get_genie_conversation_ids_from_state(state_snapshot)
@@ -409,10 +441,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 # Retrieve genie_conversation_ids from state if available
                 custom_outputs: dict[str, Any] = custom_inputs.copy()
                 thread_id: Optional[str] = context.thread_id
+
                 if thread_id:
-                    state_snapshot: Optional[StateSnapshot] = get_state_snapshot(
-                        self.graph, thread_id
-                    )
+                    state_snapshot: Optional[
+                        StateSnapshot
+                    ] = await get_state_snapshot_async(self.graph, thread_id)
                     genie_conversation_ids: dict[str, str] = (
                         get_genie_conversation_ids_from_state(state_snapshot)
                     )

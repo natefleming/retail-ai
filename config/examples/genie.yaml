@@ -14,12 +14,12 @@ resources:
   llms:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+      name: databricks-claude-3-7-sonnet # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: False
       fallbacks:                                  # Fallback LLMs in case of issues
-        - databricks-claude-3-7-sonnet
+        - databricks-claude-sonnet-4
         - databricks-meta-llama-3-3-70b-instruct
 
   tables:
@@ -31,8 +31,48 @@ resources:
     all: 
       schema: *quick_serve_retaurant_schema
 
+  databases:
+    # PostgreSQL database for agent memory and checkpoints
+    retail_database: &retail_database
+      name: "retail-consumer-goods"
+      description: "Database for agent memory and checkpoints" 
+      
+      # Database connection parameters
+      # These can be set via environment variables or Databricks secrets
+      host:                                                 
+        default_value: localhost                                             
+        options:
+          - env: PGHOST                              # Environment variable
+          - scope: retail_ai                         # Databricks secret scope
+            secret: PGHOST                           # Secret name
+      port: 
+        default_value: 5432
+        options:
+        - env: PGPORT 
+        - scope: retail_ai
+          secret: PGPORT
+      database: 
+        default_value: databricks_postgres           # Default database name
+        options:
+        - env: PGDATABASE 
+        - scope: retail_ai
+          secret: PGDATABASE
 
-
+      client_id:
+        options:
+          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      client_secret:
+        options:
+          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      workspace_host:
+        options:
+          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_HOST
 
   genie_rooms:
     # Genie space for retail data queries
@@ -40,7 +80,25 @@ resources:
       name: "Retail AI Genie Room"                        # Human-readable name
       description: "Answer questions about quick serve restaurant, ingredients, inventory, processes and operations."  # Description
       space_id: 01f01c91f1f414d59daaefd2b7ec82ea          # Databricks Genie space ID
+      on_behalf_of_user: false
 
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier
+    type: postgres                                    # Store type (memory or postgres)
+    #type: memory
+    database: *retail_database                     # Reference to database configuration
+
+  # Long-term memory store for agent context
+  store: 
+    name: default_store                             # Store identifier
+    type: postgres                                    # Store type (memory or postgres)
+    #type: memory
+    #embedding_model: *embedding_model               # Model for semantic memory
+    #dims: 1536                                      # Embedding dimensions
+    database: *retail_database                      # Database for persistence (if needed)
+    namespace: "{user_id}"
 
 tools:
   genie_tool: &genie_tool
@@ -81,7 +139,12 @@ app:
       entitlements:
         - CAN_QUERY                                # Full management permissions
   agents:                                           # List of agents included in the system
-    - *genie                                        # Order management agent
+    - *genie                                        # Order management agent  
+  
+  orchestration:                                    # Agent orchestration configuration
+    memory: *memory                            # Memory store for conversation context
+    swarm:                                     # Supervisor orchestration pattern
+      model: *default_llm                      # LLM for routing decisions
 
 
 
