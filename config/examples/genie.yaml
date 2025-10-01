@@ -18,6 +18,9 @@ resources:
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: False
+      fallbacks:                                  # Fallback LLMs in case of issues
+        - databricks-claude-3-7-sonnet
+        - databricks-meta-llama-3-3-70b-instruct
 
   tables:
     all: 

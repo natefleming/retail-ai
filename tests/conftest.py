@@ -73,6 +73,7 @@ def has_retail_ai_env() -> bool:
         "RETAIL_AI_DATABRICKS_HOST",
         "RETAIL_AI_DATABRICKS_CLIENT_ID",
         "RETAIL_AI_DATABRICKS_CLIENT_SECRET",
+        "RETAIL_AI_GENIE_SPACE_ID",
     ]
     return all(var in os.environ for var in required_vars)
 

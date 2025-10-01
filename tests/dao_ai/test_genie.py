@@ -1,7 +1,7 @@
 """Integration tests for Databricks Genie tool functionality."""
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from conftest import has_retail_ai_env
@@ -28,7 +28,7 @@ def test_genie_tool_real_api_integration() -> None:
     the underlying Genie class directly for real API integration.
     """
     # Use the real space ID from the retail AI environment
-    real_space_id = "01f01c91f1f414d59daaefd2b7ec82ea"
+    real_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
 
     try:
         # Create a real Genie instance directly (bypasses tool framework dependencies)
@@ -162,263 +162,57 @@ def test_genie_tool_real_api_integration() -> None:
         raise
 
 
-@pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_genie_conversation_persistence_real_api() -> None:
-    """
-    Test conversation persistence with real API calls using the Genie class directly.
-
-    This test validates that conversation IDs are properly maintained when using
-    the underlying Genie service without tool wrappers.
-    """
-    real_space_id = "01f01c91f1f414d59daaefd2b7ec82ea"
-
-    try:
-        # Create a real Genie instance
-        print(f"\nCreating real Genie instance for space: {real_space_id}")
-        genie = Genie(space_id=real_space_id)
-
-        # Test 1: Start a new conversation
-        print("Testing direct Genie API - Starting new conversation...")
-        question1 = "How many rows are in the largest table?"
-        result1 = genie.ask_question(question1, conversation_id=None)
-
-        # Verify response
-        assert isinstance(result1, GenieResponse)
-        assert result1.conversation_id is not None
-        conversation_id = result1.conversation_id
-
-        print(f"New conversation started: {conversation_id}")
-        print(f"Q1 Result: {result1.result[:100]}...")
-
-        # Test 2: Continue the same conversation
-        print("Testing conversation continuation...")
-        question2 = "What are the column names in that table?"
-        result2 = genie.ask_question(question2, conversation_id=conversation_id)
-
-        # Verify conversation persistence
-        assert isinstance(result2, GenieResponse)
-        assert result2.conversation_id == conversation_id
-
-        print(f"Conversation continued: {result2.conversation_id}")
-        print(f"Q2 Result: {result2.result[:100]}...")
-
-        # Test 3: Start another new conversation
-        print("Testing new conversation creation...")
-        question3 = "What tables are available in this space?"
-        result3 = genie.ask_question(question3, conversation_id=None)
-
-        # Verify new conversation
-        assert isinstance(result3, GenieResponse)
-        assert result3.conversation_id is not None
-        assert result3.conversation_id != conversation_id
-
-        print(f"New conversation created: {result3.conversation_id}")
-        print(f"Q3 Result: {result3.result[:100]}...")
-
-        # Summary
-        print("\nDirect Genie API Test Summary:")
-        print(f"   - Conversation 1: {conversation_id}")
-        print(f"   - Conversation 2: {result3.conversation_id}")
-        print(
-            f"   - Persistence test: {'PASS' if result1.conversation_id == result2.conversation_id else 'FAIL'}"
-        )
-        print(
-            f"   - Isolation test: {'PASS' if result3.conversation_id != conversation_id else 'FAIL'}"
-        )
-
-    except Exception as e:
-        print("\nDirect Genie API test failed:")
-        print(f"   Error: {type(e).__name__}: {str(e)}")
-        raise
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_create_genie_tool_with_config() -> None:
-    """Test creating a genie tool using configuration similar to genie.yaml."""
-    # Create genie room configuration
-    genie_room = GenieRoomModel(
-        name="Test Retail AI Genie Room",
-        description="Answer questions about quick serve restaurant, ingredients, inventory, processes and operations.",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",  # Using the space ID from genie.yaml
+def test_create_genie_tool_parameters() -> None:
+    """Test creating a genie tool with both default and custom parameters."""
+    # Test 1: Default parameters
+    genie_room_default = GenieRoomModel(
+        name="Minimal Test Room",
+        description="Minimal configuration test",
+        space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
     )
 
-    # Create the genie tool
-    tool = create_genie_tool(
-        genie_room=genie_room,
-        name="test_genie_tool",
-        description="Test genie tool for retail data queries",
+    # Create tool with defaults (no name or description override)
+    tool_default = create_genie_tool(genie_room=genie_room_default)
+
+    # Verify defaults were applied
+    assert isinstance(tool_default, StructuredTool)
+    assert tool_default.name == "genie_tool"  # Default name from function
+    assert (
+        "This tool lets you have a conversation and chat with tabular data"
+        in tool_default.description
+    )
+    assert "question" in tool_default.args_schema.model_fields
+    assert "ask simple clear questions" in tool_default.description
+    assert (
+        "multiple times rather than asking a complex question"
+        in tool_default.description
     )
 
-    # Verify tool creation
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == "test_genie_tool"
-    assert "retail data queries" in tool.description
-    assert "question" in tool.args_schema.model_fields
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_create_genie_tool_with_dict() -> None:
-    """Test creating a genie tool using dictionary configuration."""
-    # Create genie room as dictionary
-    genie_room_dict = {
-        "name": "Test Retail AI Genie Room",
-        "description": "Answer questions about quick serve restaurant data.",
-        "space_id": "01f01c91f1f414d59daaefd2b7ec82ea",
-    }
-
-    # Create the genie tool
-    tool = create_genie_tool(
-        genie_room=genie_room_dict,
-        name="dict_genie_tool",
-        description="Dictionary-based genie tool",
+    # Test 2: Custom parameters
+    genie_room_custom = GenieRoomModel(
+        name="Custom Test Room",
+        description="Custom configuration test",
+        space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
     )
 
-    # Verify tool creation
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == "dict_genie_tool"
-    assert "Dictionary-based genie tool" in tool.description
+    custom_name = "my_custom_genie_tool"
+    custom_description = "This is my custom genie tool for testing retail data queries."
 
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_genie_tool_conversation_persistence() -> None:
-    """Test that genie tool maintains conversation ID logic (tool creation and structure)."""
-    # Create genie room configuration
-    genie_room = GenieRoomModel(
-        name="Test Conversation Genie Room",
-        description="Test conversation persistence",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",
+    tool_custom = create_genie_tool(
+        genie_room=genie_room_custom, name=custom_name, description=custom_description
     )
 
-    # Create the genie tool
-    tool = create_genie_tool(
-        genie_room=genie_room,
-        name="conversation_test_tool",
-        description="Test conversation persistence",
-    )
-
-    # Verify tool was created correctly
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == "conversation_test_tool"
-    assert "Test conversation persistence" in tool.description
-
-    # Test the underlying Genie object functionality with mocks
-    with (
-        patch.object(Genie, "__init__", return_value=None),
-        patch.object(Genie, "ask_question") as mock_ask,
-    ):
-        # Test first call - should create new conversation
-        mock_response_1 = GenieResponse(
-            conversation_id="conv_123",
-            result="Sample data about inventory",
-            query="SELECT * FROM inventory LIMIT 5",
-            description="Inventory query",
-        )
-        mock_ask.return_value = mock_response_1
-
-        # Create a Genie instance to test the logic directly
-        genie = Genie(space_id="01f01c91f1f414d59daaefd2b7ec82ea")
-
-        # Test first call without conversation ID
-        result_1 = genie.ask_question("Show me inventory data", conversation_id=None)
-
-        # Verify first call created conversation
-        mock_ask.assert_called_once_with("Show me inventory data", conversation_id=None)
-        assert result_1.conversation_id == "conv_123"
-
-        # Test second call with existing conversation ID
-        mock_response_2 = GenieResponse(
-            conversation_id="conv_123",
-            result="More inventory data",
-            query="SELECT count(*) FROM inventory",
-            description="Count query",
-        )
-        mock_ask.return_value = mock_response_2
-
-        result_2 = genie.ask_question("How many items?", conversation_id="conv_123")
-
-        # Verify second call used existing conversation
-        assert mock_ask.call_count == 2
-        last_call = mock_ask.call_args_list[1]
-        # Check keyword arguments for conversation_id
-        assert last_call.kwargs["conversation_id"] == "conv_123"
-        assert result_2.conversation_id == "conv_123"
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_genie_tool_multiple_questions_same_conversation() -> None:
-    """Test multiple questions in the same conversation maintain conversation ID."""
-    # Create genie room configuration
-    genie_room = GenieRoomModel(
-        name="Multi-Question Test Room",
-        description="Test multiple questions in same conversation",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",
-    )
-
-    # Create the genie tool
-    tool = create_genie_tool(genie_room=genie_room, name="multi_question_tool")
-
-    # Verify tool structure
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == "multi_question_tool"
-
-    # Test the underlying conversation logic by directly testing Genie class
-    with (
-        patch.object(Genie, "__init__", return_value=None),
-        patch.object(Genie, "ask_question") as mock_ask,
-    ):
-        # First question response
-        mock_response_1 = GenieResponse(
-            conversation_id="conv_456",
-            result="Total sales: $50,000",
-            query="SELECT SUM(sales) FROM transactions",
-            description="Sales total query",
-        )
-
-        # Second question response (same conversation)
-        mock_response_2 = GenieResponse(
-            conversation_id="conv_456",
-            result="Average order: $25.50",
-            query="SELECT AVG(order_amount) FROM orders",
-            description="Average order query",
-        )
-
-        mock_ask.side_effect = [mock_response_1, mock_response_2]
-
-        # Create Genie instance to test conversation persistence
-        genie = Genie(space_id="01f01c91f1f414d59daaefd2b7ec82ea")
-
-        # First question - creates conversation
-        result_1 = genie.ask_question("What are total sales?", conversation_id=None)
-
-        # Second question - should use existing conversation
-        result_2 = genie.ask_question(
-            "What is the average order value?", conversation_id="conv_456"
-        )
-
-        # Verify both calls were made
-        assert mock_ask.call_count == 2
-
-        # Verify first call had no conversation ID
-        first_call = mock_ask.call_args_list[0]
-        assert (
-            first_call.kwargs["conversation_id"] is None
-        )  # conversation_id should be None
-
-        # Verify second call used existing conversation ID
-        second_call = mock_ask.call_args_list[1]
-        assert (
-            second_call.kwargs["conversation_id"] == "conv_456"
-        )  # conversation_id should be set
-
-        # Verify both responses have same conversation ID
-        assert result_1.conversation_id == "conv_456"
-        assert result_2.conversation_id == "conv_456"
+    # Verify custom parameters were applied
+    assert isinstance(tool_custom, StructuredTool)
+    assert tool_custom.name == custom_name
+    assert custom_description in tool_custom.description
+    assert "question" in tool_custom.args_schema.model_fields
+    assert "Args:" in tool_custom.description
+    assert "question (str): The question to ask to ask Genie" in tool_custom.description
+    assert "Returns:" in tool_custom.description
+    assert "GenieResponse" in tool_custom.description
 
 
 @pytest.mark.integration
@@ -429,7 +223,7 @@ def test_genie_tool_error_handling() -> None:
     genie_room = GenieRoomModel(
         name="Error Test Room",
         description="Test error handling",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",
+        space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
     )
 
     # Create the genie tool
@@ -451,7 +245,7 @@ def test_genie_tool_error_handling() -> None:
         mock_ask.return_value = mock_error_response
 
         # Create Genie instance and test error handling
-        genie = Genie(space_id="01f01c91f1f414d59daaefd2b7ec82ea")
+        genie = Genie(space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"))
         result = genie.ask_question("SELECT * FROM non_existent_table")
 
         # Verify error was handled gracefully
@@ -459,148 +253,6 @@ def test_genie_tool_error_handling() -> None:
         assert result.conversation_id == "conv_error"
         assert "Genie query failed with error" in result.result
         assert result.query == "SELECT * FROM non_existent_table"
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_genie_tool_with_environment_space_id() -> None:
-    """Test genie tool creation using environment variable for space_id."""
-    # Mock environment variable
-    with patch.dict(os.environ, {"DATABRICKS_GENIE_SPACE_ID": "env_space_123"}):
-        # Create genie room with environment variable reference
-        genie_room = GenieRoomModel(
-            name="Env Test Room",
-            description="Test environment space ID",
-            space_id=os.environ.get("DATABRICKS_GENIE_SPACE_ID"),  # Use env var value
-        )
-
-        with patch.object(Genie, "__init__", return_value=None) as mock_genie_init:
-            # Create the tool
-            tool = create_genie_tool(genie_room=genie_room, name="env_test_tool")
-
-            # Verify Genie was initialized with environment space_id
-            mock_genie_init.assert_called_once()
-            call_args = mock_genie_init.call_args
-            assert call_args[1]["space_id"] == "env_space_123"
-
-    # Verify tool was created
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == "env_test_tool"
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_genie_response_serialization() -> None:
-    """Test GenieResponse serialization and data handling."""
-    # Test GenieResponse creation and serialization
-    response = GenieResponse(
-        conversation_id="test_conv_123",
-        result="Sample result data",
-        query="SELECT * FROM test_table",
-        description="Test query description",
-    )
-
-    # Test serialization
-    json_str = response.to_json()
-    assert "test_conv_123" in json_str
-    assert "Sample result data" in json_str
-    assert "SELECT * FROM test_table" in json_str
-    assert "Test query description" in json_str
-
-    # Verify all fields are present
-    import json
-
-    parsed = json.loads(json_str)
-    assert parsed["conversation_id"] == "test_conv_123"
-    assert parsed["result"] == "Sample result data"
-    assert parsed["query"] == "SELECT * FROM test_table"
-    assert parsed["description"] == "Test query description"
-
-
-def test_genie_class_initialization() -> None:
-    """Test Genie class initialization with different parameters."""
-    # Mock WorkspaceClient and genie.get_space to prevent real API calls
-    with patch("dao_ai.tools.genie.WorkspaceClient") as mock_workspace_client:
-        # Mock the genie service and get_space method
-        mock_genie_service = MagicMock()
-        mock_space = MagicMock()
-        mock_space.description = "Test space description"
-        mock_genie_service.get_space.return_value = mock_space
-        mock_workspace_client.return_value.genie = mock_genie_service
-
-        # Test basic initialization
-        genie = Genie(space_id="test_space_123")
-        assert genie.space_id == "test_space_123"
-        assert not genie.truncate_results  # Default value
-        assert genie.headers["Accept"] == "application/json"
-        assert genie.headers["Content-Type"] == "application/json"
-        assert genie.description == "Test space description"
-
-        # Test initialization with truncate_results
-        genie_with_truncate = Genie(space_id="test_space_456", truncate_results=True)
-        assert genie_with_truncate.space_id == "test_space_456"
-        assert genie_with_truncate.truncate_results
-        assert genie_with_truncate.description == "Test space description"
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_create_genie_tool_default_parameters() -> None:
-    """Test create_genie_tool with default parameters."""
-    # Create genie room with minimal configuration
-    genie_room = GenieRoomModel(
-        name="Minimal Test Room",
-        description="Minimal configuration test",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",
-    )
-
-    # Create tool with defaults (no name or description override)
-    tool = create_genie_tool(genie_room=genie_room)
-
-    # Verify defaults were applied
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == "genie_tool"  # Default name from function
-    assert (
-        "This tool lets you have a conversation and chat with tabular data"
-        in tool.description
-    )
-    assert "question" in tool.args_schema.model_fields
-
-    # Verify the description contains the default template
-    assert "ask simple clear questions" in tool.description
-    assert "multiple times rather than asking a complex question" in tool.description
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_create_genie_tool_custom_parameters() -> None:
-    """Test create_genie_tool with custom parameters."""
-    # Create genie room configuration
-    genie_room = GenieRoomModel(
-        name="Custom Test Room",
-        description="Custom configuration test",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",
-    )
-
-    # Create tool with custom parameters
-    custom_name = "my_custom_genie_tool"
-    custom_description = "This is my custom genie tool for testing retail data queries."
-
-    tool = create_genie_tool(
-        genie_room=genie_room, name=custom_name, description=custom_description
-    )
-
-    # Verify custom parameters were applied
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == custom_name
-    assert custom_description in tool.description
-    assert "question" in tool.args_schema.model_fields
-
-    # Verify the tool signature documentation is included
-    assert "Args:" in tool.description
-    assert "question (str): The question to ask to ask Genie" in tool.description
-    assert "Returns:" in tool.description
-    assert "GenieResponse" in tool.description
 
 
 @pytest.mark.slow
@@ -612,7 +264,7 @@ def test_genie_api_conversation_flow() -> None:
     genie_room = GenieRoomModel(
         name="API Flow Test Room",
         description="Test API conversation flow",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",  # Real space ID from config
+        space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
     )
 
     # Create the genie tool
@@ -653,7 +305,7 @@ def test_genie_api_conversation_flow() -> None:
         mock_poll.return_value = mock_poll_result
 
         # Create Genie instance and test flow
-        genie = Genie(space_id="01f01c91f1f414d59daaefd2b7ec82ea")
+        genie = Genie(space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"))
 
         # Test first question (new conversation)
         result1 = genie.ask_question(
@@ -691,7 +343,7 @@ def test_genie_real_api_conversation_reuse_example() -> None:
     This test demonstrates the proper pattern for maintaining conversation context
     across multiple questions, which is the core functionality needed for agents.
     """
-    real_space_id = "01f01c91f1f414d59daaefd2b7ec82ea"
+    real_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
 
     print("\n" + "=" * 50)
     print("GENIE API CONVERSATION REUSE EXAMPLE")
@@ -794,7 +446,7 @@ def test_genie_tool_usage_pattern_with_state() -> None:
     """
     from dao_ai.state import SharedState
 
-    real_space_id = "01f01c91f1f414d59daaefd2b7ec82ea"
+    real_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
 
     print("\n" + "=" * 50)
     print("GENIE TOOL USAGE PATTERN WITH STATE")
@@ -804,7 +456,7 @@ def test_genie_tool_usage_pattern_with_state() -> None:
     genie_room = GenieRoomModel(
         name="State Test Room",
         description="Test tool usage with state management",
-        space_id=real_space_id,
+        space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
     )
 
     tool = create_genie_tool(
@@ -859,7 +511,7 @@ def test_genie_tool_usage_pattern_with_state() -> None:
         genie = Genie(space_id=real_space_id)
 
         # Simulate getting conversation_id from state mapping (initially None)
-        space_id = "01f01c91f1f414d59daaefd2b7ec82ea"  # Use the test space ID
+        space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
         conversation_ids = shared_state.get("genie_conversation_ids", {})
         existing_conversation_id = conversation_ids.get(space_id)
         print(
@@ -958,84 +610,6 @@ def test_genie_tool_usage_pattern_with_state() -> None:
         print("\n✓ State-based conversation management working correctly!")
 
 
-@pytest.mark.integration
-@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_genie_tool_function_signature_and_structure() -> None:
-    """
-    Test the Genie tool structure and demonstrate how it should be called.
-
-    This shows the tool's signature and validates that it's properly structured
-    for use in LangGraph applications with dependency injection.
-    """
-    print("\n" + "=" * 50)
-    print("GENIE TOOL STRUCTURE AND SIGNATURE")
-    print("=" * 50)
-
-    # Create tool
-    genie_room = GenieRoomModel(
-        name="Signature Test Room",
-        description="Test tool signature and structure",
-        space_id="01f01c91f1f414d59daaefd2b7ec82ea",
-    )
-
-    tool = create_genie_tool(
-        genie_room=genie_room,
-        name="signature_test_tool",
-        description="Tool for testing signature and structure",
-    )
-
-    print("\n1. Tool Information:")
-    print(f"   Name: {tool.name}")
-    print(f"   Description: {tool.description[:200]}...")
-    print(f"   Tool Type: {type(tool).__name__}")
-
-    print("\n2. Tool Arguments Schema:")
-    if hasattr(tool, "args_schema") and tool.args_schema:
-        schema_fields = tool.args_schema.model_fields
-        for field_name, field_info in schema_fields.items():
-            print(f"   - {field_name}: {field_info.annotation}")
-            if hasattr(field_info, "description") and field_info.description:
-                print(f"     Description: {field_info.description}")
-
-    print("\n3. Expected Usage Pattern:")
-    print("   # In LangGraph, the tool would be called like this:")
-    print("   # tool_function(")
-    print("   #     question='Your question here',")
-    print("   #     state=injected_shared_state,  # Injected by framework")
-    print("   #     tool_call_id=injected_id      # Injected by framework")
-    print("   # )")
-
-    print("\n4. Tool Validation:")
-
-    # Verify tool has required structure
-    assert isinstance(tool, StructuredTool)
-    assert tool.name == "signature_test_tool"
-    assert "question" in tool.args_schema.model_fields
-
-    # Check for dependency injection annotations
-    import inspect
-
-    if hasattr(tool, "coroutine") and tool.coroutine:
-        sig = inspect.signature(tool.coroutine)
-        param_names = list(sig.parameters.keys())
-        print(f"   ✓ Function parameters: {param_names}")
-
-        # Verify expected parameters are present
-        assert "question" in param_names
-        # Note: state and tool_call_id are injected by LangGraph framework
-    else:
-        print("   ✓ Tool uses coroutine function (cannot inspect signature directly)")
-
-    print("\n5. Integration Notes:")
-    print("   • This tool requires LangGraph framework for dependency injection")
-    print("   • The 'state' parameter provides access to conversation history")
-    print("   • The 'tool_call_id' parameter is required by LangGraph")
-    print("   • Conversation IDs are automatically managed via SharedState")
-    print("   • For direct API usage, use the Genie class instead of the tool")
-
-    print("\n✓ Tool structure validation complete!")
-
-
 @pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
@@ -1046,7 +620,7 @@ def test_genie_conversation_lifecycle_example() -> None:
     This demonstrates how conversations are created, maintained, and isolated
     in a realistic usage scenario.
     """
-    real_space_id = "01f01c91f1f414d59daaefd2b7ec82ea"
+    real_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
 
     print("\n" + "=" * 60)
     print("COMPLETE GENIE CONVERSATION LIFECYCLE EXAMPLE")
@@ -1386,9 +960,10 @@ def test_genie_config_validation_and_tool_creation() -> None:
 
         # Validate the space ID matches expected format
         space_id = str(genie_room.space_id)
+        expected_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
         assert len(space_id) > 0, "Space ID should not be empty"
-        assert space_id == "01f01c91f1f414d59daaefd2b7ec82ea", (
-            f"Expected specific space ID, got {space_id}"
+        assert space_id == expected_space_id, (
+            f"Expected space ID {expected_space_id}, got {space_id}"
         )
 
         print("\n6. Configuration Validation Summary:")

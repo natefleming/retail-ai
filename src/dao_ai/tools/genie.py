@@ -12,18 +12,17 @@ import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, StructuredTool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from dao_ai.config import AnyVariable, CompositeVariableModel, GenieRoomModel, value_of
-from dao_ai.state import SharedState
 
 MAX_TOKENS_OF_DATA: int = 20000
 MAX_ITERATIONS: int = 50
-SLEEP_SECONDS: int = 5
+DEFAULT_POLLING_INTERVAL_SECS: int = 2
 
 
 def _count_tokens(text):
@@ -130,7 +129,8 @@ class Genie:
         self,
         space_id,
         client: WorkspaceClient | None = None,
-        truncate_results=False,
+        truncate_results: bool = False, 
+        polling_interval: int = DEFAULT_POLLING_INTERVAL_SECS,
     ):
         self.space_id = space_id
         workspace_client = client or WorkspaceClient()
@@ -141,8 +141,11 @@ class Genie:
             "Content-Type": "application/json",
         }
         self.truncate_results = truncate_results
+        if polling_interval < 1 or polling_interval > 30:
+            raise ValueError("poll_interval must be between 1 and 30 seconds")
+        self.poll_interval = polling_interval
 
-    @mlflow.trace()
+    @mlflow.trace() 
     def start_conversation(self, content):
         resp = self.genie._api.do(
             "POST",
@@ -182,7 +185,7 @@ class Genie:
                     )
                 elif state in ["RUNNING", "PENDING"]:
                     logging.debug("Waiting for query result...")
-                    time.sleep(SLEEP_SECONDS)
+                    time.sleep(self.poll_interval)
                 else:
                     return GenieResponse(
                         conversation_id,
@@ -208,9 +211,16 @@ class Genie:
                     headers=self.headers,
                 )
                 if resp["status"] == "COMPLETED":
-                    attachment = next(
-                        (r for r in resp["attachments"] if "query" in r), None
-                    )
+                    # Check if attachments key exists in response
+                    attachments = resp.get("attachments", [])
+                    if not attachments:
+                        # Handle case where response has no attachments
+                        return GenieResponse(
+                            conversation_id,
+                            result=f"Genie query completed but no attachments found. Response: {resp}",
+                        )
+
+                    attachment = next((r for r in attachments if "query" in r), None)
                     if attachment:
                         query_obj = attachment["query"]
                         description = query_obj.get("description", "")
@@ -219,9 +229,16 @@ class Genie:
                         return poll_query_results(attachment_id, query_str, description)
                     if resp["status"] == "COMPLETED":
                         text_content = next(
-                            r for r in resp["attachments"] if "text" in r
-                        )["text"]["content"]
-                        return GenieResponse(conversation_id, result=text_content)
+                            (r for r in attachments if "text" in r), None
+                        )
+                        if text_content:
+                            return GenieResponse(
+                                conversation_id, result=text_content["text"]["content"]
+                            )
+                        return GenieResponse(
+                            conversation_id,
+                            result="Genie query completed but no text content found in attachments.",
+                        )
                 elif resp["status"] in {"CANCELLED", "QUERY_RESULT_EXPIRED"}:
                     return GenieResponse(
                         conversation_id, result=f"Genie query {resp['status'].lower()}."
@@ -259,6 +276,9 @@ def create_genie_tool(
     genie_room: GenieRoomModel | dict[str, Any],
     name: Optional[str] = None,
     description: Optional[str] = None,
+    persist_conversation: bool = True,
+    truncate_results: bool = False,
+    poll_interval: int = DEFAULT_POLLING_INTERVAL_SECS,
 ) -> Callable[[str], GenieResponse]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
@@ -289,6 +309,8 @@ def create_genie_tool(
     genie: Genie = Genie(
         space_id=space_id,
         client=genie_room.workspace_client,
+        truncate_results=truncate_results,
+        polling_interval=poll_interval,
     )
 
     default_description: str = dedent("""
@@ -299,12 +321,27 @@ def create_genie_tool(
     Prefer to call this tool multiple times rather than asking a complex question.
     """)
 
-    tool_description = description if description is not None else default_description
-    tool_name = name if name is not None else "genie_tool"
+    tool_description: str = (
+        description if description is not None else default_description
+    )
+    tool_name: str = name if name is not None else "genie_tool"
 
+    function_docs = """
+
+Args:
+question (str): The question to ask to ask Genie about your data. Ask simple, clear questions about your tabular data. For complex analysis, ask multiple simple questions rather than one complex question.
+
+Returns:
+GenieResponse: A response object containing the conversation ID and result from Genie."""
+    tool_description = tool_description + function_docs
+
+    @tool(
+        name_or_callable=tool_name,
+        description=tool_description,
+    )
     def genie_tool(
         question: Annotated[str, "The question to ask Genie about your data"],
-        state: Annotated[SharedState, InjectedState],
+        state: Annotated[dict, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
         """Process a natural language question through Databricks Genie."""
@@ -325,39 +362,18 @@ def create_genie_tool(
         )
 
         # Update the conversation mapping with the new conversation ID for this space
-        updated_conversation_ids: dict[str, str] = conversation_ids.copy()
-        updated_conversation_ids[space_id] = current_conversation_id
 
         update: dict[str, Any] = {
-            "genie_conversation_ids": updated_conversation_ids,
-            "messages": [
-                ToolMessage(
-                    f"Genie response: {response.to_json()}", tool_call_id=tool_call_id
-                )
-            ],
+            "messages": [ToolMessage(response.to_json(), tool_call_id=tool_call_id)],
         }
+
+        if persist_conversation:
+            updated_conversation_ids: dict[str, str] = conversation_ids.copy()
+            updated_conversation_ids[space_id] = current_conversation_id
+            update["genie_conversation_ids"] = updated_conversation_ids
 
         logger.debug(f"State update: {update}")
 
         return Command(update=update)
 
-    # Add function signature documentation to custom descriptions
-    if description is not None:
-        # When using custom description, append function signature info
-        function_docs = """
-
-Args:
-    question (str): The question to ask to ask Genie about your data. Ask simple, clear questions about your tabular data. For complex analysis, ask multiple simple questions rather than one complex question.
-
-Returns:
-    GenieResponse: A response object containing the conversation ID and result from Genie."""
-        tool_description = tool_description + function_docs
-
-    return StructuredTool.from_function(
-        func=genie_tool,
-        name=tool_name,
-        description=tool_description,
-        args_schema=GenieToolInput,
-        # This tells StructuredTool which parameters are injected
-        infer_schema=False,
-    )
+    return genie_tool
