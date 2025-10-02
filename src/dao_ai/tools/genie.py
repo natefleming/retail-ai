@@ -276,7 +276,7 @@ def create_genie_tool(
     genie_room: GenieRoomModel | dict[str, Any],
     name: Optional[str] = None,
     description: Optional[str] = None,
-    persist_conversation: bool = True,
+    persist_conversation: bool = False,
     truncate_results: bool = False,
     poll_interval: int = DEFAULT_POLLING_INTERVAL_SECS,
 ) -> Callable[[str], GenieResponse]:
