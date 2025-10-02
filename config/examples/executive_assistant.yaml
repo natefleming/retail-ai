@@ -232,8 +232,4 @@ app:
         - CAN_QUERY                               
   agents:                                        
     - *executive_assistant_genie                                      
-  orchestration:                                  
-    swarm:                                    
-      model: *fast_llm                           
-
-
+                     

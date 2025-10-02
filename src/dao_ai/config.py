@@ -1277,12 +1277,12 @@ class AppModel(BaseModel):
             if len(self.agents) > 1:
                 default_agent: AgentModel = self.agents[0]
                 self.orchestration = OrchestrationModel(
-                    swarm=SupervisorModel(model=default_agent.model)
+                    supervisor=SupervisorModel(model=default_agent.model)
                 )
             elif len(self.agents) == 1:
                 default_agent: AgentModel = self.agents[0]
                 self.orchestration = OrchestrationModel(
-                    supervisor=SwarmModel(
+                    swarm=SwarmModel(
                         model=default_agent.model, default_agent=default_agent
                     )
                 )

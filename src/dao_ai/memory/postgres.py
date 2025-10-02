@@ -74,8 +74,17 @@ class AsyncPostgresPoolManager:
         async with cls._lock:
             for connection_key, pool in cls._pools.items():
                 try:
-                    await pool.close()
+                    # Use a short timeout to avoid blocking on pool closure
+                    await asyncio.wait_for(pool.close(), timeout=2.0)
                     logger.debug(f"Closed PostgreSQL pool: {connection_key}")
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Timeout closing pool {connection_key}, forcing closure"
+                    )
+                except asyncio.CancelledError:
+                    logger.warning(
+                        f"Pool closure cancelled for {connection_key} (shutdown in progress)"
+                    )
                 except Exception as e:
                     logger.error(f"Error closing pool {connection_key}: {e}")
             cls._pools.clear()
@@ -369,8 +378,27 @@ def _shutdown_pools():
 
 def _shutdown_async_pools():
     try:
-        asyncio.run(AsyncPostgresPoolManager.close_all_pools())
-        logger.debug("Successfully closed all asynchronous PostgreSQL pools")
+        # Try to get the current event loop first
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're already in an event loop, create a task
+            loop.create_task(AsyncPostgresPoolManager.close_all_pools())
+            logger.debug("Scheduled async pool closure in running event loop")
+        except RuntimeError:
+            # No running loop, try to get or create one
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    # Loop is closed, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                loop.run_until_complete(AsyncPostgresPoolManager.close_all_pools())
+                logger.debug("Successfully closed all asynchronous PostgreSQL pools")
+            except Exception as inner_e:
+                # If all else fails, just log the error
+                logger.warning(
+                    f"Could not close async pools cleanly during shutdown: {inner_e}"
+                )
     except Exception as e:
         logger.error(
             f"Error closing asynchronous PostgreSQL pools during shutdown: {e}"

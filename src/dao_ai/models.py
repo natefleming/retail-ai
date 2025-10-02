@@ -5,6 +5,7 @@ from typing import Any, Generator, Optional, Sequence, Union
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel, ResponsesAgent
@@ -57,6 +58,113 @@ def get_latest_model_version(model_name: str) -> int:
         if version_int > latest_version:
             latest_version = version_int
     return latest_version
+
+
+async def get_state_snapshot_async(
+    graph: CompiledStateGraph, thread_id: str
+) -> Optional[StateSnapshot]:
+    """
+    Retrieve the state snapshot from the graph for a given thread_id asynchronously.
+
+    This utility function accesses the graph's checkpointer to retrieve the current
+    state snapshot, which contains the full state values and metadata.
+
+    Args:
+        graph: The compiled LangGraph state machine
+        thread_id: The thread/conversation ID to retrieve state for
+
+    Returns:
+        StateSnapshot if found, None otherwise
+    """
+    logger.debug(f"Retrieving state snapshot for thread_id: {thread_id}")
+    try:
+        # Check if graph has a checkpointer
+        if graph.checkpointer is None:
+            logger.debug("No checkpointer available in graph")
+            return None
+
+        # Get the current state from the checkpointer (use async version)
+        config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+        state_snapshot: Optional[StateSnapshot] = await graph.aget_state(config)
+
+        if state_snapshot is None:
+            logger.debug(f"No state found for thread_id: {thread_id}")
+            return None
+
+        return state_snapshot
+
+    except Exception as e:
+        logger.warning(f"Error retrieving state snapshot for thread {thread_id}: {e}")
+        return None
+
+
+def get_state_snapshot(
+    graph: CompiledStateGraph, thread_id: str
+) -> Optional[StateSnapshot]:
+    """
+    Retrieve the state snapshot from the graph for a given thread_id.
+
+    This is a synchronous wrapper around get_state_snapshot_async.
+    Use this for backward compatibility in synchronous contexts.
+
+    Args:
+        graph: The compiled LangGraph state machine
+        thread_id: The thread/conversation ID to retrieve state for
+
+    Returns:
+        StateSnapshot if found, None otherwise
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    try:
+        return loop.run_until_complete(get_state_snapshot_async(graph, thread_id))
+    except Exception as e:
+        logger.warning(f"Error in synchronous state snapshot retrieval: {e}")
+        return None
+
+
+def get_genie_conversation_ids_from_state(
+    state_snapshot: Optional[StateSnapshot],
+) -> dict[str, str]:
+    """
+    Extract genie_conversation_ids from a state snapshot.
+
+    This function extracts the genie_conversation_ids dictionary from the state
+    snapshot values if present.
+
+    Args:
+        state_snapshot: The state snapshot to extract conversation IDs from
+
+    Returns:
+        A dictionary mapping genie space_id to conversation_id, or empty dict if not found
+    """
+    if state_snapshot is None:
+        return {}
+
+    try:
+        # Extract state values - these contain the actual state data
+        state_values: dict[str, Any] = state_snapshot.values
+
+        # Extract genie_conversation_ids from state values
+        genie_conversation_ids: dict[str, str] = state_values.get(
+            "genie_conversation_ids", {}
+        )
+
+        if genie_conversation_ids:
+            logger.debug(f"Retrieved genie_conversation_ids: {genie_conversation_ids}")
+            return genie_conversation_ids
+
+        return {}
+
+    except Exception as e:
+        logger.warning(f"Error extracting genie_conversation_ids from state: {e}")
+        return {}
 
 
 class LanggraphChatModel(ChatModel):
@@ -257,7 +365,19 @@ class LanggraphResponsesAgent(ResponsesAgent):
             text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
         )
 
-        custom_outputs = custom_inputs
+        # Retrieve genie_conversation_ids from state if available
+        custom_outputs: dict[str, Any] = custom_inputs.copy()
+        thread_id: Optional[str] = context.thread_id
+        if thread_id:
+            state_snapshot: Optional[StateSnapshot] = loop.run_until_complete(
+                get_state_snapshot_async(self.graph, thread_id)
+            )
+            genie_conversation_ids: dict[str, str] = (
+                get_genie_conversation_ids_from_state(state_snapshot)
+            )
+            if genie_conversation_ids:
+                custom_outputs["genie_conversation_ids"] = genie_conversation_ids
+
         return ResponsesAgentResponse(
             output=[output_item], custom_outputs=custom_outputs
         )
@@ -318,7 +438,22 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 **self.create_text_delta(delta=content, item_id=item_id)
                             )
 
-                custom_outputs = custom_inputs
+                # Retrieve genie_conversation_ids from state if available
+                custom_outputs: dict[str, Any] = custom_inputs.copy()
+                thread_id: Optional[str] = context.thread_id
+
+                if thread_id:
+                    state_snapshot: Optional[
+                        StateSnapshot
+                    ] = await get_state_snapshot_async(self.graph, thread_id)
+                    genie_conversation_ids: dict[str, str] = (
+                        get_genie_conversation_ids_from_state(state_snapshot)
+                    )
+                    if genie_conversation_ids:
+                        custom_outputs["genie_conversation_ids"] = (
+                            genie_conversation_ids
+                        )
+
                 # Yield final output item
                 yield ResponsesAgentStreamEvent(
                     type="response.output_item.done",
