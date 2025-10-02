@@ -438,7 +438,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
         return self
 
 
-class VolumeModel(BaseModel, HasFullName):
+class VolumeModel(BaseModel, HasFullName, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
@@ -455,6 +455,13 @@ class VolumeModel(BaseModel, HasFullName):
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_volume(self)
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return ["files.files", "catalog.volumes"]
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return []
 
 
 class VolumePathModel(BaseModel, HasFullName):

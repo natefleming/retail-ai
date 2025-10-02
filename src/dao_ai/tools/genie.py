@@ -195,7 +195,7 @@ class Genie:
                     )
             return GenieResponse(
                 conversation_id,
-                f"Genie query for result timed out after {MAX_ITERATIONS} iterations of 5 seconds",
+                f"Genie query for result timed out after {MAX_ITERATIONS} iterations of {self.poll_interval} seconds",
                 query_str,
                 description,
             )
@@ -251,10 +251,10 @@ class Genie:
                 # includes EXECUTING_QUERY, Genie can retry after this status
                 else:
                     logging.debug(f"Waiting...: {resp['status']}")
-                    time.sleep(5)
+                    time.sleep(self.poll_interval)
             return GenieResponse(
                 conversation_id,
-                f"Genie query timed out after {MAX_ITERATIONS} iterations of 5 seconds",
+                f"Genie query timed out after {MAX_ITERATIONS} iterations of {self.poll_interval} seconds",
             )
 
         return poll_result()
@@ -302,16 +302,19 @@ def create_genie_tool(
     space_id: AnyVariable = genie_room.space_id or os.environ.get(
         "DATABRICKS_GENIE_SPACE_ID"
     )
+    space_id: AnyVariable = genie_room.space_id or os.environ.get(
+        "DATABRICKS_GENIE_SPACE_ID"
+    )
     if isinstance(space_id, dict):
         space_id = CompositeVariableModel(**space_id)
     space_id = value_of(space_id)
 
-    genie: Genie = Genie(
-        space_id=space_id,
-        client=genie_room.workspace_client,
-        truncate_results=truncate_results,
-        polling_interval=poll_interval,
-    )
+    # genie: Genie = Genie(
+    #     space_id=space_id,
+    #     client=genie_room.workspace_client,
+    #     truncate_results=truncate_results,
+    #     polling_interval=poll_interval,
+    # )
 
     default_description: str = dedent("""
     This tool lets you have a conversation and chat with tabular data about <topic>. You should ask
@@ -344,6 +347,13 @@ GenieResponse: A response object containing the conversation ID and result from 
         state: Annotated[dict, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
+        genie: Genie = Genie(
+            space_id=space_id,
+            client=genie_room.workspace_client,
+            truncate_results=truncate_results,
+            polling_interval=poll_interval,
+        )
+
         """Process a natural language question through Databricks Genie."""
         # Get existing conversation mapping and retrieve conversation ID for this space
         conversation_ids: dict[str, str] = state.get("genie_conversation_ids", {})

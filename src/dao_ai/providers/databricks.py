@@ -226,6 +226,7 @@ class DatabricksProvider(ServiceProvider):
             config.resources.connections.values()
         )
         databases: Sequence[DatabaseModel] = list(config.resources.databases.values())
+        volumes: Sequence[VolumeModel] = list(config.resources.volumes.values())
 
         resources: Sequence[IsDatabricksResource] = (
             llms
@@ -236,6 +237,7 @@ class DatabricksProvider(ServiceProvider):
             + tables
             + connections
             + databases
+            + volumes
         )
 
         # Flatten all resources from all models into a single list
