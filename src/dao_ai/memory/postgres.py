@@ -234,8 +234,9 @@ class PostgresPoolManager:
 
             pool: ConnectionPool = ConnectionPool(
                 conninfo=connection_url,
+                min_size=1,
                 max_size=database.max_pool_size,
-                open=False,
+                open=True,
                 timeout=database.timeout_seconds,
                 kwargs=kwargs,
             )

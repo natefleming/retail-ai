@@ -23,6 +23,7 @@ from databricks.sdk.credentials_provider import (
     ModelServingUserCredentials,
 )
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
+from databricks.sdk.service.database import DatabaseInstance
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -703,15 +704,17 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 
 
 class DatabaseModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
-    host: Optional[AnyVariable]
+    host: Optional[AnyVariable] = None
     database: Optional[AnyVariable] = "databricks_postgres"
     port: Optional[AnyVariable] = 5432
     connection_kwargs: Optional[dict[str, Any]] = Field(default_factory=dict)
     max_pool_size: Optional[int] = 10
-    timeout_seconds: Optional[int] = 5
+    timeout_seconds: Optional[int] = 60
+    capacity: Optional[Literal["CU_1", "CU_2"]] = "CU_2"
+    node_count: Optional[int] = None
     user: Optional[AnyVariable] = None
     password: Optional[AnyVariable] = None
     client_id: Optional[AnyVariable] = None
@@ -731,6 +734,25 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         ]
 
     @model_validator(mode="after")
+    def update_user(self):
+        if self.client_id or self.user:
+            return self
+
+        self.user = self.workspace_client.current_user.me().user_name
+        return self
+
+    @model_validator(mode="after")
+    def update_host(self):
+        if self.host is not None:
+            return self
+
+        existing_instance: DatabaseInstance = (
+            self.workspace_client.database.get_database_instance(name=self.name)
+        )
+        self.host = existing_instance.read_write_dns
+        return self
+
+    @model_validator(mode="after")
     def validate_auth_methods(self):
         oauth_fields: Sequence[Any] = [
             self.workspace_host,
@@ -739,7 +761,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         ]
         has_oauth: bool = all(field is not None for field in oauth_fields)
 
-        pat_fields: Sequence[Any] = [self.user, self.password]
+        pat_fields: Sequence[Any] = [self.user]
         has_user_auth: bool = all(field is not None for field in pat_fields)
 
         if has_oauth and has_user_auth:
@@ -779,11 +801,20 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             workspace_host=value_of(self.workspace_host),
             pat=value_of(self.password),
         )
-        token: str = provider.create_token()
+
+        token: str = provider.lakebase_password_provider(self.name)
+        # token: str = provider.create_token()
 
         return (
             f"postgresql://{username}:{token}@{host}:{port}/{database}?sslmode=require"
         )
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: DatabricksProvider = DatabricksProvider()
+        provider.create_lakebase(self)
+        provider.create_lakebase_instance_role(self)
 
 
 class SearchParametersModel(BaseModel):
@@ -1093,6 +1124,7 @@ class AgentModel(BaseModel):
 class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
+    tools: list[ToolModel] = Field(default_factory=list)
     prompt: Optional[str] = None
 
 
