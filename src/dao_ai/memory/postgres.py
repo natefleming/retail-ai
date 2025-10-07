@@ -68,7 +68,7 @@ def _create_pool_with_fallback(
             return pool
         except Exception as e:
             logger.warning(
-                f"Failed to connect with explicit username '{connection_params['user']}': {e}. "
+                f"plicit username '{connection_params['user']}': {e}. "
                 f"Attempting fallback to token identity..."
             )
             last_error = e
@@ -83,26 +83,34 @@ def _create_pool_with_fallback(
     try:
         fallback_params = connection_params.copy()
         if has_user:
-            # Set user to empty string to prevent psycopg from using system default user
-            fallback_params["user"] = ""
+            # Remove user entirely - Lakebase will use token identity
+            fallback_params.pop("user")
             logger.debug(
-                f"Attempting connection using token identity for {database_name} (user='')"
+                f"Attempting connection using token identity for {database_name} (no user param)"
             )
         else:
-            # No user was configured, set to empty string to use token identity
-            fallback_params["user"] = ""
-            logger.debug(f"Attempting connection for {database_name} (user='')")
+            # No user was configured, ensure it's not set
+            fallback_params.pop("user", None)
+            logger.debug(f"Attempting connection for {database_name} (no user param)")
 
-        # Merge fallback_params into kwargs for psycopg
-        connection_kwargs = kwargs | fallback_params
-        logger.debug(f"Final connection kwargs keys: {list(connection_kwargs.keys())}")
+        # Build explicit connection string without user parameter
+        # This prevents psycopg from using environment/system defaults
+        conninfo_parts = []
+        for key, value in fallback_params.items():
+            conninfo_parts.append(f"{key}={value}")
+        conninfo = " ".join(conninfo_parts)
+
+        logger.debug(
+            f"Connection string (without user): {conninfo.replace(fallback_params.get('password', ''), '***')}"
+        )
+
         pool = ConnectionPool(
-            conninfo="",  # Empty conninfo, params come from kwargs
+            conninfo=conninfo,  # Use explicit connection string
             min_size=1,
             max_size=max_pool_size,
             open=False,
             timeout=timeout_seconds,
-            kwargs=connection_kwargs,
+            kwargs=kwargs,  # Only pool behavior kwargs (row_factory, autocommit)
         )
         pool.open(wait=True, timeout=timeout_seconds)
         logger.info(f"Successfully connected to {database_name} using token identity")
@@ -172,25 +180,35 @@ async def _create_async_pool_with_fallback(
     try:
         fallback_params = connection_params.copy()
         if has_user:
-            # Set user to empty string to prevent psycopg from using system default user
-            fallback_params["user"] = ""
+            # Remove user entirely - Lakebase will use token identity
+            fallback_params.pop("user")
             logger.debug(
-                f"Attempting async connection using token identity for {database_name} (user='')"
+                f"Attempting async connection using token identity for {database_name} (no user param)"
             )
         else:
-            # No user was configured, set to empty string to use token identity
-            fallback_params["user"] = ""
-            logger.debug(f"Attempting async connection for {database_name} (user='')")
+            # No user was configured, ensure it's not set
+            fallback_params.pop("user", None)
+            logger.debug(
+                f"Attempting async connection for {database_name} (no user param)"
+            )
 
-        # Merge fallback_params into kwargs for psycopg
-        connection_kwargs = kwargs | fallback_params
-        logger.debug(f"Final connection kwargs keys: {list(connection_kwargs.keys())}")
+        # Build explicit connection string without user parameter
+        # This prevents psycopg from using environment/system defaults
+        conninfo_parts = []
+        for key, value in fallback_params.items():
+            conninfo_parts.append(f"{key}={value}")
+        conninfo = " ".join(conninfo_parts)
+
+        logger.debug(
+            f"Connection string (without user): {conninfo.replace(fallback_params.get('password', ''), '***')}"
+        )
+
         pool = AsyncConnectionPool(
-            conninfo="",  # Empty conninfo, params come from kwargs
+            conninfo=conninfo,  # Use explicit connection string
             max_size=max_pool_size,
             open=False,
             timeout=timeout_seconds,
-            kwargs=connection_kwargs,
+            kwargs=kwargs,  # Only pool behavior kwargs (row_factory, autocommit)
         )
         await pool.open(wait=True, timeout=timeout_seconds)
         logger.info(f"Successfully connected to {database_name} using token identity")
