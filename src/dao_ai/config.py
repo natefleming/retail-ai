@@ -16,7 +16,6 @@ from typing import (
     TypeAlias,
     Union,
 )
-from urllib.parse import quote
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
@@ -796,7 +795,14 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         return self
 
     @property
-    def connection_url(self) -> str:
+    def connection_params(self) -> dict[str, Any]:
+        """
+        Get database connection parameters as a dictionary.
+
+        Returns a dict with connection parameters suitable for psycopg ConnectionPool.
+        If username is configured, it will be included; otherwise it will be omitted
+        to allow Lakebase to authenticate using the token's identity.
+        """
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
@@ -804,10 +810,8 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
 
         if self.client_id and self.client_secret and self.workspace_host:
             username = value_of(self.client_id)
-        else:
+        elif self.user:
             username = value_of(self.user)
-            if username:
-                username = quote(username)
 
         host: str = value_of(self.host)
         port: int = value_of(self.port)
@@ -822,15 +826,38 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
 
         token: str = provider.lakebase_password_provider(self.instance_name)
 
-        url: str = (
-            f"postgresql://{username}:{token}@{host}:{port}/{database}?sslmode=require"
-        )
+        # Build connection parameters dictionary
+        params: dict[str, Any] = {
+            "dbname": database,
+            "host": host,
+            "port": port,
+            "password": token,
+            "sslmode": "require",
+        }
 
-        logger.debug(
-            f"Connection URL: postgresql://{username}:********@{host}:{port}/{database}?sslmode=require"
-        )
+        # Only include user if explicitly configured
+        if username:
+            params["user"] = username
+            logger.debug(
+                f"Connection params: dbname={database} user={username} host={host} port={port} password=******** sslmode=require"
+            )
+        else:
+            logger.debug(
+                f"Connection params: dbname={database} host={host} port={port} password=******** sslmode=require (using token identity)"
+            )
 
-        return url
+        return params
+
+    @property
+    def connection_url(self) -> str:
+        """
+        Get database connection URL as a string (for backwards compatibility).
+
+        Note: It's recommended to use connection_params instead for better flexibility.
+        """
+        params = self.connection_params
+        parts = [f"{k}={v}" for k, v in params.items()]
+        return " ".join(parts)
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.databricks import DatabricksProvider
