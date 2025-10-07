@@ -16,6 +16,7 @@ from typing import (
     TypeAlias,
     Union,
 )
+from urllib.parse import quote
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
@@ -706,6 +707,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 class DatabaseModel(BaseModel, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
+    instance_name: Optional[str] = None
     description: Optional[str] = None
     host: Optional[AnyVariable] = None
     database: Optional[AnyVariable] = "databricks_postgres"
@@ -728,10 +730,17 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksLakebase(
-                database_instance_name=self.name,
+                database_instance_name=self.instance_name,
                 on_behalf_of_user=self.on_behalf_of_user,
             )
         ]
+
+    @model_validator(mode="after")
+    def update_instance_name(self):
+        if self.instance_name is None:
+            self.instance_name = self.name
+
+        return self
 
     @model_validator(mode="after")
     def update_user(self):
@@ -739,6 +748,11 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             return self
 
         self.user = self.workspace_client.current_user.me().user_name
+        if not self.user:
+            raise ValueError(
+                "Unable to determine current user. Please provide a user name or OAuth credentials."
+            )
+
         return self
 
     @model_validator(mode="after")
@@ -747,7 +761,9 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             return self
 
         existing_instance: DatabaseInstance = (
-            self.workspace_client.database.get_database_instance(name=self.name)
+            self.workspace_client.database.get_database_instance(
+                name=self.instance_name
+            )
         )
         self.host = existing_instance.read_write_dns
         return self
@@ -790,6 +806,8 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             username = value_of(self.client_id)
         else:
             username = value_of(self.user)
+            if username:
+                username = quote(username)
 
         host: str = value_of(self.host)
         port: int = value_of(self.port)
@@ -802,12 +820,17 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             pat=value_of(self.password),
         )
 
-        token: str = provider.lakebase_password_provider(self.name)
-        # token: str = provider.create_token()
+        token: str = provider.lakebase_password_provider(self.instance_name)
 
-        return (
+        url: str = (
             f"postgresql://{username}:{token}@{host}:{port}/{database}?sslmode=require"
         )
+
+        logger.debug(
+            f"Connection URL: postgresql://{username}:********@{host}:{port}/{database}?sslmode=require"
+        )
+
+        return url
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.databricks import DatabricksProvider

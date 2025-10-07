@@ -770,18 +770,18 @@ class DatabricksProvider(ServiceProvider):
         try:
             # First, check if the database instance already exists
             existing_instance: Any = workspace_client.database.get_database_instance(
-                name=database.name
+                name=database.instance_name
             )
 
             if existing_instance:
                 logger.debug(
-                    f"Database instance {database.name} already exists with state: {existing_instance.state}"
+                    f"Database instance {database.instance_name} already exists with state: {existing_instance.state}"
                 )
 
                 # Check if database is in an intermediate state
                 if existing_instance.state in ["STARTING", "UPDATING"]:
                     logger.info(
-                        f"Database instance {database.name} is in {existing_instance.state} state, waiting for it to become AVAILABLE..."
+                        f"Database instance {database.instance_name} is in {existing_instance.state} state, waiting for it to become AVAILABLE..."
                     )
 
                     # Wait for database to reach a stable state
@@ -793,7 +793,7 @@ class DatabricksProvider(ServiceProvider):
                         try:
                             current_instance: Any = (
                                 workspace_client.database.get_database_instance(
-                                    name=database.name
+                                    name=database.instance_name
                                 )
                             )
                             current_state: str = current_instance.state
@@ -801,7 +801,7 @@ class DatabricksProvider(ServiceProvider):
 
                             if current_state == "AVAILABLE":
                                 logger.info(
-                                    f"Database instance {database.name} is now AVAILABLE"
+                                    f"Database instance {database.instance_name} is now AVAILABLE"
                                 )
                                 break
                             elif current_state in ["STARTING", "UPDATING"]:
@@ -812,7 +812,7 @@ class DatabricksProvider(ServiceProvider):
                                 elapsed += wait_interval
                             elif current_state in ["STOPPED", "DELETING"]:
                                 logger.warning(
-                                    f"Database instance {database.name} is in unexpected state: {current_state}"
+                                    f"Database instance {database.instance_name} is in unexpected state: {current_state}"
                                 )
                                 break
                             else:
@@ -822,7 +822,7 @@ class DatabricksProvider(ServiceProvider):
                                 break
                         except NotFound:
                             logger.warning(
-                                f"Database instance {database.name} no longer exists, will attempt to recreate"
+                                f"Database instance {database.instance_name} no longer exists, will attempt to recreate"
                             )
                             break
                         except Exception as state_error:
@@ -833,29 +833,29 @@ class DatabricksProvider(ServiceProvider):
 
                     if elapsed >= max_wait_time:
                         logger.warning(
-                            f"Timed out waiting for database instance {database.name} to become AVAILABLE after {max_wait_time} seconds"
+                            f"Timed out waiting for database instance {database.instance_name} to become AVAILABLE after {max_wait_time} seconds"
                         )
 
                 elif existing_instance.state == "AVAILABLE":
                     logger.info(
-                        f"Database instance {database.name} already exists and is AVAILABLE"
+                        f"Database instance {database.instance_name} already exists and is AVAILABLE"
                     )
                     return
                 elif existing_instance.state in ["STOPPED", "DELETING"]:
                     logger.warning(
-                        f"Database instance {database.name} is in {existing_instance.state} state"
+                        f"Database instance {database.instance_name} is in {existing_instance.state} state"
                     )
                     return
                 else:
                     logger.info(
-                        f"Database instance {database.name} already exists with state: {existing_instance.state}"
+                        f"Database instance {database.instance_name} already exists with state: {existing_instance.state}"
                     )
                     return
 
         except NotFound:
             # Database doesn't exist, proceed with creation
             logger.debug(
-                f"Database instance {database.name} not found, creating new instance..."
+                f"Database instance {database.instance_name} not found, creating new instance..."
             )
 
             try:
@@ -866,7 +866,7 @@ class DatabricksProvider(ServiceProvider):
 
                 # Create the database instance object
                 database_instance: DatabaseInstance = DatabaseInstance(
-                    name=database.name,
+                    name=database.instance_name,
                     capacity=capacity,
                     node_count=database.node_count,
                 )
@@ -875,7 +875,9 @@ class DatabricksProvider(ServiceProvider):
                 workspace_client.database.create_database_instance(
                     database_instance=database_instance
                 )
-                logger.info(f"Successfully created database instance: {database.name}")
+                logger.info(
+                    f"Successfully created database instance: {database.instance_name}"
+                )
 
             except Exception as create_error:
                 error_msg: str = str(create_error)
@@ -886,13 +888,13 @@ class DatabricksProvider(ServiceProvider):
                     or "RESOURCE_ALREADY_EXISTS" in error_msg
                 ):
                     logger.info(
-                        f"Database instance {database.name} was created concurrently by another process"
+                        f"Database instance {database.instance_name} was created concurrently by another process"
                     )
                     return
                 else:
                     # Re-raise unexpected errors
                     logger.error(
-                        f"Error creating database instance {database.name}: {create_error}"
+                        f"Error creating database instance {database.instance_name}: {create_error}"
                     )
                     raise
 
@@ -906,12 +908,12 @@ class DatabricksProvider(ServiceProvider):
                 or "RESOURCE_ALREADY_EXISTS" in error_msg
             ):
                 logger.info(
-                    f"Database instance {database.name} already exists (detected via exception)"
+                    f"Database instance {database.instance_name} already exists (detected via exception)"
                 )
                 return
             else:
                 logger.error(
-                    f"Unexpected error while handling database {database.name}: {e}"
+                    f"Unexpected error while handling database {database.instance_name}: {e}"
                 )
                 raise
 
@@ -955,14 +957,14 @@ class DatabricksProvider(ServiceProvider):
         # Validate that client_id is provided
         if not database.client_id:
             logger.warning(
-                f"client_id is required to create instance role for database {database.name}"
+                f"client_id is required to create instance role for database {database.instance_name}"
             )
             return
 
         # Resolve the client_id value
         client_id: str = value_of(database.client_id)
         role_name: str = client_id
-        instance_name: str = database.name
+        instance_name: str = database.instance_name
 
         logger.debug(
             f"Creating instance role '{role_name}' for database {instance_name} with principal {client_id}"

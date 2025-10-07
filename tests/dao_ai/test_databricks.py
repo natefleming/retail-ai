@@ -324,6 +324,7 @@ def test_database_model_capacity_validation():
     # Valid capacity values
     db1 = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         capacity="CU_1",
         user="test_user",
@@ -333,6 +334,7 @@ def test_database_model_capacity_validation():
 
     db2 = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         capacity="CU_2",
         user="test_user",
@@ -342,7 +344,11 @@ def test_database_model_capacity_validation():
 
     # Default capacity should be CU_2
     db3 = DatabaseModel(
-        name="test_db", host="localhost", user="test_user", password="test_password"
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
     )
     assert db3.capacity == "CU_2"
 
@@ -358,6 +364,7 @@ def test_create_lakebase_new_database():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         description="Test database",
         host="localhost",
         database="test_database",
@@ -399,6 +406,7 @@ def test_create_lakebase_database_already_exists_available():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -444,6 +452,7 @@ def test_create_lakebase_database_starting_state():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -488,6 +497,7 @@ def test_create_lakebase_database_updating_state():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -523,6 +533,7 @@ def test_create_lakebase_database_stopped_state():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -557,6 +568,7 @@ def test_create_lakebase_database_deleting_state():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -592,6 +604,7 @@ def test_create_lakebase_concurrent_creation():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -627,6 +640,7 @@ def test_create_lakebase_unexpected_error():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -660,6 +674,7 @@ def test_create_lakebase_timeout_waiting_for_available():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -691,6 +706,7 @@ def test_create_lakebase_default_values():
     # Create database model with minimal parameters
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -723,6 +739,7 @@ def test_create_lakebase_custom_capacity_cu1():
     # Create database model with CU_1 capacity
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         capacity="CU_1",
         user="test_user",
@@ -764,6 +781,7 @@ def test_create_lakebase_database_disappears_during_wait():
     # Create database model
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -798,6 +816,7 @@ def test_create_lakebase_instance_role_success():
     # Create database model with client_id
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         client_id="test-client-id-123",
         client_secret="test-secret",
@@ -841,6 +860,7 @@ def test_create_lakebase_instance_role_already_exists():
     # Create database model with client_id
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         client_id="test-client-id-123",
         client_secret="test-secret",
@@ -862,13 +882,14 @@ def test_create_lakebase_instance_role_already_exists():
 
 @pytest.mark.unit
 def test_create_lakebase_instance_role_missing_client_id():
-    """Test that ValueError is raised when client_id is not provided."""
+    """Test that a warning is logged and method returns early when client_id is not provided."""
     # Mock workspace client
     mock_workspace_client = MagicMock()
 
     # Create database model WITHOUT client_id
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         user="test_user",
         password="test_password",
@@ -877,9 +898,8 @@ def test_create_lakebase_instance_role_missing_client_id():
     # Create provider
     provider = DatabricksProvider(w=mock_workspace_client)
 
-    # Call create_lakebase_instance_role - should raise ValueError
-    with pytest.raises(ValueError, match="client_id is required"):
-        provider.create_lakebase_instance_role(database)
+    # Call create_lakebase_instance_role - should log warning and return early
+    provider.create_lakebase_instance_role(database)
 
     # Verify no API calls were made
     mock_workspace_client.database.get_database_instance_role.assert_not_called()
@@ -901,6 +921,7 @@ def test_create_lakebase_instance_role_concurrent_creation():
     # Create database model with client_id
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         client_id="test-client-id-123",
         client_secret="test-secret",
@@ -933,6 +954,7 @@ def test_create_lakebase_instance_role_unexpected_error():
     # Create database model with client_id
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         client_id="test-client-id-123",
         client_secret="test-secret",
@@ -960,6 +982,7 @@ def test_create_lakebase_instance_role_with_composite_variable():
     # Create database model with CompositeVariableModel for client_id
     database = DatabaseModel(
         name="test_db",
+        instance_name="test_db",
         host="localhost",
         client_id=CompositeVariableModel(
             default_value="test-client-id-456",

@@ -70,10 +70,14 @@ class StoreManager:
             case StorageType.POSTGRES:
                 from dao_ai.memory.postgres import PostgresStoreManager
 
-                store_manager = cls.store_managers.get(store_model.database.name)
+                store_manager = cls.store_managers.get(
+                    store_model.database.instance_name
+                )
                 if store_manager is None:
                     store_manager = PostgresStoreManager(store_model)
-                    cls.store_managers[store_model.database.name] = store_manager
+                    cls.store_managers[store_model.database.instance_name] = (
+                        store_manager
+                    )
             case _:
                 raise ValueError(f"Unknown store type: {store_model.type}")
 
@@ -102,15 +106,15 @@ class CheckpointManager:
                 from dao_ai.memory.postgres import AsyncPostgresCheckpointerManager
 
                 checkpointer_manager = cls.checkpoint_managers.get(
-                    checkpointer_model.database.name
+                    checkpointer_model.database.instance_name
                 )
                 if checkpointer_manager is None:
                     checkpointer_manager = AsyncPostgresCheckpointerManager(
                         checkpointer_model
                     )
-                    cls.checkpoint_managers[checkpointer_model.database.name] = (
-                        checkpointer_manager
-                    )
+                    cls.checkpoint_managers[
+                        checkpointer_model.database.instance_name
+                    ] = checkpointer_manager
             case _:
                 raise ValueError(f"Unknown store type: {checkpointer_model.type}")
 
