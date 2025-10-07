@@ -960,7 +960,7 @@ app:
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          #thread_id: "1"
           user_id: my_user_id
           store_num: 87887
   #chat_history: 

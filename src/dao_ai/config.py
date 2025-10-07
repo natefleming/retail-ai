@@ -713,7 +713,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     port: Optional[AnyVariable] = 5432
     connection_kwargs: Optional[dict[str, Any]] = Field(default_factory=dict)
     max_pool_size: Optional[int] = 10
-    timeout_seconds: Optional[int] = 5
+    timeout_seconds: Optional[int] = 10
     capacity: Optional[Literal["CU_1", "CU_2"]] = "CU_2"
     node_count: Optional[int] = None
     user: Optional[AnyVariable] = None
