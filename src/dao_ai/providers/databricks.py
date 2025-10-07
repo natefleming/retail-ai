@@ -22,6 +22,7 @@ from databricks.sdk.service.catalog import (
     VolumeInfo,
     VolumeType,
 )
+from databricks.sdk.service.database import DatabaseCredential
 from databricks.sdk.service.iam import User
 from databricks.sdk.service.workspace import GetSecretResponse
 from databricks.vector_search.client import VectorSearchClient
@@ -923,7 +924,7 @@ class DatabricksProvider(ServiceProvider):
         """
         logger.debug(f"Generating password for lakebase instance: {instance_name}")
         w: WorkspaceClient = self.w
-        cred = w.database.generate_database_credential(
+        cred: DatabaseCredential = w.database.generate_database_credential(
             request_id=str(uuid.uuid4()),
             instance_names=[instance_name],
         )
