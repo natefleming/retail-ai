@@ -83,17 +83,18 @@ def _create_pool_with_fallback(
     try:
         fallback_params = connection_params.copy()
         if has_user:
-            # Remove user entirely - Lakebase will use token identity
-            fallback_params.pop("user")
+            # Set user to empty string - this tells Lakebase to use token identity
+            # Simply removing the key causes psycopg to fall back to system defaults
+            fallback_params["user"] = ""
             logger.debug(
-                f"Attempting connection using token identity for {database_name} (no user param)"
+                f"Attempting connection using token identity for {database_name} (user='')"
             )
         else:
-            # No user was configured, ensure it's not set
-            fallback_params.pop("user", None)
-            logger.debug(f"Attempting connection for {database_name} (no user param)")
+            # No user was configured, set to empty string to use token identity
+            fallback_params["user"] = ""
+            logger.debug(f"Attempting connection for {database_name} (user='')")
 
-        # Build explicit connection string without user parameter
+        # Build explicit connection string with empty user parameter
         # This prevents psycopg from using environment/system defaults
         conninfo_parts = []
         for key, value in fallback_params.items():
@@ -101,7 +102,7 @@ def _create_pool_with_fallback(
         conninfo = " ".join(conninfo_parts)
 
         logger.debug(
-            f"Connection string (without user): {conninfo.replace(fallback_params.get('password', ''), '***')}"
+            f"Connection string: {conninfo.replace(fallback_params.get('password', ''), '***')}"
         )
 
         pool = ConnectionPool(
@@ -180,19 +181,18 @@ async def _create_async_pool_with_fallback(
     try:
         fallback_params = connection_params.copy()
         if has_user:
-            # Remove user entirely - Lakebase will use token identity
-            fallback_params.pop("user")
+            # Set user to empty string - this tells Lakebase to use token identity
+            # Simply removing the key causes psycopg to fall back to system defaults
+            fallback_params["user"] = ""
             logger.debug(
-                f"Attempting async connection using token identity for {database_name} (no user param)"
+                f"Attempting async connection using token identity for {database_name} (user='')"
             )
         else:
-            # No user was configured, ensure it's not set
-            fallback_params.pop("user", None)
-            logger.debug(
-                f"Attempting async connection for {database_name} (no user param)"
-            )
+            # No user was configured, set to empty string to use token identity
+            fallback_params["user"] = ""
+            logger.debug(f"Attempting async connection for {database_name} (user='')")
 
-        # Build explicit connection string without user parameter
+        # Build explicit connection string with empty user parameter
         # This prevents psycopg from using environment/system defaults
         conninfo_parts = []
         for key, value in fallback_params.items():
@@ -200,7 +200,7 @@ async def _create_async_pool_with_fallback(
         conninfo = " ".join(conninfo_parts)
 
         logger.debug(
-            f"Connection string (without user): {conninfo.replace(fallback_params.get('password', ''), '***')}"
+            f"Connection string: {conninfo.replace(fallback_params.get('password', ''), '***')}"
         )
 
         pool = AsyncConnectionPool(
