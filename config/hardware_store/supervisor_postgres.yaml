@@ -194,29 +194,30 @@ resources:
   databases:
     # PostgreSQL database for agent memory and checkpoints
     retail_database: &retail_database
-      name: "retail-consumer-goods"
+      name: "Retail and Consumer Goods Database"
+      instance_name: "retail-consumer-goods"
       description: "Database for agent memory and checkpoints" 
       
       # Database connection parameters
       # These can be set via environment variables or Databricks secrets
-      host:                                                 
-        default_value: localhost                                             
-        options:
-          - env: PGHOST                              # Environment variable
-          - scope: retail_ai                         # Databricks secret scope
-            secret: PGHOST                           # Secret name
-      port: 
-        default_value: 5432
-        options:
-        - env: PGPORT 
-        - scope: retail_ai
-          secret: PGPORT
-      database: 
-        default_value: databricks_postgres           # Default database name
-        options:
-        - env: PGDATABASE 
-        - scope: retail_ai
-          secret: PGDATABASE
+#      host:                                                 
+#        default_value: localhost                                             
+#        options:
+#          - env: PGHOST                              # Environment variable
+#          - scope: retail_ai                         # Databricks secret scope
+#            secret: PGHOST                           # Secret name
+#      port: 
+#        default_value: 5432
+#        options:
+#        - env: PGPORT 
+#        - scope: retail_ai
+#          secret: PGPORT
+#      database: 
+#        default_value: databricks_postgres           # Default database name
+#        options:
+#        - env: PGDATABASE 
+#        - scope: retail_ai
+#          secret: PGDATABASE
 
 
       # Traditional PostgreSQL authentication (commented out)
@@ -959,7 +960,7 @@ app:
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          #thread_id: "1"
           user_id: my_user_id
           store_num: 87887
   #chat_history: 

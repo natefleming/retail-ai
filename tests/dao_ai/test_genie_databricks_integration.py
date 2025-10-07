@@ -82,7 +82,7 @@ def mock_genie_tool():
 
         genie_room = GenieRoomModel(name="test-genie-room", space_id="test-space-123")
 
-        yield create_genie_tool(genie_room)
+        yield create_genie_tool(genie_room, persist_conversation=True)
 
 
 class TestGenieDatabricksIntegration:

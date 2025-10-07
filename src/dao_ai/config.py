@@ -23,6 +23,7 @@ from databricks.sdk.credentials_provider import (
     ModelServingUserCredentials,
 )
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
+from databricks.sdk.service.database import DatabaseInstance
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -703,15 +704,18 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 
 
 class DatabaseModel(BaseModel, IsDatabricksResource):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
+    instance_name: Optional[str] = None
     description: Optional[str] = None
-    host: Optional[AnyVariable]
+    host: Optional[AnyVariable] = None
     database: Optional[AnyVariable] = "databricks_postgres"
     port: Optional[AnyVariable] = 5432
     connection_kwargs: Optional[dict[str, Any]] = Field(default_factory=dict)
     max_pool_size: Optional[int] = 10
-    timeout_seconds: Optional[int] = 5
+    timeout_seconds: Optional[int] = 10
+    capacity: Optional[Literal["CU_1", "CU_2"]] = "CU_2"
+    node_count: Optional[int] = None
     user: Optional[AnyVariable] = None
     password: Optional[AnyVariable] = None
     client_id: Optional[AnyVariable] = None
@@ -725,10 +729,43 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksLakebase(
-                database_instance_name=self.name,
+                database_instance_name=self.instance_name,
                 on_behalf_of_user=self.on_behalf_of_user,
             )
         ]
+
+    @model_validator(mode="after")
+    def update_instance_name(self):
+        if self.instance_name is None:
+            self.instance_name = self.name
+
+        return self
+
+    @model_validator(mode="after")
+    def update_user(self):
+        if self.client_id or self.user:
+            return self
+
+        self.user = self.workspace_client.current_user.me().user_name
+        if not self.user:
+            raise ValueError(
+                "Unable to determine current user. Please provide a user name or OAuth credentials."
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def update_host(self):
+        if self.host is not None:
+            return self
+
+        existing_instance: DatabaseInstance = (
+            self.workspace_client.database.get_database_instance(
+                name=self.instance_name
+            )
+        )
+        self.host = existing_instance.read_write_dns
+        return self
 
     @model_validator(mode="after")
     def validate_auth_methods(self):
@@ -739,7 +776,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         ]
         has_oauth: bool = all(field is not None for field in oauth_fields)
 
-        pat_fields: Sequence[Any] = [self.user, self.password]
+        pat_fields: Sequence[Any] = [self.user]
         has_user_auth: bool = all(field is not None for field in pat_fields)
 
         if has_oauth and has_user_auth:
@@ -758,7 +795,14 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         return self
 
     @property
-    def connection_url(self) -> str:
+    def connection_params(self) -> dict[str, Any]:
+        """
+        Get database connection parameters as a dictionary.
+
+        Returns a dict with connection parameters suitable for psycopg ConnectionPool.
+        If username is configured, it will be included; otherwise it will be omitted
+        to allow Lakebase to authenticate using the token's identity.
+        """
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
@@ -766,7 +810,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
 
         if self.client_id and self.client_secret and self.workspace_host:
             username = value_of(self.client_id)
-        else:
+        elif self.user:
             username = value_of(self.user)
 
         host: str = value_of(self.host)
@@ -779,11 +823,48 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             workspace_host=value_of(self.workspace_host),
             pat=value_of(self.password),
         )
-        token: str = provider.create_token()
 
-        return (
-            f"postgresql://{username}:{token}@{host}:{port}/{database}?sslmode=require"
-        )
+        token: str = provider.lakebase_password_provider(self.instance_name)
+
+        # Build connection parameters dictionary
+        params: dict[str, Any] = {
+            "dbname": database,
+            "host": host,
+            "port": port,
+            "password": token,
+            "sslmode": "require",
+        }
+
+        # Only include user if explicitly configured
+        if username:
+            params["user"] = username
+            logger.debug(
+                f"Connection params: dbname={database} user={username} host={host} port={port} password=******** sslmode=require"
+            )
+        else:
+            logger.debug(
+                f"Connection params: dbname={database} host={host} port={port} password=******** sslmode=require (using token identity)"
+            )
+
+        return params
+
+    @property
+    def connection_url(self) -> str:
+        """
+        Get database connection URL as a string (for backwards compatibility).
+
+        Note: It's recommended to use connection_params instead for better flexibility.
+        """
+        params = self.connection_params
+        parts = [f"{k}={v}" for k, v in params.items()]
+        return " ".join(parts)
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: DatabricksProvider = DatabricksProvider()
+        provider.create_lakebase(self)
+        provider.create_lakebase_instance_role(self)
 
 
 class SearchParametersModel(BaseModel):
@@ -1093,6 +1174,7 @@ class AgentModel(BaseModel):
 class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
+    tools: list[ToolModel] = Field(default_factory=list)
     prompt: Optional[str] = None
 
 

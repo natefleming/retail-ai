@@ -50,17 +50,24 @@ resources:
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
+        - task_key: provision-lakebase
+          notebook_task:
+            notebook_path: ./notebooks/03_provision_lakebase.py
+            base_parameters:
+              config-path: ${var.config_path}
+          environment_key: dao-ai-env
         - task_key: generate-evaluation-data
           depends_on:
             - task_key: provision-vector-search
           notebook_task:
-            notebook_path: ./notebooks/03_generate_evaluation_data.py
+            notebook_path: ./notebooks/06_generate_evaluation_data.py
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
         - task_key: unity-catalog-tools
           depends_on:
             - task_key: provision-vector-search
+            - task_key: provision-lakebase
           notebook_task:
             notebook_path: ./notebooks/04_unity_catalog_tools.py
             base_parameters:
@@ -70,7 +77,7 @@ resources:
           depends_on:
             - task_key: unity-catalog-tools
           notebook_task:
-            notebook_path: ./notebooks/05_agent_as_code_driver.py
+            notebook_path: ./notebooks/05_deploy_agent.py
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
@@ -79,7 +86,7 @@ resources:
             - task_key: deploy-agents
             - task_key: generate-evaluation-data
           notebook_task:
-            notebook_path: ./notebooks/06_run_evaluation.py
+            notebook_path: ./notebooks/07_run_evaluation.py
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env

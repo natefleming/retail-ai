@@ -496,7 +496,7 @@ wheels = [
 
 [[package]]
 name = "dao-ai"
-version = "0.0.21"
+version = "0.0.22"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-agents" },
@@ -587,10 +587,10 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "databricks-agents", specifier = ">=1.6.0" },
+    { name = "databricks-agents", specifier = ">=1.6.1" },
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=15.0.0" },
     { name = "databricks-langchain", specifier = ">=0.8.0" },
-    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.66.0" },
+    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.67.0" },
     { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.56" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
     { name = "grandalf", specifier = ">=0.8" },
@@ -666,7 +666,7 @@ test = [
 
 [[package]]
 name = "databricks-agents"
-version = "1.6.0"
+version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -685,7 +685,7 @@ dependencies = [
     { name = "whenever" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2b/b3/0f04051e2acd92ed115ca8d70522a4a1a2d50570bfd0afe0e9517fcb6962/databricks_agents-1.6.0-py3-none-any.whl", hash = "sha256:176f62812efa17f5cfcd83efd19f92c2e673cdce539dce97aa6eaa5dd790fe75", size = 201337, upload-time = "2025-09-17T22:28:06.827Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/67/b1c1d3932c6af58d6bc7f20573959ef3b4187e59bdf1139bb0105c6f9c28/databricks_agents-1.6.1-py3-none-any.whl", hash = "sha256:b4bd50a1d5c9ddc46a3f4f7fcac32a45631d7ac59f8650e124b0ef2c61f1e508", size = 199889, upload-time = "2025-09-30T22:50:38.778Z" },
 ]
 
 [[package]]
@@ -746,15 +746,15 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.66.0"
+version = "0.67.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/70/c0/11a97a60a2e2d8d413845d5b7c146a3a83df5e3e37b614169f7bb5f89ca6/databricks_sdk-0.66.0.tar.gz", hash = "sha256:0168e0ffdee8a11ee527e6de888ce0f6ed587329cf0c84038fb215a8b732600f", size = 759829, upload-time = "2025-09-22T13:07:25.024Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/5b/df3e5424d833e4f3f9b42c409ef8b513e468c9cdf06c2a9935c6cbc4d128/databricks_sdk-0.67.0.tar.gz", hash = "sha256:f923227babcaad428b0c2eede2755ebe9deb996e2c8654f179eb37f486b37a36", size = 761000, upload-time = "2025-09-25T13:32:10.858Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/2b/579c272505a3b98cbabad80b517574607022219b3207c65b09c8222d8ac7/databricks_sdk-0.66.0-py3-none-any.whl", hash = "sha256:be4d7e48a682fc4cb8dc51730e660492054e143c7831c8f5485025cc72b0c765", size = 717483, upload-time = "2025-09-22T13:07:23.008Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/ca/2aff3817041483fb8e4f75a74a36ff4ca3a826e276becd1179a591b6348f/databricks_sdk-0.67.0-py3-none-any.whl", hash = "sha256:ef49e49db45ed12c015a32a6f9d4ba395850f25bb3dcffdcaf31a5167fe03ee2", size = 718422, upload-time = "2025-09-25T13:32:09.011Z" },
 ]
 
 [package.optional-dependencies]

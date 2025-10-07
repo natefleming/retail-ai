@@ -1,11 +1,18 @@
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from conftest import has_databricks_env
+from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from mlflow.models.resources import DatabricksFunction, DatabricksTable
 
-from dao_ai.config import AppConfig, FunctionModel, SchemaModel, TableModel
+from dao_ai.config import (
+    AppConfig,
+    DatabaseModel,
+    FunctionModel,
+    SchemaModel,
+    TableModel,
+)
 from dao_ai.providers.databricks import DatabricksProvider
 
 
@@ -306,3 +313,692 @@ def test_databricks_create_agent(config: AppConfig) -> None:
     provider: DatabricksProvider = DatabricksProvider()
     provider.create_agent(config=config)
     assert True
+
+
+# ==================== create_lakebase Tests ====================
+
+
+@pytest.mark.unit
+def test_database_model_capacity_validation():
+    """Test DatabaseModel capacity field validation."""
+    # Valid capacity values
+    db1 = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        capacity="CU_1",
+        user="test_user",
+        password="test_password",
+    )
+    assert db1.capacity == "CU_1"
+
+    db2 = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        capacity="CU_2",
+        user="test_user",
+        password="test_password",
+    )
+    assert db2.capacity == "CU_2"
+
+    # Default capacity should be CU_2
+    db3 = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+    assert db3.capacity == "CU_2"
+
+
+@pytest.mark.unit
+def test_create_lakebase_new_database():
+    """Test create_lakebase when database doesn't exist."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+    mock_workspace_client.database.create_database_instance.return_value = None
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        description="Test database",
+        host="localhost",
+        database="test_database",
+        port=5432,
+        capacity="CU_2",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property on database
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Call create_lakebase
+        provider.create_lakebase(database)
+
+    # Verify create was called with correct parameters
+    mock_workspace_client.database.create_database_instance.assert_called_once()
+    call_args = mock_workspace_client.database.create_database_instance.call_args
+    database_instance = call_args.kwargs["database_instance"]
+    assert database_instance.name == "test_db"
+    assert database_instance.capacity == "CU_2"
+
+
+@pytest.mark.unit
+def test_create_lakebase_database_already_exists_available():
+    """Test create_lakebase when database already exists and is AVAILABLE."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Mock existing database instance
+    mock_instance = MagicMock()
+    mock_instance.state = "AVAILABLE"
+    mock_workspace_client.database.get_database_instance.return_value = mock_instance
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property on database
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Call create_lakebase
+        provider.create_lakebase(database)
+
+    # Verify get was called but create was not
+    mock_workspace_client.database.get_database_instance.assert_called_once_with(
+        name="test_db"
+    )
+    mock_workspace_client.database.create_database_instance.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_database_starting_state():
+    """Test create_lakebase when database is in STARTING state."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Mock initial instance in STARTING state
+    mock_instance_starting = MagicMock()
+    mock_instance_starting.state = "STARTING"
+
+    # Mock instance that becomes AVAILABLE
+    mock_instance_available = MagicMock()
+    mock_instance_available.state = "AVAILABLE"
+
+    # First call returns STARTING, second returns AVAILABLE
+    mock_workspace_client.database.get_database_instance.side_effect = [
+        mock_instance_starting,
+        mock_instance_available,
+    ]
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property and time.sleep
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        with patch("time.sleep"):
+            # Call create_lakebase
+            provider.create_lakebase(database)
+
+    # Verify get was called twice (initial check + one in loop)
+    assert mock_workspace_client.database.get_database_instance.call_count == 2
+    mock_workspace_client.database.create_database_instance.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_database_updating_state():
+    """Test create_lakebase when database is in UPDATING state."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Mock initial instance in UPDATING state
+    mock_instance_updating = MagicMock()
+    mock_instance_updating.state = "UPDATING"
+
+    # Mock instance that becomes AVAILABLE
+    mock_instance_available = MagicMock()
+    mock_instance_available.state = "AVAILABLE"
+
+    # First call returns UPDATING, second returns AVAILABLE
+    mock_workspace_client.database.get_database_instance.side_effect = [
+        mock_instance_updating,
+        mock_instance_available,
+    ]
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property and time.sleep
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        with patch("time.sleep"):
+            # Call create_lakebase
+            provider.create_lakebase(database)
+
+    # Verify get was called twice
+    assert mock_workspace_client.database.get_database_instance.call_count == 2
+    mock_workspace_client.database.create_database_instance.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_database_stopped_state():
+    """Test create_lakebase when database is in STOPPED state."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Mock existing database instance in STOPPED state
+    mock_instance = MagicMock()
+    mock_instance.state = "STOPPED"
+    mock_workspace_client.database.get_database_instance.return_value = mock_instance
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Call create_lakebase - should return without error
+        provider.create_lakebase(database)
+
+    # Verify get was called but create was not
+    mock_workspace_client.database.get_database_instance.assert_called_once()
+    mock_workspace_client.database.create_database_instance.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_database_deleting_state():
+    """Test create_lakebase when database is in DELETING state."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Mock existing database instance in DELETING state
+    mock_instance = MagicMock()
+    mock_instance.state = "DELETING"
+    mock_workspace_client.database.get_database_instance.return_value = mock_instance
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Call create_lakebase - should return without error
+        provider.create_lakebase(database)
+
+    # Verify get was called but create was not
+    mock_workspace_client.database.get_database_instance.assert_called_once()
+    mock_workspace_client.database.create_database_instance.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_concurrent_creation():
+    """Test create_lakebase when database is created concurrently by another process."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+
+    # Simulate concurrent creation - create raises "already exists" error
+    mock_workspace_client.database.create_database_instance.side_effect = Exception(
+        "RESOURCE_ALREADY_EXISTS: Database already exists"
+    )
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Should not raise exception
+        provider.create_lakebase(database)
+
+    # Verify both get and create were called
+    mock_workspace_client.database.get_database_instance.assert_called_once()
+    mock_workspace_client.database.create_database_instance.assert_called_once()
+
+
+@pytest.mark.unit
+def test_create_lakebase_unexpected_error():
+    """Test create_lakebase handles unexpected errors appropriately."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+
+    # Simulate unexpected error during creation
+    mock_workspace_client.database.create_database_instance.side_effect = Exception(
+        "Unexpected error occurred"
+    )
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Should raise the exception
+        with pytest.raises(Exception, match="Unexpected error occurred"):
+            provider.create_lakebase(database)
+
+
+@pytest.mark.unit
+def test_create_lakebase_timeout_waiting_for_available():
+    """Test create_lakebase handles timeout when waiting for AVAILABLE state."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Mock instance that stays in STARTING state
+    mock_instance_starting = MagicMock()
+    mock_instance_starting.state = "STARTING"
+    mock_workspace_client.database.get_database_instance.return_value = (
+        mock_instance_starting
+    )
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property and time.sleep
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        with patch("time.sleep") as mock_sleep:
+            # Call create_lakebase - should handle timeout gracefully
+            provider.create_lakebase(database)
+
+            # Verify sleep was called multiple times (waiting in loop)
+            assert mock_sleep.call_count > 0
+
+
+@pytest.mark.unit
+def test_create_lakebase_default_values():
+    """Test create_lakebase uses correct default values."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+    mock_workspace_client.database.create_database_instance.return_value = None
+
+    # Create database model with minimal parameters
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Call create_lakebase
+        provider.create_lakebase(database)
+
+    # Verify create was called with default values
+    call_args = mock_workspace_client.database.create_database_instance.call_args
+    database_instance = call_args.kwargs["database_instance"]
+    assert database_instance.capacity == "CU_2"  # Default capacity
+
+
+@pytest.mark.unit
+def test_create_lakebase_custom_capacity_cu1():
+    """Test create_lakebase with custom capacity CU_1."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+    mock_workspace_client.database.create_database_instance.return_value = None
+
+    # Create database model with CU_1 capacity
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        capacity="CU_1",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        # Call create_lakebase
+        provider.create_lakebase(database)
+
+    # Verify create was called with CU_1 capacity
+    call_args = mock_workspace_client.database.create_database_instance.call_args
+    database_instance = call_args.kwargs["database_instance"]
+    assert database_instance.capacity == "CU_1"
+
+
+@pytest.mark.unit
+def test_create_lakebase_database_disappears_during_wait():
+    """Test create_lakebase when database disappears while waiting for AVAILABLE state."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Mock initial instance in STARTING state
+    mock_instance_starting = MagicMock()
+    mock_instance_starting.state = "STARTING"
+
+    # First call returns STARTING, second raises NotFound (database disappeared)
+    mock_workspace_client.database.get_database_instance.side_effect = [
+        mock_instance_starting,
+        NotFound(),
+    ]
+
+    # Create database model
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Mock workspace_client property and time.sleep
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=lambda: mock_workspace_client
+    ):
+        with patch("time.sleep"):
+            # Should not raise exception
+            provider.create_lakebase(database)
+
+    # Verify get was called twice
+    assert mock_workspace_client.database.get_database_instance.call_count == 2
+
+
+# ==================== create_lakebase_instance_role Tests ====================
+
+
+@pytest.mark.unit
+def test_create_lakebase_instance_role_success():
+    """Test creating a lakebase instance role successfully."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance_role.side_effect = NotFound()
+    mock_workspace_client.database.create_database_instance_role.return_value = None
+
+    # Create database model with client_id
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        client_id="test-client-id-123",
+        client_secret="test-secret",
+        workspace_host="https://test.databricks.com",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Call create_lakebase_instance_role
+    provider.create_lakebase_instance_role(database)
+
+    # Verify get was called to check if role exists
+    mock_workspace_client.database.get_database_instance_role.assert_called_once_with(
+        instance_name="test_db",
+        name="test-client-id-123",
+    )
+
+    # Verify create was called with correct parameters
+    mock_workspace_client.database.create_database_instance_role.assert_called_once()
+    call_args = mock_workspace_client.database.create_database_instance_role.call_args
+    assert call_args.kwargs["instance_name"] == "test_db"
+
+    role = call_args.kwargs["database_instance_role"]
+    assert role.name == "test-client-id-123"
+    assert role.identity_type.value == "SERVICE_PRINCIPAL"
+    assert role.membership_role.value == "DATABRICKS_SUPERUSER"
+
+
+@pytest.mark.unit
+def test_create_lakebase_instance_role_already_exists():
+    """Test when instance role already exists."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_existing_role = MagicMock()
+    mock_existing_role.name = "test-client-id-123"
+    mock_workspace_client.database.get_database_instance_role.return_value = (
+        mock_existing_role
+    )
+
+    # Create database model with client_id
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        client_id="test-client-id-123",
+        client_secret="test-secret",
+        workspace_host="https://test.databricks.com",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Call create_lakebase_instance_role
+    provider.create_lakebase_instance_role(database)
+
+    # Verify get was called
+    mock_workspace_client.database.get_database_instance_role.assert_called_once()
+
+    # Verify create was NOT called since role already exists
+    mock_workspace_client.database.create_database_instance_role.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_instance_role_missing_client_id():
+    """Test that a warning is logged and method returns early when client_id is not provided."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+
+    # Create database model WITHOUT client_id
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Call create_lakebase_instance_role - should log warning and return early
+    provider.create_lakebase_instance_role(database)
+
+    # Verify no API calls were made
+    mock_workspace_client.database.get_database_instance_role.assert_not_called()
+    mock_workspace_client.database.create_database_instance_role.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_instance_role_concurrent_creation():
+    """Test when role is created concurrently by another process."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance_role.side_effect = NotFound()
+
+    # Simulate concurrent creation - create raises "already exists" error
+    mock_workspace_client.database.create_database_instance_role.side_effect = (
+        Exception("RESOURCE_ALREADY_EXISTS: Role already exists")
+    )
+
+    # Create database model with client_id
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        client_id="test-client-id-123",
+        client_secret="test-secret",
+        workspace_host="https://test.databricks.com",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Should not raise exception
+    provider.create_lakebase_instance_role(database)
+
+    # Verify both get and create were called
+    mock_workspace_client.database.get_database_instance_role.assert_called_once()
+    mock_workspace_client.database.create_database_instance_role.assert_called_once()
+
+
+@pytest.mark.unit
+def test_create_lakebase_instance_role_unexpected_error():
+    """Test that unexpected errors are raised."""
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance_role.side_effect = NotFound()
+
+    # Simulate unexpected error during creation
+    mock_workspace_client.database.create_database_instance_role.side_effect = (
+        Exception("Unexpected error occurred")
+    )
+
+    # Create database model with client_id
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        client_id="test-client-id-123",
+        client_secret="test-secret",
+        workspace_host="https://test.databricks.com",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Should raise the exception
+    with pytest.raises(Exception, match="Unexpected error occurred"):
+        provider.create_lakebase_instance_role(database)
+
+
+@pytest.mark.unit
+def test_create_lakebase_instance_role_with_composite_variable():
+    """Test creating role when client_id is a CompositeVariableModel."""
+    from dao_ai.config import CompositeVariableModel, EnvironmentVariableModel
+
+    # Mock workspace client
+    mock_workspace_client = MagicMock()
+    mock_workspace_client.database.get_database_instance_role.side_effect = NotFound()
+    mock_workspace_client.database.create_database_instance_role.return_value = None
+
+    # Create database model with CompositeVariableModel for client_id
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        client_id=CompositeVariableModel(
+            default_value="test-client-id-456",
+            options=[EnvironmentVariableModel(env="TEST_CLIENT_ID")],
+        ),
+        client_secret="test-secret",
+        workspace_host="https://test.databricks.com",
+    )
+
+    # Create provider
+    provider = DatabricksProvider(w=mock_workspace_client)
+
+    # Call create_lakebase_instance_role
+    provider.create_lakebase_instance_role(database)
+
+    # Verify get was called with resolved client_id
+    mock_workspace_client.database.get_database_instance_role.assert_called_once()
+    call_args = mock_workspace_client.database.get_database_instance_role.call_args
+    assert call_args.kwargs["name"] == "test-client-id-456"

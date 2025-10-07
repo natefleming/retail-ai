@@ -20,6 +20,59 @@ from dao_ai.memory.base import (
 )
 
 
+def _create_pool(
+    connection_params: dict[str, Any],
+    database_name: str,
+    max_pool_size: int,
+    timeout_seconds: int,
+    kwargs: dict,
+) -> ConnectionPool:
+    """Create a connection pool using the provided connection parameters."""
+    logger.debug(
+        f"Connection params for {database_name}: {', '.join(k + '=' + (str(v) if k != 'password' else '***') for k, v in connection_params.items())}"
+    )
+
+    # Merge connection_params into kwargs for psycopg
+    connection_kwargs = kwargs | connection_params
+    pool = ConnectionPool(
+        conninfo="",  # Empty conninfo, params come from kwargs
+        min_size=1,
+        max_size=max_pool_size,
+        open=False,
+        timeout=timeout_seconds,
+        kwargs=connection_kwargs,
+    )
+    pool.open(wait=True, timeout=timeout_seconds)
+    logger.info(f"Successfully connected to {database_name}")
+    return pool
+
+
+async def _create_async_pool(
+    connection_params: dict[str, Any],
+    database_name: str,
+    max_pool_size: int,
+    timeout_seconds: int,
+    kwargs: dict,
+) -> AsyncConnectionPool:
+    """Create an async connection pool using the provided connection parameters."""
+    logger.debug(
+        f"Connection params for {database_name}: {', '.join(k + '=' + (str(v) if k != 'password' else '***') for k, v in connection_params.items())}"
+    )
+
+    # Merge connection_params into kwargs for psycopg
+    connection_kwargs = kwargs | connection_params
+    pool = AsyncConnectionPool(
+        conninfo="",  # Empty conninfo, params come from kwargs
+        max_size=max_pool_size,
+        open=False,
+        timeout=timeout_seconds,
+        kwargs=connection_kwargs,
+    )
+    await pool.open(wait=True, timeout=timeout_seconds)
+    logger.info(f"Successfully connected to {database_name}")
+    return pool
+
+
 class AsyncPostgresPoolManager:
     _pools: dict[str, AsyncConnectionPool] = {}
     _lock: asyncio.Lock = asyncio.Lock()
@@ -27,7 +80,7 @@ class AsyncPostgresPoolManager:
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
         connection_key: str = database.name
-        connection_url: str = database.connection_url
+        connection_params: dict[str, Any] = database.connection_params
 
         async with cls._lock:
             if connection_key in cls._pools:
@@ -41,23 +94,17 @@ class AsyncPostgresPoolManager:
                 "autocommit": True,
             } | database.connection_kwargs or {}
 
-            pool: AsyncConnectionPool = AsyncConnectionPool(
-                conninfo=connection_url,
-                max_size=database.max_pool_size,
-                open=False,
-                timeout=database.timeout_seconds,
+            # Create connection pool
+            pool: AsyncConnectionPool = await _create_async_pool(
+                connection_params=connection_params,
+                database_name=database.name,
+                max_pool_size=database.max_pool_size,
+                timeout_seconds=database.timeout_seconds,
                 kwargs=kwargs,
             )
 
-            try:
-                await pool.open(wait=True, timeout=database.timeout_seconds)
-                cls._pools[connection_key] = pool
-                return pool
-            except Exception as e:
-                logger.error(
-                    f"Failed to create PostgreSQL pool for {database.name}: {e}"
-                )
-                raise e
+            cls._pools[connection_key] = pool
+            return pool
 
     @classmethod
     async def close_pool(cls, database: DatabaseModel):
@@ -218,7 +265,7 @@ class PostgresPoolManager:
     @classmethod
     def get_pool(cls, database: DatabaseModel) -> ConnectionPool:
         connection_key: str = str(database.name)
-        connection_url: str = database.connection_url
+        connection_params: dict[str, Any] = database.connection_params
 
         with cls._lock:
             if connection_key in cls._pools:
@@ -232,23 +279,17 @@ class PostgresPoolManager:
                 "autocommit": True,
             } | database.connection_kwargs or {}
 
-            pool: ConnectionPool = ConnectionPool(
-                conninfo=connection_url,
-                max_size=database.max_pool_size,
-                open=False,
-                timeout=database.timeout_seconds,
+            # Create connection pool
+            pool: ConnectionPool = _create_pool(
+                connection_params=connection_params,
+                database_name=database.name,
+                max_pool_size=database.max_pool_size,
+                timeout_seconds=database.timeout_seconds,
                 kwargs=kwargs,
             )
 
-            try:
-                pool.open(wait=True, timeout=database.timeout_seconds)
-                cls._pools[connection_key] = pool
-                return pool
-            except Exception as e:
-                logger.error(
-                    f"Failed to create PostgreSQL pool for {database.name}: {e}"
-                )
-                raise e
+            cls._pools[connection_key] = pool
+            return pool
 
     @classmethod
     def close_pool(cls, database: DatabaseModel):

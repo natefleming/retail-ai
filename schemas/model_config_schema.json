@@ -663,6 +663,7 @@
       "type": "object"
     },
     "DatabaseModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -679,6 +680,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "instance_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instance Name"
         },
         "description": {
           "anyOf": [
@@ -722,6 +735,7 @@
               "type": "null"
             }
           ],
+          "default": null,
           "title": "Host"
         },
         "database": {
@@ -823,8 +837,36 @@
               "type": "null"
             }
           ],
-          "default": 5,
+          "default": 10,
           "title": "Timeout Seconds"
+        },
+        "capacity": {
+          "anyOf": [
+            {
+              "enum": [
+                "CU_1",
+                "CU_2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "CU_2",
+          "title": "Capacity"
+        },
+        "node_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Node Count"
         },
         "user": {
           "anyOf": [
@@ -993,8 +1035,7 @@
         }
       },
       "required": [
-        "name",
-        "host"
+        "name"
       ],
       "title": "DatabaseModel",
       "type": "object"
@@ -2332,6 +2373,13 @@
         "model": {
           "$ref": "#/$defs/LLMModel"
         },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolModel"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
         "prompt": {
           "anyOf": [
             {
@@ -2788,6 +2836,18 @@
     "VolumeModel": {
       "additionalProperties": false,
       "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
         "schema": {
           "anyOf": [
             {

@@ -49,10 +49,8 @@ sys.path.insert(0, "../src")
 
 pip_requirements: Sequence[str] = (
   f"databricks-sdk=={version('databricks-sdk')}",
-  f"python-dotenv=={version('python-dotenv')}",
   f"mlflow=={version('mlflow')}",
 )
-
 print("\n".join(pip_requirements))
 
 # COMMAND ----------
@@ -74,30 +72,14 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
-from databricks.sdk import WorkspaceClient
-from dao_ai.config import SchemaModel, VolumeModel
+from dao_ai.config import DatabaseModel
+
+databases: dict[str, DatabaseModel] = config.resources.databases
+
+for _, database in databases.items():
+  database: DatabaseModel
+
+  print(f"database: {database}")
+  database.create()
 
 
-w: WorkspaceClient = WorkspaceClient()
-
-for _, schema in config.schemas.items():
-  schema: SchemaModel
-  _ = schema.create(w=w)
-
-  print(f"schema: {schema.full_name}")
-
-for _, volume in config.resources.volumes.items():
-  volume: VolumeModel
-  
-  _ = volume.create(w=w)
-  print(f"volume: {volume.full_name}")
-
-# COMMAND ----------
-
-from dao_ai.config import DatasetModel
-
-datasets: Sequence[DatasetModel] = config.datasets
-
-for dataset in datasets:
-    dataset: DatasetModel
-    dataset.create()

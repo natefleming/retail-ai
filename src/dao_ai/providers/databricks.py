@@ -1,4 +1,5 @@
 import base64
+import uuid
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Callable, Final, Sequence
@@ -21,6 +22,7 @@ from databricks.sdk.service.catalog import (
     VolumeInfo,
     VolumeType,
 )
+from databricks.sdk.service.database import DatabaseCredential
 from databricks.sdk.service.iam import User
 from databricks.sdk.service.workspace import GetSecretResponse
 from databricks.vector_search.client import VectorSearchClient
@@ -743,3 +745,281 @@ class DatabricksProvider(ServiceProvider):
                 break
         logger.debug(f"Vector search index found: {found_endpoint_name}")
         return found_endpoint_name
+
+    def create_lakebase(self, database: DatabaseModel) -> None:
+        """
+        Create a Lakebase database instance using the Databricks workspace client.
+
+        This method handles idempotent database creation, gracefully handling cases where:
+        - The database instance already exists
+        - The database is in an intermediate state (STARTING, UPDATING, etc.)
+
+        Args:
+            database: DatabaseModel containing the database configuration
+
+        Returns:
+            None
+
+        Raises:
+            Exception: If an unexpected error occurs during database creation
+        """
+        import time
+        from typing import Any
+
+        workspace_client: WorkspaceClient = database.workspace_client
+
+        try:
+            # First, check if the database instance already exists
+            existing_instance: Any = workspace_client.database.get_database_instance(
+                name=database.instance_name
+            )
+
+            if existing_instance:
+                logger.debug(
+                    f"Database instance {database.instance_name} already exists with state: {existing_instance.state}"
+                )
+
+                # Check if database is in an intermediate state
+                if existing_instance.state in ["STARTING", "UPDATING"]:
+                    logger.info(
+                        f"Database instance {database.instance_name} is in {existing_instance.state} state, waiting for it to become AVAILABLE..."
+                    )
+
+                    # Wait for database to reach a stable state
+                    max_wait_time: int = 600  # 10 minutes
+                    wait_interval: int = 10  # 10 seconds
+                    elapsed: int = 0
+
+                    while elapsed < max_wait_time:
+                        try:
+                            current_instance: Any = (
+                                workspace_client.database.get_database_instance(
+                                    name=database.instance_name
+                                )
+                            )
+                            current_state: str = current_instance.state
+                            logger.debug(f"Database instance state: {current_state}")
+
+                            if current_state == "AVAILABLE":
+                                logger.info(
+                                    f"Database instance {database.instance_name} is now AVAILABLE"
+                                )
+                                break
+                            elif current_state in ["STARTING", "UPDATING"]:
+                                logger.debug(
+                                    f"Database instance still in {current_state} state, waiting {wait_interval} seconds..."
+                                )
+                                time.sleep(wait_interval)
+                                elapsed += wait_interval
+                            elif current_state in ["STOPPED", "DELETING"]:
+                                logger.warning(
+                                    f"Database instance {database.instance_name} is in unexpected state: {current_state}"
+                                )
+                                break
+                            else:
+                                logger.warning(
+                                    f"Unknown database state: {current_state}, proceeding anyway"
+                                )
+                                break
+                        except NotFound:
+                            logger.warning(
+                                f"Database instance {database.instance_name} no longer exists, will attempt to recreate"
+                            )
+                            break
+                        except Exception as state_error:
+                            logger.warning(
+                                f"Could not check database state: {state_error}, proceeding anyway"
+                            )
+                            break
+
+                    if elapsed >= max_wait_time:
+                        logger.warning(
+                            f"Timed out waiting for database instance {database.instance_name} to become AVAILABLE after {max_wait_time} seconds"
+                        )
+
+                elif existing_instance.state == "AVAILABLE":
+                    logger.info(
+                        f"Database instance {database.instance_name} already exists and is AVAILABLE"
+                    )
+                    return
+                elif existing_instance.state in ["STOPPED", "DELETING"]:
+                    logger.warning(
+                        f"Database instance {database.instance_name} is in {existing_instance.state} state"
+                    )
+                    return
+                else:
+                    logger.info(
+                        f"Database instance {database.instance_name} already exists with state: {existing_instance.state}"
+                    )
+                    return
+
+        except NotFound:
+            # Database doesn't exist, proceed with creation
+            logger.debug(
+                f"Database instance {database.instance_name} not found, creating new instance..."
+            )
+
+            try:
+                # Resolve variable values for database parameters
+                from databricks.sdk.service.database import DatabaseInstance
+
+                capacity: str = database.capacity if database.capacity else "CU_2"
+
+                # Create the database instance object
+                database_instance: DatabaseInstance = DatabaseInstance(
+                    name=database.instance_name,
+                    capacity=capacity,
+                    node_count=database.node_count,
+                )
+
+                # Create the database instance via API
+                workspace_client.database.create_database_instance(
+                    database_instance=database_instance
+                )
+                logger.info(
+                    f"Successfully created database instance: {database.instance_name}"
+                )
+
+            except Exception as create_error:
+                error_msg: str = str(create_error)
+
+                # Handle case where database was created by another process concurrently
+                if (
+                    "already exists" in error_msg.lower()
+                    or "RESOURCE_ALREADY_EXISTS" in error_msg
+                ):
+                    logger.info(
+                        f"Database instance {database.instance_name} was created concurrently by another process"
+                    )
+                    return
+                else:
+                    # Re-raise unexpected errors
+                    logger.error(
+                        f"Error creating database instance {database.instance_name}: {create_error}"
+                    )
+                    raise
+
+        except Exception as e:
+            # Handle other unexpected errors
+            error_msg: str = str(e)
+
+            # Check if this is actually a "resource already exists" type error
+            if (
+                "already exists" in error_msg.lower()
+                or "RESOURCE_ALREADY_EXISTS" in error_msg
+            ):
+                logger.info(
+                    f"Database instance {database.instance_name} already exists (detected via exception)"
+                )
+                return
+            else:
+                logger.error(
+                    f"Unexpected error while handling database {database.instance_name}: {e}"
+                )
+                raise
+
+    def lakebase_password_provider(self, instance_name: str) -> str:
+        """
+        Ask Databricks to mint a fresh DB credential for this instance.
+        """
+        logger.debug(f"Generating password for lakebase instance: {instance_name}")
+        w: WorkspaceClient = self.w
+        cred: DatabaseCredential = w.database.generate_database_credential(
+            request_id=str(uuid.uuid4()),
+            instance_names=[instance_name],
+        )
+        return cred.token
+
+    def create_lakebase_instance_role(self, database: DatabaseModel) -> None:
+        """
+        Create a database instance role for a Lakebase instance.
+
+        This method creates a role with DATABRICKS_SUPERUSER membership for the
+        service principal specified in the database configuration.
+
+        Args:
+            database: DatabaseModel containing the database and service principal configuration
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If client_id is not provided in the database configuration
+            Exception: If an unexpected error occurs during role creation
+        """
+        from databricks.sdk.service.database import (
+            DatabaseInstanceRole,
+            DatabaseInstanceRoleIdentityType,
+            DatabaseInstanceRoleMembershipRole,
+        )
+
+        from dao_ai.config import value_of
+
+        # Validate that client_id is provided
+        if not database.client_id:
+            logger.warning(
+                f"client_id is required to create instance role for database {database.instance_name}"
+            )
+            return
+
+        # Resolve the client_id value
+        client_id: str = value_of(database.client_id)
+        role_name: str = client_id
+        instance_name: str = database.instance_name
+
+        logger.debug(
+            f"Creating instance role '{role_name}' for database {instance_name} with principal {client_id}"
+        )
+
+        try:
+            # Check if role already exists
+            try:
+                _ = self.w.database.get_database_instance_role(
+                    instance_name=instance_name,
+                    name=role_name,
+                )
+                logger.info(
+                    f"Instance role '{role_name}' already exists for database {instance_name}"
+                )
+                return
+            except NotFound:
+                # Role doesn't exist, proceed with creation
+                logger.debug(
+                    f"Instance role '{role_name}' not found, creating new role..."
+                )
+
+            # Create the database instance role
+            role: DatabaseInstanceRole = DatabaseInstanceRole(
+                name=role_name,
+                identity_type=DatabaseInstanceRoleIdentityType.SERVICE_PRINCIPAL,
+                membership_role=DatabaseInstanceRoleMembershipRole.DATABRICKS_SUPERUSER,
+            )
+
+            # Create the role using the API
+            self.w.database.create_database_instance_role(
+                instance_name=instance_name,
+                database_instance_role=role,
+            )
+
+            logger.info(
+                f"Successfully created instance role '{role_name}' for database {instance_name}"
+            )
+
+        except Exception as e:
+            error_msg: str = str(e)
+
+            # Handle case where role was created concurrently
+            if (
+                "already exists" in error_msg.lower()
+                or "RESOURCE_ALREADY_EXISTS" in error_msg
+            ):
+                logger.info(
+                    f"Instance role '{role_name}' was created concurrently for database {instance_name}"
+                )
+                return
+
+            # Re-raise unexpected errors
+            logger.error(
+                f"Error creating instance role '{role_name}' for database {instance_name}: {e}"
+            )
+            raise

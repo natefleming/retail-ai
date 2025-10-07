@@ -27,6 +27,7 @@ from dao_ai.nodes import (
 )
 from dao_ai.prompts import make_prompt
 from dao_ai.state import Context, IncomingState, OutgoingState, SharedState
+from dao_ai.tools import create_tools
 
 
 def route_message(state: SharedState) -> str:
@@ -90,6 +91,8 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
 
     orchestration: OrchestrationModel = config.app.orchestration
     supervisor: SupervisorModel = orchestration.supervisor
+
+    tools += create_tools(orchestration.supervisor.tools)
 
     store: BaseStore = None
     if orchestration.memory and orchestration.memory.store:
