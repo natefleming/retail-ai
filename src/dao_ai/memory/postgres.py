@@ -79,33 +79,30 @@ def _create_pool_with_fallback(
                     pass
             pool = None
 
-    # Strategy 2: Try without username (let Lakebase use token identity)
+    # Strategy 2: Try with empty username (let Lakebase use token identity)
     try:
         fallback_params = connection_params.copy()
-        if has_user:
-            # Remove user but keep password - Lakebase will authenticate with token identity
-            fallback_params.pop("user")
-            logger.debug(
-                f"Attempting connection using token identity for {database_name} (no user)"
-            )
-        else:
-            # No user was configured, ensure it's not set
-            fallback_params.pop("user", None)
-            logger.debug(f"Attempting connection for {database_name} (no user)")
 
-        # Build explicit connection string without user parameter
-        # This allows Lakebase to authenticate using the token's identity
-        conninfo_parts = []
-        for key, value in fallback_params.items():
-            conninfo_parts.append(f"{key}={value}")
-        conninfo = " ".join(conninfo_parts)
+        # Get connection parameters
+        host: str = fallback_params.get("host", "")
+        port: int = fallback_params.get("port", 5432)
+        dbname: str = fallback_params.get("dbname", "")
+        password: str = fallback_params.get("password", "")
+        sslmode: str = fallback_params.get("sslmode", "require")
+
+        # Build PostgreSQL URI with empty username to use token identity
+        # Format: postgresql://:<password>@<host>:<port>/<dbname>?sslmode=<sslmode>
+        conninfo = f"postgresql://:{password}@{host}:{port}/{dbname}?sslmode={sslmode}"
 
         logger.debug(
-            f"Connection string: {conninfo.replace(fallback_params.get('password', ''), '***')}"
+            f"Attempting connection using token identity for {database_name} with URI format (empty username)"
+        )
+        logger.debug(
+            f"Connection URI: postgresql://:***@{host}:{port}/{dbname}?sslmode={sslmode}"
         )
 
         pool = ConnectionPool(
-            conninfo=conninfo,  # Use explicit connection string
+            conninfo=conninfo,  # Use PostgreSQL URI format
             min_size=1,
             max_size=max_pool_size,
             open=False,
@@ -176,33 +173,30 @@ async def _create_async_pool_with_fallback(
                     pass
             pool = None
 
-    # Strategy 2: Try without username (let Lakebase use token identity)
+    # Strategy 2: Try with empty username (let Lakebase use token identity)
     try:
         fallback_params = connection_params.copy()
-        if has_user:
-            # Remove user but keep password - Lakebase will authenticate with token identity
-            fallback_params.pop("user")
-            logger.debug(
-                f"Attempting async connection using token identity for {database_name} (no user)"
-            )
-        else:
-            # No user was configured, ensure it's not set
-            fallback_params.pop("user", None)
-            logger.debug(f"Attempting async connection for {database_name} (no user)")
 
-        # Build explicit connection string without user parameter
-        # This allows Lakebase to authenticate using the token's identity
-        conninfo_parts = []
-        for key, value in fallback_params.items():
-            conninfo_parts.append(f"{key}={value}")
-        conninfo = " ".join(conninfo_parts)
+        # Get connection parameters
+        host: str = fallback_params.get("host", "")
+        port: int = fallback_params.get("port", 5432)
+        dbname: str = fallback_params.get("dbname", "")
+        password: str = fallback_params.get("password", "")
+        sslmode: str = fallback_params.get("sslmode", "require")
+
+        # Build PostgreSQL URI with empty username to use token identity
+        # Format: postgresql://:<password>@<host>:<port>/<dbname>?sslmode=<sslmode>
+        conninfo = f"postgresql://:{password}@{host}:{port}/{dbname}?sslmode={sslmode}"
 
         logger.debug(
-            f"Connection string: {conninfo.replace(fallback_params.get('password', ''), '***')}"
+            f"Attempting async connection using token identity for {database_name} with URI format (empty username)"
+        )
+        logger.debug(
+            f"Connection URI: postgresql://:***@{host}:{port}/{dbname}?sslmode={sslmode}"
         )
 
         pool = AsyncConnectionPool(
-            conninfo=conninfo,  # Use explicit connection string
+            conninfo=conninfo,  # Use PostgreSQL URI format
             max_size=max_pool_size,
             open=False,
             timeout=timeout_seconds,
