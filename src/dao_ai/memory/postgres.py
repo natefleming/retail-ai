@@ -26,8 +26,6 @@ def _create_pool_with_fallback(
     max_pool_size: int,
     timeout_seconds: int,
     kwargs: dict,
-    instance_name: str | None = None,
-    workspace_client: Any | None = None,
 ) -> ConnectionPool:
     """
     Create a connection pool with fallback from explicit user to token identity.
@@ -81,66 +79,23 @@ def _create_pool_with_fallback(
                     pass
             pool = None
 
-    # Strategy 2: Try existing instance roles
-    if instance_name and workspace_client:
-        try:
-            logger.debug(
-                f"Fetching existing database instance roles for {instance_name}"
-            )
-            roles = list(
-                workspace_client.database.list_database_instance_roles(instance_name)
-            )
-            logger.debug(f"Found {len(roles)} existing roles for {instance_name}")
-
-            # Get connection parameters
-            host: str = connection_params.get("host", "")
-            port: int = connection_params.get("port", 5432)
-            dbname: str = connection_params.get("dbname", "")
-            password: str = connection_params.get("password", "")
-            sslmode: str = connection_params.get("sslmode", "require")
-
-            # Try each existing role
-            for role in roles:
-                if not role.name:
-                    continue
-
-                try:
-                    logger.debug(
-                        f"Attempting connection with role '{role.name}' for {database_name}"
-                    )
-
-                    # Build PostgreSQL URI with role name as username
-                    conninfo = f"postgresql://{role.name}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}"
-
-                    pool = ConnectionPool(
-                        conninfo=conninfo,
-                        min_size=1,
-                        max_size=max_pool_size,
-                        open=False,
-                        timeout=timeout_seconds,
-                        kwargs=kwargs,
-                    )
-                    pool.open(wait=True, timeout=timeout_seconds)
-                    logger.info(
-                        f"Successfully connected to {database_name} using role '{role.name}'"
-                    )
-                    return pool
-                except Exception as role_error:
-                    logger.debug(
-                        f"Failed to connect with role '{role.name}': {role_error}"
-                    )
-                    if pool:
-                        try:
-                            pool.close()
-                        except Exception:
-                            pass
-                    continue
-
-        except Exception as e:
-            logger.warning(f"Failed to fetch or try instance roles: {e}")
-
-    # Strategy 3: Try with empty username (let Lakebase use token identity)
+    # Strategy 2: Try with empty username (let Lakebase use token identity)
     try:
+        # Log ALL environment variables to help debug service principal identity
+        import os
+
+        logger.debug("=== ALL Environment Variables ===")
+        for key, value in sorted(os.environ.items()):
+            # Mask sensitive values
+            if any(
+                sensitive in key.upper()
+                for sensitive in ["TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL"]
+            ):
+                logger.debug(f"{key}=***")
+            else:
+                logger.debug(f"{key}={value}")
+        logger.debug("=== End ALL Environment Variables ===")
+
         fallback_params = connection_params.copy()
 
         # Get connection parameters
@@ -185,8 +140,6 @@ async def _create_async_pool_with_fallback(
     max_pool_size: int,
     timeout_seconds: int,
     kwargs: dict,
-    instance_name: str | None = None,
-    workspace_client: Any | None = None,
 ) -> AsyncConnectionPool:
     """
     Create an async connection pool with fallback from explicit user to token identity.
@@ -235,65 +188,23 @@ async def _create_async_pool_with_fallback(
                     pass
             pool = None
 
-    # Strategy 2: Try existing instance roles
-    if instance_name and workspace_client:
-        try:
-            logger.debug(
-                f"Fetching existing database instance roles for {instance_name}"
-            )
-            roles = list(
-                workspace_client.database.list_database_instance_roles(instance_name)
-            )
-            logger.debug(f"Found {len(roles)} existing roles for {instance_name}")
-
-            # Get connection parameters
-            host: str = connection_params.get("host", "")
-            port: int = connection_params.get("port", 5432)
-            dbname: str = connection_params.get("dbname", "")
-            password: str = connection_params.get("password", "")
-            sslmode: str = connection_params.get("sslmode", "require")
-
-            # Try each existing role
-            for role in roles:
-                if not role.name:
-                    continue
-
-                try:
-                    logger.debug(
-                        f"Attempting async connection with role '{role.name}' for {database_name}"
-                    )
-
-                    # Build PostgreSQL URI with role name as username
-                    conninfo = f"postgresql://{role.name}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}"
-
-                    pool = AsyncConnectionPool(
-                        conninfo=conninfo,
-                        max_size=max_pool_size,
-                        open=False,
-                        timeout=timeout_seconds,
-                        kwargs=kwargs,
-                    )
-                    await pool.open(wait=True, timeout=timeout_seconds)
-                    logger.info(
-                        f"Successfully connected to {database_name} using role '{role.name}'"
-                    )
-                    return pool
-                except Exception as role_error:
-                    logger.debug(
-                        f"Failed to connect with role '{role.name}': {role_error}"
-                    )
-                    if pool:
-                        try:
-                            await pool.close()
-                        except Exception:
-                            pass
-                    continue
-
-        except Exception as e:
-            logger.warning(f"Failed to fetch or try instance roles: {e}")
-
-    # Strategy 3: Try with empty username (let Lakebase use token identity)
+    # Strategy 2: Try with empty username (let Lakebase use token identity)
     try:
+        # Log ALL environment variables to help debug service principal identity (async)
+        import os
+
+        logger.debug("=== ALL Environment Variables (async) ===")
+        for key, value in sorted(os.environ.items()):
+            # Mask sensitive values
+            if any(
+                sensitive in key.upper()
+                for sensitive in ["TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL"]
+            ):
+                logger.debug(f"{key}=***")
+            else:
+                logger.debug(f"{key}={value}")
+        logger.debug("=== End ALL Environment Variables (async) ===")
+
         fallback_params = connection_params.copy()
 
         # Get connection parameters
@@ -359,8 +270,6 @@ class AsyncPostgresPoolManager:
                 max_pool_size=database.max_pool_size,
                 timeout_seconds=database.timeout_seconds,
                 kwargs=kwargs,
-                instance_name=database.instance_name,
-                workspace_client=database.workspace_client,
             )
 
             cls._pools[connection_key] = pool
@@ -546,8 +455,6 @@ class PostgresPoolManager:
                 max_pool_size=database.max_pool_size,
                 timeout_seconds=database.timeout_seconds,
                 kwargs=kwargs,
-                instance_name=database.instance_name,
-                workspace_client=database.workspace_client,
             )
 
             cls._pools[connection_key] = pool
