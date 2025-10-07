@@ -20,226 +20,57 @@ from dao_ai.memory.base import (
 )
 
 
-def _create_pool_with_fallback(
+def _create_pool(
     connection_params: dict[str, Any],
     database_name: str,
     max_pool_size: int,
     timeout_seconds: int,
     kwargs: dict,
 ) -> ConnectionPool:
-    """
-    Create a connection pool with fallback from explicit user to token identity.
-
-    If 'user' is in connection_params and the first connection attempt fails,
-    will retry without the user parameter to allow Lakebase to use token identity.
-    """
-    pool: ConnectionPool | None = None
-    last_error: Exception | None = None
-    has_user = "user" in connection_params
-
-    # Separate connection params from connection kwargs (row_factory, autocommit, etc.)
-    # Connection params go directly in kwargs for psycopg connection
-    # Pool/connection behavior params stay in kwargs
-
+    """Create a connection pool using the provided connection parameters."""
     logger.debug(
         f"Connection params for {database_name}: {', '.join(k + '=' + (str(v) if k != 'password' else '***') for k, v in connection_params.items())}"
     )
 
-    # Strategy 1: Try with explicit username if provided
-    if has_user:
-        try:
-            logger.debug(
-                f"Attempting connection with explicit username for {database_name}: user={connection_params['user']}"
-            )
-            # Merge connection_params into kwargs for psycopg
-            connection_kwargs = kwargs | connection_params
-            pool = ConnectionPool(
-                conninfo="",  # Empty conninfo, params come from kwargs
-                min_size=1,
-                max_size=max_pool_size,
-                open=False,
-                timeout=timeout_seconds,
-                kwargs=connection_kwargs,
-            )
-            pool.open(wait=True, timeout=timeout_seconds)
-            logger.info(
-                f"Successfully connected to {database_name} with explicit username: {connection_params['user']}"
-            )
-            return pool
-        except Exception as e:
-            logger.warning(
-                f"plicit username '{connection_params['user']}': {e}. "
-                f"Attempting fallback to token identity..."
-            )
-            last_error = e
-            if pool:
-                try:
-                    pool.close()
-                except Exception:
-                    pass
-            pool = None
-
-    # Strategy 2: Try with empty username (let Lakebase use token identity)
-    try:
-        # Log ALL environment variables to help debug service principal identity
-        import os
-
-        logger.debug("=== ALL Environment Variables ===")
-        for key, value in sorted(os.environ.items()):
-            # Mask sensitive values
-            if any(
-                sensitive in key.upper()
-                for sensitive in ["TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL"]
-            ):
-                logger.debug(f"{key}=***")
-            else:
-                logger.debug(f"{key}={value}")
-        logger.debug("=== End ALL Environment Variables ===")
-
-        fallback_params = connection_params.copy()
-
-        # Get connection parameters
-        host: str = fallback_params.get("host", "")
-        port: int = fallback_params.get("port", 5432)
-        dbname: str = fallback_params.get("dbname", "")
-        password: str = fallback_params.get("password", "")
-        sslmode: str = fallback_params.get("sslmode", "require")
-
-        # Build PostgreSQL URI with empty username to use token identity
-        # Format: postgresql://:<password>@<host>:<port>/<dbname>?sslmode=<sslmode>
-        conninfo = f"postgresql://:{password}@{host}:{port}/{dbname}?sslmode={sslmode}"
-
-        logger.debug(
-            f"Attempting connection using token identity for {database_name} with URI format (empty username)"
-        )
-        logger.debug(
-            f"Connection URI: postgresql://:***@{host}:{port}/{dbname}?sslmode={sslmode}"
-        )
-
-        pool = ConnectionPool(
-            conninfo=conninfo,  # Use PostgreSQL URI format
-            min_size=1,
-            max_size=max_pool_size,
-            open=False,
-            timeout=timeout_seconds,
-            kwargs=kwargs,  # Only pool behavior kwargs (row_factory, autocommit)
-        )
-        pool.open(wait=True, timeout=timeout_seconds)
-        logger.info(f"Successfully connected to {database_name} using token identity")
-        return pool
-    except Exception as e:
-        logger.error(f"Failed to connect to {database_name}: {e}")
-        if last_error:
-            logger.error(f"Original error with explicit username: {last_error}")
-        raise e
+    # Merge connection_params into kwargs for psycopg
+    connection_kwargs = kwargs | connection_params
+    pool = ConnectionPool(
+        conninfo="",  # Empty conninfo, params come from kwargs
+        min_size=1,
+        max_size=max_pool_size,
+        open=False,
+        timeout=timeout_seconds,
+        kwargs=connection_kwargs,
+    )
+    pool.open(wait=True, timeout=timeout_seconds)
+    logger.info(f"Successfully connected to {database_name}")
+    return pool
 
 
-async def _create_async_pool_with_fallback(
+async def _create_async_pool(
     connection_params: dict[str, Any],
     database_name: str,
     max_pool_size: int,
     timeout_seconds: int,
     kwargs: dict,
 ) -> AsyncConnectionPool:
-    """
-    Create an async connection pool with fallback from explicit user to token identity.
-
-    If 'user' is in connection_params and the first connection attempt fails,
-    will retry without the user parameter to allow Lakebase to use token identity.
-    """
-    pool: AsyncConnectionPool | None = None
-    last_error: Exception | None = None
-    has_user = "user" in connection_params
-
+    """Create an async connection pool using the provided connection parameters."""
     logger.debug(
         f"Connection params for {database_name}: {', '.join(k + '=' + (str(v) if k != 'password' else '***') for k, v in connection_params.items())}"
     )
 
-    # Strategy 1: Try with explicit username if provided
-    if has_user:
-        try:
-            logger.debug(
-                f"Attempting async connection with explicit username for {database_name}: user={connection_params['user']}"
-            )
-            # Merge connection_params into kwargs for psycopg
-            connection_kwargs = kwargs | connection_params
-            pool = AsyncConnectionPool(
-                conninfo="",  # Empty conninfo, params come from kwargs
-                max_size=max_pool_size,
-                open=False,
-                timeout=timeout_seconds,
-                kwargs=connection_kwargs,
-            )
-            await pool.open(wait=True, timeout=timeout_seconds)
-            logger.info(
-                f"Successfully connected to {database_name} with explicit username: {connection_params['user']}"
-            )
-            return pool
-        except Exception as e:
-            logger.warning(
-                f"Failed to connect with explicit username '{connection_params['user']}': {e}. "
-                f"Attempting fallback to token identity..."
-            )
-            last_error = e
-            if pool:
-                try:
-                    await pool.close()
-                except Exception:
-                    pass
-            pool = None
-
-    # Strategy 2: Try with empty username (let Lakebase use token identity)
-    try:
-        # Log ALL environment variables to help debug service principal identity (async)
-        import os
-
-        logger.debug("=== ALL Environment Variables (async) ===")
-        for key, value in sorted(os.environ.items()):
-            # Mask sensitive values
-            if any(
-                sensitive in key.upper()
-                for sensitive in ["TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL"]
-            ):
-                logger.debug(f"{key}=***")
-            else:
-                logger.debug(f"{key}={value}")
-        logger.debug("=== End ALL Environment Variables (async) ===")
-
-        fallback_params = connection_params.copy()
-
-        # Get connection parameters
-        host: str = fallback_params.get("host", "")
-        port: int = fallback_params.get("port", 5432)
-        dbname: str = fallback_params.get("dbname", "")
-        password: str = fallback_params.get("password", "")
-        sslmode: str = fallback_params.get("sslmode", "require")
-
-        # Build PostgreSQL URI with empty username to use token identity
-        # Format: postgresql://:<password>@<host>:<port>/<dbname>?sslmode=<sslmode>
-        conninfo = f"postgresql://:{password}@{host}:{port}/{dbname}?sslmode={sslmode}"
-
-        logger.debug(
-            f"Attempting async connection using token identity for {database_name} with URI format (empty username)"
-        )
-        logger.debug(
-            f"Connection URI: postgresql://:***@{host}:{port}/{dbname}?sslmode={sslmode}"
-        )
-
-        pool = AsyncConnectionPool(
-            conninfo=conninfo,  # Use PostgreSQL URI format
-            max_size=max_pool_size,
-            open=False,
-            timeout=timeout_seconds,
-            kwargs=kwargs,  # Only pool behavior kwargs (row_factory, autocommit)
-        )
-        await pool.open(wait=True, timeout=timeout_seconds)
-        logger.info(f"Successfully connected to {database_name} using token identity")
-        return pool
-    except Exception as e:
-        logger.error(f"Failed to connect to {database_name}: {e}")
-        if last_error:
-            logger.error(f"Original error with explicit username: {last_error}")
-        raise e
+    # Merge connection_params into kwargs for psycopg
+    connection_kwargs = kwargs | connection_params
+    pool = AsyncConnectionPool(
+        conninfo="",  # Empty conninfo, params come from kwargs
+        max_size=max_pool_size,
+        open=False,
+        timeout=timeout_seconds,
+        kwargs=connection_kwargs,
+    )
+    await pool.open(wait=True, timeout=timeout_seconds)
+    logger.info(f"Successfully connected to {database_name}")
+    return pool
 
 
 class AsyncPostgresPoolManager:
@@ -263,8 +94,8 @@ class AsyncPostgresPoolManager:
                 "autocommit": True,
             } | database.connection_kwargs or {}
 
-            # Use fallback connection strategy
-            pool: AsyncConnectionPool = await _create_async_pool_with_fallback(
+            # Create connection pool
+            pool: AsyncConnectionPool = await _create_async_pool(
                 connection_params=connection_params,
                 database_name=database.name,
                 max_pool_size=database.max_pool_size,
@@ -448,8 +279,8 @@ class PostgresPoolManager:
                 "autocommit": True,
             } | database.connection_kwargs or {}
 
-            # Use fallback connection strategy
-            pool: ConnectionPool = _create_pool_with_fallback(
+            # Create connection pool
+            pool: ConnectionPool = _create_pool(
                 connection_params=connection_params,
                 database_name=database.name,
                 max_pool_size=database.max_pool_size,

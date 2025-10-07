@@ -238,21 +238,21 @@ resources:
       # OAuth2 client credentials for Databricks authentication
       # Used to generate access tokens for database connections
       # This approach is recommended for Databricks environments
-      # client_id:
-      #   options:
-      #     - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-      #     - scope: retail_ai
-      #       secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      # client_secret:
-      #   options:
-      #     - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-      #     - scope: retail_ai
-      #       secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      # workspace_host:
-      #   options:
-      #     - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-      #     - scope: retail_ai
-      #       secret: RETAIL_AI_DATABRICKS_HOST
+      client_id:
+        options:
+          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      client_secret:
+        options:
+          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      workspace_host:
+        options:
+          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+          - scope: retail_ai
+            secret: RETAIL_AI_DATABRICKS_HOST
           
       # Optional: Additional PostgreSQL connection parameters
       # Uncomment and modify as needed for your specific setup

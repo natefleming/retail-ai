@@ -837,7 +837,7 @@
               "type": "null"
             }
           ],
-          "default": 60,
+          "default": 10,
           "title": "Timeout Seconds"
         },
         "capacity": {

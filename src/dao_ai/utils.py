@@ -112,3 +112,7 @@ def load_function(function_name: str) -> Callable[..., Any]:
     except (ImportError, AttributeError, TypeError) as e:
         # Provide a detailed error message that includes the original exception
         raise ImportError(f"Failed to import {function_name}: {e}")
+
+
+def is_in_model_serving() -> bool:
+    return os.environ.get("IS_IN_DB_MODEL_SERVING_ENV", "false").lower() == "true"
