@@ -43,6 +43,7 @@ def get_installed_packages() -> dict[str, str]:
     packages: Sequence[str] = [
         f"databricks-agents=={version('databricks-agents')}",
         f"databricks-langchain=={version('databricks-langchain')}",
+        f"databricks-mcp=={version('databricks-mcp')}",
         f"databricks-sdk[openai]=={version('databricks-sdk')}",
         f"duckduckgo-search=={version('duckduckgo-search')}",
         f"langchain=={version('langchain')}",
@@ -56,11 +57,14 @@ def get_installed_packages() -> dict[str, str]:
         f"langgraph-swarm=={version('langgraph-swarm')}",
         f"langmem=={version('langmem')}",
         f"loguru=={version('loguru')}",
+        f"mcp=={version('mcp')}",
         f"mlflow=={version('mlflow')}",
+        f"nest-asyncio=={version('nest-asyncio')}",
         f"openevals=={version('openevals')}",
         f"openpyxl=={version('openpyxl')}",
         f"psycopg[binary,pool]=={version('psycopg')}",
         f"pydantic=={version('pydantic')}",
+        f"pyyaml=={version('pyyaml')}",
         f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
         f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
     ]

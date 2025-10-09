@@ -4,7 +4,7 @@ from typing import Sequence
 import pytest
 from langchain_core.tools import BaseTool
 
-from dao_ai.config import McpFunctionModel, SchemaModel, TransportType
+from dao_ai.config import ConnectionModel, McpFunctionModel, SchemaModel, TransportType
 
 
 @pytest.mark.integration
@@ -142,3 +142,65 @@ def test_mcp_function_tool_through_agent_context():
 
     # This test passes because we're not doing direct invocation
     # but rather testing that the tool is properly configured for agent use
+
+
+def test_mcp_function_with_uc_connection():
+    """Test that MCP function model can be created with UC Connection and URL."""
+
+    # Create a UC Connection model
+    connection = ConnectionModel(name="github_u2m_connection")
+
+    # Create MCP function model using the connection and URL
+    # URL is required even with connection (connection provides auth)
+    mcp_function_model = McpFunctionModel(
+        name="github-mcp-server",
+        url="https://workspace.databricks.com/api/2.0/mcp/external/github_u2m_connection",
+        connection=connection,
+    )
+
+    # Verify the model was created correctly
+    assert mcp_function_model.name == "github-mcp-server"
+    assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
+    assert mcp_function_model.connection is not None
+    assert mcp_function_model.connection.name == "github_u2m_connection"
+    assert (
+        mcp_function_model.url
+        == "https://workspace.databricks.com/api/2.0/mcp/external/github_u2m_connection"
+    )
+
+    # Verify that connection has the expected API scopes
+    assert "mcp.genie" in connection.api_scopes
+    assert "mcp.functions" in connection.api_scopes
+    assert "mcp.vectorsearch" in connection.api_scopes
+    assert "mcp.external" in connection.api_scopes
+    assert "catalog.connections" in connection.api_scopes
+    assert "serving.serving-endpoints" in connection.api_scopes
+
+
+def test_mcp_function_with_url_and_connection():
+    """Test that URL and Connection can be provided together (connection provides auth)."""
+
+    connection = ConnectionModel(name="test_connection")
+
+    # URL and connection can be provided together - connection provides auth, URL provides endpoint
+    mcp_function_model = McpFunctionModel(
+        name="test-mcp",
+        url="https://example.com/mcp",
+        connection=connection,
+    )
+
+    assert mcp_function_model.name == "test-mcp"
+    assert mcp_function_model.url == "https://example.com/mcp"
+    assert mcp_function_model.connection is not None
+    assert mcp_function_model.connection.name == "test_connection"
+
+
+def test_mcp_function_validation_requires_url():
+    """Test that URL must be provided for STREAMABLE_HTTP transport."""
+
+    # Should raise ValueError when URL is not provided
+    with pytest.raises(ValueError, match="url must be provided"):
+        McpFunctionModel(
+            name="test-mcp",
+            transport=TransportType.STREAMABLE_HTTP,
+        )

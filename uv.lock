@@ -501,6 +501,7 @@ source = { editable = "." }
 dependencies = [
     { name = "databricks-agents" },
     { name = "databricks-langchain" },
+    { name = "databricks-mcp" },
     { name = "databricks-sdk", extra = ["openai"] },
     { name = "duckduckgo-search" },
     { name = "grandalf" },
@@ -590,6 +591,7 @@ requires-dist = [
     { name = "databricks-agents", specifier = ">=1.6.1" },
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=15.0.0" },
     { name = "databricks-langchain", specifier = ">=0.8.0" },
+    { name = "databricks-mcp", specifier = ">=0.3.0" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.67.0" },
     { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.56" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
@@ -742,6 +744,20 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/44/b7e28410628015669fdebd3ef63ab9123228ac73ea6e10ffe654a8f7d15f/databricks_langchain-0.8.0-py3-none-any.whl", hash = "sha256:77c409da24e10bba963483a1359d5bcba4e988ecd451a256e0a125a960a6c816", size = 27431, upload-time = "2025-09-18T00:58:19.31Z" },
+]
+
+[[package]]
+name = "databricks-mcp"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "databricks-ai-bridge" },
+    { name = "databricks-sdk" },
+    { name = "mcp" },
+    { name = "mlflow" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/6e/50c23ac1b6a0b306f52e97fe7dc18bf0a97af4c401acb5446e39b291f9d7/databricks_mcp-0.3.0-py3-none-any.whl", hash = "sha256:9e7cedc1fea216352cfa757027edfc17e563e5ef01fd59aa684e939bbc5839b7", size = 4911, upload-time = "2025-08-13T18:26:20.849Z" },
 ]
 
 [[package]]

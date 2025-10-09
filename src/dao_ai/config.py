@@ -666,6 +666,10 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
         return [
             "catalog.connections",
             "serving.serving-endpoints",
+            "mcp.genie",
+            "mcp.functions",
+            "mcp.vectorsearch",
+            "mcp.external",
         ]
 
     def as_resources(self) -> Sequence[DatabricksResource]:
@@ -988,6 +992,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     transport: TransportType = TransportType.STREAMABLE_HTTP
     command: Optional[str] = "python"
     url: Optional[AnyVariable] = None
+    connection: Optional[ConnectionModel] = None
     headers: dict[str, AnyVariable] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
     pat: Optional[AnyVariable] = None

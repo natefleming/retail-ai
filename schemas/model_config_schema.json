@@ -1677,6 +1677,17 @@
           "default": null,
           "title": "Url"
         },
+        "connection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "headers": {
           "additionalProperties": {
             "anyOf": [

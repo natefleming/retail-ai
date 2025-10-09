@@ -581,7 +581,7 @@ test:
 #### 4. MCP (Model Context Protocol) Tools (`type: mcp`)
    MCP tools allow interaction with external services that implement the Model Context Protocol, supporting both HTTP and stdio transports.
 
-   **Configuration Example:**
+   **Configuration Example (Direct URL):**
    ```yaml
    tools:
      weather_tool_mcp:
@@ -592,8 +592,30 @@ test:
          transport: streamable_http
          url: http://localhost:8000/mcp
    ```
+   
+   **Configuration Example (Unity Catalog Connection):**
+   MCP tools can also use Unity Catalog Connections for secure, governed access with on-behalf-of-user capabilities. The connection provides OAuth authentication, while the URL specifies the endpoint:
+   ```yaml
+   resources:
+     connections:
+       github_connection:
+         name: github_u2m_connection  # UC Connection name
+   
+   tools:
+     github_mcp:
+       name: github_mcp
+       function:
+         type: mcp
+         name: github_mcp
+         transport: streamable_http
+         url: https://workspace.databricks.com/api/2.0/mcp/external/github_u2m_connection  # MCP endpoint URL
+         connection: *github_connection  # UC Connection provides OAuth authentication
+   ```
+   
    **Development:**
-   Ensure the MCP service is running and accessible at the specified URL or command. The framework will handle the MCP protocol communication automatically.
+   - **For direct URL connections**: Ensure the MCP service is running and accessible at the specified URL or command. Provide OAuth credentials (client_id, client_secret) or PAT for authentication.
+   - **For UC Connection**: URL is required to specify the endpoint. The connection provides OAuth authentication via the workspace client. Ensure the connection is configured in Unity Catalog with appropriate MCP scopes (`mcp.genie`, `mcp.functions`, `mcp.vectorsearch`, `mcp.external`).
+   - The framework will handle the MCP protocol communication automatically, including session management and authentication.
 
 ### Configuring New Agents
 

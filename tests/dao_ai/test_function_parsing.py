@@ -181,7 +181,8 @@ class TestFunctionModelParsing:
         }
 
         with pytest.raises(
-            ValidationError, match="url must be provided for STREAMABLE_HTTP transport"
+            ValidationError,
+            match="url must be provided for STREAMABLE_HTTP transport",
         ):
             ToolModel(**yaml_data)
 

@@ -25,6 +25,7 @@ cyclopts==3.24.0
 databricks-agents==1.6.1
 databricks-ai-bridge==0.8.0
 databricks-langchain==0.8.0
+databricks-mcp==0.3.0
 databricks-sdk==0.67.0
 dataclasses-json==0.6.7
 deprecation==2.1.0
