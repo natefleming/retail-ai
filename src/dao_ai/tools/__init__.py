@@ -7,6 +7,7 @@ from dao_ai.tools.core import (
 from dao_ai.tools.genie import create_genie_tool
 from dao_ai.tools.mcp import create_mcp_tools
 from dao_ai.tools.python import create_factory_tool, create_python_tool
+from dao_ai.tools.slack import create_send_slack_message_tool
 from dao_ai.tools.time import (
     add_time_tool,
     current_time_tool,
@@ -27,6 +28,7 @@ __all__ = [
     "create_hooks",
     "create_mcp_tools",
     "create_python_tool",
+    "create_send_slack_message_tool",
     "create_tools",
     "create_uc_tools",
     "create_vector_search_tool",
