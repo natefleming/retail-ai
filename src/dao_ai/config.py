@@ -1012,8 +1012,12 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
 
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
-        if self.transport == TransportType.STREAMABLE_HTTP and not self.url:
-            raise ValueError("url must be provided for STREAMABLE_HTTP transport")
+        if self.transport == TransportType.STREAMABLE_HTTP and not (
+            self.url or self.connection
+        ):
+            raise ValueError(
+                "url or connection must be provided for STREAMABLE_HTTP transport"
+            )
         if self.transport == TransportType.STDIO and not self.command:
             raise ValueError("command must not be provided for STDIO transport")
         if self.transport == TransportType.STDIO and not self.args:

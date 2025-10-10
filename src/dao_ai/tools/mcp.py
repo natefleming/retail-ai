@@ -35,14 +35,26 @@ def create_mcp_tools(
     if function.connection:
         # Use UC Connection approach with DatabricksOAuthClientProvider
         logger.debug(f"Using UC Connection for MCP: {function.connection.name}")
-        logger.debug(f"MCP URL: {function.url}")
+
+        # Construct URL if not provided
+        if function.url:
+            mcp_url = function.url
+            logger.debug(f"Using provided MCP URL: {mcp_url}")
+        else:
+            # Construct URL from workspace host and connection name
+            # Pattern: https://{workspace_host}/api/2.0/mcp/external/{connection_name}
+            workspace_client = function.connection.workspace_client
+            workspace_host = workspace_client.config.host
+            connection_name = function.connection.name
+            mcp_url = f"{workspace_host}/api/2.0/mcp/external/{connection_name}"
+            logger.debug(f"Constructed MCP URL from connection: {mcp_url}")
 
         async def _get_tools_with_connection():
             """Get tools using DatabricksOAuthClientProvider."""
             workspace_client = function.connection.workspace_client
 
             async with streamablehttp_client(
-                function.url, auth=DatabricksOAuthClientProvider(workspace_client)
+                mcp_url, auth=DatabricksOAuthClientProvider(workspace_client)
             ) as (read_stream, write_stream, _):
                 async with ClientSession(read_stream, write_stream) as session:
                     # Initialize and list tools

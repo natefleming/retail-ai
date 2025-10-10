@@ -32,15 +32,25 @@ resources:
       name: github_u2m_connection               # UC Connection name
 
 tools:
-  # Example using UC Connection for GitHub MCP
+  # Example using UC Connection for GitHub MCP with explicit URL
   github_mcp_uc: &github_mcp_uc
     name: github_mcp                                # Tool name for agent reference
     function:
       type: mcp                                     # Tool type: MCP server
       name: github_mcp                              # MCP function name
       transport: streamable_http                    # Transport protocol
-      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/external/github_u2m_connection  # MCP endpoint URL
+      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/external/github_u2m_connection  # MCP endpoint URL (optional with connection)
       connection: *github_connection                # Reference to UC Connection (provides OAuth auth)
+
+  # Example using UC Connection with auto-constructed URL
+  # URL pattern: {workspace_host}/api/2.0/mcp/external/{connection_name}
+  github_mcp_auto: &github_mcp_auto
+    name: github_mcp_auto                           # Tool name for agent reference
+    function:
+      type: mcp                                     # Tool type: MCP server
+      name: github_mcp_auto                         # MCP function name
+      transport: streamable_http                    # Transport protocol
+      connection: *github_connection                # URL will be auto-constructed from workspace host + connection name
 
   # Example using direct URL (existing approach)
   weather_tool_mcp: &weather_tool_mcp

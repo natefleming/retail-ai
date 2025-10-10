@@ -195,12 +195,41 @@ def test_mcp_function_with_url_and_connection():
     assert mcp_function_model.connection.name == "test_connection"
 
 
-def test_mcp_function_validation_requires_url():
-    """Test that URL must be provided for STREAMABLE_HTTP transport."""
+def test_mcp_function_validation_requires_url_or_connection():
+    """Test that URL or Connection must be provided for STREAMABLE_HTTP transport."""
 
-    # Should raise ValueError when URL is not provided
-    with pytest.raises(ValueError, match="url must be provided"):
+    # Should raise ValueError when neither URL nor connection is provided
+    with pytest.raises(ValueError, match="url or connection must be provided"):
         McpFunctionModel(
             name="test-mcp",
             transport=TransportType.STREAMABLE_HTTP,
         )
+
+
+def test_mcp_function_with_connection_only():
+    """Test that MCP function model can be created with only a Connection (URL auto-constructed)."""
+
+    # Create a UC Connection model
+    connection = ConnectionModel(name="github_u2m_connection")
+
+    # Create MCP function model using only the connection
+    # URL will be auto-constructed: {workspace_host}/api/2.0/mcp/external/{connection_name}
+    mcp_function_model = McpFunctionModel(
+        name="github-mcp-server",
+        connection=connection,
+    )
+
+    # Verify the model was created correctly
+    assert mcp_function_model.name == "github-mcp-server"
+    assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
+    assert mcp_function_model.connection is not None
+    assert mcp_function_model.connection.name == "github_u2m_connection"
+    assert mcp_function_model.url is None  # URL will be constructed at runtime
+
+    # Verify that connection has the expected API scopes
+    assert "mcp.genie" in connection.api_scopes
+    assert "mcp.functions" in connection.api_scopes
+    assert "mcp.vectorsearch" in connection.api_scopes
+    assert "mcp.external" in connection.api_scopes
+    assert "catalog.connections" in connection.api_scopes
+    assert "serving.serving-endpoints" in connection.api_scopes
