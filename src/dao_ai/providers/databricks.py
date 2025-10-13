@@ -30,6 +30,7 @@ from databricks.vector_search.index import VectorSearchIndex
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.entities import Experiment
+from mlflow.entities.model_registry import PromptVersion
 from mlflow.entities.model_registry.model_version import ModelVersion
 from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
 from mlflow.models.model import ModelInfo
@@ -52,6 +53,7 @@ from dao_ai.config import (
     IndexModel,
     IsDatabricksResource,
     LLMModel,
+    PromptModel,
     SchemaModel,
     TableModel,
     UnityCatalogFunctionSqlModel,
@@ -1023,3 +1025,79 @@ class DatabricksProvider(ServiceProvider):
                 f"Error creating instance role '{role_name}' for database {instance_name}: {e}"
             )
             raise
+
+    def get_prompt(self, prompt_model: PromptModel) -> str:
+        """Load prompt from MLflow Prompt Registry or fall back to default_template."""
+        prompt_name: str = prompt_model.full_name
+
+        # Build prompt URI based on alias, version, or default to latest
+        if prompt_model.alias:
+            prompt_uri = f"prompts:/{prompt_name}@{prompt_model.alias}"
+        elif prompt_model.version:
+            prompt_uri = f"prompts:/{prompt_name}/{prompt_model.version}"
+        else:
+            prompt_uri = f"prompts:/{prompt_name}@latest"
+
+        try:
+            from mlflow.genai.prompts import Prompt
+
+            prompt_obj: Prompt = mlflow.genai.load_prompt(prompt_uri)
+            return prompt_obj.to_single_brace_format()
+
+        except Exception as e:
+            logger.warning(f"Failed to load prompt '{prompt_name}' from registry: {e}")
+
+            if prompt_model.default_template:
+                logger.info(f"Using default_template for '{prompt_name}'")
+                self._sync_default_template_to_registry(
+                    prompt_name, prompt_model.default_template, prompt_model.description
+                )
+                return prompt_model.default_template
+
+            raise ValueError(
+                f"Prompt '{prompt_name}' not found in registry and no default_template provided"
+            ) from e
+
+    def _sync_default_template_to_registry(
+        self, prompt_name: str, default_template: str, description: str | None = None
+    ) -> None:
+        """Register default_template to prompt registry under 'default' alias if changed."""
+        try:
+            # Check if default alias already has the same template
+            try:
+                logger.debug(f"Loading prompt '{prompt_name}' from registry...")
+                existing: PromptVersion = mlflow.genai.load_prompt(
+                    f"prompts:/{prompt_name}@default"
+                )
+                if (
+                    existing.to_single_brace_format().strip()
+                    == default_template.strip()
+                ):
+                    logger.debug(f"Prompt '{prompt_name}' is already up-to-date")
+                    return  # Already up-to-date
+            except Exception:
+                logger.debug(
+                    f"Default alias for prompt '{prompt_name}' doesn't exist yet"
+                )
+
+            # Register new version and set as default alias
+            commit_message = description or "Auto-synced from default_template"
+            prompt_version: PromptVersion = mlflow.genai.register_prompt(
+                name=prompt_name,
+                template=default_template,
+                commit_message=commit_message,
+            )
+
+            logger.debug(f"Setting default alias for prompt '{prompt_name}'")
+            mlflow.genai.set_prompt_alias(
+                name=prompt_name,
+                alias="default",
+                version=prompt_version.version,
+            )
+
+            logger.info(
+                f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry"
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to sync '{prompt_name}' to registry: {e}")

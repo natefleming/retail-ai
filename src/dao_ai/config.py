@@ -1166,6 +1166,40 @@ class MemoryModel(BaseModel):
 FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
 
 
+class PromptModel(BaseModel, HasFullName):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    name: str
+    description: Optional[str] = None
+    default_template: Optional[str] = None
+    alias: Optional[str] = None
+    version: Optional[int] = None
+    tags: Optional[dict[str, Any]] = Field(default_factory=dict)
+
+    @property
+    def template(self) -> str:
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: DatabricksProvider = DatabricksProvider()
+        prompt: str = provider.get_prompt(self)
+        return prompt
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            name: str = ""
+            if self.name:
+                name = f".{self.name}"
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
+        return self.name
+
+    @model_validator(mode="after")
+    def validate_mutually_exclusive(self):
+        if self.alias and self.version:
+            raise ValueError("Cannot specify both alias and version")
+        return self
+
+
 class AgentModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
@@ -1173,7 +1207,7 @@ class AgentModel(BaseModel):
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
     guardrails: list[GuardrailModel] = Field(default_factory=list)
-    prompt: Optional[str] = None
+    prompt: Optional[str | PromptModel] = None
     handoff_prompt: Optional[str] = None
     create_agent_hook: Optional[FunctionHook] = None
     pre_agent_hook: Optional[FunctionHook] = None
@@ -1499,6 +1533,7 @@ class AppConfig(BaseModel):
     tools: dict[str, ToolModel] = Field(default_factory=dict)
     guardrails: dict[str, GuardrailModel] = Field(default_factory=dict)
     memory: Optional[MemoryModel] = None
+    prompts: dict[str, PromptModel] = Field(default_factory=dict)
     agents: dict[str, AgentModel] = Field(default_factory=dict)
     app: Optional[AppModel] = None
     evaluation: Optional[EvaluationModel] = None

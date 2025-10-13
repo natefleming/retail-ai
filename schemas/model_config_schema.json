@@ -42,6 +42,9 @@
               "type": "string"
             },
             {
+              "$ref": "#/$defs/PromptModel"
+            },
+            {
               "type": "null"
             }
           ],
@@ -2039,6 +2042,91 @@
       "title": "Privilege",
       "type": "string"
     },
+    "PromptModel": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "default_template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Template"
+        },
+        "alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alias"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tags"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PromptModel",
+      "type": "object"
+    },
     "PythonFunctionModel": {
       "additionalProperties": false,
       "properties": {
@@ -3071,6 +3159,13 @@
         }
       ],
       "default": null
+    },
+    "prompts": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PromptModel"
+      },
+      "title": "Prompts",
+      "type": "object"
     },
     "agents": {
       "additionalProperties": {
