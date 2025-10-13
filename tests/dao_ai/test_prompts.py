@@ -97,9 +97,9 @@ class TestPromptRegistryUnit:
             # Should use default_template
             assert result == "Fallback template content"
 
-            # Should attempt to sync to registry
+            # Should attempt to sync to registry (with description=None since not provided)
             mock_sync.assert_called_once_with(
-                "test_prompt", "Fallback template content"
+                "test_prompt", "Fallback template content", None
             )
 
     @pytest.mark.unit
@@ -118,8 +118,8 @@ class TestPromptRegistryUnit:
             with pytest.raises(ValueError) as exc_info:
                 provider.get_prompt(prompt_model)
 
-            assert "Failed to retrieve prompt 'test_prompt'" in str(exc_info.value)
-            assert "no default_template was provided" in str(exc_info.value)
+            assert "Prompt 'test_prompt' not found in registry" in str(exc_info.value)
+            assert "no default_template provided" in str(exc_info.value)
 
     @pytest.mark.unit
     def test_get_prompt_does_not_sync_when_registry_succeeds(self):
@@ -159,10 +159,10 @@ class TestPromptRegistryUnit:
             mock_load.side_effect = Exception("Alias not found")
 
             provider._sync_default_template_to_registry(
-                "test_prompt", "New template content"
+                "test_prompt", "New template content", None
             )
 
-            # Should register the prompt
+            # Should register the prompt with default commit message
             mock_register.assert_called_once_with(
                 name="test_prompt",
                 template="New template content",
@@ -183,10 +183,67 @@ class TestPromptRegistryUnit:
             mock_prompt.to_single_brace_format.return_value = "Same template"
             mock_load.return_value = mock_prompt
 
-            provider._sync_default_template_to_registry("test_prompt", "Same template")
+            provider._sync_default_template_to_registry(
+                "test_prompt", "Same template", None
+            )
 
             # Should NOT register when unchanged
             mock_register.assert_not_called()
+
+    @pytest.mark.unit
+    def test_sync_default_template_uses_description_as_commit_message(self):
+        """Test that _sync_default_template_to_registry uses description as commit message."""
+        provider = DatabricksProvider(w=Mock(), vsc=Mock())
+
+        with (
+            patch("mlflow.genai.load_prompt") as mock_load,
+            patch("mlflow.genai.register_prompt") as mock_register,
+        ):
+            # Simulate "default" alias not existing
+            mock_load.side_effect = Exception("Alias not found")
+
+            provider._sync_default_template_to_registry(
+                "test_prompt",
+                "New template content",
+                "Custom description for commit message",
+            )
+
+            # Should register the prompt with custom description as commit message
+            mock_register.assert_called_once_with(
+                name="test_prompt",
+                template="New template content",
+                commit_message="Custom description for commit message",
+            )
+
+    @pytest.mark.unit
+    def test_get_prompt_fallback_passes_description_to_sync(self):
+        """Test that get_prompt passes description to sync when using fallback."""
+        prompt_model = PromptModel(
+            name="test_prompt",
+            default_template="Fallback template content",
+            description="Test prompt for hardware store",
+        )
+
+        provider = DatabricksProvider(w=Mock(), vsc=Mock())
+
+        with (
+            patch("mlflow.genai.load_prompt") as mock_load,
+            patch.object(provider, "_sync_default_template_to_registry") as mock_sync,
+        ):
+            # Simulate registry failure
+            mock_load.side_effect = Exception("Registry not found")
+
+            result = provider.get_prompt(prompt_model)
+
+            # Should use default_template
+            assert result == "Fallback template content"
+
+            # Should attempt to sync to registry with description
+            mock_sync.assert_called_once_with(
+                "test_prompt",
+                "Fallback template content",
+                "Test prompt for hardware store",
+            )
 
     @pytest.mark.unit
     def test_prompt_model_validation_alias_xor_version(self):

@@ -30,6 +30,7 @@ from databricks.vector_search.index import VectorSearchIndex
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.entities import Experiment
+from mlflow.entities.model_registry import PromptVersion
 from mlflow.entities.model_registry.model_version import ModelVersion
 from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
 from mlflow.models.model import ModelInfo
@@ -1026,120 +1027,77 @@ class DatabricksProvider(ServiceProvider):
             raise
 
     def get_prompt(self, prompt_model: PromptModel) -> str:
-        logger.debug(f"Getting prompt: {prompt_model.full_name}")
+        """Load prompt from MLflow Prompt Registry or fall back to default_template."""
+        prompt_name: str = prompt_model.full_name
 
-        # Build the prompt URI for MLflow Prompt Registry
-        prompt_uri: str
+        # Build prompt URI based on alias, version, or default to latest
         if prompt_model.alias:
-            # Use alias if provided
-            prompt_uri = f"prompts:/{prompt_model.name}@{prompt_model.alias}"
+            prompt_uri = f"prompts:/{prompt_name}@{prompt_model.alias}"
         elif prompt_model.version:
-            # Use version if provided
-            prompt_uri = f"prompts:/{prompt_model.name}/{prompt_model.version}"
+            prompt_uri = f"prompts:/{prompt_name}/{prompt_model.version}"
         else:
-            # Default to latest alias if neither alias nor version is provided
-            prompt_uri = f"prompts:/{prompt_model.name}@latest"
-
-        logger.debug(f"Attempting to load prompt from registry: {prompt_uri}")
+            prompt_uri = f"prompts:/{prompt_name}@latest"
 
         try:
-            # Try to load the prompt from MLflow Prompt Registry
             from mlflow.genai.prompts import Prompt
 
             prompt_obj: Prompt = mlflow.genai.load_prompt(prompt_uri)
-
-            # Convert to single brace format for LangChain compatibility
-            prompt_template: str = prompt_obj.to_single_brace_format()
-            logger.debug(f"Successfully loaded prompt from registry: {prompt_template}")
-
-            # Registry load succeeded - use it directly without syncing default_template
-            # The registry is the source of truth when available
-            return prompt_template
+            return prompt_obj.to_single_brace_format()
 
         except Exception as e:
-            logger.warning(f"Failed to load prompt from registry: {e}")
+            logger.warning(f"Failed to load prompt '{prompt_name}' from registry: {e}")
 
-            # Fallback to default_template if provided
             if prompt_model.default_template:
-                logger.info(
-                    f"Using default_template as fallback for prompt '{prompt_model.name}'"
-                )
-
-                # Register the default_template to the registry so it's available next time
-                # This only happens when registry is unavailable or prompt doesn't exist
+                logger.info(f"Using default_template for '{prompt_name}'")
                 self._sync_default_template_to_registry(
-                    prompt_model.name, prompt_model.default_template
+                    prompt_name, prompt_model.default_template, prompt_model.description
                 )
-
                 return prompt_model.default_template
 
-            # If no default_template, raise an exception
             raise ValueError(
-                f"Failed to retrieve prompt '{prompt_model.name}' from MLflow Prompt Registry "
-                f"and no default_template was provided. URI attempted: {prompt_uri}"
+                f"Prompt '{prompt_name}' not found in registry and no default_template provided"
             ) from e
 
     def _sync_default_template_to_registry(
-        self, prompt_name: str, default_template: str
+        self, prompt_name: str, default_template: str, description: str | None = None
     ) -> None:
-        """
-        Sync the default_template to the prompt registry under the "default" alias.
-
-        This ensures the "default" alias always points to the current default_template
-        while allowing other aliases (like "latest", "production", etc.) to be managed
-        externally without being overwritten.
-
-        Args:
-            prompt_name: Name of the prompt in the registry
-            default_template: The template to register under the "default" alias
-        """
+        """Register default_template to prompt registry under 'default' alias if changed."""
         try:
-            from mlflow.genai.prompts import Prompt
-
-            # Try to load the current "default" alias
-            default_alias_template: str | None = None
+            # Check if default alias already has the same template
             try:
-                default_prompt: Prompt = mlflow.genai.load_prompt(
+                logger.debug(f"Loading prompt '{prompt_name}' from registry...")
+                existing: PromptVersion = mlflow.genai.load_prompt(
                     f"prompts:/{prompt_name}@default"
                 )
-                default_alias_template = default_prompt.to_single_brace_format()
+                if (
+                    existing.to_single_brace_format().strip()
+                    == default_template.strip()
+                ):
+                    logger.debug(f"Prompt '{prompt_name}' is already up-to-date")
+                    return  # Already up-to-date
             except Exception:
-                # "default" alias doesn't exist yet
-                logger.debug(f"No 'default' alias found for prompt '{prompt_name}'")
-
-            # Compare with the current default_template
-            if (
-                default_alias_template is None
-                or default_alias_template.strip() != default_template.strip()
-            ):
-                logger.info(
-                    f"Syncing default_template to MLflow Prompt Registry under 'default' alias "
-                    f"for prompt '{prompt_name}'"
-                )
-
-                # Register the prompt (creates a new version)
-                # The prompt will be tagged to indicate it's from default_template
-                mlflow.genai.register_prompt(
-                    name=prompt_name,
-                    template=default_template,
-                    commit_message="Auto-synced from default_template",
-                )
-
                 logger.debug(
-                    f"Prompt '{prompt_name}' registered. To use this as the 'default' alias, "
-                    f"you can set it in the MLflow UI or use the MLflow CLI."
+                    f"Default alias for prompt '{prompt_name}' doesn't exist yet"
                 )
 
-                logger.info(
-                    f"Successfully synced default_template for '{prompt_name}' to the registry"
-                )
-            else:
-                logger.debug(
-                    f"Prompt '{prompt_name}' 'default' alias is already up-to-date"
-                )
+            # Register new version and set as default alias
+            commit_message = description or "Auto-synced from default_template"
+            prompt_version: PromptVersion = mlflow.genai.register_prompt(
+                name=prompt_name,
+                template=default_template,
+                commit_message=commit_message,
+            )
+
+            logger.debug(f"Setting default alias for prompt '{prompt_name}'")
+            mlflow.genai.set_prompt_alias(
+                name=prompt_name,
+                alias="default",
+                version=prompt_version.version,
+            )
+
+            logger.info(
+                f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry"
+            )
 
         except Exception as e:
-            logger.warning(
-                f"Failed to sync default_template for '{prompt_name}' to the registry: {e}. "
-                f"Continuing without syncing."
-            )
+            logger.warning(f"Failed to sync '{prompt_name}' to registry: {e}")

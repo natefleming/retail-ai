@@ -1170,6 +1170,7 @@ class PromptModel(BaseModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
+    description: Optional[str] = None
     default_template: Optional[str] = None
     alias: Optional[str] = None
     version: Optional[int] = None
