@@ -539,6 +539,7 @@ def handle_bundle_command(options: Namespace) -> None:
     config: Optional[str] = options.config
     target: Optional[str] = options.target
     dry_run: bool = options.dry_run
+
     if options.deploy:
         logger.info("Deploying DAO AI asset bundle...")
         run_databricks_command(
@@ -546,8 +547,9 @@ def handle_bundle_command(options: Namespace) -> None:
         )
     if options.run:
         logger.info("Running DAO AI system with current configuration...")
+        # Use static job resource key that matches databricks.yaml (resources.jobs.deploy_job)
         run_databricks_command(
-            ["bundle", "run", "deploy-end-to-end"],
+            ["bundle", "run", "deploy_job"],
             profile,
             config,
             target,

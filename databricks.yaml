@@ -17,12 +17,20 @@ variables:
     description: The job compute node type
     default: Standard_D4ads_v5
   app_name: 
-    description: The job name
+    description: The job name derived from the config file app.name
+  job_name:
+    description: The unique job name for this deployment
+    default: ${var.app_name}-job
 
 resources:
   jobs:
-    deploy-end-to-end:
-      name: ${var.app_name}
+    # The job name is dynamic based on app_name, allowing multiple pipelines to coexist
+    # Each config file with a different app.name will create a separate job with unique name
+    deploy_job:
+      name: ${var.job_name}
+      tags:
+        app_name: ${var.app_name}
+        config_path: ${var.config_path}
       job_clusters:
         - job_cluster_key: common-cluster
           new_cluster:
