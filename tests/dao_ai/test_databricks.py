@@ -374,8 +374,8 @@ def test_create_lakebase_new_database():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property on database
     with patch.object(
@@ -412,8 +412,8 @@ def test_create_lakebase_database_already_exists_available():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property on database
     with patch.object(
@@ -458,8 +458,8 @@ def test_create_lakebase_database_starting_state():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property and time.sleep
     with patch.object(
@@ -503,8 +503,8 @@ def test_create_lakebase_database_updating_state():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property and time.sleep
     with patch.object(
@@ -539,8 +539,8 @@ def test_create_lakebase_database_stopped_state():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property
     with patch.object(
@@ -574,8 +574,8 @@ def test_create_lakebase_database_deleting_state():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property
     with patch.object(
@@ -610,8 +610,8 @@ def test_create_lakebase_concurrent_creation():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property
     with patch.object(
@@ -646,8 +646,8 @@ def test_create_lakebase_unexpected_error():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property
     with patch.object(
@@ -680,8 +680,8 @@ def test_create_lakebase_timeout_waiting_for_available():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property and time.sleep
     with patch.object(
@@ -712,8 +712,8 @@ def test_create_lakebase_default_values():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property
     with patch.object(
@@ -746,8 +746,8 @@ def test_create_lakebase_custom_capacity_cu1():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property
     with patch.object(
@@ -787,8 +787,8 @@ def test_create_lakebase_database_disappears_during_wait():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Mock workspace_client property and time.sleep
     with patch.object(
@@ -823,8 +823,8 @@ def test_create_lakebase_instance_role_success():
         workspace_host="https://test.databricks.com",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Call create_lakebase_instance_role
     provider.create_lakebase_instance_role(database)
@@ -867,8 +867,8 @@ def test_create_lakebase_instance_role_already_exists():
         workspace_host="https://test.databricks.com",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Call create_lakebase_instance_role
     provider.create_lakebase_instance_role(database)
@@ -895,8 +895,8 @@ def test_create_lakebase_instance_role_missing_client_id():
         password="test_password",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Call create_lakebase_instance_role - should log warning and return early
     provider.create_lakebase_instance_role(database)
@@ -928,8 +928,8 @@ def test_create_lakebase_instance_role_concurrent_creation():
         workspace_host="https://test.databricks.com",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Should not raise exception
     provider.create_lakebase_instance_role(database)
@@ -961,8 +961,8 @@ def test_create_lakebase_instance_role_unexpected_error():
         workspace_host="https://test.databricks.com",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Should raise the exception
     with pytest.raises(Exception, match="Unexpected error occurred"):
@@ -992,8 +992,8 @@ def test_create_lakebase_instance_role_with_composite_variable():
         workspace_host="https://test.databricks.com",
     )
 
-    # Create provider
-    provider = DatabricksProvider(w=mock_workspace_client)
+    # Create provider with mocked clients
+    provider = DatabricksProvider(w=mock_workspace_client, vsc=MagicMock())
 
     # Call create_lakebase_instance_role
     provider.create_lakebase_instance_role(database)
