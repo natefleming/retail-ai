@@ -1301,7 +1301,7 @@ class ChatPayload(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     input: Optional[list[Message]] = None
     messages: Optional[list[Message]] = None
-    custom_inputs: dict
+    custom_inputs: Optional[dict] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_mutual_exclusion_and_alias(self) -> "ChatPayload":

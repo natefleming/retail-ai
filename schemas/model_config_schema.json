@@ -548,14 +548,18 @@
           "title": "Messages"
         },
         "custom_inputs": {
-          "additionalProperties": true,
-          "title": "Custom Inputs",
-          "type": "object"
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Custom Inputs"
         }
       },
-      "required": [
-        "custom_inputs"
-      ],
       "title": "ChatPayload",
       "type": "object"
     },
