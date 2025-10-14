@@ -354,6 +354,7 @@ def test_database_model_capacity_validation():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_new_database():
     """Test create_lakebase when database doesn't exist."""
     # Mock workspace client
@@ -393,6 +394,7 @@ def test_create_lakebase_new_database():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_database_already_exists_available():
     """Test create_lakebase when database already exists and is AVAILABLE."""
     # Mock workspace client
@@ -430,6 +432,7 @@ def test_create_lakebase_database_already_exists_available():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_database_starting_state():
     """Test create_lakebase when database is in STARTING state."""
     # Mock workspace client
@@ -475,6 +478,7 @@ def test_create_lakebase_database_starting_state():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_database_updating_state():
     """Test create_lakebase when database is in UPDATING state."""
     # Mock workspace client
@@ -520,6 +524,7 @@ def test_create_lakebase_database_updating_state():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_database_stopped_state():
     """Test create_lakebase when database is in STOPPED state."""
     # Mock workspace client
@@ -555,6 +560,7 @@ def test_create_lakebase_database_stopped_state():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_database_deleting_state():
     """Test create_lakebase when database is in DELETING state."""
     # Mock workspace client
@@ -590,6 +596,7 @@ def test_create_lakebase_database_deleting_state():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_concurrent_creation():
     """Test create_lakebase when database is created concurrently by another process."""
     # Mock workspace client
@@ -626,6 +633,7 @@ def test_create_lakebase_concurrent_creation():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_unexpected_error():
     """Test create_lakebase handles unexpected errors appropriately."""
     # Mock workspace client
@@ -659,6 +667,7 @@ def test_create_lakebase_unexpected_error():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_timeout_waiting_for_available():
     """Test create_lakebase handles timeout when waiting for AVAILABLE state."""
     # Mock workspace client
@@ -696,6 +705,7 @@ def test_create_lakebase_timeout_waiting_for_available():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_default_values():
     """Test create_lakebase uses correct default values."""
     # Mock workspace client
@@ -729,6 +739,7 @@ def test_create_lakebase_default_values():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_custom_capacity_cu1():
     """Test create_lakebase with custom capacity CU_1."""
     # Mock workspace client
@@ -763,6 +774,7 @@ def test_create_lakebase_custom_capacity_cu1():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_database_disappears_during_wait():
     """Test create_lakebase when database disappears while waiting for AVAILABLE state."""
     # Mock workspace client
@@ -806,6 +818,7 @@ def test_create_lakebase_database_disappears_during_wait():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_instance_role_success():
     """Test creating a lakebase instance role successfully."""
     # Mock workspace client
@@ -847,6 +860,7 @@ def test_create_lakebase_instance_role_success():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_instance_role_already_exists():
     """Test when instance role already exists."""
     # Mock workspace client
@@ -881,6 +895,7 @@ def test_create_lakebase_instance_role_already_exists():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_instance_role_missing_client_id():
     """Test that a warning is logged and method returns early when client_id is not provided."""
     # Mock workspace client
@@ -907,6 +922,7 @@ def test_create_lakebase_instance_role_missing_client_id():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_instance_role_concurrent_creation():
     """Test when role is created concurrently by another process."""
     # Mock workspace client
@@ -940,6 +956,7 @@ def test_create_lakebase_instance_role_concurrent_creation():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_instance_role_unexpected_error():
     """Test that unexpected errors are raised."""
     # Mock workspace client
@@ -970,6 +987,7 @@ def test_create_lakebase_instance_role_unexpected_error():
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_lakebase_instance_role_with_composite_variable():
     """Test creating role when client_id is a CompositeVariableModel."""
     from dao_ai.config import CompositeVariableModel, EnvironmentVariableModel
