@@ -202,6 +202,7 @@ def test_postgres_memory_initialization(postgres_app_config: AppConfig) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_postgres_env(), reason="PostgreSQL env vars not set")
 def test_load_postgres_config_without_env() -> None:
     """Test that PostgreSQL config loads without requiring environment variables."""
     config_path = (

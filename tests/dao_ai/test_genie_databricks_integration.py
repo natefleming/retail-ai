@@ -22,6 +22,7 @@ The fix involved:
 from unittest.mock import Mock, patch
 
 import pytest
+from conftest import has_databricks_env
 from langchain_core.tools import StructuredTool
 
 from dao_ai.config import GenieRoomModel
@@ -208,6 +209,7 @@ class TestGenieDatabricksIntegration:
         assert hasattr(tool, "func")
         assert tool.func is not None
 
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_conversation_persistence_with_injected_state(self, mock_genie_tool):
         """
         Test that conversation persistence works correctly with injected state pattern.

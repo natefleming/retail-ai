@@ -1,6 +1,7 @@
 import sys
 
 import pytest
+from conftest import has_databricks_env
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow.models import ModelConfig
@@ -13,6 +14,7 @@ logger.add(sys.stderr, level="INFO")
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_create_dao_ai_graph(model_config: ModelConfig) -> None:
     """
     Test the creation of the retail AI graph with a valid model configuration.

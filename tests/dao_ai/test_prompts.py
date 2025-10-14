@@ -14,6 +14,7 @@ class TestPromptRegistryUnit:
     """Unit tests for prompt registry functionality (mocked)."""
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_with_alias(self):
         """Test loading a prompt using an alias."""
         prompt_model = PromptModel(
@@ -37,6 +38,7 @@ class TestPromptRegistryUnit:
             assert result == "Registry template content"
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_with_version(self):
         """Test loading a prompt using a specific version."""
         prompt_model = PromptModel(
@@ -57,6 +59,7 @@ class TestPromptRegistryUnit:
             assert result == "Version 2 content"
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_defaults_to_latest(self):
         """Test that prompt loading defaults to @latest when no alias or version specified."""
         prompt_model = PromptModel(
@@ -77,6 +80,7 @@ class TestPromptRegistryUnit:
             assert result == "Latest content"
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_fallback_to_default_template(self):
         """Test fallback to default_template when registry load fails."""
         prompt_model = PromptModel(
@@ -103,6 +107,7 @@ class TestPromptRegistryUnit:
             )
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_no_registry_no_default_raises_error(self):
         """Test that an error is raised when registry fails and no default_template."""
         prompt_model = PromptModel(
@@ -122,6 +127,7 @@ class TestPromptRegistryUnit:
             assert "no default_template provided" in str(exc_info.value)
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_does_not_sync_when_registry_succeeds(self):
         """Test that default_template is NOT synced when registry load succeeds."""
         prompt_model = PromptModel(
@@ -147,6 +153,7 @@ class TestPromptRegistryUnit:
             mock_sync.assert_not_called()
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_sync_default_template_creates_new_version(self):
         """Test that _sync_default_template_to_registry creates a new version when changed."""
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
@@ -170,6 +177,7 @@ class TestPromptRegistryUnit:
             )
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_sync_default_template_skips_when_unchanged(self):
         """Test that _sync_default_template_to_registry skips registration when unchanged."""
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
@@ -191,6 +199,7 @@ class TestPromptRegistryUnit:
             mock_register.assert_not_called()
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_sync_default_template_uses_description_as_commit_message(self):
         """Test that _sync_default_template_to_registry uses description as commit message."""
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
@@ -216,6 +225,7 @@ class TestPromptRegistryUnit:
             )
 
     @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_fallback_passes_description_to_sync(self):
         """Test that get_prompt passes description to sync when using fallback."""
         prompt_model = PromptModel(

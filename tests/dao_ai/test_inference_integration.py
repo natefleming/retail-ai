@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import has_postgres_env
+from conftest import has_databricks_env, has_postgres_env
 from mlflow.types.responses import ResponsesAgentRequest
 from mlflow.types.responses_helpers import Message
 
@@ -43,6 +43,7 @@ def app_config_postgres(supervisor_postgres_config_path: Path) -> AppConfig:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_load_config_and_create_responses_agent(
     app_config_supervisor: AppConfig,
 ) -> None:
@@ -373,6 +374,7 @@ def test_inference_with_postgres_memory(app_config_postgres: AppConfig) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_config_has_required_components_for_inference() -> None:
     """Unit test to verify config has required components for inference without actual inference."""
     config_path = (
