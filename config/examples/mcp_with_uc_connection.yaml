@@ -48,7 +48,7 @@ tools:
     function:
       type: mcp                                  # MCP function type
       name: vector_search_mcp                              
-      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/vector-search/nfleming/retail_ai
+      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/vector-search/retail_consumer_goods/hardware_store
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -58,7 +58,7 @@ tools:
     function:
       type: mcp                                  # MCP function type
       name: unity_catalog_mcp                              
-      url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/nfleming/retail_ai
+      url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/retail_consumer_goods/hardware_store
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
