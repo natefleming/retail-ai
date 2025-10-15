@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=./schemas/bundle_config_schema.json
 
 bundle:
-  name: dao-ai-bundle
+  name: __APP_NAME__
 
 artifacts:
   default:
@@ -12,24 +12,18 @@ artifacts:
 variables:
   config_path:
     description: Path to the configuration file for the job.
-    default: ../config/model_config.yaml
   node_type: 
     description: The job compute node type
     default: Standard_D4ads_v5
-  app_name: 
-    description: The job name derived from the config file app.name
-  job_name:
-    description: The unique job name for this deployment
-    default: ${var.app_name}-job
 
 resources:
   jobs:
-    # The job name is dynamic based on app_name, allowing multiple pipelines to coexist
-    # Each config file with a different app.name will create a separate job with unique name
+    # The job name and bundle name are templated and replaced by CLI at deployment time
+    # This allows multiple apps to coexist with separate bundle identities
     deploy_job:
-      name: ${var.job_name}
+      name: __APP_NAME__-job
       tags:
-        app_name: ${var.app_name}
+        app_name: __APP_NAME__
         config_path: ${var.config_path}
       job_clusters:
         - job_cluster_key: common-cluster
@@ -100,7 +94,7 @@ resources:
           environment_key: dao-ai-env
           
 targets:
-  dev:
+  __APP_NAME__:
     mode: development
     default: true
 

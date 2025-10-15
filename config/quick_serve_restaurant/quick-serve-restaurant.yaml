@@ -261,51 +261,30 @@ tools:
       name: dao_ai.tools.current_time_tool
 
 
-# =============================================================================
-# MEMORY CONFIGURATION
-# =============================================================================
-# Configure persistent storage for agent conversations and context
+# ==============================================================================
+# PROMPTS CONFIGURATION
+# ==============================================================================
+# Define reusable prompts that can be stored in MLflow Prompt Registry
+# 
+# Prompts support:
+# - default_template: Fallback template when registry is unavailable
+# - description: Used as commit message when syncing to registry
+# - alias: Reference specific versions (e.g., "production", "staging")
+# - version: Pin to specific version number
+# - tags: Metadata and organization
+#
+# Priority: Registry > default_template (registry is source of truth)
+# ==============================================================================
 
-memory: &memory
-  # Conversation checkpointing for state persistence
-  checkpointer: 
-    name: default_checkpointer                      # Checkpointer identifier
-    #type: postgres                                    # Store type (memory or postgres)
-    type: memory
-    database: *qsr_database                     # Reference to database configuration
-
-  # Long-term memory store for agent context
-  store: 
-    name: default_store                             # Store identifier
-    #type: postgres                                    # Store type (memory or postgres)
-    type: memory
-    embedding_model: *embedding_model               # Model for semantic memory
-    dims: 1536                                      # Embedding dimensions
-    database: *qsr_database                      # Database for persistence (if needed)
-    namespace: "{user_id}"
-
-# =============================================================================
-# AGENTS CONFIGURATION
-# =============================================================================
-# Define specialized agents for different aspects of customer service
-# Each agent has specific tools, capabilities, and responsibilities
-
-agents:
+prompts:
   # ---------------------------------------------------------------------------
-  # BARISTA AGENT
+  # Barista Agent Prompt
   # ---------------------------------------------------------------------------
-  # Expert coffee shop agent specialized in menu inquiries, recommendations, ordering, and order history
-  barista: &barista
-    name: barista                                   # Agent identifier
-    description: "Expert coffee shop barista specializing in menu recommendations, coffee ordering, price inquiries, item descriptions, and order history. Can find products by description, match items within price ranges, process coffee orders, and retrieve historical order data."
-    model: *tool_calling_llm                       # Reference to LLM configuration
-    tools: 
-      - *insert_coffee_order_tool
-      - *match_item_by_description_and_price_tool
-      - *match_historical_item_order_by_date_tool
-      - *lookup_items_by_descriptions_tool
-      - *current_time_tool
-    prompt: |                                       # System prompt defining agent behavior
+  barista_prompt: &barista_prompt
+    schema: *qsr_schema
+    name: barista_prompt
+    description: "Expert coffee shop barista prompt for menu recommendations, ordering, and order history"
+    default_template: |
       ### User Information
       - **User Id**: {user_id}
       - **Session ID**: {thread_id}
@@ -352,6 +331,56 @@ agents:
       **Handle Ambiguity**: If a customer's request is unclear, use your tools to show options and let them choose.
 
       You are friendly, knowledgeable, and always ready to help customers find exactly what they're looking for!
+    tags:
+      environment: production
+      agent_name: barista
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# Configure persistent storage for agent conversations and context
+
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier
+    #type: postgres                                    # Store type (memory or postgres)
+    type: memory
+    database: *qsr_database                     # Reference to database configuration
+
+  # Long-term memory store for agent context
+  store: 
+    name: default_store                             # Store identifier
+    #type: postgres                                    # Store type (memory or postgres)
+    type: memory
+    embedding_model: *embedding_model               # Model for semantic memory
+    dims: 1536                                      # Embedding dimensions
+    database: *qsr_database                      # Database for persistence (if needed)
+    namespace: "{user_id}"
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+# Define specialized agents for different aspects of customer service
+# Each agent has specific tools, capabilities, and responsibilities
+
+agents:
+  # ---------------------------------------------------------------------------
+  # BARISTA AGENT (Using Prompt Reference - Recommended)
+  # ---------------------------------------------------------------------------
+  # Expert coffee shop agent specialized in menu inquiries, recommendations, ordering, and order history
+  # This example shows how to use a prompt reference from the prompts section
+  barista: &barista
+    name: barista                                   # Agent identifier
+    description: "Expert coffee shop barista specializing in menu recommendations, coffee ordering, price inquiries, item descriptions, and order history. Can find products by description, match items within price ranges, process coffee orders, and retrieve historical order data."
+    model: *tool_calling_llm                       # Reference to LLM configuration
+    tools: 
+      - *insert_coffee_order_tool
+      - *match_item_by_description_and_price_tool
+      - *match_historical_item_order_by_date_tool
+      - *lookup_items_by_descriptions_tool
+      - *current_time_tool
+    prompt: *barista_prompt                        # Reference to prompt (instead of inline)
     handoff_prompt: |                              
       Coffee shop inquiries including menu questions, item recommendations, price checks, coffee ordering, taste descriptions, and order history.
       Examples: "What coffee drinks do you have?", "I'd like a medium latte", "What's good for under $4?", "What did I order yesterday?", "Tell me about your cold brew", "Can you recommend something sweet?"

@@ -460,6 +460,49 @@ def setup_logging(verbosity: int) -> None:
     logger.add(sys.stderr, level=level)
 
 
+def generate_bundle_from_template(config_path: Path, app_name: str) -> Path:
+    """
+    Generate an app-specific databricks.yaml from databricks.yaml.template.
+
+    This function:
+    1. Reads databricks.yaml.template (permanent template file)
+    2. Replaces __APP_NAME__ with the actual app name
+    3. Writes to databricks.yaml (overwrites if exists)
+    4. Returns the path to the generated file
+
+    The generated databricks.yaml is overwritten on each deployment and is not tracked in git.
+    Schema reference remains pointing to ./schemas/bundle_config_schema.json.
+
+    Args:
+        config_path: Path to the app config file
+        app_name: Normalized app name
+
+    Returns:
+        Path to the generated databricks.yaml file
+    """
+    cwd = Path.cwd()
+    template_path = cwd / "databricks.yaml.template"
+    output_path = cwd / "databricks.yaml"
+
+    if not template_path.exists():
+        logger.error(f"Template file {template_path} does not exist.")
+        sys.exit(1)
+
+    # Read template
+    with open(template_path, "r") as f:
+        template_content = f.read()
+
+    # Replace template variables
+    bundle_content = template_content.replace("__APP_NAME__", app_name)
+
+    # Write generated databricks.yaml (overwrite if exists)
+    with open(output_path, "w") as f:
+        f.write(bundle_content)
+
+    logger.info(f"Generated bundle configuration at {output_path} from template")
+    return output_path
+
+
 def run_databricks_command(
     command: list[str],
     profile: Optional[str] = None,
@@ -467,44 +510,55 @@ def run_databricks_command(
     target: Optional[str] = None,
     dry_run: bool = False,
 ) -> None:
-    """Execute a databricks CLI command with optional profile."""
+    """Execute a databricks CLI command with optional profile and target."""
+    config_path = Path(config) if config else None
+
+    if config_path and not config_path.exists():
+        logger.error(f"Configuration file {config_path} does not exist.")
+        sys.exit(1)
+
+    # Load app config and generate bundle from template
+    app_config: AppConfig = AppConfig.from_file(config_path) if config_path else None
+    normalized_name: str = normalize_name(app_config.app.name) if app_config else None
+
+    # Generate app-specific bundle from template (overwrites databricks.yaml temporarily)
+    if config_path and app_config:
+        generate_bundle_from_template(config_path, normalized_name)
+
+    # Use app name as target if not explicitly provided
+    # This ensures each app gets its own Terraform state in .databricks/bundle/<app-name>/
+    if not target and normalized_name:
+        target = normalized_name
+        logger.debug(f"Using app-specific target: {target}")
+
+    # Build databricks command (no -c flag needed, uses databricks.yaml in current dir)
     cmd = ["databricks"]
     if profile:
         cmd.extend(["--profile", profile])
+
     if target:
         cmd.extend(["--target", target])
+
     cmd.extend(command)
-    if config:
-        config_path = Path(config)
 
-        if not config_path.exists():
-            logger.error(f"Configuration file {config_path} does not exist.")
-            sys.exit(1)
-
-        app_config: AppConfig = AppConfig.from_file(config_path)
-
-        # Always convert to path relative to notebooks directory
-        # Get absolute path of config file and current working directory
+    # Add config_path variable for notebooks
+    if config_path and app_config:
+        # Calculate relative path from notebooks directory to config file
         config_abs = config_path.resolve()
         cwd = Path.cwd()
         notebooks_dir = cwd / "notebooks"
 
-        # Calculate relative path from notebooks directory to config file
         try:
             relative_config = config_abs.relative_to(notebooks_dir)
         except ValueError:
-            # Config file is outside notebooks directory, calculate relative path
-            # Use os.path.relpath to get the relative path from notebooks_dir to config file
             relative_config = Path(os.path.relpath(config_abs, notebooks_dir))
 
         cmd.append(f'--var="config_path={relative_config}"')
 
-        normalized_name: str = normalize_name(app_config.app.name)
-        cmd.append(f'--var="app_name={normalized_name}"')
-
     logger.debug(f"Executing command: {' '.join(cmd)}")
 
     if dry_run:
+        logger.info(f"[DRY RUN] Would execute: {' '.join(cmd)}")
         return
 
     try:
@@ -530,6 +584,9 @@ def run_databricks_command(
 
     except FileNotFoundError:
         logger.error("databricks CLI not found. Please install the Databricks CLI.")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Command execution failed: {e}")
         sys.exit(1)
 
 

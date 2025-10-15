@@ -273,3 +273,6 @@ tags
 .databricks
 
 mlruns/
+
+# Generated bundle configurations (created from databricks.yaml.template at deployment time)
+databricks.yaml
