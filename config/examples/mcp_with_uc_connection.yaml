@@ -29,7 +29,7 @@ resources:
   
   connections:
     github_connection: &github_connection       # UC Connection for GitHub
-      name: github_u2m_connection               # UC Connection name
+      name: github_pat_connection_nfleming               # UC Connection name
 
 tools:
   # Example using UC Connection for GitHub MCP with explicit URL
@@ -39,27 +39,9 @@ tools:
       type: mcp                                     # Tool type: MCP server
       name: github_mcp                              # MCP function name
       transport: streamable_http                    # Transport protocol
-      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/external/github_u2m_connection  # MCP endpoint URL (optional with connection)
+      #url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/external/github_u2m_connection  # MCP endpoint URL (optional with connection)
       connection: *github_connection                # Reference to UC Connection (provides OAuth auth)
 
-  # Example using UC Connection with auto-constructed URL
-  # URL pattern: {workspace_host}/api/2.0/mcp/external/{connection_name}
-  github_mcp_auto: &github_mcp_auto
-    name: github_mcp_auto                           # Tool name for agent reference
-    function:
-      type: mcp                                     # Tool type: MCP server
-      name: github_mcp_auto                         # MCP function name
-      transport: streamable_http                    # Transport protocol
-      connection: *github_connection                # URL will be auto-constructed from workspace host + connection name
-
-  # Example using direct URL (existing approach)
-  weather_tool_mcp: &weather_tool_mcp
-    name: weather                                   # Tool name for agent reference
-    function:
-      type: mcp                                     # Tool type: MCP server
-      name: weather                                 # MCP function name
-      transport: streamable_http                    # Transport protocol
-      url: http://localhost:8000/mcp                # MCP server URL
       
   vector_search_mcp: &vector_search_mcp          # Vector search MCP tool configuration
     name: vector_search_mcp                                  
