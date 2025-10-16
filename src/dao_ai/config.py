@@ -1475,6 +1475,58 @@ class EvaluationModel(BaseModel):
     guidelines: list[GuidelineModel] = Field(default_factory=list)
 
 
+class PromptOptimizationModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    prompt: PromptModel
+    agent: AgentModel | str
+    dataset_name: str
+    reflection_model: Optional[LLMModel] = None
+    num_candidates: Optional[int] = 5
+    max_steps: Optional[int] = 3
+    scorer_model: Optional[LLMModel] = None
+    temperature: Optional[float] = 0.0
+
+    def optimize(self, w: WorkspaceClient | None = None) -> "PromptModel":
+        """
+        Optimize the prompt using MLflow's prompt optimization.
+
+        Args:
+            w: Optional WorkspaceClient for Databricks operations
+
+        Returns:
+            PromptModel: The optimized prompt model with new URI
+        """
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        optimized_prompt: PromptModel = provider.optimize_prompt(self)
+        return optimized_prompt
+
+
+class OptimizationsModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    prompt_optimizations: dict[str, PromptOptimizationModel] = Field(
+        default_factory=dict
+    )
+
+    def optimize(self, w: WorkspaceClient | None = None) -> dict[str, PromptModel]:
+        """
+        Optimize all prompts in this configuration.
+
+        Args:
+            w: Optional WorkspaceClient for Databricks operations
+
+        Returns:
+            dict[str, PromptModel]: Dictionary mapping optimization names to optimized prompts
+        """
+        results: dict[str, PromptModel] = {}
+        for name, optimization in self.prompt_optimizations.items():
+            results[name] = optimization.optimize(w)
+        return results
+
+
 class DatasetFormat(str, Enum):
     CSV = "csv"
     DELTA = "delta"
@@ -1553,6 +1605,7 @@ class AppConfig(BaseModel):
     agents: dict[str, AgentModel] = Field(default_factory=dict)
     app: Optional[AppModel] = None
     evaluation: Optional[EvaluationModel] = None
+    optimizations: Optional[OptimizationsModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
     unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
         default_factory=list

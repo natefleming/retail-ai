@@ -1,0 +1,120 @@
+# Example configuration for prompt optimization in dao-ai
+# This demonstrates how to optimize prompts using MLflow's prompt optimization
+
+variables:
+  catalog_name:
+    env: CATALOG_NAME
+    default_value: main
+  
+  schema_name:
+    env: SCHEMA_NAME
+    default_value: default
+
+schemas:
+  main_schema: &main_schema
+    catalog_name: ${catalog_name}
+    schema_name: ${schema_name}
+
+resources:
+  llms:
+    # Source model (the model you're migrating from)
+    gpt_4: &gpt_4
+      name: gpt-4
+      temperature: 0.1
+      max_tokens: 8192
+    
+    # Target model (the model you're migrating to - usually cheaper/faster)
+    gpt_4o_mini: &gpt_4o_mini
+      name: gpt-4o-mini
+      temperature: 0.1
+      max_tokens: 8192
+
+# Define the prompts to optimize
+prompts:
+  sentiment_classifier: &sentiment_prompt
+    name: sentiment_classifier
+    schema: *main_schema
+    description: "Classifies text sentiment"
+    default_template: |
+      Classify the sentiment. Answer 'positive' or 'negative' or 'neutral'.
+      Text: {{text}}
+
+agents:
+  # Agent using the target model
+  sentiment_agent: &sentiment_agent
+    name: sentiment_agent
+    description: "Sentiment classification agent"
+    model: *gpt_4o_mini
+    prompt: *sentiment_prompt
+
+# Define prompt optimizations
+optimizations:
+  prompt_optimizations:
+    # Optimize the sentiment classifier prompt for the new model
+    optimize_sentiment:
+      name: optimize_sentiment
+      prompt: *sentiment_prompt
+      agent: *sentiment_agent
+      dataset_name: sentiment_migration_dataset  # Dataset created from source model outputs
+      
+      # Optional: Specify reflection model (defaults to agent's model)
+      reflection_model: *gpt_4
+      
+      # Optional: Optimization parameters
+      num_candidates: 5  # Number of candidate prompts to generate
+      max_steps: 3       # Maximum optimization steps
+      
+      # Optional: Specify scorer model (defaults to agent's model)  
+      scorer_model: *gpt_4
+      
+      # Optional: Temperature for generation
+      temperature: 0.0
+
+# Application configuration
+app:
+  name: prompt_optimization_example
+  registered_model:
+    schema: *main_schema
+    name: sentiment_agent_optimized
+  agents:
+    - *sentiment_agent
+
+---
+# Example workflow for using prompt optimization:
+#
+# 1. Collect data from your source model (e.g., gpt-4):
+#    - Run your application with tracing enabled
+#    - Use mlflow.search_traces() to collect inputs/outputs
+#    - Create a dataset using mlflow.genai.datasets.create_dataset()
+#
+# 2. Configure optimization in your YAML:
+#    - Define the prompt to optimize
+#    - Specify the target agent (with new model)
+#    - Reference the dataset created in step 1
+#    - Set optimization parameters
+#
+# 3. Run optimization notebook:
+#    - Use notebooks/10_optimize_prompts.py
+#    - This will iterate all optimizations and register new versions
+#
+# 4. Evaluate and deploy:
+#    - Review optimized prompts in MLflow
+#    - Use notebooks/07_run_evaluation.py to evaluate
+#    - Update your config to use the optimized prompt version
+#    - Deploy with notebooks/05_deploy_agent.py
+
+# Example Python code to create a dataset:
+# 
+# import mlflow
+# from mlflow.genai.datasets import create_dataset
+# 
+# # Collect traces from your source model
+# with mlflow.start_run() as run:
+#     for record in inputs:
+#         predict_fn_source_model(**record["inputs"])
+# 
+# # Create dataset from traces
+# dataset = create_dataset(name="sentiment_migration_dataset")
+# traces = mlflow.search_traces(return_type="list", run_id=run.info.run_id)
+# dataset.merge_records(traces)
+

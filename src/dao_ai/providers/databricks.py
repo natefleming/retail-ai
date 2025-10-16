@@ -54,6 +54,7 @@ from dao_ai.config import (
     IsDatabricksResource,
     LLMModel,
     PromptModel,
+    PromptOptimizationModel,
     SchemaModel,
     TableModel,
     UnityCatalogFunctionSqlModel,
@@ -1094,3 +1095,119 @@ class DatabricksProvider(ServiceProvider):
 
         except Exception as e:
             logger.warning(f"Failed to sync '{prompt_name}' to registry: {e}")
+
+    def optimize_prompt(self, optimization: "PromptOptimizationModel") -> "PromptModel":
+        """
+        Optimize a prompt using MLflow's prompt optimization (MLflow 3.5+).
+
+        This uses the MLflow GenAI optimize_prompts API with GepaPromptOptimizer as documented at:
+        https://mlflow.org/docs/latest/genai/prompt-registry/optimize-prompts/
+
+        Args:
+            optimization: PromptOptimizationModel containing configuration
+
+        Returns:
+            PromptModel: The optimized prompt with new URI
+        """
+        from mlflow.genai.datasets import get_dataset
+        from mlflow.genai.optimize import GepaPromptOptimizer, optimize_prompts
+        from mlflow.genai.scorers import Correctness
+
+        from dao_ai.config import AgentModel, PromptModel
+
+        logger.info(f"Optimizing prompt: {optimization.name}")
+
+        # Get agent and prompt
+        agent: AgentModel = optimization.agent
+        if isinstance(agent, str):
+            raise ValueError(
+                f"Agent reference by string '{agent}' not yet supported. Please provide AgentModel directly."
+            )
+
+        prompt: PromptModel = optimization.prompt
+
+        # Load the evaluation dataset
+        logger.debug(f"Loading dataset: {optimization.dataset_name}")
+        dataset = get_dataset(name=optimization.dataset_name)
+
+        # Set up reflection model for the optimizer
+        reflection_model_name: str = (
+            optimization.reflection_model.name
+            if optimization.reflection_model
+            else agent.model.name
+        )
+        logger.debug(f"Using reflection model: {reflection_model_name}")
+
+        # Create the GepaPromptOptimizer
+        optimizer = GepaPromptOptimizer(
+            reflection_model=f"databricks:/{reflection_model_name}",
+            max_metric_calls=optimization.num_candidates or 100,
+            display_progress_bar=True,
+        )
+
+        # Set up scorer (judge model for evaluation)
+        scorer_model: str = (
+            optimization.scorer_model.name
+            if optimization.scorer_model
+            else "databricks"  # Use Databricks default
+        )
+        logger.debug(f"Using scorer with model: {scorer_model}")
+
+        scorers = [Correctness(model=scorer_model)]
+
+        # Get the agent's LLM for the predict function
+        llm = agent.model.as_chat_model()
+        prompt_template = prompt.template
+        logger.debug(f"Optimizing prompt template: {prompt_template[:100]}...")
+
+        # Create predict function that will be optimized
+        def predict_fn(**inputs: dict[str, Any]) -> str:
+            """Prediction function that uses the agent's LLM with the prompt."""
+            # Format the prompt with inputs
+            formatted_prompt = prompt_template
+            for key, value in inputs.items():
+                formatted_prompt = formatted_prompt.replace(
+                    f"{{{{{key}}}}}", str(value)
+                )
+
+            # Use the LLM to generate response
+            from langchain_core.messages import HumanMessage
+
+            messages = [HumanMessage(content=formatted_prompt)]
+            response = llm.invoke(messages)
+            return response.content
+
+        # Set registry URI for Databricks Unity Catalog
+        mlflow.set_registry_uri("databricks-uc")
+
+        # Run optimization
+        logger.info("Running prompt optimization with GepaPromptOptimizer...")
+        result = optimize_prompts(
+            predict_fn=predict_fn,
+            train_data=dataset,
+            prompt_uris=[prompt.uri],
+            optimizer=optimizer,
+            scorers=scorers,
+            enable_tracking=True,
+        )
+
+        # Log the optimization results
+        logger.info("Optimization complete!")
+        if hasattr(result, "optimized_prompts") and result.optimized_prompts:
+            optimized_prompt_version = result.optimized_prompts[0]
+            logger.info(f"Optimized prompt URI: {optimized_prompt_version.uri}")
+            logger.debug(
+                f"Optimized template preview: {optimized_prompt_version.template[:200]}..."
+            )
+
+            # Parse version from the optimized prompt
+            # The result contains a PromptVersion object with the new version
+            return PromptModel(
+                name=prompt.name,
+                schema=prompt.schema_model,
+                description=f"Optimized version of {prompt.name}",
+                version=optimized_prompt_version.version,
+            )
+        else:
+            logger.warning("No optimized prompts returned from optimization")
+            return prompt
