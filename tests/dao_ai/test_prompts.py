@@ -22,8 +22,8 @@ class TestPromptRegistryUnit:
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
-        # Mock the mlflow.genai.load_prompt function
-        with patch("mlflow.genai.load_prompt") as mock_load:
+        # Mock the load_prompt function in config module where it's imported
+        with patch("dao_ai.config.load_prompt") as mock_load:
             mock_prompt = Mock()
             mock_prompt.to_single_brace_format.return_value = (
                 "Registry template content"
@@ -46,7 +46,7 @@ class TestPromptRegistryUnit:
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
-        with patch("mlflow.genai.load_prompt") as mock_load:
+        with patch("dao_ai.config.load_prompt") as mock_load:
             mock_prompt = Mock()
             mock_prompt.to_single_brace_format.return_value = "Version 2 content"
             mock_load.return_value = mock_prompt
@@ -67,7 +67,7 @@ class TestPromptRegistryUnit:
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
-        with patch("mlflow.genai.load_prompt") as mock_load:
+        with patch("dao_ai.config.load_prompt") as mock_load:
             mock_prompt = Mock()
             mock_prompt.to_single_brace_format.return_value = "Latest content"
             mock_load.return_value = mock_prompt
@@ -89,7 +89,7 @@ class TestPromptRegistryUnit:
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
         with (
-            patch("mlflow.genai.load_prompt") as mock_load,
+            patch("dao_ai.config.load_prompt") as mock_load,
             patch.object(provider, "_sync_default_template_to_registry") as mock_sync,
         ):
             # Simulate registry failure
@@ -116,7 +116,7 @@ class TestPromptRegistryUnit:
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
-        with patch("mlflow.genai.load_prompt") as mock_load:
+        with patch("dao_ai.config.load_prompt") as mock_load:
             mock_load.side_effect = Exception("Registry not found")
 
             with pytest.raises(ValueError) as exc_info:
@@ -136,7 +136,7 @@ class TestPromptRegistryUnit:
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
         with (
-            patch("mlflow.genai.load_prompt") as mock_load,
+            patch("dao_ai.config.load_prompt") as mock_load,
             patch.object(provider, "_sync_default_template_to_registry") as mock_sync,
         ):
             mock_prompt = Mock()

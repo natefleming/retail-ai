@@ -36,6 +36,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from loguru import logger
+from mlflow.genai.prompts import PromptVersion, load_prompt
 from mlflow.models import ModelConfig
 from mlflow.models.resources import (
     DatabricksFunction,
@@ -1186,12 +1187,27 @@ class PromptModel(BaseModel, HasFullName):
 
     @property
     def full_name(self) -> str:
+        prompt_name: str = self.name
         if self.schema_model:
-            name: str = ""
-            if self.name:
-                name = f".{self.name}"
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
-        return self.name
+            prompt_name = f"{self.schema_model.full_name}.{prompt_name}"
+        return prompt_name
+
+    @property
+    def uri(self) -> str:
+        prompt_uri: str = f"prompts:/{self.full_name}"
+
+        if self.alias:
+            prompt_uri = f"prompts:/{self.full_name}@{self.alias}"
+        elif self.version:
+            prompt_uri = f"prompts:/{self.full_name}/{self.version}"
+        else:
+            prompt_uri = f"prompts:/{self.full_name}@latest"
+
+        return prompt_uri
+
+    def as_prompt(self) -> PromptVersion:
+        prompt_version: PromptVersion = load_prompt(self.uri)
+        return prompt_version
 
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):

@@ -1028,20 +1028,13 @@ class DatabricksProvider(ServiceProvider):
 
     def get_prompt(self, prompt_model: PromptModel) -> str:
         """Load prompt from MLflow Prompt Registry or fall back to default_template."""
+
         prompt_name: str = prompt_model.full_name
 
-        # Build prompt URI based on alias, version, or default to latest
-        if prompt_model.alias:
-            prompt_uri = f"prompts:/{prompt_name}@{prompt_model.alias}"
-        elif prompt_model.version:
-            prompt_uri = f"prompts:/{prompt_name}/{prompt_model.version}"
-        else:
-            prompt_uri = f"prompts:/{prompt_name}@latest"
-
         try:
-            from mlflow.genai.prompts import Prompt
+            from mlflow.genai.prompts import PromptVersion
 
-            prompt_obj: Prompt = mlflow.genai.load_prompt(prompt_uri)
+            prompt_obj: PromptVersion = prompt_model.as_prompt()
             return prompt_obj.to_single_brace_format()
 
         except Exception as e:

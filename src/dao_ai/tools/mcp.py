@@ -5,7 +5,6 @@ from databricks_mcp import DatabricksOAuthClientProvider
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import tool as create_tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools
 from loguru import logger
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -62,20 +61,20 @@ def create_mcp_tools(
                     return await session.list_tools()
 
         try:
-            mcp_tools: list[Tool] | ListToolsResult = asyncio.run(_list_tools_with_connection())
+            mcp_tools: list[Tool] | ListToolsResult = asyncio.run(
+                _list_tools_with_connection()
+            )
             if isinstance(mcp_tools, ListToolsResult):
                 mcp_tools = mcp_tools.tools
 
-            logger.debug(
-                f"Retrieved {len(mcp_tools)} MCP tools via UC Connection"
-            )
+            logger.debug(f"Retrieved {len(mcp_tools)} MCP tools via UC Connection")
 
         except Exception as e:
             logger.error(f"Failed to get tools from MCP server via UC Connection: {e}")
             raise RuntimeError(
                 f"Failed to list MCP tools for function '{function.name}' via UC Connection '{function.connection.name}': {e}"
             )
-        
+
         # Create wrapper tools with fresh session per invocation
         def _create_tool_wrapper_with_connection(mcp_tool: Tool) -> RunnableLike:
             @create_tool(
@@ -85,7 +84,9 @@ def create_mcp_tools(
             )
             async def tool_wrapper(**kwargs):
                 """Execute MCP tool with fresh UC Connection session."""
-                logger.debug(f"Invoking MCP tool {mcp_tool.name} with fresh UC Connection session")
+                logger.debug(
+                    f"Invoking MCP tool {mcp_tool.name} with fresh UC Connection session"
+                )
                 workspace_client = function.connection.workspace_client
 
                 try:
@@ -95,7 +96,9 @@ def create_mcp_tools(
                         async with ClientSession(read_stream, write_stream) as session:
                             await session.initialize()
                             result = await session.call_tool(mcp_tool.name, kwargs)
-                            logger.debug(f"MCP tool {mcp_tool.name} completed successfully")
+                            logger.debug(
+                                f"MCP tool {mcp_tool.name} completed successfully"
+                            )
                             return result
                 except Exception as e:
                     logger.error(f"MCP tool {mcp_tool.name} failed: {e}")
