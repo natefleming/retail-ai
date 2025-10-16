@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %pip install --quiet --upgrade -r ../requirements.txt
 # MAGIC %pip uninstall --quiet -y databricks-connect pyspark pyspark-connect
-# MAGIC %pip install --quiet databricks-connect
+# MAGIC %pip install --quiet --upgrade databricks-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -56,6 +56,7 @@ sys.path.insert(0, "../src")
 pip_requirements: Sequence[str] = (
     f"databricks-agents=={version('databricks-agents')}",
     f"mlflow=={version('mlflow')}",
+    f"databricks-connect=={version('databricks-connect')}",
 )
 print("\n".join(pip_requirements))
 
@@ -67,9 +68,17 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
+from loguru import logger
+
+logger.remove()
+logger.add(sys.stderr, level="DEBUG")
+
+# COMMAND ----------
+
 from dao_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)
+
 
 # COMMAND ----------
 
@@ -83,8 +92,7 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 # COMMAND ----------
 
 from dao_ai.config import PromptOptimizationModel, PromptModel, OptimizationsModel
-from typing import Dict
-from loguru import logger
+
 
 # Get optimizations configuration from config
 optimizations: OptimizationsModel = config.optimizations
@@ -92,7 +100,7 @@ optimizations: OptimizationsModel = config.optimizations
 if not optimizations or not optimizations.prompt_optimizations:
     dbutils.notebook.exit("No prompt optimizations configured")
     
-prompt_optimizations: Dict[str, PromptOptimizationModel] = optimizations.prompt_optimizations
+prompt_optimizations: dict[str, PromptOptimizationModel] = optimizations.prompt_optimizations
 print(f"Found {len(prompt_optimizations)} prompt optimization(s) to process:")
 for name in prompt_optimizations.keys():
     print(f"  - {name}")
@@ -111,13 +119,13 @@ for name in prompt_optimizations.keys():
 # COMMAND ----------
 
 import mlflow
-from typing import List, Tuple
+from typing import Sequence
 
 # Set MLflow registry
 mlflow.set_registry_uri("databricks-uc")
 
 # Track results
-optimization_results: List[Tuple[str, PromptModel, str]] = []
+optimization_results: Sequence[tuple[str, PromptModel, str]] = []
 
 for opt_name, optimization in prompt_optimizations.items():
     print(f"\n{'='*80}")

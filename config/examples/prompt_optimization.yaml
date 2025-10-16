@@ -1,31 +1,24 @@
 # Example configuration for prompt optimization in dao-ai
 # This demonstrates how to optimize prompts using MLflow's prompt optimization
 
-variables:
-  catalog_name:
-    env: CATALOG_NAME
-    default_value: main
-  
-  schema_name:
-    env: SCHEMA_NAME
-    default_value: default
+
 
 schemas:
   main_schema: &main_schema
-    catalog_name: ${catalog_name}
-    schema_name: ${schema_name}
+    catalog_name: nfleming
+    schema_name: main
 
 resources:
   llms:
     # Source model (the model you're migrating from)
     gpt_4: &gpt_4
-      name: gpt-4
+      name: databricks-claude-sonnet-4-5
       temperature: 0.1
       max_tokens: 8192
     
     # Target model (the model you're migrating to - usually cheaper/faster)
     gpt_4o_mini: &gpt_4o_mini
-      name: gpt-4o-mini
+      name: databricks-meta-llama-3-3-70b-instruct
       temperature: 0.1
       max_tokens: 8192
 
@@ -73,13 +66,13 @@ optimizations:
 # Application configuration
 app:
   name: prompt_optimization_example
+  log_level: DEBUG
   registered_model:
     schema: *main_schema
     name: sentiment_agent_optimized
   agents:
     - *sentiment_agent
 
----
 # Example workflow for using prompt optimization:
 #
 # 1. Collect data from your source model (e.g., gpt-4):
