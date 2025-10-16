@@ -44,6 +44,7 @@ fastapi==0.115.13
 fastmcp==2.12.3
 filelock==3.18.0
 flask==3.1.1
+flask-cors==6.0.1
 fonttools==4.58.4
 frozenlist==1.7.0
 fsspec==2025.9.0
@@ -108,9 +109,9 @@ marshmallow==3.26.1
 matplotlib==3.10.3
 mcp==1.17.0
 mdurl==0.1.2
-mlflow==3.4.0
-mlflow-skinny==3.4.0
-mlflow-tracing==3.4.0
+mlflow==3.5.0
+mlflow-skinny==3.5.0
+mlflow-tracing==3.5.0
 more-itertools==10.8.0
 multidict==6.5.0
 mypy==1.16.1
