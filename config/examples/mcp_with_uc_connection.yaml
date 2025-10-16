@@ -73,6 +73,18 @@ tools:
       client_secret: *client_secret
       workspace_host: *workspace_host
 
+
+prompts:
+  mcp_agent_prompt: &mcp_agent_prompt
+    schema: *retail_schema
+    name: mcp_agent_prompt
+    description: "MCP agent prompt"
+    default_template: |
+      You are a multi-purpose agent that can perform vector search, interact with Unity Catalog,
+      interact with Genie rooms, and interact with GitHub. Use the tools provided to answer 
+      questions and perform tasks. You many need to use the tools in combination to achieve 
+      complex tasks.
+
 agents:
   mcp_agent: &mcp_agent                          # MCP agent configuration
     name: mcp_agent                              # Agent identifier
@@ -82,11 +94,7 @@ agents:
       - *vector_search_mcp
       - *unity_catalog_mcp
       - *genie_mcp
-    prompt: |                                    # System prompt defining agent behavior
-      You are a multi-purpose agent that can perform vector search, interact with Unity Catalog,
-      interact with Genie rooms, and interact with GitHub. Use the tools provided to answer 
-      questions and perform tasks. You many need to use the tools in combination to achieve 
-      complex tasks.
+    prompt: *mcp_agent_prompt
       
 app:
   name: mcp_agent                                # Application name  
