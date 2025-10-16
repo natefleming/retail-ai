@@ -97,11 +97,11 @@ agents:
     prompt: *mcp_agent_prompt
       
 app:
-  name: mcp_agent                                # Application name  
+  name: mcp_with_uc_connection                                # Application name  
   log_level: DEBUG                               # Logging level for the application
   registered_model:                              # MLflow registered model configuration
     schema: *retail_schema                       # Schema where model will be registered
-    name: mcp_agent                              # Model name in MLflow registry
+    name: mcp_with_uc_connection                 # Model name in MLflow registry
   agents:                                        # List of agents included in the system
     - *mcp_agent                                 # MCP agent
   orchestration:                                 # Agent orchestration configuration
