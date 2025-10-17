@@ -220,4 +220,3 @@ print("="*80)
 print(f"Total optimizations processed: {len(optimization_results)}")
 print(f"Successful: {sum(1 for _, _, status in optimization_results if 'Success' in status)}")
 print(f"Failed: {sum(1 for _, _, status in optimization_results if 'Failed' in status)}")
-
