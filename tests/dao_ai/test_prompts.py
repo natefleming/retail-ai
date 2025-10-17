@@ -34,7 +34,8 @@ class TestPromptRegistryUnit:
 
             # Verify correct URI was used
             mock_load.assert_called_once_with("prompts:/test_prompt@production")
-            assert result == "Registry template content"
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Registry template content"
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -55,7 +56,8 @@ class TestPromptRegistryUnit:
 
             # Verify correct URI was used
             mock_load.assert_called_once_with("prompts:/test_prompt/2")
-            assert result == "Version 2 content"
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Version 2 content"
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -76,7 +78,8 @@ class TestPromptRegistryUnit:
 
             # Should use @latest by default
             mock_load.assert_called_once_with("prompts:/test_prompt@latest")
-            assert result == "Latest content"
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Latest content"
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -95,10 +98,18 @@ class TestPromptRegistryUnit:
             # Simulate registry failure
             mock_load.side_effect = Exception("Registry not found")
 
+            # Mock _sync_default_template_to_registry to return a PromptVersion
+            mock_prompt = Mock()
+            mock_prompt.to_single_brace_format.return_value = (
+                "Fallback template content"
+            )
+            mock_sync.return_value = mock_prompt
+
             result = provider.get_prompt(prompt_model)
 
-            # Should use default_template
-            assert result == "Fallback template content"
+            # Should use default_template and return PromptVersion
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Fallback template content"
 
             # Should attempt to sync to registry (with description=None since not provided)
             mock_sync.assert_called_once_with(
@@ -145,8 +156,9 @@ class TestPromptRegistryUnit:
 
             result = provider.get_prompt(prompt_model)
 
-            # Should use registry content
-            assert result == "Registry content"
+            # Should use registry content and return PromptVersion
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Registry content"
 
             # Should NOT sync default_template when registry succeeds
             mock_sync.assert_not_called()
@@ -242,10 +254,18 @@ class TestPromptRegistryUnit:
             # Simulate registry failure
             mock_load.side_effect = Exception("Registry not found")
 
+            # Mock _sync_default_template_to_registry to return a PromptVersion
+            mock_prompt = Mock()
+            mock_prompt.to_single_brace_format.return_value = (
+                "Fallback template content"
+            )
+            mock_sync.return_value = mock_prompt
+
             result = provider.get_prompt(prompt_model)
 
-            # Should use default_template
-            assert result == "Fallback template content"
+            # Should use default_template and return PromptVersion
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Fallback template content"
 
             # Should attempt to sync to registry with description
             mock_sync.assert_called_once_with(
@@ -296,7 +316,10 @@ class TestPromptModelConfiguration:
     def test_prompt_template_property_calls_provider(self):
         """Test that PromptModel.template property calls DatabricksProvider.get_prompt."""
         mock_provider_instance = Mock()
-        mock_provider_instance.get_prompt.return_value = "Mocked template"
+        # Mock get_prompt to return a PromptVersion-like object
+        mock_prompt_version = Mock()
+        mock_prompt_version.to_single_brace_format.return_value = "Mocked template"
+        mock_provider_instance.get_prompt.return_value = mock_prompt_version
 
         # Patch where DatabricksProvider is imported - inside the template property
         with patch(

@@ -1183,8 +1183,8 @@ class PromptModel(BaseModel, HasFullName):
         from dao_ai.providers.databricks import DatabricksProvider
 
         provider: DatabricksProvider = DatabricksProvider()
-        prompt: str = provider.get_prompt(self)
-        return prompt
+        prompt_version = provider.get_prompt(self)
+        return prompt_version.to_single_brace_format()
 
     @property
     def full_name(self) -> str:

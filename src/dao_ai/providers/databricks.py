@@ -1028,26 +1028,23 @@ class DatabricksProvider(ServiceProvider):
             )
             raise
 
-    def get_prompt(self, prompt_model: PromptModel) -> str:
+    def get_prompt(self, prompt_model: PromptModel) -> PromptVersion:
         """Load prompt from MLflow Prompt Registry or fall back to default_template."""
-
+        prompt_version: PromptVersion | None = None
         prompt_name: str = prompt_model.full_name
 
         try:
-            from mlflow.genai.prompts import PromptVersion
-
-            prompt_obj: PromptVersion = prompt_model.as_prompt()
-            return prompt_obj.to_single_brace_format()
+            prompt_version = prompt_model.as_prompt()
+            return prompt_version
 
         except Exception as e:
             logger.warning(f"Failed to load prompt '{prompt_name}' from registry: {e}")
 
             if prompt_model.default_template:
                 logger.info(f"Using default_template for '{prompt_name}'")
-                self._sync_default_template_to_registry(
+                return self._sync_default_template_to_registry(
                     prompt_name, prompt_model.default_template, prompt_model.description
                 )
-                return prompt_model.default_template
 
             raise ValueError(
                 f"Prompt '{prompt_name}' not found in registry and no default_template provided"
@@ -1055,8 +1052,10 @@ class DatabricksProvider(ServiceProvider):
 
     def _sync_default_template_to_registry(
         self, prompt_name: str, default_template: str, description: str | None = None
-    ) -> None:
+    ) -> PromptVersion | None:
         """Register default_template to prompt registry under 'default' alias if changed."""
+        prompt_version: PromptVersion | None = None
+
         try:
             # Check if default alias already has the same template
             try:
@@ -1077,7 +1076,7 @@ class DatabricksProvider(ServiceProvider):
 
             # Register new version and set as default alias
             commit_message = description or "Auto-synced from default_template"
-            prompt_version: PromptVersion = mlflow.genai.register_prompt(
+            prompt_version = mlflow.genai.register_prompt(
                 name=prompt_name,
                 template=default_template,
                 commit_message=commit_message,
@@ -1096,6 +1095,8 @@ class DatabricksProvider(ServiceProvider):
 
         except Exception as e:
             logger.warning(f"Failed to sync '{prompt_name}' to registry: {e}")
+
+        return prompt_version
 
     def optimize_prompt(self, optimization: PromptOptimizationModel) -> PromptModel:
         """
