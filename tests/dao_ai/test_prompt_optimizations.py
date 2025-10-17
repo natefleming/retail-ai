@@ -574,6 +574,66 @@ class TestPromptOptimizationSystem:
     @pytest.mark.skipif(
         not has_databricks_env(), reason="Missing Databricks environment variables"
     )
+    @pytest.mark.skip("Skipping Databricks prompt optimization with config file")
+    def test_optimize_prompt_with_config_file(self):
+        """
+        Test prompt optimization using the example config file.
+
+        This test:
+        - Loads config/examples/prompt_optimization.yaml
+        - Creates/updates the training dataset
+        - Runs prompt optimization
+        - Verifies the optimized prompt is created
+
+        This test requires:
+        - Databricks environment variables
+        - Valid MLflow tracking URI
+        - Access to prompt registry
+        - Access to workspace API
+        """
+        from dao_ai.config import AppConfig
+
+        # Load the example config
+        config_path = "config/examples/prompt_optimization.yaml"
+        config = AppConfig.from_file(config_path)
+
+        assert config.optimizations is not None
+        assert len(config.optimizations.prompt_optimizations) > 0
+        assert len(config.optimizations.training_datasets) > 0
+
+        # Get the first optimization
+        opt_name = list(config.optimizations.prompt_optimizations.keys())[0]
+        optimization = config.optimizations.prompt_optimizations[opt_name]
+
+        # Verify optimization has required fields
+        assert optimization.name is not None
+        assert optimization.prompt is not None
+        assert optimization.agent is not None
+        assert optimization.dataset is not None
+
+        # Create/update the training dataset
+        dataset_name = list(config.optimizations.training_datasets.keys())[0]
+        dataset = config.optimizations.training_datasets[dataset_name]
+
+        # This will create or update the dataset
+        mlflow_dataset = dataset.as_dataset()
+        assert mlflow_dataset is not None
+
+        # Run the optimization
+        optimized_prompt = optimization.optimize()
+
+        # Verify the result
+        assert optimized_prompt is not None
+        assert isinstance(optimized_prompt, PromptModel)
+        assert optimized_prompt.name == optimization.prompt.name
+        # The optimized version should have a version number
+        assert optimized_prompt.version is not None
+
+    @pytest.mark.system
+    @pytest.mark.slow
+    @pytest.mark.skipif(
+        not has_databricks_env(), reason="Missing Databricks environment variables"
+    )
     @pytest.mark.skip("Skipping Databricks prompt optimization system test")
     def test_optimize_prompt_end_to_end(self):
         """

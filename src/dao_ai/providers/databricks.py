@@ -1111,8 +1111,7 @@ class DatabricksProvider(ServiceProvider):
         Returns:
             PromptModel: The optimized prompt with new URI
         """
-        from langchain_core.messages import AIMessage, HumanMessage
-        from langchain_core.runnables.base import RunnableLike
+        from langchain_core.messages import HumanMessage
         from mlflow.genai.optimize import GepaPromptOptimizer, optimize_prompts
         from mlflow.genai.scorers import Correctness
 
@@ -1164,14 +1163,14 @@ class DatabricksProvider(ServiceProvider):
 
         scorers = [Correctness(model=scorer_model)]
 
-        # Get the agent's LLM for the predict function
-        llm = agent.model.as_chat_model()
+        # Get the compiled agent as a runnable
+        agent_runnable = agent.as_runnable()
         prompt_uri = prompt_version.uri
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
         # Create predict function that will be optimized
         def predict_fn(**inputs: dict[str, Any]) -> str:
-            """Prediction function that uses the agent's LLM with the prompt.
+            """Prediction function that uses the agent with the prompt.
 
             This function must load and format the prompt using mlflow.genai.load_prompt()
             so that MLflow can track prompt usage during optimization.
@@ -1182,12 +1181,15 @@ class DatabricksProvider(ServiceProvider):
             # Format the prompt with inputs (required for MLflow tracking)
             formatted_prompt = prompt.format(**inputs)
 
-            # Use the LLM to generate response
-            from langchain_core.messages import HumanMessage
+            # Use the agent to generate response
 
-            messages = [HumanMessage(content=formatted_prompt)]
-            response = llm.invoke(messages)
-            return response.content
+            # LangGraph agents expect dict input with "messages" key
+            result = agent_runnable.invoke(
+                {"messages": [HumanMessage(content=formatted_prompt)]}
+            )
+
+            # Extract the last message content from the result
+            return result["messages"][-1].content
 
         # Set registry URI for Databricks Unity Catalog
         mlflow.set_registry_uri("databricks-uc")
