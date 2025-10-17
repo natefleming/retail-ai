@@ -36,6 +36,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from loguru import logger
+from mlflow.genai.datasets import EvaluationDataset, create_dataset, get_dataset
 from mlflow.genai.prompts import PromptVersion, load_prompt
 from mlflow.models import ModelConfig
 from mlflow.models.resources import (
@@ -1475,16 +1476,47 @@ class EvaluationModel(BaseModel):
     guidelines: list[GuidelineModel] = Field(default_factory=list)
 
 
+class EvaluationDatasetEntryModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    inputs: dict[str, Any]
+    expectations: dict[str, Any]
+
+
+class EvaluationDatasetModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    entries: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
+    tags: Optional[dict[str, Any]] = Field(default_factory=dict)
+
+    def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
+        evaluation_dataset: EvaluationDataset
+        try:
+            evaluation_dataset = get_dataset(name=self.name)
+        except Exception:
+            logger.warning(f"Dataset {self.name} not found, creating new dataset")
+            evaluation_dataset = create_dataset(name=self.name, tags=self.tags)
+
+            if self.entries:
+                logger.debug(
+                    f"Merging {len(self.entries)} entries into dataset {self.name}"
+                )
+                evaluation_dataset.merge_records([e.model_dump() for e in self.entries])
+
+        return evaluation_dataset  # If inputs and expectations are provided, create/update the dataset
+
+
 class PromptOptimizationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     prompt: PromptModel
     agent: AgentModel | str
-    dataset_name: str
-    reflection_model: Optional[LLMModel] = None
+    dataset: (
+        EvaluationDatasetModel | str
+    )  # Reference to dataset name (looked up in OptimizationsModel.training_datasets or MLflow)
+    reflection_model: Optional[LLMModel | str] = None
     num_candidates: Optional[int] = 5
     max_steps: Optional[int] = 3
-    scorer_model: Optional[LLMModel] = None
+    scorer_model: Optional[LLMModel | str] = None
     temperature: Optional[float] = 0.0
 
     def optimize(self, w: WorkspaceClient | None = None) -> "PromptModel":
@@ -1507,13 +1539,43 @@ class PromptOptimizationModel(BaseModel):
 
 class OptimizationsModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    training_datasets: dict[str, EvaluationDatasetModel] = Field(default_factory=dict)
     prompt_optimizations: dict[str, PromptOptimizationModel] = Field(
         default_factory=dict
     )
 
+    def get_dataset(self, dataset_name: str) -> Any:
+        """
+        Get a dataset by name, either from training_datasets or from MLflow.
+
+        Args:
+            dataset_name: Name of the dataset to retrieve
+
+        Returns:
+            EvaluationDataset: The MLflow evaluation dataset
+        """
+        # First, check if dataset is defined in training_datasets
+        if dataset_name in self.training_datasets:
+            logger.debug(
+                f"Found dataset '{dataset_name}' in training_datasets, calling as_dataset()"
+            )
+            return self.training_datasets[dataset_name].as_dataset()
+
+        # Otherwise, look it up from MLflow
+        logger.debug(
+            f"Dataset '{dataset_name}' not in training_datasets, looking up in MLflow"
+        )
+        from mlflow.genai.datasets import get_dataset
+
+        return get_dataset(name=dataset_name)
+
     def optimize(self, w: WorkspaceClient | None = None) -> dict[str, PromptModel]:
         """
         Optimize all prompts in this configuration.
+
+        This method:
+        1. Ensures all training datasets are created/registered in MLflow
+        2. Runs each prompt optimization
 
         Args:
             w: Optional WorkspaceClient for Databricks operations
@@ -1521,6 +1583,13 @@ class OptimizationsModel(BaseModel):
         Returns:
             dict[str, PromptModel]: Dictionary mapping optimization names to optimized prompts
         """
+        # First, ensure all training datasets are created/registered in MLflow
+        logger.info(f"Ensuring {len(self.training_datasets)} training datasets exist")
+        for dataset_name, dataset_model in self.training_datasets.items():
+            logger.debug(f"Creating/updating dataset: {dataset_name}")
+            dataset_model.as_dataset()
+
+        # Run optimizations
         results: dict[str, PromptModel] = {}
         for name, optimization in self.prompt_optimizations.items():
             results[name] = optimization.optimize(w)

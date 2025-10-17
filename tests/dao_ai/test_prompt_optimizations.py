@@ -43,8 +43,8 @@ GepaPromptOptimizer signature:
 - max_metric_calls: int (default: 100)
 - display_progress_bar: bool (default: False)
 
-Some tests that directly invoke DatabricksProvider.optimize_prompt are skipped 
-because they would require mocking complex MLflow internals. The integration and 
+Some tests that directly invoke DatabricksProvider.optimize_prompt are skipped
+because they would require mocking complex MLflow internals. The integration and
 system tests provide coverage for the end-to-end workflow.
 """
 
@@ -56,6 +56,8 @@ from conftest import has_databricks_env
 from dao_ai.config import (
     AgentModel,
     AppConfig,
+    EvaluationDatasetEntryModel,
+    EvaluationDatasetModel,
     LLMModel,
     OptimizationsModel,
     PromptModel,
@@ -78,13 +80,14 @@ class TestPromptOptimizationModelUnit:
             name="test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset_name="test_dataset",
+            dataset="test_dataset",  # Now a string reference
         )
 
         assert opt.name == "test_optimization"
         assert opt.prompt.name == "test_prompt"
         assert opt.agent.name == "test_agent"
-        assert opt.dataset_name == "test_dataset"
+        assert opt.dataset == "test_dataset"
+        assert isinstance(opt.dataset, str)
 
     @pytest.mark.unit
     def test_prompt_optimization_model_defaults(self):
@@ -97,7 +100,7 @@ class TestPromptOptimizationModelUnit:
             name="test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset_name="test_dataset",
+            dataset="test_dataset",
         )
 
         assert opt.num_candidates == 5
@@ -118,7 +121,7 @@ class TestPromptOptimizationModelUnit:
             name="test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset_name="test_dataset",
+            dataset="test_dataset",
             reflection_model=reflection_llm,
             num_candidates=10,
             max_steps=5,
@@ -139,11 +142,68 @@ class TestPromptOptimizationModelUnit:
             name="test_optimization",
             prompt=prompt,
             agent="test_agent",  # String reference
-            dataset_name="test_dataset",
+            dataset="test_dataset",
         )
 
         assert opt.agent == "test_agent"
         assert isinstance(opt.agent, str)
+
+    @pytest.mark.unit
+    def test_prompt_optimization_model_reflection_model_as_string(self):
+        """Test that PromptOptimizationModel accepts reflection_model as string reference."""
+        prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
+        llm = LLMModel(name="gpt-4o-mini")
+        agent = AgentModel(name="test_agent", model=llm)
+
+        opt = PromptOptimizationModel(
+            name="test_optimization",
+            prompt=prompt,
+            agent=agent,
+            dataset="test_dataset",
+            reflection_model="gpt-4o",  # String reference
+        )
+
+        assert opt.reflection_model == "gpt-4o"
+        assert isinstance(opt.reflection_model, str)
+
+    @pytest.mark.unit
+    def test_prompt_optimization_model_scorer_model_as_string(self):
+        """Test that PromptOptimizationModel accepts scorer_model as string reference."""
+        prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
+        llm = LLMModel(name="gpt-4o-mini")
+        agent = AgentModel(name="test_agent", model=llm)
+
+        opt = PromptOptimizationModel(
+            name="test_optimization",
+            prompt=prompt,
+            agent=agent,
+            dataset="test_dataset",
+            scorer_model="gpt-4o",  # String reference
+        )
+
+        assert opt.scorer_model == "gpt-4o"
+        assert isinstance(opt.scorer_model, str)
+
+    @pytest.mark.unit
+    def test_prompt_optimization_model_mixed_string_and_model_refs(self):
+        """Test that PromptOptimizationModel accepts mix of string and model references."""
+        prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
+        llm = LLMModel(name="gpt-4o-mini")
+        agent = AgentModel(name="test_agent", model=llm)
+
+        opt = PromptOptimizationModel(
+            name="test_optimization",
+            prompt=prompt,
+            agent=agent,
+            dataset="test_dataset",
+            reflection_model="gpt-4o",  # String reference
+            scorer_model=llm,  # LLMModel reference
+        )
+
+        assert opt.reflection_model == "gpt-4o"
+        assert isinstance(opt.reflection_model, str)
+        assert opt.scorer_model.name == "gpt-4o-mini"
+        assert isinstance(opt.scorer_model, LLMModel)
 
     @pytest.mark.unit
     @patch("dao_ai.providers.databricks.DatabricksProvider.optimize_prompt")
@@ -157,7 +217,7 @@ class TestPromptOptimizationModelUnit:
             name="test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset_name="test_dataset",
+            dataset="test_dataset",
         )
 
         # Mock the optimize_prompt method to return a new PromptModel
@@ -171,6 +231,64 @@ class TestPromptOptimizationModelUnit:
         # Verify the method was called with the optimization object
         mock_optimize.assert_called_once_with(opt)
         assert result == mock_optimized_prompt
+
+
+class TestTrainingDatasetModelUnit:
+    """Unit tests for EvaluationDatasetModel."""
+
+    @pytest.mark.unit
+    def test_training_dataset_model_creation(self):
+        """Test that EvaluationDatasetModel can be created with just a name."""
+        dataset = EvaluationDatasetModel(name="test_dataset")
+
+        assert dataset.name == "test_dataset"
+        assert dataset.entries == []
+        assert dataset.tags == {}
+
+    @pytest.mark.unit
+    def test_training_dataset_model_with_data(self):
+        """Test that EvaluationDatasetModel can be created with entries."""
+        entries = [
+            EvaluationDatasetEntryModel(
+                inputs={"text": "Hello world"}, expectations={"sentiment": "positive"}
+            ),
+            EvaluationDatasetEntryModel(
+                inputs={"text": "Goodbye world"}, expectations={"sentiment": "negative"}
+            ),
+        ]
+        tags = {"version": "1.0", "source": "test"}
+
+        dataset = EvaluationDatasetModel(
+            name="test_dataset", entries=entries, tags=tags
+        )
+
+        assert dataset.name == "test_dataset"
+        assert len(dataset.entries) == 2
+        assert dataset.entries[0].inputs == {"text": "Hello world"}
+        assert dataset.entries[0].expectations == {"sentiment": "positive"}
+        assert dataset.tags == tags
+
+    @pytest.mark.unit
+    def test_training_dataset_in_optimizations_model(self):
+        """Test that EvaluationDatasetModel works within OptimizationsModel."""
+        dataset = EvaluationDatasetModel(
+            name="test_dataset",
+            entries=[
+                EvaluationDatasetEntryModel(
+                    inputs={"text": "Hello"}, expectations={"sentiment": "positive"}
+                )
+            ],
+        )
+
+        optimizations_model = OptimizationsModel(
+            training_datasets={"test_dataset": dataset}
+        )
+
+        assert len(optimizations_model.training_datasets) == 1
+        assert "test_dataset" in optimizations_model.training_datasets
+        assert (
+            optimizations_model.training_datasets["test_dataset"].name == "test_dataset"
+        )
 
 
 class TestOptimizationsModelUnit:
@@ -187,7 +305,7 @@ class TestOptimizationsModelUnit:
             name="test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset_name="test_dataset",
+            dataset="test_dataset",
         )
 
         optimizations_model = OptimizationsModel(prompt_optimizations={"test_opt": opt})
@@ -209,23 +327,31 @@ class TestOptimizationsModelUnit:
 
     @pytest.mark.unit
     @patch("dao_ai.config.PromptOptimizationModel.optimize")
-    def test_optimizations_model_optimize_method(self, mock_optimize):
+    @patch("dao_ai.config.EvaluationDatasetModel.as_dataset")
+    def test_optimizations_model_optimize_method(self, mock_as_dataset, mock_optimize):
         """Test that OptimizationsModel.optimize() calls optimize on all optimizations."""
         prompt1 = PromptModel(name="prompt1", default_template="Test {{text}}")
         prompt2 = PromptModel(name="prompt2", default_template="Test {{text}}")
         llm = LLMModel(name="gpt-4o-mini")
         agent = AgentModel(name="test_agent", model=llm)
 
+        dataset1 = EvaluationDatasetModel(name="dataset1")
+        dataset2 = EvaluationDatasetModel(name="dataset2")
+
         opt1 = PromptOptimizationModel(
-            name="opt1", prompt=prompt1, agent=agent, dataset_name="dataset1"
+            name="opt1", prompt=prompt1, agent=agent, dataset="dataset1"
         )
         opt2 = PromptOptimizationModel(
-            name="opt2", prompt=prompt2, agent=agent, dataset_name="dataset2"
+            name="opt2", prompt=prompt2, agent=agent, dataset="dataset2"
         )
 
         optimizations_model = OptimizationsModel(
-            prompt_optimizations={"opt1": opt1, "opt2": opt2}
+            training_datasets={"dataset1": dataset1, "dataset2": dataset2},
+            prompt_optimizations={"opt1": opt1, "opt2": opt2},
         )
+
+        # Mock the as_dataset method
+        mock_as_dataset.return_value = Mock()
 
         # Mock the optimize method to return PromptModels
         mock_result1 = PromptModel(name="prompt1", version=2, default_template="Opt1")
@@ -233,6 +359,9 @@ class TestOptimizationsModelUnit:
         mock_optimize.side_effect = [mock_result1, mock_result2]
 
         results = optimizations_model.optimize()
+
+        # Verify as_dataset was called for each training dataset
+        assert mock_as_dataset.call_count == 2
 
         # Verify optimize was called on each optimization
         assert mock_optimize.call_count == 2
@@ -260,15 +389,19 @@ class TestAppConfigWithOptimizations:
         prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
         llm = LLMModel(name="gpt-4o-mini")
         agent = AgentModel(name="test_agent", model=llm)
+        dataset = EvaluationDatasetModel(name="test_dataset")
 
         opt = PromptOptimizationModel(
             name="test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset_name="test_dataset",
+            dataset="test_dataset",
         )
 
-        optimizations_model = OptimizationsModel(prompt_optimizations={"test_opt": opt})
+        optimizations_model = OptimizationsModel(
+            training_datasets={"test_dataset": dataset},
+            prompt_optimizations={"test_opt": opt},
+        )
 
         config_dict = {
             "prompts": {"test": prompt},
@@ -285,6 +418,7 @@ class TestAppConfigWithOptimizations:
 
         assert config.optimizations is not None
         assert isinstance(config.optimizations, OptimizationsModel)
+        assert len(config.optimizations.training_datasets) == 1
         assert len(config.optimizations.prompt_optimizations) == 1
 
     @pytest.mark.unit
@@ -325,7 +459,7 @@ class TestDatabricksProviderOptimizePromptUnit:
             name="test_optimization",
             prompt=prompt,
             agent="test_agent",  # String reference
-            dataset_name="test_dataset",
+            dataset="test_dataset",
         )
 
         # Call optimize_prompt - should raise ValueError
@@ -341,22 +475,29 @@ class TestPromptOptimizationIntegration:
 
     @pytest.mark.unit
     @patch("dao_ai.providers.databricks.DatabricksProvider.optimize_prompt")
-    def test_end_to_end_optimization_workflow(self, mock_optimize):
+    @patch("dao_ai.config.EvaluationDatasetModel.as_dataset")
+    def test_end_to_end_optimization_workflow(self, mock_as_dataset, mock_optimize):
         """Test complete optimization workflow from config to result."""
         prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
         llm = LLMModel(name="gpt-4o-mini")
         agent = AgentModel(name="test_agent", model=llm)
+        dataset1 = EvaluationDatasetModel(name="dataset1")
+        dataset2 = EvaluationDatasetModel(name="dataset2")
 
         opt1 = PromptOptimizationModel(
-            name="opt1", prompt=prompt, agent=agent, dataset_name="dataset1"
+            name="opt1", prompt=prompt, agent=agent, dataset="dataset1"
         )
         opt2 = PromptOptimizationModel(
-            name="opt2", prompt=prompt, agent=agent, dataset_name="dataset2"
+            name="opt2", prompt=prompt, agent=agent, dataset="dataset2"
         )
 
         optimizations_model = OptimizationsModel(
-            prompt_optimizations={"opt1": opt1, "opt2": opt2}
+            training_datasets={"dataset1": dataset1, "dataset2": dataset2},
+            prompt_optimizations={"opt1": opt1, "opt2": opt2},
         )
+
+        # Mock as_dataset
+        mock_as_dataset.return_value = Mock()
 
         # Mock optimize_prompt to return new versions
         mock_result1 = PromptModel(
@@ -369,6 +510,9 @@ class TestPromptOptimizationIntegration:
 
         # Run optimization
         results = optimizations_model.optimize()
+
+        # Verify datasets were created
+        assert mock_as_dataset.call_count == 2
 
         # Verify results
         assert len(results) == 2
@@ -469,4 +613,3 @@ class TestPromptOptimizationSystem:
             for key, result in results.items():
                 assert isinstance(result, PromptModel)
                 assert result.name is not None
-

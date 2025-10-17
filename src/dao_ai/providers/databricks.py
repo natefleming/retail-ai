@@ -32,6 +32,7 @@ from mlflow import MlflowClient
 from mlflow.entities import Experiment
 from mlflow.entities.model_registry import PromptVersion
 from mlflow.entities.model_registry.model_version import ModelVersion
+from mlflow.genai.datasets import EvaluationDataset, get_dataset
 from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
 from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
@@ -1096,7 +1097,7 @@ class DatabricksProvider(ServiceProvider):
         except Exception as e:
             logger.warning(f"Failed to sync '{prompt_name}' to registry: {e}")
 
-    def optimize_prompt(self, optimization: "PromptOptimizationModel") -> "PromptModel":
+    def optimize_prompt(self, optimization: PromptOptimizationModel) -> PromptModel:
         """
         Optimize a prompt using MLflow's prompt optimization (MLflow 3.5+).
 
@@ -1109,7 +1110,6 @@ class DatabricksProvider(ServiceProvider):
         Returns:
             PromptModel: The optimized prompt with new URI
         """
-        from mlflow.genai.datasets import get_dataset
         from mlflow.genai.optimize import GepaPromptOptimizer, optimize_prompts
         from mlflow.genai.scorers import Correctness
 
@@ -1126,16 +1126,22 @@ class DatabricksProvider(ServiceProvider):
 
         prompt: PromptModel = optimization.prompt
 
-        # Load the evaluation dataset
-        logger.debug(f"Loading dataset: {optimization.dataset_name}")
-        dataset = get_dataset(name=optimization.dataset_name)
+        # Load the evaluation dataset by name
+        logger.debug(f"Looking up dataset: {optimization.dataset}")
+        dataset: EvaluationDataset
+        if isinstance(optimization.dataset, str):
+            dataset = get_dataset(name=optimization.dataset)
+        else:
+            dataset = optimization.dataset.as_dataset()
 
         # Set up reflection model for the optimizer
-        reflection_model_name: str = (
-            optimization.reflection_model.name
-            if optimization.reflection_model
-            else agent.model.name
-        )
+        if optimization.reflection_model:
+            if isinstance(optimization.reflection_model, str):
+                reflection_model_name = optimization.reflection_model
+            else:
+                reflection_model_name = optimization.reflection_model.name
+        else:
+            reflection_model_name = agent.model.name
         logger.debug(f"Using reflection model: {reflection_model_name}")
 
         # Create the GepaPromptOptimizer
@@ -1146,11 +1152,13 @@ class DatabricksProvider(ServiceProvider):
         )
 
         # Set up scorer (judge model for evaluation)
-        scorer_model: str = (
-            optimization.scorer_model.name
-            if optimization.scorer_model
-            else "databricks"  # Use Databricks default
-        )
+        if optimization.scorer_model:
+            if isinstance(optimization.scorer_model, str):
+                scorer_model = optimization.scorer_model
+            else:
+                scorer_model = optimization.scorer_model.name
+        else:
+            scorer_model = "databricks"  # Use Databricks default
         logger.debug(f"Using scorer with model: {scorer_model}")
 
         scorers = [Correctness(model=scorer_model)]

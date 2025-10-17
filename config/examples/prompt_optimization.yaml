@@ -42,23 +42,61 @@ agents:
 
 # Define prompt optimizations
 optimizations:
+  # Define training datasets (optional - can also reference existing datasets by name)
+  training_datasets:
+    # Example dataset with inline data
+    sentiment_migration_dataset:
+      name: sentiment_migration_dataset
+      entries:
+        - inputs:
+            text: "This product is amazing!"
+          expectations:
+            sentiment: "positive"
+        - inputs:
+            text: "Terrible experience"
+          expectations:
+            sentiment: "negative"
+        - inputs:
+            text: "The service was okay"
+          expectations:
+            sentiment: "neutral"
+      tags:
+        version: "1.0"
+        source: "gpt-4"
+
   prompt_optimizations:
     # Optimize the sentiment classifier prompt for the new model
     optimize_sentiment:
       name: optimize_sentiment
       prompt: *sentiment_prompt
       agent: *sentiment_agent
-      dataset_name: sentiment_migration_dataset  # Dataset created from source model outputs
+      
+      # Dataset reference - can be:
+      # 1. String name referencing training_datasets (above)
+      # 2. String name of existing dataset in MLflow
+      # 3. Inline EvaluationDatasetModel with entries
+      dataset: sentiment_migration_dataset
+      
+      # Option 3: Inline dataset (alternative to referencing training_datasets)
+      # dataset:
+      #   name: inline_dataset
+      #   entries:
+      #     - inputs: {text: "Example"}
+      #       expectations: {sentiment: "positive"}
       
       # Optional: Specify reflection model (defaults to agent's model)
+      # Can be LLMModel reference or string model name
       reflection_model: *gpt_4
+      # Or use string: reflection_model: "databricks-claude-sonnet-4-5"
       
       # Optional: Optimization parameters
       num_candidates: 5  # Number of candidate prompts to generate
       max_steps: 3       # Maximum optimization steps
       
-      # Optional: Specify scorer model (defaults to agent's model)  
+      # Optional: Specify scorer model (defaults to "databricks")
+      # Can be LLMModel reference or string model name
       scorer_model: *gpt_4
+      # Or use string: scorer_model: "databricks-claude-sonnet-4-5"
       
       # Optional: Temperature for generation
       temperature: 0.0
@@ -75,20 +113,24 @@ app:
 
 # Example workflow for using prompt optimization:
 #
-# 1. Collect data from your source model (e.g., gpt-4):
-#    - Run your application with tracing enabled
-#    - Use mlflow.search_traces() to collect inputs/outputs
-#    - Create a dataset using mlflow.genai.datasets.create_dataset()
+# 1. Create a training dataset:
+#    Option A: Define in YAML under optimizations.training_datasets
+#    Option B: Create dataset programmatically and reference by name
+#    Option C: Use existing dataset by name (will be looked up from MLflow)
 #
 # 2. Configure optimization in your YAML:
-#    - Define the prompt to optimize
+#    - Define training datasets (optional, in training_datasets)
+#    - Define the prompt to optimize (in prompt_optimizations)
 #    - Specify the target agent (with new model)
-#    - Reference the dataset created in step 1
+#    - Reference the dataset by name (string)
 #    - Set optimization parameters
 #
 # 3. Run optimization notebook:
 #    - Use notebooks/10_optimize_prompts.py
-#    - This will iterate all optimizations and register new versions
+#    - This will:
+#      a. Create/update datasets from training_datasets
+#      b. Iterate all prompt_optimizations
+#      c. Register new optimized prompt versions in MLflow
 #
 # 4. Evaluate and deploy:
 #    - Review optimized prompts in MLflow
@@ -96,18 +138,35 @@ app:
 #    - Update your config to use the optimized prompt version
 #    - Deploy with notebooks/05_deploy_agent.py
 
-# Example Python code to create a dataset:
+# Example Python code to work with datasets programmatically:
 # 
-# import mlflow
-# from mlflow.genai.datasets import create_dataset
+# from dao_ai.config import load_config, EvaluationDatasetModel, EvaluationDatasetEntryModel
 # 
-# # Collect traces from your source model
-# with mlflow.start_run() as run:
-#     for record in inputs:
-#         predict_fn_source_model(**record["inputs"])
+# # Load config
+# config = load_config("config/examples/prompt_optimization.yaml")
 # 
-# # Create dataset from traces
-# dataset = create_dataset(name="sentiment_migration_dataset")
-# traces = mlflow.search_traces(return_type="list", run_id=run.info.run_id)
-# dataset.merge_records(traces)
+# # Access training datasets
+# if config.optimizations:
+#     for name, dataset in config.optimizations.training_datasets.items():
+#         print(f"Dataset: {name}")
+#         mlflow_dataset = dataset.as_dataset()
+# 
+# # Create dataset programmatically
+# dataset = EvaluationDatasetModel(
+#     name="my_dataset",
+#     entries=[
+#         EvaluationDatasetEntryModel(
+#             inputs={"text": "Example text"},
+#             expectations={"sentiment": "positive"}
+#         )
+#     ],
+#     tags={"version": "1.0"}
+# )
+# mlflow_dataset = dataset.as_dataset()
+# 
+# # Run all optimizations
+# if config.optimizations:
+#     results = config.optimizations.optimize()
+#     for opt_name, optimized_prompt in results.items():
+#         print(f"{opt_name}: {optimized_prompt.uri}")
 
