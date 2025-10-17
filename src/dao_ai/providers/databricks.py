@@ -1125,6 +1125,7 @@ class DatabricksProvider(ServiceProvider):
             )
 
         prompt: PromptModel = optimization.prompt
+        prompt_version: PromptVersion = self.get_prompt(prompt)
 
         # Load the evaluation dataset by name
         logger.debug(f"Looking up dataset: {optimization.dataset}")
@@ -1165,7 +1166,7 @@ class DatabricksProvider(ServiceProvider):
 
         # Get the agent's LLM for the predict function
         llm = agent.model.as_chat_model()
-        prompt_template = prompt.template
+        prompt_template = prompt_version.to_single_brace_format()
         logger.debug(f"Optimizing prompt template: {prompt_template[:100]}...")
 
         # Create predict function that will be optimized
@@ -1193,7 +1194,7 @@ class DatabricksProvider(ServiceProvider):
         result = optimize_prompts(
             predict_fn=predict_fn,
             train_data=dataset,
-            prompt_uris=[prompt.uri],
+            prompt_uris=[prompt_version.uri],
             optimizer=optimizer,
             scorers=scorers,
             enable_tracking=True,

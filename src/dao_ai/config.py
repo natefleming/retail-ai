@@ -1488,18 +1488,17 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
     name: str
     entries: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
 
-
     def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
         evaluation_dataset: EvaluationDataset
         try:
             evaluation_dataset = get_dataset(name=self.full_name)
         except Exception:
-            logger.warning(f"Dataset {self.name} not found, creating new dataset")
+            logger.warning(f"Dataset {self.full_name} not found, creating new dataset")
             evaluation_dataset = create_dataset(name=self.full_name)
 
             if self.entries:
                 logger.debug(
-                    f"Merging {len(self.entries)} entries into dataset {self.name}"
+                    f"Merging {len(self.entries)} entries into dataset {self.full_name}"
                 )
                 evaluation_dataset.merge_records([e.model_dump() for e in self.entries])
 
@@ -1510,6 +1509,7 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
         if self.schema_model:
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
+
 
 class PromptOptimizationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")

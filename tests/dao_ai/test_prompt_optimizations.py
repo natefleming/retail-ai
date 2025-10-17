@@ -257,9 +257,7 @@ class TestTrainingDatasetModelUnit:
             ),
         ]
 
-        dataset = EvaluationDatasetModel(
-            name="test_dataset", entries=entries
-        )
+        dataset = EvaluationDatasetModel(name="test_dataset", entries=entries)
 
         assert dataset.name == "test_dataset"
         assert len(dataset.entries) == 2

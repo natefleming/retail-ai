@@ -45,7 +45,7 @@ optimizations:
   # Define training datasets (optional - can also reference existing datasets by name)
   training_datasets:
     # Example dataset with inline data
-    sentiment_migration_dataset:
+    sentiment_migration_dataset: &sentiment_migration_dataset
       # Optional: Specify schema for full catalog.schema.table name
       schema: *main_schema
       name: sentiment_migration_dataset
@@ -74,7 +74,7 @@ optimizations:
       # 1. String name referencing training_datasets (above)
       # 2. String name of existing dataset in MLflow
       # 3. Inline EvaluationDatasetModel with entries
-      dataset: sentiment_migration_dataset
+      dataset: *sentiment_migration_dataset
       
       # Option 3: Inline dataset (alternative to referencing training_datasets)
       # dataset:
