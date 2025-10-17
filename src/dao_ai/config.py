@@ -1536,7 +1536,7 @@ class PromptOptimizationModel(BaseModel):
         EvaluationDatasetModel | str
     )  # Reference to dataset name (looked up in OptimizationsModel.training_datasets or MLflow)
     reflection_model: Optional[LLMModel | str] = None
-    num_candidates: Optional[int] = 5
+    num_candidates: Optional[int] = 10
     scorer_model: Optional[LLMModel | str] = None
 
     def optimize(self, w: WorkspaceClient | None = None) -> "PromptModel":
