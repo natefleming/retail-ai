@@ -79,7 +79,6 @@ from dao_ai.config import AppConfig
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
-
 # COMMAND ----------
 
 # MAGIC %md
@@ -107,6 +106,25 @@ for name in prompt_optimizations.keys():
 
 # COMMAND ----------
 
+# First, ensure all training datasets are created/updated in MLflow
+print("\n" + "="*80)
+print("Creating/updating training datasets")
+print("="*80)
+
+if optimizations.training_datasets:
+    for dataset_name, dataset_model in optimizations.training_datasets.items():
+        print(f"Processing dataset: {dataset_name}")
+        try:
+            dataset_model.as_dataset()
+            print(f"  Dataset '{dataset_name}' ready")
+        except Exception as e:
+            logger.error(f"Failed to create/update dataset {dataset_name}: {e}")
+            print(f"  Failed to create dataset: {str(e)}")
+else:
+    print("No training datasets defined in configuration (will use existing MLflow datasets)")
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ### Run Optimizations
 # MAGIC
@@ -126,23 +144,6 @@ mlflow.set_registry_uri("databricks-uc")
 
 # Track results
 optimization_results: Sequence[tuple[str, PromptModel, str]] = []
-
-# First, ensure all training datasets are created/updated in MLflow
-print("\n" + "="*80)
-print("Creating/updating training datasets")
-print("="*80)
-
-if optimizations.training_datasets:
-    for dataset_name, dataset_model in optimizations.training_datasets.items():
-        print(f"Processing dataset: {dataset_name}")
-        try:
-            dataset_model.as_dataset()
-            print(f"  Dataset '{dataset_name}' ready")
-        except Exception as e:
-            logger.error(f"Failed to create/update dataset {dataset_name}: {e}")
-            print(f"  Failed to create dataset: {str(e)}")
-else:
-    print("No training datasets defined in configuration (will use existing MLflow datasets)")
 
 # Run optimizations
 for opt_name, optimization in prompt_optimizations.items():
