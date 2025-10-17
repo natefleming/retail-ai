@@ -1480,26 +1480,21 @@ class EvaluationModel(BaseModel):
     guidelines: list[GuidelineModel] = Field(default_factory=list)
 
 
-
-class EvaluationDatasetInputsModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    question: str
-
 class EvaluationDatasetExpectationsModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     expected_response: Optional[str] = None
     expected_facts: Optional[list[str]] = None
-    
-    
+
     @model_validator(mode="after")
     def validate_mutually_exclusive(self):
         if self.expected_response is not None and self.expected_facts is not None:
             raise ValueError("Cannot specify both expected_response and expected_facts")
         return self
 
+
 class EvaluationDatasetEntryModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    inputs: EvaluationDatasetInputsModel
+    inputs: dict[str, Any] = Field(default_factory=dict)
     expectations: EvaluationDatasetExpectationsModel
 
 

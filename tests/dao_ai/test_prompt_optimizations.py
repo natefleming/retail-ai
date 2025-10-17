@@ -58,7 +58,6 @@ from dao_ai.config import (
     AppConfig,
     EvaluationDatasetEntryModel,
     EvaluationDatasetExpectationsModel,
-    EvaluationDatasetInputsModel,
     EvaluationDatasetModel,
     LLMModel,
     OptimizationsModel,
@@ -249,16 +248,16 @@ class TestTrainingDatasetModelUnit:
 
     @pytest.mark.unit
     def test_training_dataset_model_with_data(self):
-        """Test that EvaluationDatasetModel can be created with entries."""
+        """Test that EvaluationDatasetModel can be created with data entries."""
         entries = [
             EvaluationDatasetEntryModel(
-                inputs=EvaluationDatasetInputsModel(question="Hello world"),
+                inputs={"text": "Hello world"},
                 expectations=EvaluationDatasetExpectationsModel(
                     expected_response="Hello! How can I help you?"
                 ),
             ),
             EvaluationDatasetEntryModel(
-                inputs=EvaluationDatasetInputsModel(question="Goodbye world"),
+                inputs={"text": "Goodbye world"},
                 expectations=EvaluationDatasetExpectationsModel(
                     expected_response="Goodbye! Have a great day!"
                 ),
@@ -269,7 +268,7 @@ class TestTrainingDatasetModelUnit:
 
         assert dataset.name == "test_dataset"
         assert len(dataset.data) == 2
-        assert dataset.data[0].inputs.question == "Hello world"
+        assert dataset.data[0].inputs["text"] == "Hello world"
         assert (
             dataset.data[0].expectations.expected_response
             == "Hello! How can I help you?"
@@ -280,9 +279,7 @@ class TestTrainingDatasetModelUnit:
     def test_training_dataset_with_expected_facts(self):
         """Test that EvaluationDatasetModel can be created with expected_facts."""
         entry = EvaluationDatasetEntryModel(
-            inputs=EvaluationDatasetInputsModel(
-                question="What is the capital of France?"
-            ),
+            inputs={"question": "What is the capital of France?"},
             expectations=EvaluationDatasetExpectationsModel(
                 expected_facts=["Paris", "Capital city of France"]
             ),
@@ -292,24 +289,56 @@ class TestTrainingDatasetModelUnit:
 
         assert dataset.name == "test_dataset"
         assert len(dataset.data) == 1
+        assert dataset.data[0].inputs["question"] == "What is the capital of France?"
         assert dataset.data[0].expectations.expected_facts == [
             "Paris",
             "Capital city of France",
         ]
         assert dataset.data[0].expectations.expected_response is None
-        
+
     @pytest.mark.unit
     def test_training_dataset_with_expected_response_only(self):
         """Test that expected_response works without expected_facts."""
         entry = EvaluationDatasetEntryModel(
-            inputs=EvaluationDatasetInputsModel(question="Hello"),
+            inputs={"text": "Hello"},
             expectations=EvaluationDatasetExpectationsModel(
                 expected_response="Hi there!"
             ),
         )
-        
+
+        assert entry.inputs["text"] == "Hello"
         assert entry.expectations.expected_response == "Hi there!"
         assert entry.expectations.expected_facts is None
+
+    @pytest.mark.unit
+    def test_training_dataset_flexible_input_fields(self):
+        """Test that inputs accepts any input fields as dict."""
+        # Test with 'text' field
+        entry1 = EvaluationDatasetEntryModel(
+            inputs={"text": "Some text"},
+            expectations=EvaluationDatasetExpectationsModel(
+                expected_response="Response"
+            ),
+        )
+        assert entry1.inputs["text"] == "Some text"
+
+        # Test with 'question' field
+        entry2 = EvaluationDatasetEntryModel(
+            inputs={"question": "Some question"},
+            expectations=EvaluationDatasetExpectationsModel(expected_response="Answer"),
+        )
+        assert entry2.inputs["question"] == "Some question"
+
+        # Test with custom fields
+        entry3 = EvaluationDatasetEntryModel(
+            inputs={
+                "context": "Context here", 
+                "query": "Query here"
+            },
+            expectations=EvaluationDatasetExpectationsModel(expected_response="Result"),
+        )
+        assert entry3.inputs["context"] == "Context here"
+        assert entry3.inputs["query"] == "Query here"
 
     @pytest.mark.unit
     def test_training_dataset_mutual_exclusion_validator(self):
@@ -341,7 +370,7 @@ class TestTrainingDatasetModelUnit:
             name="test_dataset",
             data=[
                 EvaluationDatasetEntryModel(
-                    inputs=EvaluationDatasetInputsModel(question="Hello"),
+                    inputs={"text": "Hello"},
                     expectations=EvaluationDatasetExpectationsModel(
                         expected_response="Hi there!"
                     ),

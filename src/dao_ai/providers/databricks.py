@@ -1136,7 +1136,6 @@ class DatabricksProvider(ServiceProvider):
         else:
             dataset = optimization.dataset.as_dataset()
 
-
         # Set up reflection model for the optimizer
         if optimization.reflection_model:
             if isinstance(optimization.reflection_model, str):
@@ -1149,7 +1148,7 @@ class DatabricksProvider(ServiceProvider):
 
         # Create the GepaPromptOptimizer
         optimizer = GepaPromptOptimizer(
-            reflection_model=f"databricks:/{reflection_model_name}",
+            reflection_model=reflection_model_name,
             max_metric_calls=optimization.num_candidates or 100,
             display_progress_bar=True,
         )
@@ -1168,18 +1167,21 @@ class DatabricksProvider(ServiceProvider):
 
         # Get the agent's LLM for the predict function
         llm = agent.model.as_chat_model()
-        prompt_template = prompt_version.to_single_brace_format()
-        logger.debug(f"Optimizing prompt template: {prompt_template[:100]}...")
+        prompt_uri = prompt_version.uri
+        logger.debug(f"Optimizing prompt: {prompt_uri}")
 
         # Create predict function that will be optimized
         def predict_fn(**inputs: dict[str, Any]) -> str:
-            """Prediction function that uses the agent's LLM with the prompt."""
-            # Format the prompt with inputs
-            formatted_prompt = prompt_template
-            for key, value in inputs.items():
-                formatted_prompt = formatted_prompt.replace(
-                    f"{{{{{key}}}}}", str(value)
-                )
+            """Prediction function that uses the agent's LLM with the prompt.
+
+            This function must load and format the prompt using mlflow.genai.load_prompt()
+            so that MLflow can track prompt usage during optimization.
+            """
+            # Load the prompt from the registry (required for MLflow tracking)
+            prompt = mlflow.genai.load_prompt(prompt_uri)
+
+            # Format the prompt with inputs (required for MLflow tracking)
+            formatted_prompt = prompt.format(**inputs)
 
             # Use the LLM to generate response
             from langchain_core.messages import HumanMessage

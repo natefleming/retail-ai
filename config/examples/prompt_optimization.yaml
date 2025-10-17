@@ -51,15 +51,15 @@ optimizations:
       name: sentiment_migration_dataset
       data:
         - inputs:
-            question: "This product is amazing!"
+            text: "This product is amazing!"
           expectations:
             expected_response: "positive"
         - inputs:
-            question: "Terrible experience"
+            text: "Terrible experience"
           expectations:
             expected_response: "negative"
         - inputs:
-            question: "The service was okay"
+            text: "The service was okay"
           expectations:
             expected_response: "neutral"
 
@@ -81,7 +81,7 @@ optimizations:
       #   name: inline_dataset
       #   data:
       #     - inputs:
-      #         question: "Example"
+      #         text: "Example"  # Must match prompt template variables
       #       expectations:
       #         expected_response: "positive"
       
@@ -142,16 +142,15 @@ app:
 # Example Python code to work with datasets programmatically:
 # 
 # from dao_ai.config import (
-#     load_config, 
+#     AppConfig,
 #     EvaluationDatasetModel, 
 #     EvaluationDatasetEntryModel,
-#     EvaluationDatasetInputsModel,
 #     EvaluationDatasetExpectationsModel,
 #     SchemaModel
 # )
 # 
 # # Load config
-# config = load_config("config/examples/prompt_optimization.yaml")
+# config = AppConfig.from_file("config/examples/prompt_optimization.yaml")
 # 
 # # Access training datasets
 # if config.optimizations:
@@ -167,19 +166,21 @@ app:
 #     schema=schema,
 #     data=[
 #         EvaluationDatasetEntryModel(
-#             inputs=EvaluationDatasetInputsModel(question="What is sentiment analysis?"),
+#             inputs={"text": "What is sentiment analysis?"},
 #             expectations=EvaluationDatasetExpectationsModel(
 #                 expected_response="Sentiment analysis is the process..."
 #             )
 #         ),
 #         # Or use expected_facts instead of expected_response
 #         EvaluationDatasetEntryModel(
-#             inputs=EvaluationDatasetInputsModel(question="What are the benefits?"),
+#             inputs={"text": "What are the benefits?"},
 #             expectations=EvaluationDatasetExpectationsModel(
 #                 expected_facts=["Improved accuracy", "Better insights", "Cost effective"]
 #             )
 #         )
 #     ]
+# 
+# # Note: The 'inputs' dict keys (e.g., 'text') must match the variables in your prompt template (e.g., {{text}})
 # )
 # # This will use full_name: "my_catalog.my_schema.my_dataset"
 # mlflow_dataset = dataset.as_dataset()
