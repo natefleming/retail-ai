@@ -92,15 +92,11 @@ optimizations:
       
       # Optional: Optimization parameters
       num_candidates: 5  # Number of candidate prompts to generate
-      max_steps: 3       # Maximum optimization steps
       
       # Optional: Specify scorer model (defaults to "databricks")
       # Can be LLMModel reference or string model name
       scorer_model: *source_llm
       # Or use string: scorer_model: "databricks-claude-sonnet-4-5"
-      
-      # Optional: Temperature for generation
-      temperature: 0.0
 
 # Application configuration
 app:

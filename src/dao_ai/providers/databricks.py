@@ -1149,7 +1149,7 @@ class DatabricksProvider(ServiceProvider):
         # Create the GepaPromptOptimizer
         optimizer = GepaPromptOptimizer(
             reflection_model=reflection_model_name,
-            max_metric_calls=optimization.num_candidates or 100,
+            max_metric_calls=optimization.num_candidates,
             display_progress_bar=True,
         )
 

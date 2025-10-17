@@ -105,8 +105,6 @@ class TestPromptOptimizationModelUnit:
         )
 
         assert opt.num_candidates == 5
-        assert opt.max_steps == 3
-        assert opt.temperature == 0.0
         assert opt.reflection_model is None
         assert opt.scorer_model is None
 
@@ -125,13 +123,9 @@ class TestPromptOptimizationModelUnit:
             dataset="test_dataset",
             reflection_model=reflection_llm,
             num_candidates=10,
-            max_steps=5,
-            temperature=0.5,
         )
 
         assert opt.num_candidates == 10
-        assert opt.max_steps == 5
-        assert opt.temperature == 0.5
         assert opt.reflection_model.name == "gpt-4o"
 
     @pytest.mark.unit
@@ -331,10 +325,7 @@ class TestTrainingDatasetModelUnit:
 
         # Test with custom fields
         entry3 = EvaluationDatasetEntryModel(
-            inputs={
-                "context": "Context here", 
-                "query": "Query here"
-            },
+            inputs={"context": "Context here", "query": "Query here"},
             expectations=EvaluationDatasetExpectationsModel(expected_response="Result"),
         )
         assert entry3.inputs["context"] == "Context here"
@@ -659,10 +650,8 @@ class TestPromptOptimizationSystem:
             name="system_test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset_name="test_optimization_dataset",
+            dataset="test_optimization_dataset",
             num_candidates=2,  # Keep small for test speed
-            max_steps=1,
-            temperature=0.0,  # Deterministic for testing
         )
 
         # Run optimization

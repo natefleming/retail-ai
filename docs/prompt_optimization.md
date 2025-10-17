@@ -48,12 +48,10 @@ class PromptOptimizationModel(BaseModel):
     name: str                                 # Unique name for this optimization
     prompt: PromptModel                       # The prompt to optimize
     agent: AgentModel | str                   # Agent using the target model
-    dataset_name: str                         # MLflow dataset with training data
-    reflection_model: Optional[LLMModel]      # Model for reflection (optional)
+    dataset: EvaluationDatasetModel | str     # Dataset with training data
+    reflection_model: Optional[LLMModel | str] # Model for reflection (optional)
     num_candidates: Optional[int] = 5         # Number of candidate prompts
-    max_steps: Optional[int] = 3              # Maximum optimization steps
-    scorer_model: Optional[LLMModel]          # Model for scoring (optional)
-    temperature: Optional[float] = 0.0        # Generation temperature
+    scorer_model: Optional[LLMModel | str]     # Model for scoring (optional)
     
     def optimize(self, w: WorkspaceClient | None = None) -> PromptModel:
         """Optimize the prompt and return new version"""
@@ -171,7 +169,6 @@ optimizations:
       # Optional parameters
       reflection_model: *gpt_4      # Use source model for reflection
       num_candidates: 5             # Generate 5 candidate prompts
-      max_steps: 3                  # Maximum 3 optimization steps
       scorer_model: *gpt_4          # Use source model for scoring
 ```
 
@@ -224,12 +221,10 @@ prompts:
 | `name` | `str` | Yes | - | Unique identifier for this optimization |
 | `prompt` | `PromptModel` | Yes | - | The prompt to optimize |
 | `agent` | `AgentModel \| str` | Yes | - | Agent using the target model |
-| `dataset_name` | `str` | Yes | - | Name of MLflow dataset with training data |
-| `reflection_model` | `LLMModel` | No | Agent's model | Model used for reflection during optimization |
+| `dataset` | `EvaluationDatasetModel \| str` | Yes | - | Dataset with training data (model or string reference) |
+| `reflection_model` | `LLMModel \| str` | No | Agent's model | Model used for reflection during optimization |
 | `num_candidates` | `int` | No | 5 | Number of candidate prompts to generate |
-| `max_steps` | `int` | No | 3 | Maximum number of optimization steps |
-| `scorer_model` | `LLMModel` | No | Agent's model | Model used to score outputs |
-| `temperature` | `float` | No | 0.0 | Temperature for prompt generation |
+| `scorer_model` | `LLMModel \| str` | No | Agent's model | Model used to score outputs |
 
 ## Best Practices
 
@@ -279,7 +274,7 @@ config = AppConfig.from_file("config.yaml")
 
 If results aren't satisfactory:
 - Collect more diverse training data
-- Adjust optimization parameters (`num_candidates`, `max_steps`)
+- Adjust optimization parameters (`num_candidates`)
 - Try different reflection or scorer models
 
 ## Example Workflow
@@ -389,7 +384,7 @@ def optimize_prompt(
 - **Solution**: Provide the full `AgentModel` object, not a string reference in the YAML
 
 **Issue**: Optimization takes too long
-- **Solution**: Reduce `num_candidates` or `max_steps` parameters
+- **Solution**: Reduce `num_candidates` parameter
 
 **Issue**: Optimized prompt doesn't improve quality
 - **Solution**: 
