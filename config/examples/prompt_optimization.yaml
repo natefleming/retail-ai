@@ -11,13 +11,13 @@ schemas:
 resources:
   llms:
     # Source model (the model you're migrating from)
-    gpt_4: &gpt_4
+    source_llm: &source_llm
       name: databricks-claude-sonnet-4-5
       temperature: 0.1
       max_tokens: 8192
     
     # Target model (the model you're migrating to - usually cheaper/faster)
-    gpt_4o_mini: &gpt_4o_mini
+    target_llm: &target_llm
       name: databricks-meta-llama-3-3-70b-instruct
       temperature: 0.1
       max_tokens: 8192
@@ -37,7 +37,7 @@ agents:
   sentiment_agent: &sentiment_agent
     name: sentiment_agent
     description: "Sentiment classification agent"
-    model: *gpt_4o_mini
+    model: *target_llm
     prompt: *sentiment_prompt
 
 # Define prompt optimizations
@@ -87,7 +87,7 @@ optimizations:
       
       # Optional: Specify reflection model (defaults to agent's model)
       # Can be LLMModel reference or string model name
-      reflection_model: *gpt_4
+      reflection_model: *source_llm
       # Or use string: reflection_model: "databricks-claude-sonnet-4-5"
       
       # Optional: Optimization parameters
@@ -96,7 +96,7 @@ optimizations:
       
       # Optional: Specify scorer model (defaults to "databricks")
       # Can be LLMModel reference or string model name
-      scorer_model: *gpt_4
+      scorer_model: *source_llm
       # Or use string: scorer_model: "databricks-claude-sonnet-4-5"
       
       # Optional: Temperature for generation
