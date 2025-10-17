@@ -7,32 +7,45 @@ dependencies:
   - langchain-community==0.3.26
   - langchain-anthropic==0.3.18
   - langchain-openai==0.3.24
-  - langgraph==0.6.5
-  - langgraph-checkpoint==2.1.1
-  - langgraph-checkpoint-postgres==2.0.23
+  - langchain-tavily==0.2.11
+  - langchain-text-splitters==0.3.9
+  - langchain-mcp-adapters==0.1.10
+  - langgraph==0.6.10
+  - langgraph-checkpoint==2.1.2
+  - langgraph-checkpoint-postgres==2.0.25
   - langgraph-prebuilt==0.6.3
   - langgraph-supervisor==0.0.29
+  - langgraph-swarm==0.0.14
+  - langgraph-sdk==0.2.9
   - langmem==0.0.29
   - langsmith==0.4.1
   # Databricks dependencies
-  - databricks-agents==1.2.0
-  - databricks-ai-bridge==0.5.1
-  - databricks-langchain==0.5.1
-  - databricks-sdk==0.61.0
-  - databricks-vectorsearch==0.56
+  - databricks-agents==1.7.0
+  - databricks-ai-bridge==0.8.0
+  - databricks-langchain==0.8.1
+  - databricks-sdk==0.67.0
+  - databricks-mcp==0.3.0
   - unitycatalog-ai==0.3.1
+  - unitycatalog-client==0.3.0
   - unitycatalog-langchain==0.2.0
   # MLflow and AI model dependencies
-  - mlflow==3.1.1
+  - mlflow==3.5.0
+  - mlflow-skinny==3.5.0
+  - mlflow-tracing==3.5.0
   - anthropic==0.60.0
-  - openai==1.90.0
+  - openai==1.108.2
   - tiktoken==0.9.0
+  - openevals==0.1.0
+  # MCP dependencies
+  - mcp==1.17.0
+  - fastmcp==2.12.3
   # Data processing dependencies
   - pandas==2.3.0
   - numpy==1.26.4
   - pyarrow==20.0.0
   - sqlparse==0.5.3
-  - pydantic==2.11.7
+  - pydantic==2.12.0
+  - pydantic-core==2.41.1
   - pydantic-settings==2.10.0
   # Database dependencies
   - psycopg==3.2.9
@@ -43,10 +56,27 @@ dependencies:
   - fastapi==0.115.13
   - uvicorn==0.34.3
   - starlette==0.46.2
+  - flask==3.1.1
+  - flask-cors==6.0.1
+  - gunicorn==23.0.0
+  # Search and tools
+  - duckduckgo-search==8.0.4
+  - litellm==1.75.9
   # Utilities
   - loguru==0.7.3
   - python-dotenv==1.1.0
   - pyyaml==6.0.2
   - requests==2.32.4
   - tenacity==9.1.2
-  - typing-extensions==4.14.0
+  - typing-extensions==4.15.0
+  - trustcall==0.0.39
+  - cryptography==45.0.7
+  - certifi==2025.6.15
+  - jinja2==3.1.6
+  - click==8.2.1
+  - rich==14.0.0
+  # Development and testing
+  - pytest==8.4.1
+  - mypy==1.16.1
+  - ruff==0.12.0
+  - pre-commit==4.2.0

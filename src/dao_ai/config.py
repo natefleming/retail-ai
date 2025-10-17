@@ -1482,19 +1482,20 @@ class EvaluationDatasetEntryModel(BaseModel):
     expectations: dict[str, Any]
 
 
-class EvaluationDatasetModel(BaseModel):
+class EvaluationDatasetModel(BaseModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
     entries: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
-    tags: Optional[dict[str, Any]] = Field(default_factory=dict)
+
 
     def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
         evaluation_dataset: EvaluationDataset
         try:
-            evaluation_dataset = get_dataset(name=self.name)
+            evaluation_dataset = get_dataset(name=self.full_name)
         except Exception:
             logger.warning(f"Dataset {self.name} not found, creating new dataset")
-            evaluation_dataset = create_dataset(name=self.name, tags=self.tags)
+            evaluation_dataset = create_dataset(name=self.full_name)
 
             if self.entries:
                 logger.debug(
@@ -1504,6 +1505,11 @@ class EvaluationDatasetModel(BaseModel):
 
         return evaluation_dataset  # If inputs and expectations are provided, create/update the dataset
 
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
 
 class PromptOptimizationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")

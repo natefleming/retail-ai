@@ -243,7 +243,7 @@ class TestTrainingDatasetModelUnit:
 
         assert dataset.name == "test_dataset"
         assert dataset.entries == []
-        assert dataset.tags == {}
+        assert dataset.full_name == "test_dataset"
 
     @pytest.mark.unit
     def test_training_dataset_model_with_data(self):
@@ -256,17 +256,28 @@ class TestTrainingDatasetModelUnit:
                 inputs={"text": "Goodbye world"}, expectations={"sentiment": "negative"}
             ),
         ]
-        tags = {"version": "1.0", "source": "test"}
 
         dataset = EvaluationDatasetModel(
-            name="test_dataset", entries=entries, tags=tags
+            name="test_dataset", entries=entries
         )
 
         assert dataset.name == "test_dataset"
         assert len(dataset.entries) == 2
         assert dataset.entries[0].inputs == {"text": "Hello world"}
         assert dataset.entries[0].expectations == {"sentiment": "positive"}
-        assert dataset.tags == tags
+        assert dataset.full_name == "test_dataset"
+
+    @pytest.mark.unit
+    def test_training_dataset_with_schema(self):
+        """Test that EvaluationDatasetModel full_name includes catalog and schema."""
+        from dao_ai.config import SchemaModel
+
+        schema = SchemaModel(catalog_name="my_catalog", schema_name="my_schema")
+        dataset = EvaluationDatasetModel(name="test_dataset", schema=schema)
+
+        assert dataset.name == "test_dataset"
+        assert dataset.full_name == "my_catalog.my_schema.test_dataset"
+        assert dataset.schema_model == schema
 
     @pytest.mark.unit
     def test_training_dataset_in_optimizations_model(self):

@@ -46,6 +46,8 @@ optimizations:
   training_datasets:
     # Example dataset with inline data
     sentiment_migration_dataset:
+      # Optional: Specify schema for full catalog.schema.table name
+      schema: *main_schema
       name: sentiment_migration_dataset
       entries:
         - inputs:
@@ -60,9 +62,6 @@ optimizations:
             text: "The service was okay"
           expectations:
             sentiment: "neutral"
-      tags:
-        version: "1.0"
-        source: "gpt-4"
 
   prompt_optimizations:
     # Optimize the sentiment classifier prompt for the new model
@@ -140,7 +139,12 @@ app:
 
 # Example Python code to work with datasets programmatically:
 # 
-# from dao_ai.config import load_config, EvaluationDatasetModel, EvaluationDatasetEntryModel
+# from dao_ai.config import (
+#     load_config, 
+#     EvaluationDatasetModel, 
+#     EvaluationDatasetEntryModel,
+#     SchemaModel
+# )
 # 
 # # Load config
 # config = load_config("config/examples/prompt_optimization.yaml")
@@ -149,19 +153,22 @@ app:
 # if config.optimizations:
 #     for name, dataset in config.optimizations.training_datasets.items():
 #         print(f"Dataset: {name}")
+#         print(f"Full name: {dataset.full_name}")  # e.g., "catalog.schema.dataset"
 #         mlflow_dataset = dataset.as_dataset()
 # 
-# # Create dataset programmatically
+# # Create dataset programmatically with schema
+# schema = SchemaModel(catalog_name="my_catalog", schema_name="my_schema")
 # dataset = EvaluationDatasetModel(
 #     name="my_dataset",
+#     schema=schema,
 #     entries=[
 #         EvaluationDatasetEntryModel(
 #             inputs={"text": "Example text"},
 #             expectations={"sentiment": "positive"}
 #         )
-#     ],
-#     tags={"version": "1.0"}
+#     ]
 # )
+# # This will use full_name: "my_catalog.my_schema.my_dataset"
 # mlflow_dataset = dataset.as_dataset()
 # 
 # # Run all optimizations
