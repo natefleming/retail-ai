@@ -1165,7 +1165,7 @@ class DatabricksProvider(ServiceProvider):
         scorers = [Correctness(model=scorer_model)]
 
         # Get the agent's LLM for the predict function
-        chain: RunnableLike = agent.model.as_runnable()
+        llm = agent.model.as_chat_model()
         prompt_uri = prompt_version.uri
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
@@ -1176,16 +1176,17 @@ class DatabricksProvider(ServiceProvider):
             This function must load and format the prompt using mlflow.genai.load_prompt()
             so that MLflow can track prompt usage during optimization.
             """
-
+            # Load the prompt from the registry (required for MLflow tracking)
             prompt = mlflow.genai.load_prompt(prompt_uri)
 
             # Format the prompt with inputs (required for MLflow tracking)
             formatted_prompt = prompt.format(**inputs)
 
             # Use the LLM to generate response
+            from langchain_core.messages import HumanMessage
 
-            messages: Sequence[HumanMessage] = [HumanMessage(content=formatted_prompt)]
-            response: AIMessage = chain.invoke(messages)
+            messages = [HumanMessage(content=formatted_prompt)]
+            response = llm.invoke(messages)
             return response.content
 
         # Set registry URI for Databricks Unity Catalog

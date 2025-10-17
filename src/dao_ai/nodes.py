@@ -154,13 +154,15 @@ def create_agent_node(
     )
     logger.debug(f"post_agent_hook: {post_agent_hook}")
 
+    checkpointer: bool = memory and memory.checkpointer is not None
+    
     compiled_agent: CompiledStateGraph = create_react_agent(
         name=agent.name,
         model=llm,
         prompt=make_prompt(agent.prompt),
         tools=tools,
         store=True,
-        checkpointer=True,
+        checkpointer=checkpointer,
         state_schema=SharedState,
         context_schema=Context,
         pre_model_hook=pre_agent_hook,
