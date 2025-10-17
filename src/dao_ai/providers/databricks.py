@@ -1111,6 +1111,8 @@ class DatabricksProvider(ServiceProvider):
         Returns:
             PromptModel: The optimized prompt with new URI
         """
+        from langchain_core.messages import AIMessage, HumanMessage
+        from langchain_core.runnables.base import RunnableLike
         from mlflow.genai.optimize import GepaPromptOptimizer, optimize_prompts
         from mlflow.genai.scorers import Correctness
 
@@ -1120,12 +1122,9 @@ class DatabricksProvider(ServiceProvider):
 
         # Get agent and prompt
         agent: AgentModel = optimization.agent
-        if isinstance(agent, str):
-            raise ValueError(
-                f"Agent reference by string '{agent}' not yet supported. Please provide AgentModel directly."
-            )
-
-        prompt: PromptModel = optimization.prompt
+        prompt: PromptModel = (
+            optimization.prompt if optimization.prompt else agent.prompt
+        )
         prompt_version: PromptVersion = self.get_prompt(prompt)
 
         # Load the evaluation dataset by name
@@ -1143,7 +1142,7 @@ class DatabricksProvider(ServiceProvider):
             else:
                 reflection_model_name = optimization.reflection_model.uri
         else:
-            reflection_model_name = agent.model.name
+            reflection_model_name = agent.model.uri
         logger.debug(f"Using reflection model: {reflection_model_name}")
 
         # Create the GepaPromptOptimizer
@@ -1166,7 +1165,7 @@ class DatabricksProvider(ServiceProvider):
         scorers = [Correctness(model=scorer_model)]
 
         # Get the agent's LLM for the predict function
-        llm = agent.model.as_chat_model()
+        chain: RunnableLike = agent.model.as_runnable()
         prompt_uri = prompt_version.uri
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
@@ -1177,17 +1176,16 @@ class DatabricksProvider(ServiceProvider):
             This function must load and format the prompt using mlflow.genai.load_prompt()
             so that MLflow can track prompt usage during optimization.
             """
-            # Load the prompt from the registry (required for MLflow tracking)
+
             prompt = mlflow.genai.load_prompt(prompt_uri)
 
             # Format the prompt with inputs (required for MLflow tracking)
             formatted_prompt = prompt.format(**inputs)
 
             # Use the LLM to generate response
-            from langchain_core.messages import HumanMessage
 
-            messages = [HumanMessage(content=formatted_prompt)]
-            response = llm.invoke(messages)
+            messages: Sequence[HumanMessage] = [HumanMessage(content=formatted_prompt)]
+            response: AIMessage = chain.invoke(messages)
             return response.content
 
         # Set registry URI for Databricks Unity Catalog

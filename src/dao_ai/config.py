@@ -1234,6 +1234,11 @@ class AgentModel(BaseModel):
     pre_agent_hook: Optional[FunctionHook] = None
     post_agent_hook: Optional[FunctionHook] = None
 
+    def as_runnable(self) -> RunnableLike:
+        from dao_ai.nodes import create_agent_node
+
+        return create_agent_node(self)
+
 
 class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1530,8 +1535,8 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
 class PromptOptimizationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    prompt: PromptModel
-    agent: AgentModel | str
+    prompt: Optional[PromptModel] = None
+    agent: AgentModel
     dataset: (
         EvaluationDatasetModel | str
     )  # Reference to dataset name (looked up in OptimizationsModel.training_datasets or MLflow)

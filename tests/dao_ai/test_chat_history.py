@@ -58,7 +58,7 @@ class TestSummarizationNode:
 
     def test_summarization_node_creation_with_default_params(self, base_app_model):
         """Test that summarization node can be created with default parameters."""
-        node = summarization_node(base_app_model)
+        node = summarization_node(base_app_model.chat_history)
         assert node is not None
 
     def test_summarization_node_with_max_tokens_only(self, mock_llm_model):
@@ -73,7 +73,7 @@ class TestSummarizationNode:
             chat_history=ChatHistoryModel(model=mock_llm_model, max_tokens=512),
         )
 
-        node = summarization_node(app_model)
+        node = summarization_node(app_model.chat_history)
         assert node is not None
 
     def test_summarization_node_with_max_tokens_before_summary(self, mock_llm_model):
@@ -90,7 +90,7 @@ class TestSummarizationNode:
             ),
         )
 
-        node = summarization_node(app_model)
+        node = summarization_node(app_model.chat_history)
         assert node is not None
 
     def test_summarization_node_with_max_messages_before_summary(self, mock_llm_model):
@@ -107,7 +107,7 @@ class TestSummarizationNode:
             ),
         )
 
-        node = summarization_node(app_model)
+        node = summarization_node(app_model.chat_history)
         assert node is not None
 
     def test_summarization_node_with_max_summary_tokens(self, mock_llm_model):
@@ -127,7 +127,7 @@ class TestSummarizationNode:
             ),
         )
 
-        node = summarization_node(app_model)
+        node = summarization_node(app_model.chat_history)
         assert node is not None
 
     def test_summarization_node_with_all_parameters(self, mock_llm_model):
@@ -148,7 +148,7 @@ class TestSummarizationNode:
             ),
         )
 
-        node = summarization_node(app_model)
+        node = summarization_node(app_model.chat_history)
         assert node is not None
 
     @patch("dao_ai.nodes.SummarizationNode")
@@ -168,7 +168,7 @@ class TestSummarizationNode:
             ),
         )
 
-        summarization_node(app_model)
+        summarization_node(app_model.chat_history)
 
         # Verify SummarizationNode was called with token counter
         mock_summarization_node.assert_called_once()
@@ -196,7 +196,7 @@ class TestSummarizationNode:
             ),
         )
 
-        summarization_node(app_model)
+        summarization_node(app_model.chat_history)
 
         # Verify SummarizationNode was called with len counter
         mock_summarization_node.assert_called_once()
@@ -231,7 +231,7 @@ class TestSummarizationNode:
             ),
         )
 
-        summarization_node(app_model)
+        summarization_node(app_model.chat_history)
 
         # Verify SummarizationNode was called with correct parameters
         mock_summarization_node.assert_called_once()
@@ -266,7 +266,7 @@ class TestSummarizationNode:
             ),
         )
 
-        summarization_node(app_model)
+        summarization_node(app_model.chat_history)
 
         # Verify that max_tokens_before_summary is used when both are present
         mock_summarization_node.assert_called_once()
@@ -296,7 +296,7 @@ class TestSummarizationNode:
             ),
         )
 
-        summarization_node(app_model)
+        summarization_node(app_model.chat_history)
 
         # Verify that max_messages_before_summary is used when max_tokens_before_summary is None
         mock_summarization_node.assert_called_once()
@@ -373,7 +373,7 @@ class TestSummarizationNode:
             ),
         )
 
-        summarization_node(app_model)
+        summarization_node(app_model.chat_history)
 
         # Verify that debug logging was called with the parameters
         mock_logger.debug.assert_called_with(
@@ -436,7 +436,7 @@ class TestSummarizationNode:
             ),
         )
 
-        node = summarization_node(app_model)
+        node = summarization_node(app_model.chat_history)
         assert node is not None
 
     @patch("dao_ai.nodes.SummarizationNode")
@@ -454,7 +454,7 @@ class TestSummarizationNode:
             chat_history=ChatHistoryModel(model=mock_llm_model, max_tokens=256),
         )
 
-        summarization_node(app_model)
+        summarization_node(app_model.chat_history)
 
         # Verify that as_chat_model() was called on the LLM model
         mock_llm_model.as_chat_model.assert_called_once()

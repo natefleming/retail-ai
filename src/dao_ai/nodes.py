@@ -19,9 +19,9 @@ from loguru import logger
 from dao_ai.config import (
     AgentModel,
     AppConfig,
-    AppModel,
     ChatHistoryModel,
     FunctionHook,
+    MemoryModel,
     ToolModel,
 )
 from dao_ai.guardrails import reflection_guardrail, with_guardrails
@@ -31,12 +31,18 @@ from dao_ai.state import Context, IncomingState, SharedState
 from dao_ai.tools import create_tools
 
 
-def summarization_node(app_model: AppModel) -> RunnableLike:
-    chat_history: ChatHistoryModel | None = app_model.chat_history
+def summarization_node(chat_history: ChatHistoryModel) -> RunnableLike:
+    """
+    Create a summarization node for managing chat history.
+
+    Args:
+        chat_history: ChatHistoryModel configuration for summarization
+
+    Returns:
+        RunnableLike: A summarization node that processes messages
+    """
     if chat_history is None:
-        raise ValueError(
-            "AppModel must have chat_history configured to use summarization"
-        )
+        raise ValueError("chat_history must be provided to use summarization")
 
     max_tokens: int = chat_history.max_tokens
     max_tokens_before_summary: int | None = chat_history.max_tokens_before_summary
@@ -93,23 +99,26 @@ def call_agent_with_summarized_messages(agent: CompiledStateGraph) -> RunnableLi
 
 
 def create_agent_node(
-    app: AppModel,
     agent: AgentModel,
+    memory: Optional[MemoryModel] = None,
+    chat_history: Optional[ChatHistoryModel] = None,
     additional_tools: Optional[Sequence[BaseTool]] = None,
 ) -> RunnableLike:
     """
     Factory function that creates a LangGraph node for a specialized agent.
 
-    This creates a node function that handles user requests using a specialized agent
-    based on the provided agent_type. The function configures the agent with the
-    appropriate model, prompt, tools, and guardrails from the model_config.
+    This creates a node function that handles user requests using a specialized agent.
+    The function configures the agent with the appropriate model, prompt, tools, and guardrails.
+    If chat_history is provided, it creates a workflow with summarization node.
 
     Args:
-        model_config: Configuration containing models, prompts, tools, and guardrails
-        agent_type: Type of agent to create (e.g., "general", "product", "inventory")
+        agent: AgentModel configuration for the agent
+        memory: Optional MemoryModel for memory store configuration
+        chat_history: Optional ChatHistoryModel for chat history summarization
+        additional_tools: Optional sequence of additional tools to add to the agent
 
     Returns:
-        An agent callable function that processes state and returns responses
+        RunnableLike: An agent node that processes state and returns responses
     """
     logger.debug(f"Creating agent node for {agent.name}")
 
@@ -124,10 +133,10 @@ def create_agent_node(
         additional_tools = []
     tools: Sequence[BaseTool] = create_tools(tool_models) + additional_tools
 
-    if app.orchestration.memory and app.orchestration.memory.store:
+    if memory and memory.store:
         namespace: tuple[str, ...] = ("memory",)
-        if app.orchestration.memory.store.namespace:
-            namespace = namespace + (app.orchestration.memory.store.namespace,)
+        if memory.store.namespace:
+            namespace = namespace + (memory.store.namespace,)
         logger.debug(f"Memory store namespace: {namespace}")
 
         tools += [
@@ -166,8 +175,6 @@ def create_agent_node(
 
     agent_node: CompiledStateGraph
 
-    chat_history: ChatHistoryModel = app.chat_history
-
     if chat_history is None:
         logger.debug("No chat history configured, using compiled agent directly")
         agent_node = compiled_agent
@@ -179,7 +186,7 @@ def create_agent_node(
             input=SharedState,
             output=SharedState,
         )
-        workflow.add_node("summarization", summarization_node(app))
+        workflow.add_node("summarization", summarization_node(chat_history))
         workflow.add_node(
             "agent",
             call_agent_with_summarized_messages(agent=compiled_agent),

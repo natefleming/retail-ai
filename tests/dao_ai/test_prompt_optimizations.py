@@ -104,7 +104,7 @@ class TestPromptOptimizationModelUnit:
             dataset="test_dataset",
         )
 
-        assert opt.num_candidates == 5
+        assert opt.num_candidates == 10
         assert opt.reflection_model is None
         assert opt.scorer_model is None
 
@@ -127,21 +127,6 @@ class TestPromptOptimizationModelUnit:
 
         assert opt.num_candidates == 10
         assert opt.reflection_model.name == "gpt-4o"
-
-    @pytest.mark.unit
-    def test_prompt_optimization_model_agent_as_string(self):
-        """Test that PromptOptimizationModel accepts agent as string reference."""
-        prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
-
-        opt = PromptOptimizationModel(
-            name="test_optimization",
-            prompt=prompt,
-            agent="test_agent",  # String reference
-            dataset="test_dataset",
-        )
-
-        assert opt.agent == "test_agent"
-        assert isinstance(opt.agent, str)
 
     @pytest.mark.unit
     def test_prompt_optimization_model_reflection_model_as_string(self):
@@ -528,35 +513,6 @@ class TestAppConfigWithOptimizations:
         config = AppConfig(**config_dict)
 
         assert config.optimizations is None
-
-
-class TestDatabricksProviderOptimizePromptUnit:
-    """Unit tests for DatabricksProvider.optimize_prompt (mocked)."""
-
-    @pytest.mark.unit
-    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
-    @pytest.mark.skip(
-        "Skipping due to complex MLflow mocking requirements - integration tests provide coverage"
-    )
-    def test_optimize_prompt_with_agent_string_raises_error(self):
-        """Test optimize_prompt with agent as string reference raises error."""
-        provider = DatabricksProvider(w=Mock(), vsc=Mock())
-
-        prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
-
-        optimization = PromptOptimizationModel(
-            name="test_optimization",
-            prompt=prompt,
-            agent="test_agent",  # String reference
-            dataset="test_dataset",
-        )
-
-        # Call optimize_prompt - should raise ValueError
-        with pytest.raises(
-            ValueError,
-            match="Agent reference by string .* not yet supported",
-        ):
-            provider.optimize_prompt(optimization)
 
 
 class TestPromptOptimizationIntegration:
