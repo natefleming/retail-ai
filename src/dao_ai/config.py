@@ -326,6 +326,10 @@ class LLMModel(BaseModel, IsDatabricksResource):
             "serving.serving-endpoints",
         ]
 
+    @property
+    def uri(self) -> str:
+        return f"databricks:/{self.name}"
+
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
             DatabricksServingEndpoint(

@@ -1136,12 +1136,13 @@ class DatabricksProvider(ServiceProvider):
         else:
             dataset = optimization.dataset.as_dataset()
 
+
         # Set up reflection model for the optimizer
         if optimization.reflection_model:
             if isinstance(optimization.reflection_model, str):
                 reflection_model_name = optimization.reflection_model
             else:
-                reflection_model_name = optimization.reflection_model.name
+                reflection_model_name = optimization.reflection_model.uri
         else:
             reflection_model_name = agent.model.name
         logger.debug(f"Using reflection model: {reflection_model_name}")
@@ -1158,7 +1159,7 @@ class DatabricksProvider(ServiceProvider):
             if isinstance(optimization.scorer_model, str):
                 scorer_model = optimization.scorer_model
             else:
-                scorer_model = optimization.scorer_model.name
+                scorer_model = optimization.scorer_model.uri
         else:
             scorer_model = "databricks"  # Use Databricks default
         logger.debug(f"Using scorer with model: {scorer_model}")
