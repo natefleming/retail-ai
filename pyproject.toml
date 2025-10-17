@@ -47,6 +47,7 @@ dependencies = [
     "databricks-mcp>=0.3.0",
     "databricks-sdk[openai]>=0.67.0",
     "duckduckgo-search>=8.0.2",
+    "gepa>=0.0.17",
     "grandalf>=0.8",
     "langchain>=0.3.27",
     "langchain-mcp-adapters>=0.1.10",

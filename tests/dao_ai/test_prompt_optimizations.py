@@ -57,6 +57,8 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     EvaluationDatasetEntryModel,
+    EvaluationDatasetExpectationsModel,
+    EvaluationDatasetInputsModel,
     EvaluationDatasetModel,
     LLMModel,
     OptimizationsModel,
@@ -242,7 +244,7 @@ class TestTrainingDatasetModelUnit:
         dataset = EvaluationDatasetModel(name="test_dataset")
 
         assert dataset.name == "test_dataset"
-        assert dataset.entries == []
+        assert dataset.data == []
         assert dataset.full_name == "test_dataset"
 
     @pytest.mark.unit
@@ -250,20 +252,75 @@ class TestTrainingDatasetModelUnit:
         """Test that EvaluationDatasetModel can be created with entries."""
         entries = [
             EvaluationDatasetEntryModel(
-                inputs={"text": "Hello world"}, expectations={"sentiment": "positive"}
+                inputs=EvaluationDatasetInputsModel(question="Hello world"),
+                expectations=EvaluationDatasetExpectationsModel(
+                    expected_response="Hello! How can I help you?"
+                ),
             ),
             EvaluationDatasetEntryModel(
-                inputs={"text": "Goodbye world"}, expectations={"sentiment": "negative"}
+                inputs=EvaluationDatasetInputsModel(question="Goodbye world"),
+                expectations=EvaluationDatasetExpectationsModel(
+                    expected_response="Goodbye! Have a great day!"
+                ),
             ),
         ]
 
-        dataset = EvaluationDatasetModel(name="test_dataset", entries=entries)
+        dataset = EvaluationDatasetModel(name="test_dataset", data=entries)
 
         assert dataset.name == "test_dataset"
-        assert len(dataset.entries) == 2
-        assert dataset.entries[0].inputs == {"text": "Hello world"}
-        assert dataset.entries[0].expectations == {"sentiment": "positive"}
+        assert len(dataset.data) == 2
+        assert dataset.data[0].inputs.question == "Hello world"
+        assert (
+            dataset.data[0].expectations.expected_response
+            == "Hello! How can I help you?"
+        )
         assert dataset.full_name == "test_dataset"
+
+    @pytest.mark.unit
+    def test_training_dataset_with_expected_facts(self):
+        """Test that EvaluationDatasetModel can be created with expected_facts."""
+        entry = EvaluationDatasetEntryModel(
+            inputs=EvaluationDatasetInputsModel(
+                question="What is the capital of France?"
+            ),
+            expectations=EvaluationDatasetExpectationsModel(
+                expected_facts=["Paris", "Capital city of France"]
+            ),
+        )
+
+        dataset = EvaluationDatasetModel(name="test_dataset", data=[entry])
+
+        assert dataset.name == "test_dataset"
+        assert len(dataset.data) == 1
+        assert dataset.data[0].expectations.expected_facts == [
+            "Paris",
+            "Capital city of France",
+        ]
+        assert dataset.data[0].expectations.expected_response is None
+        
+    @pytest.mark.unit
+    def test_training_dataset_with_expected_response_only(self):
+        """Test that expected_response works without expected_facts."""
+        entry = EvaluationDatasetEntryModel(
+            inputs=EvaluationDatasetInputsModel(question="Hello"),
+            expectations=EvaluationDatasetExpectationsModel(
+                expected_response="Hi there!"
+            ),
+        )
+        
+        assert entry.expectations.expected_response == "Hi there!"
+        assert entry.expectations.expected_facts is None
+
+    @pytest.mark.unit
+    def test_training_dataset_mutual_exclusion_validator(self):
+        """Test that expected_response and expected_facts are mutually exclusive."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            EvaluationDatasetExpectationsModel(
+                expected_response="Paris is the capital",
+                expected_facts=["Paris", "Capital city of France"],
+            )
 
     @pytest.mark.unit
     def test_training_dataset_with_schema(self):
@@ -282,9 +339,12 @@ class TestTrainingDatasetModelUnit:
         """Test that EvaluationDatasetModel works within OptimizationsModel."""
         dataset = EvaluationDatasetModel(
             name="test_dataset",
-            entries=[
+            data=[
                 EvaluationDatasetEntryModel(
-                    inputs={"text": "Hello"}, expectations={"sentiment": "positive"}
+                    inputs=EvaluationDatasetInputsModel(question="Hello"),
+                    expectations=EvaluationDatasetExpectationsModel(
+                        expected_response="Hi there!"
+                    ),
                 )
             ],
         )

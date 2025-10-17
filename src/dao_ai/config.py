@@ -1476,17 +1476,34 @@ class EvaluationModel(BaseModel):
     guidelines: list[GuidelineModel] = Field(default_factory=list)
 
 
+
+class EvaluationDatasetInputsModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    question: str
+
+class EvaluationDatasetExpectationsModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    expected_response: Optional[str] = None
+    expected_facts: Optional[list[str]] = None
+    
+    
+    @model_validator(mode="after")
+    def validate_mutually_exclusive(self):
+        if self.expected_response is not None and self.expected_facts is not None:
+            raise ValueError("Cannot specify both expected_response and expected_facts")
+        return self
+
 class EvaluationDatasetEntryModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    inputs: dict[str, Any]
-    expectations: dict[str, Any]
+    inputs: EvaluationDatasetInputsModel
+    expectations: EvaluationDatasetExpectationsModel
 
 
 class EvaluationDatasetModel(BaseModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
-    entries: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
+    data: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
 
     def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
         evaluation_dataset: EvaluationDataset
@@ -1496,11 +1513,11 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
             logger.warning(f"Dataset {self.full_name} not found, creating new dataset")
             evaluation_dataset = create_dataset(name=self.full_name)
 
-            if self.entries:
+            if self.data:
                 logger.debug(
-                    f"Merging {len(self.entries)} entries into dataset {self.full_name}"
+                    f"Merging {len(self.data)} entries into dataset {self.full_name}"
                 )
-                evaluation_dataset.merge_records([e.model_dump() for e in self.entries])
+                evaluation_dataset.merge_records([e.model_dump() for e in self.data])
 
         return evaluation_dataset  # If inputs and expectations are provided, create/update the dataset
 

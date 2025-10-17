@@ -504,6 +504,7 @@ dependencies = [
     { name = "databricks-mcp" },
     { name = "databricks-sdk", extra = ["openai"] },
     { name = "duckduckgo-search" },
+    { name = "gepa" },
     { name = "grandalf" },
     { name = "langchain" },
     { name = "langchain-mcp-adapters" },
@@ -595,6 +596,7 @@ requires-dist = [
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.67.0" },
     { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.56" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
+    { name = "gepa", specifier = ">=0.0.17" },
     { name = "grandalf", specifier = ">=0.8" },
     { name = "langchain", specifier = ">=0.3.27" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.10" },
@@ -1105,6 +1107,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/de/e0/bab50af11c2d75c9c4a2a26a5254573c0bd97cea152254401510950486fa/fsspec-2025.9.0.tar.gz", hash = "sha256:19fd429483d25d28b65ec68f9f4adc16c17ea2c7c7bf54ec61360d478fb19c19", size = 304847, upload-time = "2025-09-02T19:10:49.215Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/47/71/70db47e4f6ce3e5c37a607355f80da8860a33226be640226ac52cb05ef2e/fsspec-2025.9.0-py3-none-any.whl", hash = "sha256:530dc2a2af60a414a832059574df4a6e10cce927f6f4a78209390fe38955cfb7", size = 199289, upload-time = "2025-09-02T19:10:47.708Z" },
+]
+
+[[package]]
+name = "gepa"
+version = "0.0.17"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/f0/fe312ed4405ddc2ca97dc1ce8915c4dd707e413503e6832910ab088fceb6/gepa-0.0.17.tar.gz", hash = "sha256:641ed46f8127618341b66ee82a87fb46a21c5d2d427a5e0b91c850a7f7f64e7f", size = 99816, upload-time = "2025-09-25T22:13:45.476Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/dc/2bc81a01caa887ed58db3c725bebf1e98f37807a4d06c51ecaa85a7cabe0/gepa-0.0.17-py3-none-any.whl", hash = "sha256:0ea98f4179dbc8dd83bdf53494f302e663ee1da8300d086c4cc8ce4aefa4042c", size = 110464, upload-time = "2025-09-25T22:13:44.14Z" },
 ]
 
 [[package]]

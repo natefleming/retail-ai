@@ -49,19 +49,19 @@ optimizations:
       # Optional: Specify schema for full catalog.schema.table name
       schema: *main_schema
       name: sentiment_migration_dataset
-      entries:
+      data:
         - inputs:
-            text: "This product is amazing!"
+            question: "This product is amazing!"
           expectations:
-            sentiment: "positive"
+            expected_response: "positive"
         - inputs:
-            text: "Terrible experience"
+            question: "Terrible experience"
           expectations:
-            sentiment: "negative"
+            expected_response: "negative"
         - inputs:
-            text: "The service was okay"
+            question: "The service was okay"
           expectations:
-            sentiment: "neutral"
+            expected_response: "neutral"
 
   prompt_optimizations:
     # Optimize the sentiment classifier prompt for the new model
@@ -73,15 +73,17 @@ optimizations:
       # Dataset reference - can be:
       # 1. String name referencing training_datasets (above)
       # 2. String name of existing dataset in MLflow
-      # 3. Inline EvaluationDatasetModel with entries
+      # 3. Inline EvaluationDatasetModel with data
       dataset: *sentiment_migration_dataset
       
       # Option 3: Inline dataset (alternative to referencing training_datasets)
       # dataset:
       #   name: inline_dataset
-      #   entries:
-      #     - inputs: {text: "Example"}
-      #       expectations: {sentiment: "positive"}
+      #   data:
+      #     - inputs:
+      #         question: "Example"
+      #       expectations:
+      #         expected_response: "positive"
       
       # Optional: Specify reflection model (defaults to agent's model)
       # Can be LLMModel reference or string model name
@@ -143,6 +145,8 @@ app:
 #     load_config, 
 #     EvaluationDatasetModel, 
 #     EvaluationDatasetEntryModel,
+#     EvaluationDatasetInputsModel,
+#     EvaluationDatasetExpectationsModel,
 #     SchemaModel
 # )
 # 
@@ -161,10 +165,19 @@ app:
 # dataset = EvaluationDatasetModel(
 #     name="my_dataset",
 #     schema=schema,
-#     entries=[
+#     data=[
 #         EvaluationDatasetEntryModel(
-#             inputs={"text": "Example text"},
-#             expectations={"sentiment": "positive"}
+#             inputs=EvaluationDatasetInputsModel(question="What is sentiment analysis?"),
+#             expectations=EvaluationDatasetExpectationsModel(
+#                 expected_response="Sentiment analysis is the process..."
+#             )
+#         ),
+#         # Or use expected_facts instead of expected_response
+#         EvaluationDatasetEntryModel(
+#             inputs=EvaluationDatasetInputsModel(question="What are the benefits?"),
+#             expectations=EvaluationDatasetExpectationsModel(
+#                 expected_facts=["Improved accuracy", "Better insights", "Cost effective"]
+#             )
 #         )
 #     ]
 # )
