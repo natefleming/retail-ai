@@ -1189,6 +1189,97 @@
       "title": "EnvironmentVariableModel",
       "type": "object"
     },
+    "EvaluationDatasetEntryModel": {
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "expectations": {
+          "$ref": "#/$defs/EvaluationDatasetExpectationsModel"
+        }
+      },
+      "required": [
+        "expectations"
+      ],
+      "title": "EvaluationDatasetEntryModel",
+      "type": "object"
+    },
+    "EvaluationDatasetExpectationsModel": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_response": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Response"
+        },
+        "expected_facts": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Facts"
+        }
+      },
+      "title": "EvaluationDatasetExpectationsModel",
+      "type": "object"
+    },
+    "EvaluationDatasetModel": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/EvaluationDatasetEntryModel"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "EvaluationDatasetModel",
+      "type": "object"
+    },
     "EvaluationModel": {
       "additionalProperties": false,
       "properties": {
@@ -1929,6 +2020,27 @@
       "title": "MessageRole",
       "type": "string"
     },
+    "OptimizationsModel": {
+      "additionalProperties": false,
+      "properties": {
+        "training_datasets": {
+          "additionalProperties": {
+            "$ref": "#/$defs/EvaluationDatasetModel"
+          },
+          "title": "Training Datasets",
+          "type": "object"
+        },
+        "prompt_optimizations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PromptOptimizationModel"
+          },
+          "title": "Prompt Optimizations",
+          "type": "object"
+        }
+      },
+      "title": "OptimizationsModel",
+      "type": "object"
+    },
     "OrchestrationModel": {
       "additionalProperties": false,
       "properties": {
@@ -2129,6 +2241,89 @@
         "name"
       ],
       "title": "PromptModel",
+      "type": "object"
+    },
+    "PromptOptimizationModel": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PromptModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "agent": {
+          "$ref": "#/$defs/AgentModel"
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvaluationDatasetModel"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Dataset"
+        },
+        "reflection_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reflection Model"
+        },
+        "num_candidates": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 10,
+          "title": "Num Candidates"
+        },
+        "scorer_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scorer Model"
+        }
+      },
+      "required": [
+        "name",
+        "agent",
+        "dataset"
+      ],
+      "title": "PromptOptimizationModel",
       "type": "object"
     },
     "PythonFunctionModel": {
@@ -3193,6 +3388,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/EvaluationModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "optimizations": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OptimizationsModel"
         },
         {
           "type": "null"
