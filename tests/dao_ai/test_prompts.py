@@ -62,24 +62,61 @@ class TestPromptRegistryUnit:
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_defaults_to_latest(self):
-        """Test that prompt loading defaults to @latest when no alias or version specified."""
+        """Test that prompt loading falls back to @latest when @champion doesn't exist."""
         prompt_model = PromptModel(
             name="test_prompt", default_template="Default template"
         )
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
-        with patch("dao_ai.config.load_prompt") as mock_load:
+        with patch("dao_ai.providers.databricks.load_prompt") as mock_load:
             mock_prompt = Mock()
             mock_prompt.to_single_brace_format.return_value = "Latest content"
-            mock_load.return_value = mock_prompt
+
+            # Simulate champion not existing, but latest does
+            def load_side_effect(uri):
+                if "@champion" in uri:
+                    raise Exception("Champion alias not found")
+                elif "@latest" in uri:
+                    return mock_prompt
+                raise Exception(f"Unexpected URI: {uri}")
+
+            mock_load.side_effect = load_side_effect
 
             result = provider.get_prompt(prompt_model)
 
-            # Should use @latest by default
-            mock_load.assert_called_once_with("prompts:/test_prompt@latest")
+            # Should try champion first, then fall back to latest
+            assert mock_load.call_count == 2
+            mock_load.assert_any_call("prompts:/test_prompt@champion")
+            mock_load.assert_any_call("prompts:/test_prompt@latest")
             assert result == mock_prompt
             assert result.to_single_brace_format() == "Latest content"
+
+    @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
+    def test_get_prompt_prefers_champion_alias(self):
+        """Test that prompt loading prefers @champion when it exists."""
+        prompt_model = PromptModel(
+            name="test_prompt", default_template="Default template"
+        )
+
+        provider = DatabricksProvider(w=Mock(), vsc=Mock())
+
+        with patch("dao_ai.providers.databricks.load_prompt") as mock_load:
+            mock_champion_prompt = Mock()
+            mock_champion_prompt.to_single_brace_format.return_value = (
+                "Champion content"
+            )
+
+            # Simulate champion existing
+            mock_load.return_value = mock_champion_prompt
+
+            result = provider.get_prompt(prompt_model)
+
+            # Should use champion first without trying latest
+            mock_load.assert_called_once_with("prompts:/test_prompt@champion")
+            assert result == mock_champion_prompt
+            assert result.to_single_brace_format() == "Champion content"
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -147,18 +184,23 @@ class TestPromptRegistryUnit:
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
         with (
-            patch("dao_ai.config.load_prompt") as mock_load,
+            patch("dao_ai.providers.databricks.load_prompt") as mock_load,
             patch.object(provider, "_sync_default_template_to_registry") as mock_sync,
         ):
             mock_prompt = Mock()
             mock_prompt.to_single_brace_format.return_value = "Registry content"
+
+            # Simulate champion being found
             mock_load.return_value = mock_prompt
 
             result = provider.get_prompt(prompt_model)
 
-            # Should use registry content and return PromptVersion
+            # Should use registry content from champion and return PromptVersion
             assert result == mock_prompt
             assert result.to_single_brace_format() == "Registry content"
+
+            # Should try champion first
+            mock_load.assert_called_once_with("prompts:/test_prompt@champion")
 
             # Should NOT sync default_template when registry succeeds
             mock_sync.assert_not_called()

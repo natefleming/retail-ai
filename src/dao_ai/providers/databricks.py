@@ -33,6 +33,7 @@ from mlflow.entities import Experiment
 from mlflow.entities.model_registry import PromptVersion
 from mlflow.entities.model_registry.model_version import ModelVersion
 from mlflow.genai.datasets import EvaluationDataset, get_dataset
+from mlflow.genai.prompts import load_prompt
 from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
 from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
@@ -1030,26 +1031,80 @@ class DatabricksProvider(ServiceProvider):
             raise
 
     def get_prompt(self, prompt_model: PromptModel) -> PromptVersion:
-        """Load prompt from MLflow Prompt Registry or fall back to default_template."""
-        prompt_version: PromptVersion | None = None
+        """
+        Load prompt from MLflow Prompt Registry with fallback logic.
+
+        If an explicit version or alias is specified in the prompt_model, uses that directly.
+        Otherwise, tries to load prompts in this order:
+        1. champion alias (if it exists)
+        2. latest alias (if it exists)
+        3. default_template (if provided)
+
+        Args:
+            prompt_model: The prompt model configuration
+
+        Returns:
+            PromptVersion: The loaded prompt version
+
+        Raises:
+            ValueError: If no prompt can be loaded from any source
+        """
         prompt_name: str = prompt_model.full_name
 
-        try:
-            prompt_version = prompt_model.as_prompt()
-            return prompt_version
-
-        except Exception as e:
-            logger.warning(f"Failed to load prompt '{prompt_name}' from registry: {e}")
-
-            if prompt_model.default_template:
-                logger.info(f"Using default_template for '{prompt_name}'")
-                return self._sync_default_template_to_registry(
-                    prompt_name, prompt_model.default_template, prompt_model.description
+        # If explicit version or alias is specified, use it directly without fallback
+        if prompt_model.version or prompt_model.alias:
+            try:
+                prompt_version: PromptVersion = prompt_model.as_prompt()
+                logger.debug(
+                    f"Loaded prompt '{prompt_name}' with explicit "
+                    f"{'version ' + str(prompt_model.version) if prompt_model.version else 'alias ' + prompt_model.alias}"
                 )
+                return prompt_version
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load prompt '{prompt_name}' with explicit "
+                    f"{'version ' + str(prompt_model.version) if prompt_model.version else 'alias ' + prompt_model.alias}: {e}"
+                )
+                # Fall through to default_template if available
+        else:
+            # No explicit version/alias specified - try champion, then latest
+            logger.debug(
+                f"No explicit version/alias specified for '{prompt_name}', "
+                "trying fallback order: champion → latest → default"
+            )
 
-            raise ValueError(
-                f"Prompt '{prompt_name}' not found in registry and no default_template provided"
-            ) from e
+            # Try champion alias first
+            try:
+                champion_uri: str = f"prompts:/{prompt_name}@champion"
+                prompt_version: PromptVersion = load_prompt(champion_uri)
+                logger.info(f"Loaded prompt '{prompt_name}' from champion alias")
+                return prompt_version
+            except Exception as e:
+                logger.debug(f"Champion alias not found for '{prompt_name}': {e}")
+
+            # Try latest alias next
+            try:
+                latest_uri: str = f"prompts:/{prompt_name}@latest"
+                prompt_version: PromptVersion = load_prompt(latest_uri)
+                logger.info(f"Loaded prompt '{prompt_name}' from latest alias")
+                return prompt_version
+            except Exception as e:
+                logger.debug(f"Latest alias not found for '{prompt_name}': {e}")
+
+        # Fall back to default_template if provided
+        if prompt_model.default_template:
+            logger.info(
+                f"Using default_template for '{prompt_name}' "
+                "(champion and latest aliases not found or load failed)"
+            )
+            return self._sync_default_template_to_registry(
+                prompt_name, prompt_model.default_template, prompt_model.description
+            )
+
+        raise ValueError(
+            f"Prompt '{prompt_name}' not found in registry "
+            "(tried champion, latest aliases) and no default_template provided"
+        )
 
     def _sync_default_template_to_registry(
         self, prompt_name: str, default_template: str, description: str | None = None
