@@ -530,7 +530,7 @@ optimizations:
       # Or use string: reflection_model: "databricks-claude-sonnet-4-5"
       
       # Optional: Optimization parameters
-      num_candidates: 5  # Number of candidate prompts to generate
+      num_candidates: 20  # Number of candidate prompts to generate
       
       # Optional: Specify scorer model (defaults to "databricks")
       # Can be LLMModel reference or string model name
