@@ -254,6 +254,43 @@ class TestPromptOptimizationModelUnit:
             assert "target_model" in result.tags
             assert result.tags["target_model"] == llm.uri
 
+    @pytest.mark.unit
+    def test_optimized_prompt_has_latest_alias(self):
+        """Test that optimized prompt is tagged with 'latest' alias."""
+        from unittest.mock import Mock, patch
+
+        prompt = PromptModel(name="test_prompt", default_template="Test {{text}}")
+        llm = LLMModel(name="gpt-4o-mini")
+        agent = AgentModel(name="test_agent", model=llm, prompt=prompt)
+
+        opt = PromptOptimizationModel(
+            name="test_optimization",
+            agent=agent,
+            dataset="test_dataset",
+        )
+
+        # Mock the DatabricksProvider and its dependencies
+        with patch(
+            "dao_ai.providers.databricks.DatabricksProvider"
+        ) as mock_provider_class:
+            mock_provider = Mock()
+            mock_provider_class.return_value = mock_provider
+
+            # Create a mock optimized prompt with the latest alias
+            # Note: Cannot specify both alias and version in PromptModel
+            mock_optimized_prompt = PromptModel(
+                name="test_prompt",
+                default_template="Optimized {{text}}",
+                alias="latest",
+                tags={"target_model": llm.uri},
+            )
+            mock_provider.optimize_prompt.return_value = mock_optimized_prompt
+
+            result = opt.optimize()
+
+            # Verify the optimized prompt has the 'latest' alias
+            assert result.alias == "latest"
+
 
 class TestTrainingDatasetModelUnit:
     """Unit tests for EvaluationDatasetModel."""

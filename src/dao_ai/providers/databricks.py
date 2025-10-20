@@ -1218,39 +1218,95 @@ class DatabricksProvider(ServiceProvider):
         # Set registry URI for Databricks Unity Catalog
         mlflow.set_registry_uri("databricks-uc")
 
-        # Run optimization
+        # Run optimization with tracking disabled to prevent auto-registering all candidates
         logger.info("Running prompt optimization with GepaPromptOptimizer...")
+        logger.info(
+            f"Generating {optimization.num_candidates} candidate prompts for evaluation"
+        )
         result: Any = optimize_prompts(
             predict_fn=predict_fn,
             train_data=dataset,
             prompt_uris=[prompt_version.uri],
             optimizer=optimizer,
             scorers=scorers,
-            enable_tracking=True,
+            enable_tracking=False,  # Don't auto-register all candidates
         )
 
         # Log the optimization results
         logger.info("Optimization complete!")
         if hasattr(result, "optimized_prompts") and result.optimized_prompts:
             optimized_prompt_version: PromptVersion = result.optimized_prompts[0]
-            logger.info(f"Optimized prompt URI: {optimized_prompt_version.uri}")
+
+            # Check if the optimized prompt is actually different from the original
+            original_template: str = prompt_version.to_single_brace_format().strip()
+            optimized_template: str = (
+                optimized_prompt_version.to_single_brace_format().strip()
+            )
+
+            if original_template == optimized_template:
+                logger.info(
+                    f"Optimized prompt is identical to original for '{prompt.full_name}'. "
+                    "No new version will be registered."
+                )
+                return prompt
+
+            logger.info("Optimized prompt is different from original")
             logger.debug(
-                f"Optimized template preview: {optimized_prompt_version.template[:200]}..."
+                f"Original template (first 200 chars): {original_template[:200]}..."
+            )
+            logger.debug(
+                f"Optimized template (first 200 chars): {optimized_template[:200]}..."
             )
 
-            # Parse version from the optimized prompt
-            # The result contains a PromptVersion object with the new version
-            # Add target_model tag to track which model this was optimized for
-            tags: dict[str, Any] = prompt.tags.copy() if prompt.tags else {}
-            tags["target_model"] = agent.model.uri
+            # Log evaluation results if available
+            if hasattr(result, "evaluation_results") and result.evaluation_results:
+                logger.info("Evaluation results:")
+                for metric_name, metric_value in result.evaluation_results.items():
+                    logger.info(f"  {metric_name}: {metric_value}")
 
-            return PromptModel(
-                name=prompt.name,
-                schema=prompt.schema_model,
-                description=f"Optimized version of {prompt.name}",
-                version=optimized_prompt_version.version,
-                tags=tags,
-            )
+            # Register the optimized prompt manually
+            try:
+                logger.info(f"Registering optimized prompt '{prompt.full_name}'")
+                registered_version: PromptVersion = mlflow.genai.register_prompt(
+                    name=prompt.full_name,
+                    template=optimized_template,
+                    commit_message=f"Optimized for {agent.model.uri} using GepaPromptOptimizer",
+                )
+                logger.info(
+                    f"Registered optimized prompt as version {registered_version.version}"
+                )
+
+                # Set the "latest" alias on the newly registered version
+                logger.info(
+                    f"Setting 'latest' alias for optimized prompt '{prompt.full_name}' version {registered_version.version}"
+                )
+                mlflow.genai.set_prompt_alias(
+                    name=prompt.full_name,
+                    alias="latest",
+                    version=registered_version.version,
+                )
+                logger.info(
+                    f"Successfully set 'latest' alias for '{prompt.full_name}' v{registered_version.version}"
+                )
+
+                # Add target_model tag to track which model this was optimized for
+                tags: dict[str, Any] = prompt.tags.copy() if prompt.tags else {}
+                tags["target_model"] = agent.model.uri
+
+                # Return the optimized prompt with the 'latest' alias
+                return PromptModel(
+                    name=prompt.name,
+                    schema=prompt.schema_model,
+                    description=f"Optimized version of {prompt.name} for {agent.model.uri}",
+                    alias="latest",
+                    tags=tags,
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to register optimized prompt '{prompt.full_name}': {e}"
+                )
+                return prompt
         else:
             logger.warning("No optimized prompts returned from optimization")
             return prompt
