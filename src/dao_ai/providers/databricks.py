@@ -1190,9 +1190,22 @@ class DatabricksProvider(ServiceProvider):
         logger.info(f"Using prompt URI for optimization: {prompt_uri}")
 
         # Load the specific prompt version by URI for comparison
-        # Use direct load_prompt instead of get_prompt to avoid fallback logic
-        # This ensures we compare against the exact version we're optimizing
-        prompt_version: PromptVersion = load_prompt(prompt_uri)
+        # Try to load the exact version specified, but if it doesn't exist,
+        # use get_prompt to create it from default_template
+        prompt_version: PromptVersion
+        try:
+            prompt_version = load_prompt(prompt_uri)
+            logger.info(f"Successfully loaded prompt from registry: {prompt_uri}")
+        except Exception as e:
+            logger.warning(
+                f"Could not load prompt '{prompt_uri}' directly: {e}. "
+                "Attempting to create from default_template..."
+            )
+            # Use get_prompt which will create from default_template if needed
+            prompt_version = self.get_prompt(prompt)
+            logger.info(
+                f"Created/loaded prompt '{prompt.full_name}' (will optimize against this version)"
+            )
 
         # Load the evaluation dataset by name
         logger.debug(f"Looking up dataset: {optimization.dataset}")
