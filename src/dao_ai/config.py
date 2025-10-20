@@ -1584,6 +1584,26 @@ class PromptOptimizationModel(BaseModel):
         optimized_prompt: PromptModel = provider.optimize_prompt(self)
         return optimized_prompt
 
+    @model_validator(mode="after")
+    def set_defaults(self):
+        # If no prompt is specified, try to use the agent's prompt
+        if self.prompt is None:
+            if isinstance(self.agent.prompt, PromptModel):
+                self.prompt = self.agent.prompt
+            else:
+                raise ValueError(
+                    f"Prompt optimization '{self.name}' requires either an explicit prompt "
+                    f"or an agent with a prompt configured"
+                )
+
+        if self.reflection_model is None:
+            self.reflection_model = self.agent.model
+
+        if self.scorer_model is None:
+            self.scorer_model = self.agent.model
+
+        return self
+
 
 class OptimizationsModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")

@@ -1053,7 +1053,7 @@ class DatabricksProvider(ServiceProvider):
 
     def _sync_default_template_to_registry(
         self, prompt_name: str, default_template: str, description: str | None = None
-    ) -> PromptVersion | None:
+    ) -> PromptVersion:
         """Register default_template to prompt registry under 'default' alias if changed."""
         prompt_version: PromptVersion | None = None
 
@@ -1069,7 +1069,7 @@ class DatabricksProvider(ServiceProvider):
                     == default_template.strip()
                 ):
                     logger.debug(f"Prompt '{prompt_name}' is already up-to-date")
-                    return  # Already up-to-date
+                    return existing  # Already up-to-date, return existing version
             except Exception:
                 logger.debug(
                     f"Default alias for prompt '{prompt_name}' doesn't exist yet"
@@ -1093,11 +1093,13 @@ class DatabricksProvider(ServiceProvider):
             logger.info(
                 f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry"
             )
+            return prompt_version
 
         except Exception as e:
-            logger.warning(f"Failed to sync '{prompt_name}' to registry: {e}")
-
-        return prompt_version
+            logger.error(f"Failed to sync '{prompt_name}' to registry: {e}")
+            raise ValueError(
+                f"Failed to sync prompt '{prompt_name}' to registry and unable to retrieve existing version"
+            ) from e
 
     def optimize_prompt(self, optimization: PromptOptimizationModel) -> PromptModel:
         """
@@ -1119,11 +1121,9 @@ class DatabricksProvider(ServiceProvider):
 
         logger.info(f"Optimizing prompt: {optimization.name}")
 
-        # Get agent and prompt
+        # Get agent and prompt (prompt is guaranteed to be set by validator)
         agent: AgentModel = optimization.agent
-        prompt: PromptModel = (
-            optimization.prompt if optimization.prompt else agent.prompt
-        )
+        prompt: PromptModel = optimization.prompt  # type: ignore[assignment]
         prompt_version: PromptVersion = self.get_prompt(prompt)
 
         # Load the evaluation dataset by name

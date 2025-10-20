@@ -108,8 +108,9 @@ class TestPromptOptimizationModelUnit:
         )
 
         assert opt.num_candidates == 10
-        assert opt.reflection_model is None
-        assert opt.scorer_model is None
+        # Validator sets these to agent.model if not specified
+        assert opt.reflection_model == llm
+        assert opt.scorer_model == llm
 
     @pytest.mark.unit
     def test_prompt_optimization_model_custom_params(self):

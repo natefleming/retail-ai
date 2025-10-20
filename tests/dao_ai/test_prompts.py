@@ -172,11 +172,17 @@ class TestPromptRegistryUnit:
         with (
             patch("mlflow.genai.load_prompt") as mock_load,
             patch("mlflow.genai.register_prompt") as mock_register,
+            patch("mlflow.genai.set_prompt_alias") as mock_set_alias,
         ):
             # Simulate "default" alias not existing
             mock_load.side_effect = Exception("Alias not found")
 
-            provider._sync_default_template_to_registry(
+            # Mock the registered prompt version
+            mock_prompt_version = Mock()
+            mock_prompt_version.version = 1
+            mock_register.return_value = mock_prompt_version
+
+            result = provider._sync_default_template_to_registry(
                 "test_prompt", "New template content", None
             )
 
@@ -186,6 +192,16 @@ class TestPromptRegistryUnit:
                 template="New template content",
                 commit_message="Auto-synced from default_template",
             )
+
+            # Should set the default alias
+            mock_set_alias.assert_called_once_with(
+                name="test_prompt",
+                alias="default",
+                version=1,
+            )
+
+            # Should return the prompt version
+            assert result == mock_prompt_version
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -218,11 +234,17 @@ class TestPromptRegistryUnit:
         with (
             patch("mlflow.genai.load_prompt") as mock_load,
             patch("mlflow.genai.register_prompt") as mock_register,
+            patch("mlflow.genai.set_prompt_alias") as mock_set_alias,
         ):
             # Simulate "default" alias not existing
             mock_load.side_effect = Exception("Alias not found")
 
-            provider._sync_default_template_to_registry(
+            # Mock the registered prompt version
+            mock_prompt_version = Mock()
+            mock_prompt_version.version = 1
+            mock_register.return_value = mock_prompt_version
+
+            result = provider._sync_default_template_to_registry(
                 "test_prompt",
                 "New template content",
                 "Custom description for commit message",
@@ -234,6 +256,16 @@ class TestPromptRegistryUnit:
                 template="New template content",
                 commit_message="Custom description for commit message",
             )
+
+            # Should set the default alias
+            mock_set_alias.assert_called_once_with(
+                name="test_prompt",
+                alias="default",
+                version=1,
+            )
+
+            # Should return the prompt version
+            assert result == mock_prompt_version
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
