@@ -107,7 +107,7 @@ class TestPromptOptimizationModelUnit:
             dataset="test_dataset",
         )
 
-        assert opt.num_candidates == 10
+        assert opt.num_candidates == 50  # Default is 50
         # Validator sets these to agent.model if not specified
         assert opt.reflection_model == llm
         assert opt.scorer_model == llm

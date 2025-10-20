@@ -1124,6 +1124,16 @@ class DatabricksProvider(ServiceProvider):
         # Get agent and prompt (prompt is guaranteed to be set by validator)
         agent: AgentModel = optimization.agent
         prompt: PromptModel = optimization.prompt  # type: ignore[assignment]
+
+        # Log the prompt URI scheme being used
+        # Supports three schemes:
+        # 1. Specific version: "prompts:/qa/1" (when version is specified)
+        # 2. Alias: "prompts:/qa@champion" (when alias is specified)
+        # 3. Latest: "prompts:/qa@latest" (default when neither version nor alias specified)
+        prompt_uri: str = prompt.uri
+        logger.info(f"Using prompt URI for optimization: {prompt_uri}")
+
+        # Load the current prompt version to get the template for comparison
         prompt_version: PromptVersion = self.get_prompt(prompt)
 
         # Load the evaluation dataset by name
@@ -1211,6 +1221,7 @@ class DatabricksProvider(ServiceProvider):
 
             # Extract text from the first output item
             if response.output and len(response.output) > 0:
+                logger.debug(f"Response: {response.output[0].content}")
                 return response.output[0].content
             else:
                 return ""
@@ -1226,7 +1237,7 @@ class DatabricksProvider(ServiceProvider):
         result: Any = optimize_prompts(
             predict_fn=predict_fn,
             train_data=dataset,
-            prompt_uris=[prompt_version.uri],
+            prompt_uris=[prompt_uri],  # Use the configured URI (version/alias/latest)
             optimizer=optimizer,
             scorers=scorers,
             enable_tracking=False,  # Don't auto-register all candidates
@@ -1276,29 +1287,31 @@ class DatabricksProvider(ServiceProvider):
                     f"Registered optimized prompt as version {registered_version.version}"
                 )
 
-                # Set the "latest" alias on the newly registered version
+                # Set the alias from config (if provided) or default to "latest"
+                # This allows updating the alias if it changes in the config file
+                target_alias: str = prompt.alias if prompt.alias else "latest"
                 logger.info(
-                    f"Setting 'latest' alias for optimized prompt '{prompt.full_name}' version {registered_version.version}"
+                    f"Setting '{target_alias}' alias for optimized prompt '{prompt.full_name}' version {registered_version.version}"
                 )
                 mlflow.genai.set_prompt_alias(
                     name=prompt.full_name,
-                    alias="latest",
+                    alias=target_alias,
                     version=registered_version.version,
                 )
                 logger.info(
-                    f"Successfully set 'latest' alias for '{prompt.full_name}' v{registered_version.version}"
+                    f"Successfully set '{target_alias}' alias for '{prompt.full_name}' v{registered_version.version}"
                 )
 
                 # Add target_model tag to track which model this was optimized for
                 tags: dict[str, Any] = prompt.tags.copy() if prompt.tags else {}
                 tags["target_model"] = agent.model.uri
 
-                # Return the optimized prompt with the 'latest' alias
+                # Return the optimized prompt with the configured alias
                 return PromptModel(
                     name=prompt.name,
                     schema=prompt.schema_model,
                     description=f"Optimized version of {prompt.name} for {agent.model.uri}",
-                    alias="latest",
+                    alias=target_alias,
                     tags=tags,
                 )
 

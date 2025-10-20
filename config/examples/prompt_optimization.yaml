@@ -262,6 +262,17 @@ prompts:
     schema: *retail_schema
     name: diy_prompt
     description: "DIY and home improvement expert prompt providing how-to advice, project guidance, and safety recommendations"
+    
+    # Optional: Specify which version/alias to optimize
+    # Three URI schemes are supported:
+    # 1. version: 1  # Optimize specific version: "prompts:/qa/1"
+    # 2. alias: "champion"  # Optimize aliased version: "prompts:/qa@champion"
+    # 3. (default) no version/alias  # Optimize latest: "prompts:/qa@latest"
+    # 
+    # When optimization completes, the specified alias will be updated to point to the new version
+    # If no alias specified, defaults to "latest"
+    # alias: "champion"  # Uncomment to use a custom alias
+    
     default_template: |
       ### User Information
       - **User Id**: {user_id}
