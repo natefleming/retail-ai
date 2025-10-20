@@ -1,4 +1,5 @@
 import base64
+import re
 import uuid
 from importlib.metadata import version
 from pathlib import Path
@@ -1188,8 +1189,10 @@ class DatabricksProvider(ServiceProvider):
         prompt_uri: str = prompt.uri
         logger.info(f"Using prompt URI for optimization: {prompt_uri}")
 
-        # Load the current prompt version to get the template for comparison
-        prompt_version: PromptVersion = self.get_prompt(prompt)
+        # Load the specific prompt version by URI for comparison
+        # Use direct load_prompt instead of get_prompt to avoid fallback logic
+        # This ensures we compare against the exact version we're optimizing
+        prompt_version: PromptVersion = load_prompt(prompt_uri)
 
         # Load the evaluation dataset by name
         logger.debug(f"Looking up dataset: {optimization.dataset}")
@@ -1232,7 +1235,8 @@ class DatabricksProvider(ServiceProvider):
 
         # Get the compiled agent as a ResponsesAgent
         agent_runnable: ResponsesAgent = agent.as_responses_agent()
-        prompt_uri: str = prompt_version.uri
+        # Use prompt_uri from line 1188 - already set to prompt.uri (configured URI)
+        # DO NOT overwrite with prompt_version.uri as that uses fallback logic
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
         # Create predict function that will be optimized
@@ -1330,26 +1334,96 @@ class DatabricksProvider(ServiceProvider):
                 optimized_prompt_version.to_single_brace_format().strip()
             )
 
-            if original_template == optimized_template:
+            # Normalize whitespace for more robust comparison
+            original_normalized: str = re.sub(r"\s+", " ", original_template).strip()
+            optimized_normalized: str = re.sub(r"\s+", " ", optimized_template).strip()
+
+            logger.debug(f"Original template length: {len(original_template)} chars")
+            logger.debug(f"Optimized template length: {len(optimized_template)} chars")
+            logger.debug(
+                f"Templates identical: {original_normalized == optimized_normalized}"
+            )
+
+            if original_normalized == optimized_normalized:
                 logger.info(
                     f"Optimized prompt is identical to original for '{prompt.full_name}'. "
                     "No new version will be registered."
                 )
                 return prompt
 
-            logger.info("Optimized prompt is different from original")
-            logger.debug(
-                f"Original template (first 200 chars): {original_template[:200]}..."
+            logger.info("Optimized prompt is DIFFERENT from original")
+            logger.info(
+                f"Original length: {len(original_template)}, Optimized length: {len(optimized_template)}"
             )
             logger.debug(
-                f"Optimized template (first 200 chars): {optimized_template[:200]}..."
+                f"Original template (first 300 chars): {original_template[:300]}..."
+            )
+            logger.debug(
+                f"Optimized template (first 300 chars): {optimized_template[:300]}..."
             )
 
-            # Log evaluation results if available
+            # Show a diff if templates are similar length
+            if abs(len(original_template) - len(optimized_template)) < 100:
+                logger.debug(
+                    "Templates are similar length, checking for differences..."
+                )
+                # Find first difference
+                for i, (c1, c2) in enumerate(
+                    zip(original_template, optimized_template)
+                ):
+                    if c1 != c2:
+                        logger.debug(f"First difference at position {i}:")
+                        logger.debug(
+                            f"  Original: ...{original_template[max(0, i - 50) : i + 50]}..."
+                        )
+                        logger.debug(
+                            f"  Optimized: ...{optimized_template[max(0, i - 50) : i + 50]}..."
+                        )
+                        break
+
+            # Check evaluation results to ensure the optimized prompt is actually better
+            should_register: bool = True
             if hasattr(result, "evaluation_results") and result.evaluation_results:
                 logger.info("Evaluation results:")
                 for metric_name, metric_value in result.evaluation_results.items():
                     logger.info(f"  {metric_name}: {metric_value}")
+
+                # Check if we have baseline and optimized scores to compare
+                if (
+                    "baseline_score" in result.evaluation_results
+                    and "optimized_score" in result.evaluation_results
+                ):
+                    baseline_score: float = result.evaluation_results["baseline_score"]
+                    optimized_score: float = result.evaluation_results[
+                        "optimized_score"
+                    ]
+
+                    logger.info(f"Baseline score: {baseline_score}")
+                    logger.info(f"Optimized score: {optimized_score}")
+
+                    # Only register if there's improvement
+                    if optimized_score <= baseline_score:
+                        logger.info(
+                            f"Optimized prompt (score: {optimized_score}) did NOT improve over baseline (score: {baseline_score}). "
+                            "No new version will be registered."
+                        )
+                        should_register = False
+                    else:
+                        improvement: float = (
+                            (optimized_score - baseline_score) / baseline_score
+                        ) * 100
+                        logger.info(
+                            f"Optimized prompt improved by {improvement:.2f}% "
+                            f"(baseline: {baseline_score}, optimized: {optimized_score})"
+                        )
+            else:
+                logger.warning("No evaluation results available to compare performance")
+
+            if not should_register:
+                logger.info(
+                    f"Skipping registration for '{prompt.full_name}' (no improvement)"
+                )
+                return prompt
 
             # Register the optimized prompt manually
             try:
