@@ -62,6 +62,12 @@ print("\n".join(pip_requirements))
 
 # COMMAND ----------
 
+import nest_asyncio
+
+nest_asyncio.apply()
+
+# COMMAND ----------
+
 from dotenv import find_dotenv, load_dotenv
 
 _ = load_dotenv(find_dotenv())
