@@ -1219,10 +1219,31 @@ class DatabricksProvider(ServiceProvider):
             # Call the ResponsesAgent's predict method
             response: ResponsesAgentResponse = agent_runnable.predict(request)
 
-            # Extract text from the first output item
             if response.output and len(response.output) > 0:
-                logger.debug(f"Response: {response.output[0].content}")
-                return response.output[0].content
+                content = response.output[0].content
+                logger.debug(f"Response content type: {type(content)}")
+                logger.debug(f"Response content: {content}")
+
+                # Extract text from content using same logic as LanggraphResponsesAgent._extract_text_from_content
+                # Content can be:
+                # - A string (return as is)
+                # - A list of items with 'text' keys (extract and join)
+                # - Other types (try to get 'text' attribute or convert to string)
+                if isinstance(content, str):
+                    return content
+                elif isinstance(content, list):
+                    text_parts = []
+                    for content_item in content:
+                        if isinstance(content_item, str):
+                            text_parts.append(content_item)
+                        elif isinstance(content_item, dict) and "text" in content_item:
+                            text_parts.append(content_item["text"])
+                        elif hasattr(content_item, "text"):
+                            text_parts.append(content_item.text)
+                    return "".join(text_parts) if text_parts else str(content)
+                else:
+                    # Fallback for unknown types - try to extract text attribute
+                    return getattr(content, "text", str(content))
             else:
                 return ""
 
