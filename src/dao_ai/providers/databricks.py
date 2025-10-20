@@ -1125,6 +1125,26 @@ class DatabricksProvider(ServiceProvider):
                     == default_template.strip()
                 ):
                     logger.debug(f"Prompt '{prompt_name}' is already up-to-date")
+                    
+                    # Ensure the "latest" alias also exists and points to the same version
+                    # This handles prompts created before the fix that added "latest" alias
+                    try:
+                        latest_version: PromptVersion = mlflow.genai.load_prompt(
+                            f"prompts:/{prompt_name}@latest"
+                        )
+                        logger.debug(
+                            f"Latest alias already exists for '{prompt_name}' pointing to version {latest_version.version}"
+                        )
+                    except Exception:
+                        logger.info(
+                            f"Setting 'latest' alias for existing prompt '{prompt_name}' v{existing.version}"
+                        )
+                        mlflow.genai.set_prompt_alias(
+                            name=prompt_name,
+                            alias="latest",
+                            version=existing.version,
+                        )
+                    
                     return existing  # Already up-to-date, return existing version
             except Exception:
                 logger.debug(
@@ -1139,15 +1159,22 @@ class DatabricksProvider(ServiceProvider):
                 commit_message=commit_message,
             )
 
-            logger.debug(f"Setting default alias for prompt '{prompt_name}'")
+            logger.debug(
+                f"Setting default and latest aliases for prompt '{prompt_name}'"
+            )
             mlflow.genai.set_prompt_alias(
                 name=prompt_name,
                 alias="default",
                 version=prompt_version.version,
             )
+            mlflow.genai.set_prompt_alias(
+                name=prompt_name,
+                alias="latest",
+                version=prompt_version.version,
+            )
 
             logger.info(
-                f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry"
+                f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry with 'default' and 'latest' aliases"
             )
             return prompt_version
 

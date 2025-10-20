@@ -235,10 +235,16 @@ class TestPromptRegistryUnit:
                 commit_message="Auto-synced from default_template",
             )
 
-            # Should set the default alias
-            mock_set_alias.assert_called_once_with(
+            # Should set both default and latest aliases
+            assert mock_set_alias.call_count == 2
+            mock_set_alias.assert_any_call(
                 name="test_prompt",
                 alias="default",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="latest",
                 version=1,
             )
 
@@ -299,10 +305,16 @@ class TestPromptRegistryUnit:
                 commit_message="Custom description for commit message",
             )
 
-            # Should set the default alias
-            mock_set_alias.assert_called_once_with(
+            # Should set both default and latest aliases
+            assert mock_set_alias.call_count == 2
+            mock_set_alias.assert_any_call(
                 name="test_prompt",
                 alias="default",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="latest",
                 version=1,
             )
 

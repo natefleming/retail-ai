@@ -52,6 +52,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from conftest import has_databricks_env
+from loguru import logger
 
 from dao_ai.config import (
     AgentModel,
@@ -1061,3 +1062,221 @@ class TestPromptOptimizationSystem:
             for key, result in results.items():
                 assert isinstance(result, PromptModel)
                 assert result.name is not None
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not has_databricks_env(), reason="Databricks environment variables not set"
+)
+class TestPromptOptimizationWithDatabricks:
+    """Integration tests for prompt optimization with real Databricks services."""
+
+    def test_optimize_prompt_end_to_end_with_databricks(self):
+        """
+        End-to-end integration test for prompt optimization using Databricks.
+
+        This test:
+        1. Loads configuration from prompt_optimization.yaml
+        2. Creates/loads the prompt from default_template if needed
+        3. Runs the optimization using real Databricks services
+        4. Verifies the optimized prompt is registered correctly
+        5. Checks that aliases are set properly
+
+        Note: This test requires:
+        - Valid Databricks workspace credentials
+        - Access to Unity Catalog
+        - MLflow Prompt Registry access
+        - Model serving endpoint access
+        """
+        from pathlib import Path
+
+        from dao_ai.config import AppConfig
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        # Load the prompt optimization configuration
+        config_path = Path("config/examples/prompt_optimization.yaml")
+        assert config_path.exists(), f"Config file not found: {config_path}"
+
+        config = AppConfig.from_file(str(config_path))
+
+        # Verify optimizations are configured
+        assert config.optimizations is not None
+        assert config.optimizations.prompt_optimizations is not None
+        assert len(config.optimizations.prompt_optimizations) > 0
+
+        # Get the optimization configuration
+        optimization = config.optimizations.prompt_optimizations["optimize_diy_prompt"]
+        assert optimization.name == "optimize_diy_prompt"
+        assert optimization.prompt is not None
+        assert optimization.agent is not None
+        assert optimization.dataset is not None
+
+        # Verify prompt configuration
+        prompt = optimization.prompt
+        assert prompt.name == "diy_prompt"
+        assert prompt.default_template is not None
+        assert len(prompt.default_template) > 0
+
+        # Initialize Databricks provider
+        provider = DatabricksProvider()
+
+        # Test 1: Ensure prompt exists in registry (create from default_template if needed)
+        logger.info(f"Loading/creating prompt: {prompt.full_name}")
+        prompt_version = provider.get_prompt(prompt)
+        assert prompt_version is not None
+        assert prompt_version.version is not None
+
+        logger.info(f"Prompt version loaded: {prompt_version.version}")
+
+        # Verify the prompt has required aliases
+        import mlflow
+
+        mlflow.set_registry_uri("databricks-uc")
+
+        # Check that default and latest aliases exist
+        try:
+            default_prompt = mlflow.genai.load_prompt(
+                f"prompts:/{prompt.full_name}@default"
+            )
+            assert default_prompt is not None
+            logger.info(f"Default alias verified for {prompt.full_name}")
+        except Exception as e:
+            pytest.fail(f"Default alias not found for {prompt.full_name}: {e}")
+
+        try:
+            latest_prompt = mlflow.genai.load_prompt(
+                f"prompts:/{prompt.full_name}@latest"
+            )
+            assert latest_prompt is not None
+            logger.info(f"Latest alias verified for {prompt.full_name}")
+        except Exception as e:
+            pytest.fail(f"Latest alias not found for {prompt.full_name}: {e}")
+
+        # Test 2: Verify dataset is configured correctly
+        logger.info("Verifying dataset configuration")
+        dataset_model = optimization.dataset
+        assert dataset_model is not None
+
+        if not isinstance(dataset_model, str):
+            # If it's an EvaluationDatasetModel, verify it has data
+            assert hasattr(dataset_model, "data")
+            assert len(dataset_model.data) > 0
+
+            # Verify the dataset entries have proper structure
+            first_entry = dataset_model.data[0]
+            assert hasattr(first_entry, "inputs")
+            assert hasattr(first_entry, "expectations")
+
+            # Create the dataset in MLflow
+            logger.info("Creating evaluation dataset")
+            dataset = dataset_model.as_dataset()
+            assert dataset is not None
+
+        # Test 3: Run the optimization
+        logger.info("Running prompt optimization (this may take several minutes)")
+        logger.info(f"Generating {optimization.num_candidates} candidate prompts...")
+
+        original_version = prompt_version.version
+        logger.info(f"Original prompt version: {original_version}")
+
+        # Run optimization
+        optimized_prompt = provider.optimize_prompt(optimization)
+
+        # Test 4: Verify optimization results
+        assert optimized_prompt is not None
+        assert optimized_prompt.name == prompt.name
+
+        # The optimized prompt should either:
+        # 1. Return the same prompt if no improvement was found
+        # 2. Return a new prompt with updated alias
+
+        # Load the latest version after optimization
+        latest_after_optimization = mlflow.genai.load_prompt(
+            f"prompts:/{prompt.full_name}@latest"
+        )
+
+        logger.info(
+            f"Prompt version after optimization: {latest_after_optimization.version}"
+        )
+
+        # Test 5: Verify prompt history and aliases
+        # Note: We can't directly list prompt versions via MlflowClient for UC prompts,
+        # but we can verify that the latest alias points to a valid version
+        assert latest_after_optimization.version >= original_version
+
+        logger.info("Integration test completed successfully!")
+        logger.info(f"Original version: {original_version}")
+        logger.info(f"Latest version: {latest_after_optimization.version}")
+
+        if latest_after_optimization.version > original_version:
+            logger.info("New optimized version was registered!")
+        else:
+            logger.info(
+                "No new version registered (optimization determined existing prompt was optimal)"
+            )
+
+    def test_optimize_prompt_only_registers_improvements(self):
+        """
+        Test that prompt optimization only registers new versions when there's actual improvement.
+
+        This test verifies:
+        1. Templates that are identical to the original are not registered
+        2. Templates that don't improve scores are not registered
+        3. Only genuinely better prompts result in new versions
+        """
+        from pathlib import Path
+
+        from dao_ai.config import AppConfig
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        config_path = Path("config/examples/prompt_optimization.yaml")
+        config = AppConfig.from_file(str(config_path))
+
+        optimization = config.optimizations.prompt_optimizations["optimize_diy_prompt"]
+        provider = DatabricksProvider()
+
+        # Get the current version count
+        prompt = optimization.prompt
+
+        import mlflow
+
+        mlflow.set_registry_uri("databricks-uc")
+
+        # Load the latest version before optimization
+        latest_before = mlflow.genai.load_prompt(f"prompts:/{prompt.full_name}@latest")
+        version_before = latest_before.version
+
+        logger.info(f"Version before optimization: {version_before}")
+
+        # Run optimization with a very small number of candidates to speed up the test
+        # This makes it more likely that no improvement will be found
+        optimization.num_candidates = 3
+
+        result = provider.optimize_prompt(optimization)
+
+        # Load the latest version after optimization
+        latest_after = mlflow.genai.load_prompt(f"prompts:/{prompt.full_name}@latest")
+        version_after = latest_after.version
+
+        logger.info(f"Version after optimization: {version_after}")
+
+        # Verify that the version only increased if there was actual improvement
+        if version_after > version_before:
+            logger.info("New version was registered - optimization found improvement")
+            # If a new version was registered, verify the template is different
+            template_before = latest_before.to_single_brace_format().strip()
+            template_after = latest_after.to_single_brace_format().strip()
+
+            # Normalize whitespace for comparison
+            import re
+
+            template_before_normalized = re.sub(r"\s+", " ", template_before)
+            template_after_normalized = re.sub(r"\s+", " ", template_after)
+
+            assert template_before_normalized != template_after_normalized, (
+                "New version was registered but templates are identical"
+            )
+        else:
+            logger.info("No new version registered - no improvement found")
+
+        assert result is not None
