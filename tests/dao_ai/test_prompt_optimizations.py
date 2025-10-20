@@ -56,10 +56,13 @@ from conftest import has_databricks_env
 from dao_ai.config import (
     AgentModel,
     AppConfig,
+    ChatPayload,
     EvaluationDatasetEntryModel,
     EvaluationDatasetExpectationsModel,
     EvaluationDatasetModel,
     LLMModel,
+    Message,
+    MessageRole,
     OptimizationsModel,
     PromptModel,
     PromptOptimizationModel,
@@ -230,13 +233,17 @@ class TestTrainingDatasetModelUnit:
         """Test that EvaluationDatasetModel can be created with data entries."""
         entries = [
             EvaluationDatasetEntryModel(
-                inputs={"text": "Hello world"},
+                inputs=ChatPayload(
+                    messages=[Message(role=MessageRole.USER, content="Hello world")]
+                ),
                 expectations=EvaluationDatasetExpectationsModel(
                     expected_response="Hello! How can I help you?"
                 ),
             ),
             EvaluationDatasetEntryModel(
-                inputs={"text": "Goodbye world"},
+                inputs=ChatPayload(
+                    messages=[Message(role=MessageRole.USER, content="Goodbye world")]
+                ),
                 expectations=EvaluationDatasetExpectationsModel(
                     expected_response="Goodbye! Have a great day!"
                 ),
@@ -247,7 +254,7 @@ class TestTrainingDatasetModelUnit:
 
         assert dataset.name == "test_dataset"
         assert len(dataset.data) == 2
-        assert dataset.data[0].inputs["text"] == "Hello world"
+        assert dataset.data[0].inputs.messages[0].content == "Hello world"
         assert (
             dataset.data[0].expectations.expected_response
             == "Hello! How can I help you?"
@@ -258,7 +265,13 @@ class TestTrainingDatasetModelUnit:
     def test_training_dataset_with_expected_facts(self):
         """Test that EvaluationDatasetModel can be created with expected_facts."""
         entry = EvaluationDatasetEntryModel(
-            inputs={"question": "What is the capital of France?"},
+            inputs=ChatPayload(
+                messages=[
+                    Message(
+                        role=MessageRole.USER, content="What is the capital of France?"
+                    )
+                ]
+            ),
             expectations=EvaluationDatasetExpectationsModel(
                 expected_facts=["Paris", "Capital city of France"]
             ),
@@ -268,7 +281,10 @@ class TestTrainingDatasetModelUnit:
 
         assert dataset.name == "test_dataset"
         assert len(dataset.data) == 1
-        assert dataset.data[0].inputs["question"] == "What is the capital of France?"
+        assert (
+            dataset.data[0].inputs.messages[0].content
+            == "What is the capital of France?"
+        )
         assert dataset.data[0].expectations.expected_facts == [
             "Paris",
             "Capital city of France",
@@ -279,42 +295,48 @@ class TestTrainingDatasetModelUnit:
     def test_training_dataset_with_expected_response_only(self):
         """Test that expected_response works without expected_facts."""
         entry = EvaluationDatasetEntryModel(
-            inputs={"text": "Hello"},
+            inputs=ChatPayload(
+                messages=[Message(role=MessageRole.USER, content="Hello")]
+            ),
             expectations=EvaluationDatasetExpectationsModel(
                 expected_response="Hi there!"
             ),
         )
 
-        assert entry.inputs["text"] == "Hello"
+        assert entry.inputs.messages[0].content == "Hello"
         assert entry.expectations.expected_response == "Hi there!"
         assert entry.expectations.expected_facts is None
 
     @pytest.mark.unit
-    def test_training_dataset_flexible_input_fields(self):
-        """Test that inputs accepts any input fields as dict."""
-        # Test with 'text' field
+    def test_training_dataset_with_custom_inputs(self):
+        """Test that ChatPayload accepts custom_inputs for additional context."""
+        # Test with messages and custom inputs
         entry1 = EvaluationDatasetEntryModel(
-            inputs={"text": "Some text"},
+            inputs=ChatPayload(
+                messages=[Message(role=MessageRole.USER, content="Some text")],
+                custom_inputs={"context": "Additional context"},
+            ),
             expectations=EvaluationDatasetExpectationsModel(
                 expected_response="Response"
             ),
         )
-        assert entry1.inputs["text"] == "Some text"
+        assert entry1.inputs.messages[0].content == "Some text"
+        assert entry1.inputs.custom_inputs["context"] == "Additional context"
 
-        # Test with 'question' field
+        # Test with system and user messages
         entry2 = EvaluationDatasetEntryModel(
-            inputs={"question": "Some question"},
+            inputs=ChatPayload(
+                messages=[
+                    Message(
+                        role=MessageRole.SYSTEM, content="You are a helpful assistant"
+                    ),
+                    Message(role=MessageRole.USER, content="Some question"),
+                ]
+            ),
             expectations=EvaluationDatasetExpectationsModel(expected_response="Answer"),
         )
-        assert entry2.inputs["question"] == "Some question"
-
-        # Test with custom fields
-        entry3 = EvaluationDatasetEntryModel(
-            inputs={"context": "Context here", "query": "Query here"},
-            expectations=EvaluationDatasetExpectationsModel(expected_response="Result"),
-        )
-        assert entry3.inputs["context"] == "Context here"
-        assert entry3.inputs["query"] == "Query here"
+        assert entry2.inputs.messages[0].role == MessageRole.SYSTEM
+        assert entry2.inputs.messages[1].content == "Some question"
 
     @pytest.mark.unit
     def test_training_dataset_mutual_exclusion_validator(self):
@@ -346,7 +368,9 @@ class TestTrainingDatasetModelUnit:
             name="test_dataset",
             data=[
                 EvaluationDatasetEntryModel(
-                    inputs={"text": "Hello"},
+                    inputs=ChatPayload(
+                        messages=[Message(role=MessageRole.USER, content="Hello")]
+                    ),
                     expectations=EvaluationDatasetExpectationsModel(
                         expected_response="Hi there!"
                     ),
@@ -363,6 +387,97 @@ class TestTrainingDatasetModelUnit:
         assert (
             optimizations_model.training_datasets["test_dataset"].name == "test_dataset"
         )
+
+    @pytest.mark.unit
+    def test_chat_payload_to_mlflow_messages_conversion(self):
+        """Test that ChatPayload messages can be converted to MLflow Message format."""
+        from mlflow.types.responses_helpers import Message as MLflowMessage
+
+        # Test with single user message
+        payload = ChatPayload(
+            messages=[Message(role=MessageRole.USER, content="Hello world")]
+        )
+
+        # Convert to MLflow messages (as done in predict_fn)
+        mlflow_messages = [
+            MLflowMessage(role=msg.role, content=msg.content)
+            for msg in payload.messages
+        ]
+
+        assert len(mlflow_messages) == 1
+        assert mlflow_messages[0].role == "user"
+        assert mlflow_messages[0].content == "Hello world"
+
+        # Test with multiple messages including system
+        payload2 = ChatPayload(
+            messages=[
+                Message(role=MessageRole.SYSTEM, content="You are helpful"),
+                Message(role=MessageRole.USER, content="What is AI?"),
+            ]
+        )
+
+        mlflow_messages2 = [
+            MLflowMessage(role=msg.role, content=msg.content)
+            for msg in payload2.messages
+        ]
+
+        assert len(mlflow_messages2) == 2
+        assert mlflow_messages2[0].role == "system"
+        assert mlflow_messages2[0].content == "You are helpful"
+        assert mlflow_messages2[1].role == "user"
+        assert mlflow_messages2[1].content == "What is AI?"
+
+    @pytest.mark.unit
+    def test_chat_payload_with_custom_inputs(self):
+        """Test that ChatPayload handles custom_inputs correctly."""
+        payload = ChatPayload(
+            messages=[Message(role=MessageRole.USER, content="Test")],
+            custom_inputs={"configurable": {"thread_id": "123", "user_id": "user1"}},
+        )
+
+        assert payload.custom_inputs is not None
+        assert "configurable" in payload.custom_inputs
+        assert payload.custom_inputs["configurable"]["thread_id"] == "123"
+        assert payload.custom_inputs["configurable"]["user_id"] == "user1"
+
+    @pytest.mark.unit
+    def test_evaluation_dataset_entry_model_dump(self):
+        """Test that EvaluationDatasetEntryModel.model_dump() serializes ChatPayload correctly."""
+        entry = EvaluationDatasetEntryModel(
+            inputs=ChatPayload(
+                messages=[Message(role=MessageRole.USER, content="Test input")],
+                custom_inputs={"key": "value"},
+            ),
+            expectations=EvaluationDatasetExpectationsModel(
+                expected_response="Test response"
+            ),
+        )
+
+        dumped = entry.model_dump()
+
+        assert "inputs" in dumped
+        assert "messages" in dumped["inputs"]
+        assert len(dumped["inputs"]["messages"]) == 1
+        assert dumped["inputs"]["messages"][0]["role"] == "user"
+        assert dumped["inputs"]["messages"][0]["content"] == "Test input"
+        assert dumped["inputs"]["custom_inputs"]["key"] == "value"
+
+    @pytest.mark.unit
+    def test_chat_payload_input_alias(self):
+        """Test that ChatPayload correctly handles 'input' as alias for 'messages'."""
+        # Test with 'input' field
+        payload1 = ChatPayload(input=[Message(role=MessageRole.USER, content="Test")])
+        assert payload1.messages is not None
+        assert len(payload1.messages) == 1
+        assert payload1.input == payload1.messages
+
+        # Test with 'messages' field
+        payload2 = ChatPayload(
+            messages=[Message(role=MessageRole.USER, content="Test")]
+        )
+        assert payload2.input is not None
+        assert len(payload2.input) == 1
+        assert payload2.input == payload2.messages
 
 
 class TestOptimizationsModelUnit:
@@ -513,6 +628,160 @@ class TestAppConfigWithOptimizations:
         config = AppConfig(**config_dict)
 
         assert config.optimizations is None
+
+
+class TestResponsesAgentPredictFn:
+    """Unit tests for ResponsesAgent predict_fn integration."""
+
+    @pytest.mark.unit
+    def test_predict_fn_chat_payload_to_responses_agent_request(self):
+        """Test that predict_fn correctly converts ChatPayload to ResponsesAgentRequest."""
+        from unittest.mock import Mock
+
+        # Create mock ResponsesAgent
+        mock_agent = Mock()
+        # Mock response with output items
+        mock_output_item = Mock()
+        mock_output_item.content = "Test response"
+        mock_response = Mock()
+        mock_response.output = [mock_output_item]
+        mock_agent.predict.return_value = mock_response
+
+        # Simulate the predict_fn that would be created in optimize_prompt
+        def predict_fn(**inputs: dict) -> str:
+            from mlflow.types.responses import ResponsesAgentRequest
+            from mlflow.types.responses_helpers import Message
+
+            from dao_ai.config import ChatPayload
+
+            chat_payload: ChatPayload = ChatPayload(**inputs)
+            mlflow_messages: list[Message] = [
+                Message(role=msg.role, content=msg.content)
+                for msg in chat_payload.messages
+            ]
+            request: ResponsesAgentRequest = ResponsesAgentRequest(
+                input=mlflow_messages,
+                custom_inputs=chat_payload.custom_inputs,
+            )
+            response = mock_agent.predict(request)
+            if response.output and len(response.output) > 0:
+                return response.output[0].content
+            else:
+                return ""
+
+        # Test the predict_fn
+        result = predict_fn(
+            messages=[{"role": "user", "content": "Hello"}],
+            custom_inputs={"thread_id": "123"},
+        )
+
+        assert result == "Test response"
+        mock_agent.predict.assert_called_once()
+
+        # Verify the request was constructed correctly
+        call_args = mock_agent.predict.call_args
+        request = call_args[0][0]
+        assert len(request.input) == 1
+        assert request.input[0].role == "user"
+        assert request.input[0].content == "Hello"
+        assert request.custom_inputs == {"thread_id": "123"}
+
+    @pytest.mark.unit
+    def test_predict_fn_extracts_response_correctly(self):
+        """Test that predict_fn correctly extracts content from ResponsesAgentResponse."""
+        from unittest.mock import Mock
+
+        mock_agent = Mock()
+
+        # Test with valid response
+        mock_output_item = Mock()
+        mock_output_item.content = "Extracted content"
+        mock_response = Mock()
+        mock_response.output = [mock_output_item]
+        mock_agent.predict.return_value = mock_response
+
+        def predict_fn(**inputs: dict) -> str:
+            from mlflow.types.responses import ResponsesAgentRequest
+            from mlflow.types.responses_helpers import Message
+
+            from dao_ai.config import ChatPayload
+
+            chat_payload: ChatPayload = ChatPayload(**inputs)
+            mlflow_messages: list[Message] = [
+                Message(role=msg.role, content=msg.content)
+                for msg in chat_payload.messages
+            ]
+            request: ResponsesAgentRequest = ResponsesAgentRequest(
+                input=mlflow_messages,
+                custom_inputs=chat_payload.custom_inputs,
+            )
+            response = mock_agent.predict(request)
+            if response.output and len(response.output) > 0:
+                return response.output[0].content
+            else:
+                return ""
+
+        result = predict_fn(messages=[{"role": "user", "content": "Test"}])
+        assert result == "Extracted content"
+
+        # Test with empty response
+        mock_empty_response = Mock()
+        mock_empty_response.output = []
+        mock_agent.predict.return_value = mock_empty_response
+        result_empty = predict_fn(messages=[{"role": "user", "content": "Test"}])
+        assert result_empty == ""
+
+    @pytest.mark.unit
+    def test_predict_fn_handles_multiple_messages(self):
+        """Test that predict_fn handles multiple messages in ChatPayload."""
+        from unittest.mock import Mock
+
+        mock_agent = Mock()
+        mock_output_item = Mock()
+        mock_output_item.content = "Multi-turn response"
+        mock_response = Mock()
+        mock_response.output = [mock_output_item]
+        mock_agent.predict.return_value = mock_response
+
+        def predict_fn(**inputs: dict) -> str:
+            from mlflow.types.responses import ResponsesAgentRequest
+            from mlflow.types.responses_helpers import Message
+
+            from dao_ai.config import ChatPayload
+
+            chat_payload: ChatPayload = ChatPayload(**inputs)
+            mlflow_messages: list[Message] = [
+                Message(role=msg.role, content=msg.content)
+                for msg in chat_payload.messages
+            ]
+            request: ResponsesAgentRequest = ResponsesAgentRequest(
+                input=mlflow_messages,
+                custom_inputs=chat_payload.custom_inputs,
+            )
+            response = mock_agent.predict(request)
+            if response.output and len(response.output) > 0:
+                return response.output[0].content
+            else:
+                return ""
+
+        # Test with system + user messages
+        result = predict_fn(
+            messages=[
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "What is AI?"},
+            ]
+        )
+
+        assert result == "Multi-turn response"
+
+        # Verify all messages were passed
+        call_args = mock_agent.predict.call_args
+        request = call_args[0][0]
+        assert len(request.input) == 2
+        assert request.input[0].role == "system"
+        assert request.input[0].content == "You are helpful"
+        assert request.input[1].role == "user"
+        assert request.input[1].content == "What is AI?"
 
 
 class TestPromptOptimizationIntegration:

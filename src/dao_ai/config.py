@@ -30,6 +30,7 @@ from databricks_langchain import (
     DatabricksFunctionClient,
 )
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.messages import BaseMessage, messages_from_dict
 from langchain_core.runnables.base import RunnableLike
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -51,6 +52,9 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from mlflow.pyfunc import ChatModel, ResponsesAgent
+from mlflow.types.responses import (
+    ResponsesAgentRequest,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -1239,6 +1243,12 @@ class AgentModel(BaseModel):
 
         return create_agent_node(self)
 
+    def as_responses_agent(self) -> ResponsesAgent:
+        from dao_ai.models import create_responses_agent
+
+        graph: CompiledStateGraph = self.as_runnable()
+        return create_responses_agent(graph)
+
 
 class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1355,6 +1365,19 @@ class ChatPayload(BaseModel):
             self.messages = self.input
 
         return self
+
+    def as_messages(self) -> Sequence[BaseMessage]:
+        return messages_from_dict(
+            [{"type": m.role, "content": m.content} for m in self.messages]
+        )
+
+    def as_agent_request(self) -> ResponsesAgentRequest:
+        from mlflow.types.responses_helpers import Message as _Message
+
+        return ResponsesAgentRequest(
+            input=[_Message(role=m.role, content=m.content) for m in self.messages],
+            custom_inputs=self.custom_inputs,
+        )
 
 
 class ChatHistoryModel(BaseModel):
@@ -1499,7 +1522,7 @@ class EvaluationDatasetExpectationsModel(BaseModel):
 
 class EvaluationDatasetEntryModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    inputs: dict[str, Any] = Field(default_factory=dict)
+    inputs: ChatPayload
     expectations: EvaluationDatasetExpectationsModel
 
 
@@ -1544,7 +1567,7 @@ class PromptOptimizationModel(BaseModel):
     num_candidates: Optional[int] = 10
     scorer_model: Optional[LLMModel | str] = None
 
-    def optimize(self, w: WorkspaceClient | None = None) -> "PromptModel":
+    def optimize(self, w: WorkspaceClient | None = None) -> PromptModel:
         """
         Optimize the prompt using MLflow's prompt optimization.
 
@@ -1568,31 +1591,6 @@ class OptimizationsModel(BaseModel):
     prompt_optimizations: dict[str, PromptOptimizationModel] = Field(
         default_factory=dict
     )
-
-    def get_dataset(self, dataset_name: str) -> Any:
-        """
-        Get a dataset by name, either from training_datasets or from MLflow.
-
-        Args:
-            dataset_name: Name of the dataset to retrieve
-
-        Returns:
-            EvaluationDataset: The MLflow evaluation dataset
-        """
-        # First, check if dataset is defined in training_datasets
-        if dataset_name in self.training_datasets:
-            logger.debug(
-                f"Found dataset '{dataset_name}' in training_datasets, calling as_dataset()"
-            )
-            return self.training_datasets[dataset_name].as_dataset()
-
-        # Otherwise, look it up from MLflow
-        logger.debug(
-            f"Dataset '{dataset_name}' not in training_datasets, looking up in MLflow"
-        )
-        from mlflow.genai.datasets import get_dataset
-
-        return get_dataset(name=dataset_name)
 
     def optimize(self, w: WorkspaceClient | None = None) -> dict[str, PromptModel]:
         """

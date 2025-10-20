@@ -38,6 +38,7 @@ from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
     DatabricksResource,
 )
+from mlflow.pyfunc import ResponsesAgent
 from pyspark.sql import SparkSession
 from unitycatalog.ai.core.base import FunctionExecutionResult
 from unitycatalog.ai.core.databricks import DatabricksFunctionClient
@@ -1111,7 +1112,6 @@ class DatabricksProvider(ServiceProvider):
         Returns:
             PromptModel: The optimized prompt with new URI
         """
-        from langchain_core.messages import HumanMessage
         from mlflow.genai.optimize import GepaPromptOptimizer, optimize_prompts
         from mlflow.genai.scorers import Correctness
 
@@ -1135,6 +1135,7 @@ class DatabricksProvider(ServiceProvider):
             dataset = optimization.dataset.as_dataset()
 
         # Set up reflection model for the optimizer
+        reflection_model_name: str
         if optimization.reflection_model:
             if isinstance(optimization.reflection_model, str):
                 reflection_model_name = optimization.reflection_model
@@ -1145,13 +1146,14 @@ class DatabricksProvider(ServiceProvider):
         logger.debug(f"Using reflection model: {reflection_model_name}")
 
         # Create the GepaPromptOptimizer
-        optimizer = GepaPromptOptimizer(
+        optimizer: GepaPromptOptimizer = GepaPromptOptimizer(
             reflection_model=reflection_model_name,
             max_metric_calls=optimization.num_candidates,
             display_progress_bar=True,
         )
 
         # Set up scorer (judge model for evaluation)
+        scorer_model: str
         if optimization.scorer_model:
             if isinstance(optimization.scorer_model, str):
                 scorer_model = optimization.scorer_model
@@ -1161,42 +1163,64 @@ class DatabricksProvider(ServiceProvider):
             scorer_model = "databricks"  # Use Databricks default
         logger.debug(f"Using scorer with model: {scorer_model}")
 
-        scorers = [Correctness(model=scorer_model)]
+        scorers: list[Correctness] = [Correctness(model=scorer_model)]
 
-        # Get the compiled agent as a runnable
-        agent_runnable = agent.as_runnable()
-        prompt_uri = prompt_version.uri
+        # Get the compiled agent as a ResponsesAgent
+        agent_runnable: ResponsesAgent = agent.as_responses_agent()
+        prompt_uri: str = prompt_version.uri
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
         # Create predict function that will be optimized
         def predict_fn(**inputs: dict[str, Any]) -> str:
-            """Prediction function that uses the agent with the prompt.
+            """Prediction function that uses the ResponsesAgent with ChatPayload.
 
-            This function must load and format the prompt using mlflow.genai.load_prompt()
-            so that MLflow can track prompt usage during optimization.
+            The agent already has the prompt referenced/applied, so we just need to
+            convert the ChatPayload inputs to ResponsesAgentRequest format and call predict.
+
+            Args:
+                **inputs: Dictionary containing ChatPayload fields (messages/input, custom_inputs)
+
+            Returns:
+                str: The agent's response content
             """
-            # Load the prompt from the registry (required for MLflow tracking)
-            prompt = mlflow.genai.load_prompt(prompt_uri)
+            from mlflow.types.responses import (
+                ResponsesAgentRequest,
+                ResponsesAgentResponse,
+            )
+            from mlflow.types.responses_helpers import Message
 
-            # Format the prompt with inputs (required for MLflow tracking)
-            formatted_prompt = prompt.format(**inputs)
+            from dao_ai.config import ChatPayload
 
-            # Use the agent to generate response
+            # Convert inputs to ChatPayload
+            chat_payload: ChatPayload = ChatPayload(**inputs)
 
-            # LangGraph agents expect dict input with "messages" key
-            result = agent_runnable.invoke(
-                {"messages": [HumanMessage(content=formatted_prompt)]}
+            # Convert ChatPayload messages to MLflow Message format
+            mlflow_messages: list[Message] = [
+                Message(role=msg.role, content=msg.content)
+                for msg in chat_payload.messages
+            ]
+
+            # Create ResponsesAgentRequest
+            request: ResponsesAgentRequest = ResponsesAgentRequest(
+                input=mlflow_messages,
+                custom_inputs=chat_payload.custom_inputs,
             )
 
-            # Extract the last message content from the result
-            return result["messages"][-1].content
+            # Call the ResponsesAgent's predict method
+            response: ResponsesAgentResponse = agent_runnable.predict(request)
+
+            # Extract text from the first output item
+            if response.output and len(response.output) > 0:
+                return response.output[0].content
+            else:
+                return ""
 
         # Set registry URI for Databricks Unity Catalog
         mlflow.set_registry_uri("databricks-uc")
 
         # Run optimization
         logger.info("Running prompt optimization with GepaPromptOptimizer...")
-        result = optimize_prompts(
+        result: Any = optimize_prompts(
             predict_fn=predict_fn,
             train_data=dataset,
             prompt_uris=[prompt_version.uri],
@@ -1208,7 +1232,7 @@ class DatabricksProvider(ServiceProvider):
         # Log the optimization results
         logger.info("Optimization complete!")
         if hasattr(result, "optimized_prompts") and result.optimized_prompts:
-            optimized_prompt_version = result.optimized_prompts[0]
+            optimized_prompt_version: PromptVersion = result.optimized_prompts[0]
             logger.info(f"Optimized prompt URI: {optimized_prompt_version.uri}")
             logger.debug(
                 f"Optimized template preview: {optimized_prompt_version.template[:200]}..."

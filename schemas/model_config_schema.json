@@ -1193,15 +1193,14 @@
       "additionalProperties": false,
       "properties": {
         "inputs": {
-          "additionalProperties": true,
-          "title": "Inputs",
-          "type": "object"
+          "$ref": "#/$defs/ChatPayload"
         },
         "expectations": {
           "$ref": "#/$defs/EvaluationDatasetExpectationsModel"
         }
       },
       "required": [
+        "inputs",
         "expectations"
       ],
       "title": "EvaluationDatasetEntryModel",
