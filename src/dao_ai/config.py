@@ -1541,7 +1541,9 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
             evaluation_dataset = get_dataset(name=self.full_name)
             if self.overwrite:
                 logger.warning(f"Overwriting dataset {self.full_name}")
-                evaluation_dataset.delete()
+                workspace_client: WorkspaceClient = w if w else WorkspaceClient()
+                logger.debug(f"Dropping table: {self.full_name}")
+                workspace_client.tables.delete(full_name=self.full_name)
                 needs_creation = True
         except Exception:
             logger.warning(f"Dataset {self.full_name} not found, will create new dataset")
