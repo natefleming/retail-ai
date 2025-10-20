@@ -1258,7 +1258,9 @@ class TestPromptOptimizationWithDatabricks:
 
         # Load the latest version before optimization
         try:
-            latest_before = mlflow.genai.load_prompt(f"prompts:/{prompt.full_name}@latest")
+            latest_before = mlflow.genai.load_prompt(
+                f"prompts:/{prompt.full_name}@latest"
+            )
             version_before = latest_before.version
             logger.info(f"Version before optimization: {version_before}")
         except Exception as e:

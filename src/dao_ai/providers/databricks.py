@@ -1421,7 +1421,7 @@ class DatabricksProvider(ServiceProvider):
                         )
                         break
 
-            # Check evaluation results to ensure the optimized prompt is actually better    
+            # Check evaluation results to ensure the optimized prompt is actually better
             should_register: bool = True
             if hasattr(result, "evaluation_results") and result.evaluation_results:
                 logger.info("Evaluation results:")

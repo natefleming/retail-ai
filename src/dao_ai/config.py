@@ -1531,22 +1531,30 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
     data: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
-
+    overwrite: Optional[bool] = False
+    
     def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
         evaluation_dataset: EvaluationDataset
+        needs_creation: bool = False
+        
         try:
             evaluation_dataset = get_dataset(name=self.full_name)
+            if self.overwrite:
+                logger.warning(f"Overwriting dataset {self.full_name}")
+                evaluation_dataset.delete()
+                needs_creation = True
         except Exception:
-            logger.warning(f"Dataset {self.full_name} not found, creating new dataset")
+            logger.warning(f"Dataset {self.full_name} not found, will create new dataset")
+            needs_creation = True
+        
+        # Create dataset if needed (either new or after overwrite)
+        if needs_creation:
             evaluation_dataset = create_dataset(name=self.full_name)
-
             if self.data:
-                logger.debug(
-                    f"Merging {len(self.data)} entries into dataset {self.full_name}"
-                )
+                logger.debug(f"Merging {len(self.data)} entries into dataset {self.full_name}")
                 evaluation_dataset.merge_records([e.model_dump() for e in self.data])
-
-        return evaluation_dataset  # If inputs and expectations are provided, create/update the dataset
+        
+        return evaluation_dataset
 
     @property
     def full_name(self) -> str:

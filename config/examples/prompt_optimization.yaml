@@ -493,6 +493,7 @@ optimizations:
       # Optional: Specify schema for full catalog.schema.table name
       schema: *retail_schema
       name: hardware_store_diy_dataset
+      overwrite: true
       data:
         - inputs:
             messages: 
@@ -507,6 +508,169 @@ optimizations:
             expected_facts:
               - "The best drill for home use is the Dewalt DCD777B 18V Cordless Drill/Driver with a 1/2-inch hex chuck."
               - "The Dewalt DCD777B 18V Cordless Drill/Driver is a popular drill for home use."
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I install a ceiling fan?"
+            custom_inputs:
+              configurable:
+                thread_id: "2"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Turn off power at the circuit breaker before starting any electrical work"
+              - "You'll need a ceiling fan mounting bracket and electrical box rated for fan weight"
+              - "Connect the wiring: black to black (hot), white to white (neutral), green to copper (ground)"
+              - "Ensure the electrical box is securely mounted to a ceiling joist or use a fan brace"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What type of paint should I use for my bathroom?"
+            custom_inputs:
+              configurable:
+                thread_id: "3"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Use moisture-resistant or mildew-resistant paint for bathrooms"
+              - "Semi-gloss or satin finish paints work best in bathrooms due to humidity"
+              - "Look for paints specifically labeled as 'bathroom paint' or with anti-microbial properties"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I fix a leaky faucet?"
+            custom_inputs:
+              configurable:
+                thread_id: "4"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Turn off the water supply before starting repairs"
+              - "Common causes include worn washers, O-rings, or valve seats"
+              - "You'll typically need an adjustable wrench, screwdriver, and replacement parts"
+              - "Identify your faucet type (compression, cartridge, ball, or ceramic disk) for proper repair"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What tools do I need to hang drywall?"
+            custom_inputs:
+              configurable:
+                thread_id: "5"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Essential tools include a drywall saw, utility knife, T-square, and screw gun"
+              - "You'll need drywall screws, joint compound, and tape for finishing"
+              - "A drywall lift can be helpful for ceiling installation"
+              - "Sandpaper or sanding screen is needed for finishing joints"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I install laminate flooring?"
+            custom_inputs:
+              configurable:
+                thread_id: "6"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Start by ensuring the subfloor is clean, level, and dry"
+              - "Install underlayment before laying laminate planks"
+              - "Leave a 1/4-inch expansion gap around the perimeter"
+              - "Most laminate flooring uses a click-lock installation system"
+              - "Acclimate the flooring to room temperature for 48 hours before installation"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What's the difference between a nail gun and a hammer?"
+            custom_inputs:
+              configurable:
+                thread_id: "7"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "A nail gun drives nails much faster and with less physical effort than a hammer"
+              - "Nail guns are powered by compressed air, electricity, or fuel cells"
+              - "Hammers provide more control for precision work and don't require power"
+              - "Nail guns are better for large projects like framing or decking"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I properly prepare a surface for painting?"
+            custom_inputs:
+              configurable:
+                thread_id: "8"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Clean the surface to remove dirt, grease, and loose paint"
+              - "Sand the surface to create a smooth base and improve paint adhesion"
+              - "Fill holes and cracks with spackling compound or wood filler"
+              - "Apply primer, especially on bare wood or patched areas"
+              - "Allow proper drying time between prep steps"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What safety equipment do I need for woodworking?"
+            custom_inputs:
+              configurable:
+                thread_id: "9"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Safety glasses or goggles are essential to protect your eyes from debris"
+              - "Hearing protection is important when using power tools"
+              - "A dust mask or respirator protects against sawdust and fumes"
+              - "Work gloves protect hands but should not be worn near rotating tools"
+              - "Closed-toe shoes with good traction are recommended"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I choose the right sandpaper grit?"
+            custom_inputs:
+              configurable:
+                thread_id: "10"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Coarse grit (40-60) is for heavy material removal and rough shaping"
+              - "Medium grit (80-120) is for general sanding and smoothing"
+              - "Fine grit (150-220) is for final sanding before finishing"
+              - "Start with coarser grit and progress to finer grits for best results"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What's the best way to cut PVC pipe?"
+            custom_inputs:
+              configurable:
+                thread_id: "11"
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "A PVC pipe cutter or ratcheting cutter provides the cleanest cuts"
+              - "A hacksaw or miter saw can also be used for cutting PVC"
+              - "Mark the cut line completely around the pipe for a straight cut"
+              - "Deburr the inside and outside edges after cutting"
+              - "Ensure cuts are square to the pipe for proper fittings"
 
   prompt_optimizations:
     # Optimize the DIY agent prompt for improved responses

@@ -1271,6 +1271,18 @@
             }
           ],
           "title": "Data"
+        },
+        "overwrite": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "Overwrite"
         }
       },
       "required": [
@@ -2298,7 +2310,7 @@
               "type": "null"
             }
           ],
-          "default": 10,
+          "default": 50,
           "title": "Num Candidates"
         },
         "scorer_model": {
