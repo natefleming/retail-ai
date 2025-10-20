@@ -1125,7 +1125,7 @@ class DatabricksProvider(ServiceProvider):
                     == default_template.strip()
                 ):
                     logger.debug(f"Prompt '{prompt_name}' is already up-to-date")
-                    
+
                     # Ensure the "latest" alias also exists and points to the same version
                     # This handles prompts created before the fix that added "latest" alias
                     try:
@@ -1144,7 +1144,7 @@ class DatabricksProvider(ServiceProvider):
                             alias="latest",
                             version=existing.version,
                         )
-                    
+
                     return existing  # Already up-to-date, return existing version
             except Exception:
                 logger.debug(
@@ -1421,7 +1421,7 @@ class DatabricksProvider(ServiceProvider):
                         )
                         break
 
-            # Check evaluation results to ensure the optimized prompt is actually better
+            # Check evaluation results to ensure the optimized prompt is actually better    
             should_register: bool = True
             if hasattr(result, "evaluation_results") and result.evaluation_results:
                 logger.info("Evaluation results:")
