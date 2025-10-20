@@ -1240,11 +1240,16 @@ class DatabricksProvider(ServiceProvider):
 
             # Parse version from the optimized prompt
             # The result contains a PromptVersion object with the new version
+            # Add target_model tag to track which model this was optimized for
+            tags: dict[str, Any] = prompt.tags.copy() if prompt.tags else {}
+            tags["target_model"] = agent.model.uri
+
             return PromptModel(
                 name=prompt.name,
                 schema=prompt.schema_model,
                 description=f"Optimized version of {prompt.name}",
                 version=optimized_prompt_version.version,
+                tags=tags,
             )
         else:
             logger.warning("No optimized prompts returned from optimization")
