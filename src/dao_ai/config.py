@@ -30,12 +30,14 @@ from databricks_langchain import (
     DatabricksFunctionClient,
 )
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.messages import BaseMessage, messages_from_dict
 from langchain_core.runnables.base import RunnableLike
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from loguru import logger
+from mlflow.genai.datasets import EvaluationDataset, create_dataset, get_dataset
 from mlflow.genai.prompts import PromptVersion, load_prompt
 from mlflow.models import ModelConfig
 from mlflow.models.resources import (
@@ -50,6 +52,9 @@ from mlflow.models.resources import (
     DatabricksVectorSearchIndex,
 )
 from mlflow.pyfunc import ChatModel, ResponsesAgent
+from mlflow.types.responses import (
+    ResponsesAgentRequest,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -324,6 +329,10 @@ class LLMModel(BaseModel, IsDatabricksResource):
         return [
             "serving.serving-endpoints",
         ]
+
+    @property
+    def uri(self) -> str:
+        return f"databricks:/{self.name}"
 
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
@@ -1182,8 +1191,8 @@ class PromptModel(BaseModel, HasFullName):
         from dao_ai.providers.databricks import DatabricksProvider
 
         provider: DatabricksProvider = DatabricksProvider()
-        prompt: str = provider.get_prompt(self)
-        return prompt
+        prompt_version = provider.get_prompt(self)
+        return prompt_version.to_single_brace_format()
 
     @property
     def full_name(self) -> str:
@@ -1228,6 +1237,17 @@ class AgentModel(BaseModel):
     create_agent_hook: Optional[FunctionHook] = None
     pre_agent_hook: Optional[FunctionHook] = None
     post_agent_hook: Optional[FunctionHook] = None
+
+    def as_runnable(self) -> RunnableLike:
+        from dao_ai.nodes import create_agent_node
+
+        return create_agent_node(self)
+
+    def as_responses_agent(self) -> ResponsesAgent:
+        from dao_ai.models import create_responses_agent
+
+        graph: CompiledStateGraph = self.as_runnable()
+        return create_responses_agent(graph)
 
 
 class SupervisorModel(BaseModel):
@@ -1345,6 +1365,19 @@ class ChatPayload(BaseModel):
             self.messages = self.input
 
         return self
+
+    def as_messages(self) -> Sequence[BaseMessage]:
+        return messages_from_dict(
+            [{"type": m.role, "content": m.content} for m in self.messages]
+        )
+
+    def as_agent_request(self) -> ResponsesAgentRequest:
+        from mlflow.types.responses_helpers import Message as _Message
+
+        return ResponsesAgentRequest(
+            input=[_Message(role=m.role, content=m.content) for m in self.messages],
+            custom_inputs=self.custom_inputs,
+        )
 
 
 class ChatHistoryModel(BaseModel):
@@ -1475,6 +1508,174 @@ class EvaluationModel(BaseModel):
     guidelines: list[GuidelineModel] = Field(default_factory=list)
 
 
+class EvaluationDatasetExpectationsModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    expected_response: Optional[str] = None
+    expected_facts: Optional[list[str]] = None
+
+    @model_validator(mode="after")
+    def validate_mutually_exclusive(self):
+        if self.expected_response is not None and self.expected_facts is not None:
+            raise ValueError("Cannot specify both expected_response and expected_facts")
+        return self
+
+
+class EvaluationDatasetEntryModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    inputs: ChatPayload
+    expectations: EvaluationDatasetExpectationsModel
+
+    def to_mlflow_format(self) -> dict[str, Any]:
+        """
+        Convert to MLflow evaluation dataset format.
+
+        Flattens the expectations fields to the top level alongside inputs,
+        which is the format expected by MLflow's Correctness scorer.
+
+        Returns:
+            dict: Flattened dictionary with inputs and expectation fields at top level
+        """
+        result: dict[str, Any] = {"inputs": self.inputs.model_dump()}
+
+        # Flatten expectations to top level for MLflow compatibility
+        if self.expectations.expected_response is not None:
+            result["expected_response"] = self.expectations.expected_response
+        if self.expectations.expected_facts is not None:
+            result["expected_facts"] = self.expectations.expected_facts
+
+        return result
+
+
+class EvaluationDatasetModel(BaseModel, HasFullName):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    name: str
+    data: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
+    overwrite: Optional[bool] = False
+
+    def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
+        evaluation_dataset: EvaluationDataset
+        needs_creation: bool = False
+
+        try:
+            evaluation_dataset = get_dataset(name=self.full_name)
+            if self.overwrite:
+                logger.warning(f"Overwriting dataset {self.full_name}")
+                workspace_client: WorkspaceClient = w if w else WorkspaceClient()
+                logger.debug(f"Dropping table: {self.full_name}")
+                workspace_client.tables.delete(full_name=self.full_name)
+                needs_creation = True
+        except Exception:
+            logger.warning(
+                f"Dataset {self.full_name} not found, will create new dataset"
+            )
+            needs_creation = True
+
+        # Create dataset if needed (either new or after overwrite)
+        if needs_creation:
+            evaluation_dataset = create_dataset(name=self.full_name)
+            if self.data:
+                logger.debug(
+                    f"Merging {len(self.data)} entries into dataset {self.full_name}"
+                )
+                # Use to_mlflow_format() to flatten expectations for MLflow compatibility
+                evaluation_dataset.merge_records(
+                    [e.to_mlflow_format() for e in self.data]
+                )
+
+        return evaluation_dataset
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
+
+
+class PromptOptimizationModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    prompt: Optional[PromptModel] = None
+    agent: AgentModel
+    dataset: (
+        EvaluationDatasetModel | str
+    )  # Reference to dataset name (looked up in OptimizationsModel.training_datasets or MLflow)
+    reflection_model: Optional[LLMModel | str] = None
+    num_candidates: Optional[int] = 50
+    scorer_model: Optional[LLMModel | str] = None
+
+    def optimize(self, w: WorkspaceClient | None = None) -> PromptModel:
+        """
+        Optimize the prompt using MLflow's prompt optimization.
+
+        Args:
+            w: Optional WorkspaceClient for Databricks operations
+
+        Returns:
+            PromptModel: The optimized prompt model with new URI
+        """
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        optimized_prompt: PromptModel = provider.optimize_prompt(self)
+        return optimized_prompt
+
+    @model_validator(mode="after")
+    def set_defaults(self):
+        # If no prompt is specified, try to use the agent's prompt
+        if self.prompt is None:
+            if isinstance(self.agent.prompt, PromptModel):
+                self.prompt = self.agent.prompt
+            else:
+                raise ValueError(
+                    f"Prompt optimization '{self.name}' requires either an explicit prompt "
+                    f"or an agent with a prompt configured"
+                )
+
+        if self.reflection_model is None:
+            self.reflection_model = self.agent.model
+
+        if self.scorer_model is None:
+            self.scorer_model = self.agent.model
+
+        return self
+
+
+class OptimizationsModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    training_datasets: dict[str, EvaluationDatasetModel] = Field(default_factory=dict)
+    prompt_optimizations: dict[str, PromptOptimizationModel] = Field(
+        default_factory=dict
+    )
+
+    def optimize(self, w: WorkspaceClient | None = None) -> dict[str, PromptModel]:
+        """
+        Optimize all prompts in this configuration.
+
+        This method:
+        1. Ensures all training datasets are created/registered in MLflow
+        2. Runs each prompt optimization
+
+        Args:
+            w: Optional WorkspaceClient for Databricks operations
+
+        Returns:
+            dict[str, PromptModel]: Dictionary mapping optimization names to optimized prompts
+        """
+        # First, ensure all training datasets are created/registered in MLflow
+        logger.info(f"Ensuring {len(self.training_datasets)} training datasets exist")
+        for dataset_name, dataset_model in self.training_datasets.items():
+            logger.debug(f"Creating/updating dataset: {dataset_name}")
+            dataset_model.as_dataset()
+
+        # Run optimizations
+        results: dict[str, PromptModel] = {}
+        for name, optimization in self.prompt_optimizations.items():
+            results[name] = optimization.optimize(w)
+        return results
+
+
 class DatasetFormat(str, Enum):
     CSV = "csv"
     DELTA = "delta"
@@ -1553,6 +1754,7 @@ class AppConfig(BaseModel):
     agents: dict[str, AgentModel] = Field(default_factory=dict)
     app: Optional[AppModel] = None
     evaluation: Optional[EvaluationModel] = None
+    optimizations: Optional[OptimizationsModel] = None
     datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
     unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
         default_factory=list

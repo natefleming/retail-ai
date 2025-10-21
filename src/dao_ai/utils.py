@@ -3,7 +3,8 @@ import importlib.metadata
 import os
 import re
 import site
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from loguru import logger
@@ -37,6 +38,59 @@ def normalize_name(name: str) -> str:
     return normalized.strip("_")
 
 
+def dao_ai_version() -> str:
+    """
+    Get the dao-ai package version, with fallback for source installations.
+
+    Tries to get the version from installed package metadata first. If the package
+    is not installed (e.g., running from source), falls back to reading from
+    pyproject.toml. Returns "dev" if neither method works.
+
+    Returns:
+        str: The version string, or "dev" if version cannot be determined
+    """
+    try:
+        # Try to get version from installed package metadata
+        return version("dao-ai")
+    except PackageNotFoundError:
+        # Package not installed, try reading from pyproject.toml
+        logger.debug(
+            "dao-ai package not installed, attempting to read version from pyproject.toml"
+        )
+        try:
+            import tomllib  # Python 3.11+
+        except ImportError:
+            try:
+                import tomli as tomllib  # Fallback for Python < 3.11
+            except ImportError:
+                logger.warning(
+                    "Cannot determine dao-ai version: package not installed and tomllib/tomli not available"
+                )
+                return "dev"
+
+        try:
+            # Find pyproject.toml relative to this file
+            project_root = Path(__file__).parents[2]
+            pyproject_path = project_root / "pyproject.toml"
+
+            if not pyproject_path.exists():
+                logger.warning(
+                    f"Cannot determine dao-ai version: pyproject.toml not found at {pyproject_path}"
+                )
+                return "dev"
+
+            with open(pyproject_path, "rb") as f:
+                pyproject_data = tomllib.load(f)
+                pkg_version = pyproject_data.get("project", {}).get("version", "dev")
+                logger.debug(
+                    f"Read version {pkg_version} from pyproject.toml at {pyproject_path}"
+                )
+                return pkg_version
+        except Exception as e:
+            logger.warning(f"Cannot determine dao-ai version from pyproject.toml: {e}")
+            return "dev"
+
+
 def get_installed_packages() -> dict[str, str]:
     """Get all installed packages with versions"""
 
@@ -65,6 +119,7 @@ def get_installed_packages() -> dict[str, str]:
         f"psycopg[binary,pool]=={version('psycopg')}",
         f"pydantic=={version('pydantic')}",
         f"pyyaml=={version('pyyaml')}",
+        f"tomli=={version('tomli')}",
         f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
         f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
     ]

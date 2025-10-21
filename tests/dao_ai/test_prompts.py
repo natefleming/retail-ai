@@ -34,7 +34,8 @@ class TestPromptRegistryUnit:
 
             # Verify correct URI was used
             mock_load.assert_called_once_with("prompts:/test_prompt@production")
-            assert result == "Registry template content"
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Registry template content"
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -55,28 +56,67 @@ class TestPromptRegistryUnit:
 
             # Verify correct URI was used
             mock_load.assert_called_once_with("prompts:/test_prompt/2")
-            assert result == "Version 2 content"
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Version 2 content"
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_defaults_to_latest(self):
-        """Test that prompt loading defaults to @latest when no alias or version specified."""
+        """Test that prompt loading falls back to @latest when @champion doesn't exist."""
         prompt_model = PromptModel(
             name="test_prompt", default_template="Default template"
         )
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
-        with patch("dao_ai.config.load_prompt") as mock_load:
+        with patch("dao_ai.providers.databricks.load_prompt") as mock_load:
             mock_prompt = Mock()
             mock_prompt.to_single_brace_format.return_value = "Latest content"
-            mock_load.return_value = mock_prompt
+
+            # Simulate champion not existing, but latest does
+            def load_side_effect(uri):
+                if "@champion" in uri:
+                    raise Exception("Champion alias not found")
+                elif "@latest" in uri:
+                    return mock_prompt
+                raise Exception(f"Unexpected URI: {uri}")
+
+            mock_load.side_effect = load_side_effect
 
             result = provider.get_prompt(prompt_model)
 
-            # Should use @latest by default
-            mock_load.assert_called_once_with("prompts:/test_prompt@latest")
-            assert result == "Latest content"
+            # Should try champion first, then fall back to latest
+            assert mock_load.call_count == 2
+            mock_load.assert_any_call("prompts:/test_prompt@champion")
+            mock_load.assert_any_call("prompts:/test_prompt@latest")
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Latest content"
+
+    @pytest.mark.unit
+    @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
+    def test_get_prompt_prefers_champion_alias(self):
+        """Test that prompt loading prefers @champion when it exists."""
+        prompt_model = PromptModel(
+            name="test_prompt", default_template="Default template"
+        )
+
+        provider = DatabricksProvider(w=Mock(), vsc=Mock())
+
+        with patch("dao_ai.providers.databricks.load_prompt") as mock_load:
+            mock_champion_prompt = Mock()
+            mock_champion_prompt.to_single_brace_format.return_value = (
+                "Champion content"
+            )
+
+            # Simulate champion existing
+            mock_load.return_value = mock_champion_prompt
+
+            result = provider.get_prompt(prompt_model)
+
+            # Should use champion first without trying latest
+            mock_load.assert_called_once_with("prompts:/test_prompt@champion")
+            assert result == mock_champion_prompt
+            assert result.to_single_brace_format() == "Champion content"
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -95,10 +135,18 @@ class TestPromptRegistryUnit:
             # Simulate registry failure
             mock_load.side_effect = Exception("Registry not found")
 
+            # Mock _sync_default_template_to_registry to return a PromptVersion
+            mock_prompt = Mock()
+            mock_prompt.to_single_brace_format.return_value = (
+                "Fallback template content"
+            )
+            mock_sync.return_value = mock_prompt
+
             result = provider.get_prompt(prompt_model)
 
-            # Should use default_template
-            assert result == "Fallback template content"
+            # Should use default_template and return PromptVersion
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Fallback template content"
 
             # Should attempt to sync to registry (with description=None since not provided)
             mock_sync.assert_called_once_with(
@@ -136,17 +184,23 @@ class TestPromptRegistryUnit:
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
 
         with (
-            patch("dao_ai.config.load_prompt") as mock_load,
+            patch("dao_ai.providers.databricks.load_prompt") as mock_load,
             patch.object(provider, "_sync_default_template_to_registry") as mock_sync,
         ):
             mock_prompt = Mock()
             mock_prompt.to_single_brace_format.return_value = "Registry content"
+
+            # Simulate champion being found
             mock_load.return_value = mock_prompt
 
             result = provider.get_prompt(prompt_model)
 
-            # Should use registry content
-            assert result == "Registry content"
+            # Should use registry content from champion and return PromptVersion
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Registry content"
+
+            # Should try champion first
+            mock_load.assert_called_once_with("prompts:/test_prompt@champion")
 
             # Should NOT sync default_template when registry succeeds
             mock_sync.assert_not_called()
@@ -160,20 +214,50 @@ class TestPromptRegistryUnit:
         with (
             patch("mlflow.genai.load_prompt") as mock_load,
             patch("mlflow.genai.register_prompt") as mock_register,
+            patch("mlflow.genai.set_prompt_alias") as mock_set_alias,
         ):
             # Simulate "default" alias not existing
             mock_load.side_effect = Exception("Alias not found")
 
-            provider._sync_default_template_to_registry(
+            # Mock the registered prompt version
+            mock_prompt_version = Mock()
+            mock_prompt_version.version = 1
+            mock_register.return_value = mock_prompt_version
+
+            result = provider._sync_default_template_to_registry(
                 "test_prompt", "New template content", None
             )
 
-            # Should register the prompt with default commit message
+            # Should register the prompt with default commit message and dao_ai tag
+            from dao_ai.utils import dao_ai_version
+
             mock_register.assert_called_once_with(
                 name="test_prompt",
                 template="New template content",
                 commit_message="Auto-synced from default_template",
+                tags={"dao_ai": dao_ai_version()},
             )
+
+            # Should set default, latest, and champion aliases
+            assert mock_set_alias.call_count == 3
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="default",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="latest",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="champion",
+                version=1,
+            )
+
+            # Should return the prompt version
+            assert result == mock_prompt_version
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -206,22 +290,52 @@ class TestPromptRegistryUnit:
         with (
             patch("mlflow.genai.load_prompt") as mock_load,
             patch("mlflow.genai.register_prompt") as mock_register,
+            patch("mlflow.genai.set_prompt_alias") as mock_set_alias,
         ):
             # Simulate "default" alias not existing
             mock_load.side_effect = Exception("Alias not found")
 
-            provider._sync_default_template_to_registry(
+            # Mock the registered prompt version
+            mock_prompt_version = Mock()
+            mock_prompt_version.version = 1
+            mock_register.return_value = mock_prompt_version
+
+            result = provider._sync_default_template_to_registry(
                 "test_prompt",
                 "New template content",
                 "Custom description for commit message",
             )
 
-            # Should register the prompt with custom description as commit message
+            # Should register the prompt with custom description as commit message and dao_ai tag
+            from dao_ai.utils import dao_ai_version
+
             mock_register.assert_called_once_with(
                 name="test_prompt",
                 template="New template content",
                 commit_message="Custom description for commit message",
+                tags={"dao_ai": dao_ai_version()},
             )
+
+            # Should set default, latest, and champion aliases
+            assert mock_set_alias.call_count == 3
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="default",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="latest",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="champion",
+                version=1,
+            )
+
+            # Should return the prompt version
+            assert result == mock_prompt_version
 
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
@@ -242,10 +356,18 @@ class TestPromptRegistryUnit:
             # Simulate registry failure
             mock_load.side_effect = Exception("Registry not found")
 
+            # Mock _sync_default_template_to_registry to return a PromptVersion
+            mock_prompt = Mock()
+            mock_prompt.to_single_brace_format.return_value = (
+                "Fallback template content"
+            )
+            mock_sync.return_value = mock_prompt
+
             result = provider.get_prompt(prompt_model)
 
-            # Should use default_template
-            assert result == "Fallback template content"
+            # Should use default_template and return PromptVersion
+            assert result == mock_prompt
+            assert result.to_single_brace_format() == "Fallback template content"
 
             # Should attempt to sync to registry with description
             mock_sync.assert_called_once_with(
@@ -296,7 +418,10 @@ class TestPromptModelConfiguration:
     def test_prompt_template_property_calls_provider(self):
         """Test that PromptModel.template property calls DatabricksProvider.get_prompt."""
         mock_provider_instance = Mock()
-        mock_provider_instance.get_prompt.return_value = "Mocked template"
+        # Mock get_prompt to return a PromptVersion-like object
+        mock_prompt_version = Mock()
+        mock_prompt_version.to_single_brace_format.return_value = "Mocked template"
+        mock_provider_instance.get_prompt.return_value = mock_prompt_version
 
         # Patch where DatabricksProvider is imported - inside the template property
         with patch(

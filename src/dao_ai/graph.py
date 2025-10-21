@@ -79,7 +79,12 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     for registered_agent in config.app.agents:
         agents.append(
             create_agent_node(
-                app=config.app, agent=registered_agent, additional_tools=[]
+                agent=registered_agent,
+                memory=config.app.orchestration.memory
+                if config.app.orchestration
+                else None,
+                chat_history=config.app.chat_history,
+                additional_tools=[],
             )
         )
         tools.append(
@@ -169,7 +174,12 @@ def _create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         )
         agents.append(
             create_agent_node(
-                app=config.app, agent=registered_agent, additional_tools=handoff_tools
+                agent=registered_agent,
+                memory=config.app.orchestration.memory
+                if config.app.orchestration
+                else None,
+                chat_history=config.app.chat_history,
+                additional_tools=handoff_tools,
             )
         )
 

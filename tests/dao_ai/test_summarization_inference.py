@@ -195,7 +195,11 @@ class TestSummarizationInference:
             mock_state_graph.return_value = mock_workflow
 
             agent_model = app_model_with_chat_history.agents[0]
-            create_agent_node(app_model_with_chat_history, agent_model)
+            create_agent_node(
+                agent=agent_model,
+                memory=None,
+                chat_history=app_model_with_chat_history.chat_history,
+            )
 
             # Verify that StateGraph was used (indicating chat history workflow)
             mock_state_graph.assert_called_once()
@@ -215,7 +219,11 @@ class TestSummarizationInference:
         mock_create_react_agent.return_value = mock_compiled_agent
 
         agent_model = app_model_without_chat_history.agents[0]
-        node = create_agent_node(app_model_without_chat_history, agent_model)
+        node = create_agent_node(
+            agent=agent_model,
+            memory=None,
+            chat_history=None,
+        )
 
         # Verify that the compiled agent is returned directly (no workflow)
         assert node == mock_compiled_agent
@@ -251,10 +259,16 @@ class TestSummarizationInference:
 
             # Create agent node with chat history
             agent_model = app_model_with_chat_history.agents[0]
-            create_agent_node(app_model_with_chat_history, agent_model)
+            create_agent_node(
+                agent=agent_model,
+                memory=None,
+                chat_history=app_model_with_chat_history.chat_history,
+            )
 
             # Verify summarization node was created
-            mock_summarization_node.assert_called_once_with(app_model_with_chat_history)
+            mock_summarization_node.assert_called_once_with(
+                app_model_with_chat_history.chat_history
+            )
 
             # Verify workflow was set up correctly
             assert mock_workflow.add_node.call_count == 2

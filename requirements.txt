@@ -48,6 +48,7 @@ flask-cors==6.0.1
 fonttools==4.58.4
 frozenlist==1.7.0
 fsspec==2025.9.0
+gepa==0.0.17
 gitdb==4.0.12
 gitpython==3.1.44
 google-auth==2.40.3
@@ -190,6 +191,7 @@ tenacity==9.1.2
 threadpoolctl==3.6.0
 tiktoken==0.9.0
 tokenizers==0.22.1
+tomli==2.3.0
 tqdm==4.67.1
 trustcall==0.0.39
 typing-extensions==4.15.0
