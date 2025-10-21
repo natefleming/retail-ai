@@ -1350,6 +1350,20 @@ class DatabricksProvider(ServiceProvider):
         # DO NOT overwrite with prompt_version.uri as that uses fallback logic
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
+        # Create the agent once outside the predict function to avoid repeated construction
+        # and to ensure dao_ai modules are available in the current environment
+        logger.debug(f"Creating ResponsesAgent for optimization from agent '{agent_model.name}'")
+        try:
+            agent: ResponsesAgent = agent_model.as_responses_agent()
+            logger.info(f"Successfully created ResponsesAgent for '{agent_model.name}'")
+        except Exception as e:
+            logger.error(f"Failed to create ResponsesAgent: {e}")
+            logger.error("Ensure dao_ai package is properly installed and accessible")
+            raise RuntimeError(
+                f"Failed to create ResponsesAgent for prompt optimization: {e}. "
+                "This may indicate dao_ai is not properly installed or accessible."
+            ) from e
+        
         # Create predict function that will be optimized
         def predict_fn(**inputs: dict[str, Any]) -> str:
             """Prediction function that uses the ResponsesAgent with ChatPayload.
@@ -1371,7 +1385,12 @@ class DatabricksProvider(ServiceProvider):
 
             from dao_ai.config import ChatPayload
 
-            agent: ResponsesAgent = agent_model.as_responses_agent()
+            # Verify agent is accessible (should be captured from outer scope)
+            if agent is None:
+                raise RuntimeError(
+                    "Agent object is not available in predict_fn. "
+                    "This may indicate a serialization issue with the ResponsesAgent."
+                )
 
             # Convert inputs to ChatPayload
             chat_payload: ChatPayload = ChatPayload(**inputs)
