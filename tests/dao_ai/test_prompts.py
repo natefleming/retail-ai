@@ -228,18 +228,18 @@ class TestPromptRegistryUnit:
                 "test_prompt", "New template content", None
             )
 
-            # Should register the prompt with default commit message and dao-ai tag
+            # Should register the prompt with default commit message and dao_ai tag
             from dao_ai.utils import dao_ai_version
 
             mock_register.assert_called_once_with(
                 name="test_prompt",
                 template="New template content",
                 commit_message="Auto-synced from default_template",
-                tags={"dao-ai": dao_ai_version()},
+                tags={"dao_ai": dao_ai_version()},
             )
 
-            # Should set both default and latest aliases
-            assert mock_set_alias.call_count == 2
+            # Should set default, latest, and champion aliases
+            assert mock_set_alias.call_count == 3
             mock_set_alias.assert_any_call(
                 name="test_prompt",
                 alias="default",
@@ -248,6 +248,11 @@ class TestPromptRegistryUnit:
             mock_set_alias.assert_any_call(
                 name="test_prompt",
                 alias="latest",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="champion",
                 version=1,
             )
 
@@ -301,18 +306,18 @@ class TestPromptRegistryUnit:
                 "Custom description for commit message",
             )
 
-            # Should register the prompt with custom description as commit message and dao-ai tag
+            # Should register the prompt with custom description as commit message and dao_ai tag
             from dao_ai.utils import dao_ai_version
 
             mock_register.assert_called_once_with(
                 name="test_prompt",
                 template="New template content",
                 commit_message="Custom description for commit message",
-                tags={"dao-ai": dao_ai_version()},
+                tags={"dao_ai": dao_ai_version()},
             )
 
-            # Should set both default and latest aliases
-            assert mock_set_alias.call_count == 2
+            # Should set default, latest, and champion aliases
+            assert mock_set_alias.call_count == 3
             mock_set_alias.assert_any_call(
                 name="test_prompt",
                 alias="default",
@@ -321,6 +326,11 @@ class TestPromptRegistryUnit:
             mock_set_alias.assert_any_call(
                 name="test_prompt",
                 alias="latest",
+                version=1,
+            )
+            mock_set_alias.assert_any_call(
+                name="test_prompt",
+                alias="champion",
                 version=1,
             )
 

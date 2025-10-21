@@ -343,13 +343,7 @@ agents:
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool   # Can search for tools and materials
-    guardrails:
-      []
-      # - *llm_judge_guardrail
     prompt: *diy_prompt
-    handoff_prompt: |
-      Questions about how-to instructions, DIY projects, tutorials, or home improvement advice
-      Example: "How do I install crown molding?" or "What's the best way to paint kitchen cabinets?"
 
 
 # =============================================================================
@@ -359,13 +353,13 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: hardware_store_supervisor                      # Application name  
+  name: prompt_optmization_agent                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
   log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
-    name: hardware_store_supervisor                           # Model name in MLflow registry
-  endpoint_name: hardware_store_supervisor                    # Model serving endpoint name
+    name: prompt_optimization_agent                           # Model name in MLflow registry
+  endpoint_name: prompt_optimization_agent                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
@@ -375,10 +369,6 @@ app:
         - CAN_QUERY                                # Full management permissions
   agents:                                           # List of agents included in the system
     - *diy                                          # DIY and tutorials agent
-  orchestration:                                    # Agent orchestration configuration
-    #memory: *memory                                 # Reference to memory configuration
-    supervisor:                                     # Supervisor orchestration pattern
-      model: *tool_calling_llm                      # LLM for routing decisions
   message_hooks: 
     - dao_ai.hooks.null_hook
     - hardware_store.hooks.require_store_num_hook

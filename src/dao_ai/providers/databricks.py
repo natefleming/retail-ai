@@ -327,7 +327,7 @@ class DatabricksProvider(ServiceProvider):
 
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("type", "agent")
-            mlflow.set_tag("dao-ai", dao_ai_version())
+            mlflow.set_tag("dao_ai", dao_ai_version())
             logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
                 python_model=model_path.as_posix(),
                 code_paths=code_paths,
@@ -350,9 +350,18 @@ class DatabricksProvider(ServiceProvider):
 
         client: MlflowClient = MlflowClient()
 
+        # Set tags on the model version
+        client.set_model_version_tag(
+            name=registered_model_name,
+            version=model_version.version,
+            key="dao_ai",
+            value=dao_ai_version(),
+        )
+        logger.debug(f"Set dao_ai tag on model version {model_version.version}")
+
         client.set_registered_model_alias(
             name=registered_model_name,
-            alias="Current",
+            alias="Champion",
             version=model_version.version,
         )
 
@@ -380,8 +389,8 @@ class DatabricksProvider(ServiceProvider):
         workload_size: str = config.app.workload_size
         tags: dict[str, str] = config.app.tags.copy() if config.app.tags else {}
 
-        # Add dao-ai framework tag
-        tags["dao-ai"] = dao_ai_version()
+        # Add dao_ai framework tag
+        tags["dao_ai"] = dao_ai_version()
 
         latest_version: int = get_latest_model_version(registered_model_name)
 
@@ -1072,10 +1081,37 @@ class DatabricksProvider(ServiceProvider):
                 )
                 # Fall through to default_template if available
         else:
-            # No explicit version/alias specified - try champion, then latest
+            # No explicit version/alias specified - check if default_template needs syncing first
             logger.debug(
                 f"No explicit version/alias specified for '{prompt_name}', "
-                "trying fallback order: champion → latest → default (with template sync)"
+                "checking if default_template needs syncing"
+            )
+
+            # If we have a default_template, check if it differs from what's in the registry
+            # This ensures we always sync config changes before returning any alias
+            if prompt_model.default_template:
+                try:
+                    default_uri: str = f"prompts:/{prompt_name}@default"
+                    default_version: PromptVersion = load_prompt(default_uri)
+
+                    if (
+                        default_version.to_single_brace_format().strip()
+                        != prompt_model.default_template.strip()
+                    ):
+                        logger.info(
+                            f"Config default_template for '{prompt_name}' differs from registry, syncing..."
+                        )
+                        return self._sync_default_template_to_registry(
+                            prompt_name,
+                            prompt_model.default_template,
+                            prompt_model.description,
+                        )
+                except Exception as e:
+                    logger.debug(f"Could not check default alias for sync: {e}")
+
+            # Now try aliases in order: champion → latest → default
+            logger.debug(
+                f"Trying fallback order for '{prompt_name}': champion → latest → default"
             )
 
             # Try champion alias first
@@ -1100,22 +1136,6 @@ class DatabricksProvider(ServiceProvider):
             try:
                 default_uri: str = f"prompts:/{prompt_name}@default"
                 prompt_version: PromptVersion = load_prompt(default_uri)
-
-                # If we have a default_template, check if the default alias matches it
-                if prompt_model.default_template:
-                    if (
-                        prompt_version.to_single_brace_format().strip()
-                        != prompt_model.default_template.strip()
-                    ):
-                        logger.info(
-                            f"Default alias for '{prompt_name}' differs from default_template, syncing..."
-                        )
-                        return self._sync_default_template_to_registry(
-                            prompt_name,
-                            prompt_model.default_template,
-                            prompt_model.description,
-                        )
-
                 logger.info(f"Loaded prompt '{prompt_name}' from default alias")
                 return prompt_version
             except Exception as e:
@@ -1155,8 +1175,8 @@ class DatabricksProvider(ServiceProvider):
                 ):
                     logger.debug(f"Prompt '{prompt_name}' is already up-to-date")
 
-                    # Ensure the "latest" alias also exists and points to the same version
-                    # This handles prompts created before the fix that added "latest" alias
+                    # Ensure the "latest" and "champion" aliases also exist and point to the same version
+                    # This handles prompts created before the fix that added these aliases
                     try:
                         latest_version: PromptVersion = mlflow.genai.load_prompt(
                             f"prompts:/{prompt_name}@latest"
@@ -1174,6 +1194,24 @@ class DatabricksProvider(ServiceProvider):
                             version=existing.version,
                         )
 
+                    # Ensure champion alias exists for first-time deployments
+                    try:
+                        champion_version: PromptVersion = mlflow.genai.load_prompt(
+                            f"prompts:/{prompt_name}@champion"
+                        )
+                        logger.debug(
+                            f"Champion alias already exists for '{prompt_name}' pointing to version {champion_version.version}"
+                        )
+                    except Exception:
+                        logger.info(
+                            f"Setting 'champion' alias for existing prompt '{prompt_name}' v{existing.version}"
+                        )
+                        mlflow.genai.set_prompt_alias(
+                            name=prompt_name,
+                            alias="champion",
+                            version=existing.version,
+                        )
+
                     return existing  # Already up-to-date, return existing version
             except Exception:
                 logger.debug(
@@ -1186,11 +1224,11 @@ class DatabricksProvider(ServiceProvider):
                 name=prompt_name,
                 template=default_template,
                 commit_message=commit_message,
-                tags={"dao-ai": dao_ai_version()},
+                tags={"dao_ai": dao_ai_version()},
             )
 
             logger.debug(
-                f"Setting default and latest aliases for prompt '{prompt_name}'"
+                f"Setting default, latest, and champion aliases for prompt '{prompt_name}'"
             )
             mlflow.genai.set_prompt_alias(
                 name=prompt_name,
@@ -1202,9 +1240,14 @@ class DatabricksProvider(ServiceProvider):
                 alias="latest",
                 version=prompt_version.version,
             )
+            mlflow.genai.set_prompt_alias(
+                name=prompt_name,
+                alias="champion",
+                version=prompt_version.version,
+            )
 
             logger.info(
-                f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry with 'default' and 'latest' aliases"
+                f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry with 'default', 'latest', and 'champion' aliases"
             )
             return prompt_version
 
@@ -1490,7 +1533,7 @@ class DatabricksProvider(ServiceProvider):
                     template=optimized_template,
                     commit_message=f"Optimized for {agent_model.model.uri} using GepaPromptOptimizer",
                     tags={
-                        "dao-ai": dao_ai_version(),
+                        "dao_ai": dao_ai_version(),
                         "target_model": agent_model.model.uri,
                     },
                 )
@@ -1526,10 +1569,10 @@ class DatabricksProvider(ServiceProvider):
                         f"Successfully set 'champion' alias for '{prompt.full_name}' v{registered_version.version}"
                     )
 
-                # Add target_model and dao-ai tags
+                # Add target_model and dao_ai tags
                 tags: dict[str, Any] = prompt.tags.copy() if prompt.tags else {}
                 tags["target_model"] = agent_model.model.uri
-                tags["dao-ai"] = dao_ai_version()
+                tags["dao_ai"] = dao_ai_version()
 
                 # Return the optimized prompt with the appropriate alias
                 # Use "champion" if there was improvement, otherwise "latest"

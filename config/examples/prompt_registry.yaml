@@ -267,7 +267,7 @@ prompts:
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
 
-      You are a helpful retail store assistant for a home improvement and hardware store. You have access to search tools to find general information 
+      You are a helpful general purpose retail store assistant for a home improvement and hardware store. You have access to search tools to find general information 
       which can not be better answered by another agent.
     tags:
       environment: production

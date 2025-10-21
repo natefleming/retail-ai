@@ -326,19 +326,19 @@ def test_create_agent_sets_framework_tags():
         # Simulate the code in create_agent that sets tags
         with mlflow.start_run(run_name="test_run"):
             mlflow.set_tag("type", "agent")
-            mlflow.set_tag("dao-ai", dao_ai_version())
+            mlflow.set_tag("dao_ai", dao_ai_version())
 
         # Verify the tags were set correctly
         expected_calls = [
             call("type", "agent"),
-            call("dao-ai", dao_ai_version()),
+            call("dao_ai", dao_ai_version()),
         ]
         mock_set_tag.assert_has_calls(expected_calls, any_order=False)
 
 
 @pytest.mark.unit
 def test_deploy_agent_sets_endpoint_tag():
-    """Test that deploy_agent adds dao-ai tag to the endpoint."""
+    """Test that deploy_agent adds dao_ai tag to the endpoint."""
     from unittest.mock import MagicMock, patch
 
     from dao_ai.config import AppConfig, AppModel
@@ -377,14 +377,14 @@ def test_deploy_agent_sets_endpoint_tag():
                     provider = DatabricksProvider()
                     provider.deploy_agent(config=mock_config)
 
-                    # Verify deploy was called with the dao-ai tag
+                    # Verify deploy was called with the dao_ai tag
                     mock_deploy.assert_called_once()
                     call_kwargs = mock_deploy.call_args.kwargs
 
                     assert "tags" in call_kwargs
                     assert call_kwargs["tags"] is not None
-                    assert "dao-ai" in call_kwargs["tags"]
-                    assert call_kwargs["tags"]["dao-ai"] == dao_ai_version()
+                    assert "dao_ai" in call_kwargs["tags"]
+                    assert call_kwargs["tags"]["dao_ai"] == dao_ai_version()
                     # Verify custom tag is preserved
                     assert call_kwargs["tags"]["custom_tag"] == "custom_value"
 
