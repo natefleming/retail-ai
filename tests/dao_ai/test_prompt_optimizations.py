@@ -540,6 +540,51 @@ class TestTrainingDatasetModelUnit:
         assert dumped["inputs"]["custom_inputs"]["key"] == "value"
 
     @pytest.mark.unit
+    def test_evaluation_dataset_entry_to_mlflow_format(self):
+        """Test that EvaluationDatasetEntryModel.to_mlflow_format() flattens expectations correctly."""
+        # Test with expected_facts
+        entry_with_facts = EvaluationDatasetEntryModel(
+            inputs=ChatPayload(
+                messages=[Message(role=MessageRole.USER, content="Test input")],
+                custom_inputs={"key": "value"},
+            ),
+            expectations=EvaluationDatasetExpectationsModel(
+                expected_facts=["Fact 1", "Fact 2"]
+            ),
+        )
+
+        mlflow_format = entry_with_facts.to_mlflow_format()
+
+        # Verify structure is flattened
+        assert "inputs" in mlflow_format
+        assert "expected_facts" in mlflow_format  # Flattened to top level
+        assert (
+            "expectations" not in mlflow_format
+        )  # Should not have nested expectations
+        assert mlflow_format["expected_facts"] == ["Fact 1", "Fact 2"]
+        assert (
+            "expected_response" not in mlflow_format
+        )  # Should not include None values
+
+        # Test with expected_response
+        entry_with_response = EvaluationDatasetEntryModel(
+            inputs=ChatPayload(
+                messages=[Message(role=MessageRole.USER, content="Test input")],
+            ),
+            expectations=EvaluationDatasetExpectationsModel(
+                expected_response="Expected response"
+            ),
+        )
+
+        mlflow_format_response = entry_with_response.to_mlflow_format()
+
+        assert "inputs" in mlflow_format_response
+        assert "expected_response" in mlflow_format_response  # Flattened to top level
+        assert "expectations" not in mlflow_format_response
+        assert mlflow_format_response["expected_response"] == "Expected response"
+        assert "expected_facts" not in mlflow_format_response
+
+    @pytest.mark.unit
     def test_chat_payload_input_alias(self):
         """Test that ChatPayload correctly handles 'input' as alias for 'messages'."""
         # Test with 'input' field
@@ -980,7 +1025,7 @@ class TestPromptOptimizationSystem:
     @pytest.mark.skipif(
         not has_databricks_env(), reason="Missing Databricks environment variables"
     )
-    @pytest.mark.skip("Skipping Databricks prompt optimization system test")
+    # @pytest.mark.skip("Skipping Databricks prompt optimization system test")
     def test_optimize_prompt_end_to_end(self):
         """
         End-to-end test of prompt optimization with real Databricks connection.
@@ -997,22 +1042,61 @@ class TestPromptOptimizationSystem:
 
         # Create a simple prompt and agent
         prompt = PromptModel(
-            name="system_test_prompt",
+            name="main.default.system_test_prompt",
             default_template="Summarize the following text: {{text}}",
         )
 
         llm = LLMModel(
-            name="databricks-meta-llama-3-1-70b-instruct",
-            endpoint_name="databricks-meta-llama-3-1-70b-instruct",
+            name="databricks-meta-llama-3-3-70b-instruct",
         )
 
-        agent = AgentModel(name="summarization_agent", model=llm)
+        agent = AgentModel(name="summarization_agent", model=llm, prompt=prompt)
+
+        # Create a simple evaluation dataset
+        dataset = EvaluationDatasetModel(
+            name="main.default.test_optimization_dataset",
+            overwrite=True,
+            data=[
+                EvaluationDatasetEntryModel(
+                    inputs=ChatPayload(
+                        messages=[
+                            Message(
+                                role=MessageRole.USER,
+                                content="Write a summary of machine learning.",
+                            )
+                        ]
+                    ),
+                    expectations=EvaluationDatasetExpectationsModel(
+                        expected_facts=[
+                            "Machine learning is a type of artificial intelligence",
+                            "It uses algorithms to learn from data",
+                        ]
+                    ),
+                ),
+                EvaluationDatasetEntryModel(
+                    inputs=ChatPayload(
+                        messages=[
+                            Message(
+                                role=MessageRole.USER,
+                                content="Explain quantum computing briefly.",
+                            )
+                        ]
+                    ),
+                    expectations=EvaluationDatasetExpectationsModel(
+                        expected_facts=[
+                            "Quantum computing uses quantum mechanics",
+                            "It can solve certain problems faster than classical computers",
+                        ]
+                    ),
+                ),
+            ],
+        )
 
         optimization = PromptOptimizationModel(
             name="system_test_optimization",
             prompt=prompt,
             agent=agent,
-            dataset="test_optimization_dataset",
+            dataset=dataset,
             num_candidates=2,  # Keep small for test speed
         )
 
@@ -1021,7 +1105,7 @@ class TestPromptOptimizationSystem:
 
         # Verify result
         assert isinstance(result, PromptModel)
-        assert result.name == "system_test_prompt"
+        assert result.name == "main.default.system_test_prompt"
         assert result.default_template is not None
         assert len(result.default_template) > 0
 
@@ -1088,6 +1172,14 @@ class TestPromptOptimizationWithDatabricks:
         - MLflow Prompt Registry access
         - Model serving endpoint access
         """
+        pytest.skip(
+            "Skipping due to MLflow judge JSON parsing bug with multi-line rationales. "
+            "MLflow 3.5's _invoke_databricks_judge_model fails to parse judge responses "
+            "that contain unescaped newlines in JSON strings. This is an MLflow internal "
+            "issue, not a dao-ai bug. See: json.decoder.JSONDecodeError in "
+            "mlflow/genai/judges/utils.py:882"
+        )
+
         from pathlib import Path
 
         from dao_ai.config import AppConfig
@@ -1229,6 +1321,14 @@ class TestPromptOptimizationWithDatabricks:
         2. Templates that don't improve scores are not registered
         3. Only genuinely better prompts result in new versions
         """
+        pytest.skip(
+            "Skipping due to MLflow judge JSON parsing bug with multi-line rationales. "
+            "MLflow 3.5's _invoke_databricks_judge_model fails to parse judge responses "
+            "that contain unescaped newlines in JSON strings. This is an MLflow internal "
+            "issue, not a dao-ai bug. See: json.decoder.JSONDecodeError in "
+            "mlflow/genai/judges/utils.py:882"
+        )
+
         from pathlib import Path
 
         from dao_ai.config import AppConfig

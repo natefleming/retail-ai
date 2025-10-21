@@ -70,6 +70,7 @@ dependencies = [
     "rich>=14.0.0",
     "scipy<=1.15",
     "sqlparse>=0.5.3",
+    "tomli>=2.3.0",
     "unitycatalog-ai[databricks]>=0.3.0",
 ]
 

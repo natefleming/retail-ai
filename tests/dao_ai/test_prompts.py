@@ -228,11 +228,14 @@ class TestPromptRegistryUnit:
                 "test_prompt", "New template content", None
             )
 
-            # Should register the prompt with default commit message
+            # Should register the prompt with default commit message and dao-ai tag
+            from dao_ai.utils import dao_ai_version
+
             mock_register.assert_called_once_with(
                 name="test_prompt",
                 template="New template content",
                 commit_message="Auto-synced from default_template",
+                tags={"dao-ai": dao_ai_version()},
             )
 
             # Should set both default and latest aliases
@@ -298,11 +301,14 @@ class TestPromptRegistryUnit:
                 "Custom description for commit message",
             )
 
-            # Should register the prompt with custom description as commit message
+            # Should register the prompt with custom description as commit message and dao-ai tag
+            from dao_ai.utils import dao_ai_version
+
             mock_register.assert_called_once_with(
                 name="test_prompt",
                 template="New template content",
                 commit_message="Custom description for commit message",
+                tags={"dao-ai": dao_ai_version()},
             )
 
             # Should set both default and latest aliases

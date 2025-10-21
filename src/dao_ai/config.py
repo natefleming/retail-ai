@@ -1525,6 +1525,26 @@ class EvaluationDatasetEntryModel(BaseModel):
     inputs: ChatPayload
     expectations: EvaluationDatasetExpectationsModel
 
+    def to_mlflow_format(self) -> dict[str, Any]:
+        """
+        Convert to MLflow evaluation dataset format.
+
+        Flattens the expectations fields to the top level alongside inputs,
+        which is the format expected by MLflow's Correctness scorer.
+
+        Returns:
+            dict: Flattened dictionary with inputs and expectation fields at top level
+        """
+        result: dict[str, Any] = {"inputs": self.inputs.model_dump()}
+
+        # Flatten expectations to top level for MLflow compatibility
+        if self.expectations.expected_response is not None:
+            result["expected_response"] = self.expectations.expected_response
+        if self.expectations.expected_facts is not None:
+            result["expected_facts"] = self.expectations.expected_facts
+
+        return result
+
 
 class EvaluationDatasetModel(BaseModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1532,11 +1552,11 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
     name: str
     data: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
     overwrite: Optional[bool] = False
-    
+
     def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
         evaluation_dataset: EvaluationDataset
         needs_creation: bool = False
-        
+
         try:
             evaluation_dataset = get_dataset(name=self.full_name)
             if self.overwrite:
@@ -1546,16 +1566,23 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
                 workspace_client.tables.delete(full_name=self.full_name)
                 needs_creation = True
         except Exception:
-            logger.warning(f"Dataset {self.full_name} not found, will create new dataset")
+            logger.warning(
+                f"Dataset {self.full_name} not found, will create new dataset"
+            )
             needs_creation = True
-        
+
         # Create dataset if needed (either new or after overwrite)
         if needs_creation:
             evaluation_dataset = create_dataset(name=self.full_name)
             if self.data:
-                logger.debug(f"Merging {len(self.data)} entries into dataset {self.full_name}")
-                evaluation_dataset.merge_records([e.model_dump() for e in self.data])
-        
+                logger.debug(
+                    f"Merging {len(self.data)} entries into dataset {self.full_name}"
+                )
+                # Use to_mlflow_format() to flatten expectations for MLflow compatibility
+                evaluation_dataset.merge_records(
+                    [e.to_mlflow_format() for e in self.data]
+                )
+
         return evaluation_dataset
 
     @property
