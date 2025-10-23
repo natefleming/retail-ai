@@ -1,4 +1,4 @@
-environment_version: '3'
+environment_version: '4'
 dependencies:
   - --index-url https://pypi.org/simple
   # Core framework dependencies
