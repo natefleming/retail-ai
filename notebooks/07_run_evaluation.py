@@ -114,7 +114,7 @@ from typing import Any
 import mlflow
 from mlflow import MlflowClient
 from mlflow.entities.model_registry.model_version import ModelVersion
-from dao_ai.models import process_messages_stream, process_messages
+from dao_ai.models import process_messages_stream, process_messages, get_latest_model_version
 from mlflow.types.llm import (
     ChatCompletionResponse,
 )
@@ -123,8 +123,9 @@ mlflow.set_registry_uri("databricks-uc")
 mlflow_client = MlflowClient()
 
 registered_model_name: str = config.app.registered_model.full_name
-model_uri: str = f"models:/{registered_model_name}@Current"
-model_version: ModelVersion = mlflow_client.get_model_version_by_alias(registered_model_name, "Current")
+latest_version: int = get_latest_model_version(registered_model_name)
+model_uri: str = f"models:/{registered_model_name}/{latest_version}"
+model_version: ModelVersion = mlflow_client.get_model_version(registered_model_name, str(latest_version))
 
 #loaded_agent = mlflow.pyfunc.load_model(model_uri)
 def predict_fn(messages: dict[str, Any]) -> dict[str, Any]:
