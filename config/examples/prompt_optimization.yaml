@@ -102,68 +102,6 @@ resources:
         - description
 
 
-  # ---------------------------------------------------------------------------
-  # TABLES
-  # ---------------------------------------------------------------------------
-  # Define Unity Catalog tables used by the system
-  tables:
-    # Product catalog table
-    product_table:
-      schema: *retail_schema                        # Reference to schema defined above
-      name: products                                # Table name
-    
-    # Inventory tracking table
-    inventory_table:
-      schema: *retail_schema
-      name: inventory
-
-
-  # ---------------------------------------------------------------------------
-  # FUNCTIONS
-  # ---------------------------------------------------------------------------
-  # Define Unity Catalog functions for data operations
-  functions:
-    # Product lookup functions
-    find_product_by_sku: &find_product_by_sku
-      schema: *retail_schema
-      name: find_product_by_sku                     # Function to find products by SKU
-    find_product_by_upc: &find_product_by_upc
-      schema: *retail_schema
-      name: find_product_by_upc                     # Function to find products by UPC
-    
-    # Inventory lookup functions
-    find_inventory_by_sku: &find_inventory_by_sku
-      schema: *retail_schema
-      name: find_inventory_by_sku                   # Function to find inventory by SKU
-    find_inventory_by_upc: &find_inventory_by_upc
-      schema: *retail_schema
-      name: find_inventory_by_upc                   # Function to find inventory by UPC
-    
-    # Store-specific inventory functions
-    find_store_inventory_by_upc:
-      schema: *retail_schema
-      name: find_store_inventory_by_upc             # Store-specific UPC inventory lookup
-    find_store_inventory_by_sku: 
-      schema: *retail_schema
-      name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
-
-
-
-
-
-
-      # Optional: Additional PostgreSQL connection parameters
-      # Uncomment and modify as needed for your specific setup
-      # connection_kwargs:                            # Additional connection parameters
-      #   autocommit: True                            # Enable autocommit mode
-      #   prepare_threshold: 0                        # Disable prepared statements
-      #   sslmode: require                            # Require SSL connection
-      #   connect_timeout: 10                         # Connection timeout in seconds
-      
-      # Optional: Connection pool configuration
-      # max_pool_size: 20                             # Maximum connections in pool
-      # timeout: 5                                    # Connection timeout in seconds
-
 # =============================================================================
 # RETRIEVERS CONFIGURATION
 # =============================================================================
@@ -205,37 +143,6 @@ tools:
       name: hardware_store.tools.find_product_details_by_description_tool
       args:
         retriever: *products_retriever              # Uses product retriever for search
-
-  # ---------------------------------------------------------------------------
-  # UNITY CATALOG TOOLS
-  # ---------------------------------------------------------------------------
-  # Tools that directly call Unity Catalog functions
-  
-  # Product lookup tools using Unity Catalog functions
-  find_product_by_sku_tool: &find_product_by_sku_tool
-    name: find_product_by_sku_uc
-    function:
-      type: unity_catalog                           # Tool type: Unity Catalog function
-      <<: *find_product_by_sku                      # Merge function configuration
-
-  find_product_by_upc_tool: &find_product_by_upc_tool
-    name: find_product_by_upc_uc
-    function:
-      type: unity_catalog
-      <<: *find_product_by_upc
-
-  # Inventory lookup tools using Unity Catalog functions
-  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
-    name: find_inventory_by_sku_uc
-    function:
-      type: unity_catalog
-      <<: *find_inventory_by_sku
-
-  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
-    name: find_inventory_by_upc_uc
-    function:
-      type: unity_catalog
-      <<: *find_inventory_by_upc
 
 
 
@@ -385,62 +292,7 @@ app:
     #   model: *tool_calling_llm
     #   default_agent: *general
 
-# =============================================================================
-# UNITY CATALOG FUNCTIONS DEPLOYMENT
-# =============================================================================
-# Define Unity Catalog functions to be deployed from SQL DDL files
-# These functions provide data access capabilities for the agent tools
 
-unity_catalog_functions:
-  - function:
-      schema: *retail_schema
-      name: find_inventory_by_sku
-    ddl: ../functions/hardware_store/find_inventory_by_sku.sql
-    test:
-      parameters:
-        sku: ["00176279"] 
-  - function:
-      schema: *retail_schema
-      name: find_inventory_by_upc
-    ddl: ../functions/hardware_store/find_inventory_by_upc.sql
-    test:
-      parameters:
-        upc: ["0017627748017"]
-  - function:
-      schema: *retail_schema
-      name: find_product_by_sku
-    ddl: ../functions/hardware_store/find_product_by_sku.sql
-    test:
-      parameters:
-        sku: ["00176279"]
-  - function:
-      schema: *retail_schema
-      name: find_product_by_upc
-    ddl: ../functions/hardware_store/find_product_by_upc.sql
-    test:
-      parameters:
-        upc: ["0017627748017"] 
-  - function:
-      schema: *retail_schema
-      name: find_store_inventory_by_sku
-    ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
-    test:
-      parameters:
-        store: "35048"
-        sku: ["00176279"]
-  - function:
-      schema: *retail_schema
-      name: find_store_inventory_by_upc
-    ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
-    test:
-      parameters:
-        store: "35048"
-        upc: ["0017627748017"]
- 
-# =============================================================================
-# EVALUATION CONFIGURATION
-# =============================================================================
-# Configure automated evaluation settings for agent performance assessment
 
 evaluation:
   model: *judge_llm
@@ -686,13 +538,13 @@ optimizations:
       
       # Optional: Specify reflection model (defaults to agent's model)
       # Can be LLMModel reference or string model name
-      reflection_model: *judge_llm
+      reflection_model: "openai:/gpt-5"
       # Or use string: reflection_model: "databricks-claude-sonnet-4-5"
       
       # Optional: Optimization parameters
-      num_candidates: 20  # Number of candidate prompts to generate
+      num_candidates: 5  # Number of candidate prompts to generate
       
       # Optional: Specify scorer model (defaults to "databricks")
       # Can be LLMModel reference or string model name
-      scorer_model: *judge_llm
+      scorer_model: "openai:/gpt-5"
       # Or use string: scorer_model: "databricks-claude-sonnet-4-5"
