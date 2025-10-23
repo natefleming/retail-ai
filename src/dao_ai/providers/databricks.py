@@ -1280,7 +1280,9 @@ class DatabricksProvider(ServiceProvider):
         # Get agent and prompt (prompt is guaranteed to be set by validator)
         agent_model: AgentModel = optimization.agent
         prompt: PromptModel = optimization.prompt  # type: ignore[assignment]
-
+        agent_model.prompt = prompt.uri
+        
+        print(f"prompt={agent_model.prompt}")
         # Log the prompt URI scheme being used
         # Supports three schemes:
         # 1. Specific version: "prompts:/qa/1" (when version is specified)
@@ -1350,19 +1352,9 @@ class DatabricksProvider(ServiceProvider):
         # DO NOT overwrite with prompt_version.uri as that uses fallback logic
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
-        # Create the agent once outside the predict function to avoid repeated construction
-        # and to ensure dao_ai modules are available in the current environment
-        logger.debug(f"Creating ResponsesAgent for optimization from agent '{agent_model.name}'")
-        try:
-            agent: ResponsesAgent = agent_model.as_responses_agent()
-            logger.info(f"Successfully created ResponsesAgent for '{agent_model.name}'")
-        except Exception as e:
-            logger.error(f"Failed to create ResponsesAgent: {e}")
-            logger.error("Ensure dao_ai package is properly installed and accessible")
-            raise RuntimeError(
-                f"Failed to create ResponsesAgent for prompt optimization: {e}. "
-                "This may indicate dao_ai is not properly installed or accessible."
-            ) from e
+
+        agent: ResponsesAgent = agent_model.as_responses_agent()
+
         
         # Create predict function that will be optimized
         def predict_fn(**inputs: dict[str, Any]) -> str:
