@@ -29,16 +29,15 @@ dependencies:
   - unitycatalog-client==0.3.0
   - unitycatalog-langchain==0.2.0
   # MLflow and AI model dependencies
-  - mlflow==3.5.0
-  - mlflow-skinny==3.5.0
-  - mlflow-tracing==3.5.0
+  - mlflow==3.5.1
+  - mlflow-skinny==3.5.1
+  - mlflow-tracing==3.5.1
   - anthropic==0.60.0
   - openai==1.108.2
   - tiktoken==0.9.0
   - openevals==0.1.0
   # MCP dependencies
   - mcp==1.17.0
-  - fastmcp==2.12.3
   # Data processing dependencies
   - pandas==2.3.0
   - numpy==1.26.4
