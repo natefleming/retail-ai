@@ -2,11 +2,8 @@
 
 
 schemas:
-  retail_schema: &retail_schema
-    catalog_name: nfleming                    # Unity Catalog name
-    schema_name: retail_ai                    # Schema within the catalog
 
-  quick_serve_retaurant_schema: &quick_serve_retaurant_schema
+  quick_serve_restaurant_schema: &quick_serve_restaurant_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: quick_serve_restaurant                    # Schema within the catalog
 
@@ -14,45 +11,50 @@ resources:
   llms:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+      name: databricks-claude-sonnet-4
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: False
 
   tables:
-    product_table: &product_table
-      schema: *quick_serve_retaurant_schema                        # Reference to schema defined above
-      name: products                                # Table name
+
+    all:
+      schema: *quick_serve_restaurant_schema                        # Reference to schema defined above
+    #   name: products         
+
+    # product_table: &product_table
+    #   schema: *quick_serve_restaurant_schema                        # Reference to schema defined above
+    #   name: products                                # Table name
     
-    inventory_table: &inventory_table
-      schema: *quick_serve_retaurant_schema
-      name: inventory
+    # inventory_table: &inventory_table
+    #   schema: *quick_serve_restaurant_schema
+    #   name: inventory
 
-    items_description: &items_description
-      schema: *quick_serve_retaurant_schema
-      name: items_description
+    # items_description: &items_description
+    #   schema: *quick_serve_restaurant_schema
+    #   name: items_description
 
-    fulfil_item_orders: &fulfil_item_orders
-      schema: *quick_serve_retaurant_schema
-      name: fulfil_item_orders
+    # fulfil_item_orders: &fulfil_item_orders
+    #   schema: *quick_serve_restaurant_schema
+    #   name: fulfil_item_orders
 
-    orders: &orders
-      schema: *quick_serve_retaurant_schema
-      name: orders
+    # orders: &orders
+    #   schema: *quick_serve_restaurant_schema
+    #   name: orders
 
   functions:
 
-    lookup_items_by_descriptions: &lookup_items_by_descriptions
-      schema: *quick_serve_retaurant_schema
-      name: lookup_items_by_descriptions
+    all: 
+      schema: *quick_serve_restaurant_schema
+    #   name: lookup_items_by_descriptions
 
-    match_item_by_description_and_price: &match_item_by_description_and_price
-      schema: *quick_serve_retaurant_schema
-      name: match_item_by_description_and_price     
+    # match_item_by_description_and_price: &match_item_by_description_and_price
+    #   schema: *quick_serve_restaurant_schema
+    #   name: match_item_by_description_and_price     
     
-    match_historical_item_order_by_date: &match_historical_item_order_by_date
-      schema: *quick_serve_retaurant_schema
-      name: match_historical_item_order_by_date     
+    # match_historical_item_order_by_date: &match_historical_item_order_by_date
+    #   schema: *quick_serve_restaurant_schema
+    #   name: match_historical_item_order_by_date     
 
   genie_rooms:
     # Genie space for retail data queries
@@ -86,13 +88,13 @@ agents:
 
 
 app:
-  name: genie_example                      # Application name  
+  name: dao_genie                      # Application name  
   description: "Multi-agent system that talks to genie"
-  log_level: INFO                                   # Logging level for the application
+  log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
-    schema: *retail_schema                          # Schema where model will be registered
-    name: retail_ai_agenie                          # Model name in MLflow registry
-  endpoint_name: retail_ai_genie                    # Model serving endpoint name
+    schema: *quick_serve_restaurant_schema                          # Schema where model will be registered
+    name: dao_genie                          # Model name in MLflow registry
+  endpoint_name: dao_genie                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
