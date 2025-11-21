@@ -19,31 +19,74 @@ variables:
 
 schemas:
   retail_schema: &retail_schema                  # Unity Catalog schema configuration
-    catalog_name: nfleming                       # Unity Catalog name
-    schema_name: retail_ai                       # Schema within the catalog
+    catalog_name: retail_consumer_goods                       # Unity Catalog name
+    schema_name: hardware_store                       # Schema within the catalog
 
 resources:
   llms:
     default_llm: &default_llm                    # Default LLM configuration
       name: databricks-claude-3-7-sonnet        # Databricks serving endpoint name
 
+  genie_rooms:
+    retail_genie_room: &retail_genie_room        # Genie room configuration
+      name: "Retail AI Genie Room"               # Human-readable name
+      description: "Genie room for retail queries"
+      space_id: 01f01c91f1f414d59daaefd2b7ec82ea  # Databricks Genie space ID
+
+  tables:
+    product_table: &product_table                # Table configuration for vector store
+      schema: *retail_schema
+      name: products
+
+  vector_stores:
+    retail_vector_store: &retail_vector_store    # Vector store configuration
+      source_table: *product_table               # Source table for vector search
+      embedding_source_column: description       # Column containing embeddings
+      endpoint: 
+        name: dbdemos_vs_endpoint
+      index:
+        schema: *retail_schema                   # Schema for vector search index
+        name: products_index                      # Vector search index name
+
 tools:
+  # Example 1: Using direct URL (generic approach - works with any MCP server)
+  generic_mcp: &generic_mcp                      # Generic MCP tool with direct URL
+    name: generic_mcp
+    function:
+      type: mcp                                  # MCP function type
+      name: generic_mcp
+      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/vector-search/retail_consumer_goods/hardware_store
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+  # Example 2: Using convenience object (recommended - automatic URL generation)
   vector_search_mcp: &vector_search_mcp          # Vector search MCP tool configuration
     name: vector_search_mcp                                  
     function:
       type: mcp                                  # MCP function type
       name: vector_search_mcp                              
-      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/vector-search/nfleming/retail_ai
+      vector_search: *retail_vector_store        # Use vector search convenience object
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
 
-  unity_catalog_mcp: &unity_catalog_mcp          # Unity Catalog MCP tool configuration
-    name: unity_catalog_mcp                                  
+  sql_mcp: &sql_mcp                              # DBSQL MCP tool configuration
+    name: sql_mcp
     function:
       type: mcp                                  # MCP function type
-      name: unity_catalog_mcp                              
-      url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/functions/nfleming/retail_ai
+      name: sql_mcp
+      sql: true                                  # Use serverless DBSQL MCP server (no warehouse needed)
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+  functions_mcp: &functions_mcp                  # Unity Catalog Functions MCP tool configuration
+    name: functions_mcp                                  
+    function:
+      type: mcp                                  # MCP function type
+      name: functions_mcp                              
+      functions: *retail_schema                  # Use functions (UC Functions) convenience object
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -53,7 +96,7 @@ tools:
     function:
       type: mcp                                  # MCP function type
       name: genie_mcp                              
-      url:  https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/genie/01f01c91f1f414d59daaefd2b7ec82ea
+      genie_room: *retail_genie_room             # Use genie_room convenience object
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -63,13 +106,17 @@ agents:
     name: mcp_agent                              # Agent identifier
     model: *default_llm                          # Reference to LLM configuration
     tools:                                       # Tools available to this agent
-      - *vector_search_mcp
-      - *unity_catalog_mcp
+      # Note: generic_mcp and vector_search_mcp both point to vector search
+      # Only one should be used in practice (shown here for demonstration)
+      - *generic_mcp                             # Example: Direct URL approach
+      - *vector_search_mcp                       # Example: Convenience object approach
+      - *sql_mcp
+      - *functions_mcp
       - *genie_mcp
     prompt: |                                    # System prompt defining agent behavior
-      You are a multi-purpose agent that can perform vector search, interact with Unity Catalog, and
-      interact with Genie rooms. Use the tools provided to answer questions and perform tasks. 
-      You many need to use the tools in combination to achieve complex tasks.
+      You are a multi-purpose agent that can perform vector search, execute SQL queries via DBSQL,
+      call Unity Catalog functions, and interact with Genie rooms. Use the tools provided to answer
+      questions and perform tasks. You may need to use the tools in combination to achieve complex tasks.
       
 app:
   name: mcp_agent                                # Application name  

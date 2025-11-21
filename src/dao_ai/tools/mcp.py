@@ -30,23 +30,14 @@ def create_mcp_tools(
     """
     logger.debug(f"create_mcp_tools: {function}")
 
+    # Get MCP URL - handles all convenience objects (connection, genie_room, warehouse, etc.)
+    mcp_url = function.mcp_url
+    logger.debug(f"Using MCP URL: {mcp_url}")
+
     # Check if using UC Connection or direct MCP connection
     if function.connection:
         # Use UC Connection approach with DatabricksOAuthClientProvider
         logger.debug(f"Using UC Connection for MCP: {function.connection.name}")
-
-        # Construct URL if not provided
-        if function.url:
-            mcp_url = function.url
-            logger.debug(f"Using provided MCP URL: {mcp_url}")
-        else:
-            # Construct URL from workspace host and connection name
-            # Pattern: https://{workspace_host}/api/2.0/mcp/external/{connection_name}
-            workspace_client = function.connection.workspace_client
-            workspace_host = workspace_client.config.host
-            connection_name = function.connection.name
-            mcp_url = f"{workspace_host}/api/2.0/mcp/external/{connection_name}"
-            logger.debug(f"Constructed MCP URL from connection: {mcp_url}")
 
         async def _list_tools_with_connection():
             """List available tools using DatabricksOAuthClientProvider."""
@@ -147,7 +138,7 @@ def create_mcp_tools(
                 logger.debug("Using existing authentication token")
 
             return {
-                "url": function.url,
+                "url": mcp_url,  # Use the resolved MCP URL
                 "transport": function.transport,
                 "headers": headers,
             }

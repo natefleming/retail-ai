@@ -3,6 +3,7 @@ from typing import Sequence
 
 import pytest
 from langchain_core.tools import BaseTool
+from pydantic import ValidationError
 
 from dao_ai.config import ConnectionModel, McpFunctionModel, SchemaModel, TransportType
 
@@ -145,17 +146,17 @@ def test_mcp_function_tool_through_agent_context():
 
 
 def test_mcp_function_with_uc_connection():
-    """Test that MCP function model can be created with UC Connection and URL."""
+    """Test that MCP function model can be created with UC Connection only (URL auto-generated)."""
 
     # Create a UC Connection model
     connection = ConnectionModel(name="github_u2m_connection")
 
-    # Create MCP function model using the connection and URL
-    # URL is required even with connection (connection provides auth)
+    # Create MCP function model using only the connection
+    # URL is automatically generated from connection name
     mcp_function_model = McpFunctionModel(
         name="github-mcp-server",
-        url="https://workspace.databricks.com/api/2.0/mcp/external/github_u2m_connection",
         connection=connection,
+        workspace_host="https://workspace.databricks.com",
     )
 
     # Verify the model was created correctly
@@ -163,8 +164,10 @@ def test_mcp_function_with_uc_connection():
     assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
     assert mcp_function_model.connection is not None
     assert mcp_function_model.connection.name == "github_u2m_connection"
+
+    # URL is now auto-generated from the connection
     assert (
-        mcp_function_model.url
+        mcp_function_model.mcp_url
         == "https://workspace.databricks.com/api/2.0/mcp/external/github_u2m_connection"
     )
 
@@ -178,28 +181,27 @@ def test_mcp_function_with_uc_connection():
 
 
 def test_mcp_function_with_url_and_connection():
-    """Test that URL and Connection can be provided together (connection provides auth)."""
+    """Test that URL and Connection cannot be provided together (mutually exclusive)."""
 
     connection = ConnectionModel(name="test_connection")
 
-    # URL and connection can be provided together - connection provides auth, URL provides endpoint
-    mcp_function_model = McpFunctionModel(
-        name="test-mcp",
-        url="https://example.com/mcp",
-        connection=connection,
-    )
-
-    assert mcp_function_model.name == "test-mcp"
-    assert mcp_function_model.url == "https://example.com/mcp"
-    assert mcp_function_model.connection is not None
-    assert mcp_function_model.connection.name == "test_connection"
+    # URL and connection are now mutually exclusive
+    with pytest.raises(ValidationError, match="only one URL source can be provided"):
+        McpFunctionModel(
+            name="test-mcp",
+            url="https://example.com/mcp",
+            connection=connection,
+        )
 
 
 def test_mcp_function_validation_requires_url_or_connection():
-    """Test that URL or Connection must be provided for STREAMABLE_HTTP transport."""
+    """Test that URL, Connection, or other convenience object must be provided for STREAMABLE_HTTP transport."""
 
-    # Should raise ValueError when neither URL nor connection is provided
-    with pytest.raises(ValueError, match="url or connection must be provided"):
+    # Should raise ValueError when no URL source is provided
+    with pytest.raises(
+        ValidationError,
+        match="exactly one of the following must be provided: url, connection, genie_room, sql, vector_search, or functions",
+    ):
         McpFunctionModel(
             name="test-mcp",
             transport=TransportType.STREAMABLE_HTTP,

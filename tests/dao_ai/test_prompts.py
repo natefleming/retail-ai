@@ -85,8 +85,9 @@ class TestPromptRegistryUnit:
 
             result = provider.get_prompt(prompt_model)
 
-            # Should try champion first, then fall back to latest
-            assert mock_load.call_count == 2
+            # Should try default (for sync check), then champion, then fall back to latest
+            assert mock_load.call_count == 3
+            mock_load.assert_any_call("prompts:/test_prompt@default")
             mock_load.assert_any_call("prompts:/test_prompt@champion")
             mock_load.assert_any_call("prompts:/test_prompt@latest")
             assert result == mock_prompt
@@ -113,8 +114,10 @@ class TestPromptRegistryUnit:
 
             result = provider.get_prompt(prompt_model)
 
-            # Should use champion first without trying latest
-            mock_load.assert_called_once_with("prompts:/test_prompt@champion")
+            # Should check default first for sync, then use champion
+            assert mock_load.call_count == 2
+            mock_load.assert_any_call("prompts:/test_prompt@default")
+            mock_load.assert_any_call("prompts:/test_prompt@champion")
             assert result == mock_champion_prompt
             assert result.to_single_brace_format() == "Champion content"
 
@@ -176,9 +179,10 @@ class TestPromptRegistryUnit:
     @pytest.mark.unit
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_get_prompt_does_not_sync_when_registry_succeeds(self):
-        """Test that default_template is NOT synced when registry load succeeds."""
+        """Test that default_template is NOT synced when registry load succeeds and content matches."""
+        template_content = "Same content in registry and config"
         prompt_model = PromptModel(
-            name="test_prompt", default_template="Different from registry"
+            name="test_prompt", default_template=template_content
         )
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
@@ -187,22 +191,36 @@ class TestPromptRegistryUnit:
             patch("dao_ai.providers.databricks.load_prompt") as mock_load,
             patch.object(provider, "_sync_default_template_to_registry") as mock_sync,
         ):
-            mock_prompt = Mock()
-            mock_prompt.to_single_brace_format.return_value = "Registry content"
+            mock_default_prompt = Mock()
+            mock_default_prompt.to_single_brace_format.return_value = template_content
 
-            # Simulate champion being found
-            mock_load.return_value = mock_prompt
+            mock_champion_prompt = Mock()
+            mock_champion_prompt.to_single_brace_format.return_value = (
+                "Champion content"
+            )
+
+            # Simulate default and champion being found
+            def load_side_effect(uri):
+                if "@default" in uri:
+                    return mock_default_prompt
+                elif "@champion" in uri:
+                    return mock_champion_prompt
+                raise Exception(f"Unexpected URI: {uri}")
+
+            mock_load.side_effect = load_side_effect
 
             result = provider.get_prompt(prompt_model)
 
             # Should use registry content from champion and return PromptVersion
-            assert result == mock_prompt
-            assert result.to_single_brace_format() == "Registry content"
+            assert result == mock_champion_prompt
+            assert result.to_single_brace_format() == "Champion content"
 
-            # Should try champion first
-            mock_load.assert_called_once_with("prompts:/test_prompt@champion")
+            # Should check default first (for sync check), then champion
+            assert mock_load.call_count == 2
+            mock_load.assert_any_call("prompts:/test_prompt@default")
+            mock_load.assert_any_call("prompts:/test_prompt@champion")
 
-            # Should NOT sync default_template when registry succeeds
+            # Should NOT sync default_template when content matches and champion exists
             mock_sync.assert_not_called()
 
     @pytest.mark.unit

@@ -62,11 +62,19 @@ def _handoffs_for_agent(agent: AgentModel, config: AppConfig) -> Sequence[BaseTo
         logger.debug(
             f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}"
         )
+
+        # Use handoff_prompt if provided, otherwise create default description
+        handoff_description = handoff_to_agent.handoff_prompt or (
+            handoff_to_agent.description
+            if handoff_to_agent.description
+            else "general assistance and questions"
+        )
+
         handoff_tools.append(
             swarm_handoff_tool(
                 agent_name=handoff_to_agent.name,
                 description=f"Ask {handoff_to_agent.name} for help with: "
-                + handoff_to_agent.handoff_prompt,
+                + handoff_description,
             )
         )
     return handoff_tools
@@ -87,10 +95,17 @@ def _create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
                 additional_tools=[],
             )
         )
+        # Use handoff_prompt if provided, otherwise create default description
+        handoff_description = registered_agent.handoff_prompt or (
+            registered_agent.description
+            if registered_agent.description
+            else f"General assistance with {registered_agent.name} related tasks"
+        )
+
         tools.append(
             supervisor_handoff_tool(
                 agent_name=registered_agent.name,
-                description=registered_agent.handoff_prompt,
+                description=handoff_description,
             )
         )
 
