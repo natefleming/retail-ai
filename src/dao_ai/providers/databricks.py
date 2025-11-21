@@ -331,7 +331,7 @@ class DatabricksProvider(ServiceProvider):
             logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
                 python_model=model_path.as_posix(),
                 code_paths=code_paths,
-                model_config=config.model_dump(by_alias=True),
+                model_config=config.model_dump(mode="json", by_alias=True),
                 name="agent",
                 pip_requirements=pip_requirements,
                 input_example=input_example,
@@ -1281,7 +1281,7 @@ class DatabricksProvider(ServiceProvider):
         agent_model: AgentModel = optimization.agent
         prompt: PromptModel = optimization.prompt  # type: ignore[assignment]
         agent_model.prompt = prompt.uri
-        
+
         print(f"prompt={agent_model.prompt}")
         # Log the prompt URI scheme being used
         # Supports three schemes:
@@ -1352,10 +1352,8 @@ class DatabricksProvider(ServiceProvider):
         # DO NOT overwrite with prompt_version.uri as that uses fallback logic
         logger.debug(f"Optimizing prompt: {prompt_uri}")
 
-
         agent: ResponsesAgent = agent_model.as_responses_agent()
 
-        
         # Create predict function that will be optimized
         def predict_fn(**inputs: dict[str, Any]) -> str:
             """Prediction function that uses the ResponsesAgent with ChatPayload.

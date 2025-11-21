@@ -397,6 +397,13 @@ class VectorSearchEndpoint(BaseModel):
     name: str
     type: VectorSearchEndpointType = VectorSearchEndpointType.STANDARD
 
+    @field_serializer("type")
+    def serialize_type(self, value: VectorSearchEndpointType) -> str:
+        """Ensure enum is serialized to string value."""
+        if isinstance(value, VectorSearchEndpointType):
+            return value.value
+        return str(value)
+
 
 class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -998,21 +1005,119 @@ class TransportType(str, Enum):
 class McpFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: Literal[FunctionType.MCP] = FunctionType.MCP
-
     transport: TransportType = TransportType.STREAMABLE_HTTP
     command: Optional[str] = "python"
     url: Optional[AnyVariable] = None
-    connection: Optional[ConnectionModel] = None
     headers: dict[str, AnyVariable] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
     pat: Optional[AnyVariable] = None
     client_id: Optional[AnyVariable] = None
     client_secret: Optional[AnyVariable] = None
     workspace_host: Optional[AnyVariable] = None
+    connection: Optional[ConnectionModel] = None
+    functions: Optional[SchemaModel] = None
+    genie_room: Optional[GenieRoomModel] = None
+    sql: Optional[bool] = None
+    vector_search: Optional[VectorStoreModel] = None
 
     @property
     def full_name(self) -> str:
         return self.name
+
+    def _get_workspace_host(self) -> str:
+        """
+        Get the workspace host, either from config or from workspace client.
+
+        If connection is provided, uses its workspace client.
+        Otherwise, falls back to creating a new workspace client.
+
+        Returns:
+            str: The workspace host URL without trailing slash
+        """
+        from databricks.sdk import WorkspaceClient
+
+        # Try to get workspace_host from config
+        workspace_host: str | None = (
+            value_of(self.workspace_host) if self.workspace_host else None
+        )
+
+        # If no workspace_host in config, get it from workspace client
+        if not workspace_host:
+            # Use connection's workspace client if available
+            if self.connection:
+                workspace_host = self.connection.workspace_client.config.host
+            else:
+                # Create a default workspace client
+                w: WorkspaceClient = WorkspaceClient()
+                workspace_host = w.config.host
+
+        # Remove trailing slash
+        return workspace_host.rstrip("/")
+
+    @property
+    def mcp_url(self) -> str:
+        """
+        Get the MCP URL for this function.
+
+        Returns the URL based on the configured source:
+        - If url is set, returns it directly
+        - If connection is set, constructs URL from connection
+        - If genie_room is set, constructs Genie MCP URL
+        - If sql is set, constructs DBSQL MCP URL (serverless)
+        - If vector_search is set, constructs Vector Search MCP URL
+        - If functions is set, constructs UC Functions MCP URL
+
+        URL patterns (per https://docs.databricks.com/aws/en/generative-ai/mcp/managed-mcp):
+        - Genie: https://{host}/api/2.0/mcp/genie/{space_id}
+        - DBSQL: https://{host}/api/2.0/mcp/sql (serverless, workspace-level)
+        - Vector Search: https://{host}/api/2.0/mcp/vector-search/{catalog}/{schema}
+        - UC Functions: https://{host}/api/2.0/mcp/functions/{catalog}/{schema}
+        - Connection: https://{host}/api/2.0/mcp/external/{connection_name}
+        """
+        # Direct URL provided
+        if self.url:
+            return self.url
+
+        # Get workspace host (from config, connection, or default workspace client)
+        workspace_host: str = self._get_workspace_host()
+
+        # UC Connection
+        if self.connection:
+            connection_name: str = self.connection.name
+            return f"{workspace_host}/api/2.0/mcp/external/{connection_name}"
+
+        # Genie Room
+        if self.genie_room:
+            space_id: str = value_of(self.genie_room.space_id)
+            return f"{workspace_host}/api/2.0/mcp/genie/{space_id}"
+
+        # DBSQL MCP server (serverless, workspace-level)
+        if self.sql:
+            return f"{workspace_host}/api/2.0/mcp/sql"
+
+        # Vector Search
+        if self.vector_search:
+            if (
+                not self.vector_search.index
+                or not self.vector_search.index.schema_model
+            ):
+                raise ValueError(
+                    "vector_search must have an index with a schema (catalog/schema) configured"
+                )
+            catalog: str = self.vector_search.index.schema_model.catalog_name
+            schema: str = self.vector_search.index.schema_model.schema_name
+            return f"{workspace_host}/api/2.0/mcp/vector-search/{catalog}/{schema}"
+
+        # UC Functions MCP server
+        if self.functions:
+            catalog: str = self.functions.catalog_name
+            schema: str = self.functions.schema_name
+            return f"{workspace_host}/api/2.0/mcp/functions/{catalog}/{schema}"
+
+        raise ValueError(
+            "No URL source configured. Provide one of: url, connection, genie_room, "
+            "sql, vector_search, or functions"
+        )
 
     @field_serializer("transport")
     def serialize_transport(self, value) -> str:
@@ -1021,32 +1126,56 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
         return str(value)
 
     @model_validator(mode="after")
-    def validate_mutually_exclusive(self):
-        if self.transport == TransportType.STREAMABLE_HTTP and not (
-            self.url or self.connection
-        ):
-            raise ValueError(
-                "url or connection must be provided for STREAMABLE_HTTP transport"
-            )
-        if self.transport == TransportType.STDIO and not self.command:
-            raise ValueError("command must not be provided for STDIO transport")
-        if self.transport == TransportType.STDIO and not self.args:
-            raise ValueError("args must not be provided for STDIO transport")
+    def validate_mutually_exclusive(self) -> "McpFunctionModel":
+        """Validate that exactly one URL source is provided."""
+        # Count how many URL sources are provided
+        url_sources: list[tuple[str, Any]] = [
+            ("url", self.url),
+            ("connection", self.connection),
+            ("genie_room", self.genie_room),
+            ("sql", self.sql),
+            ("vector_search", self.vector_search),
+            ("functions", self.functions),
+        ]
+
+        provided_sources: list[str] = [
+            name for name, value in url_sources if value is not None
+        ]
+
+        if self.transport == TransportType.STREAMABLE_HTTP:
+            if len(provided_sources) == 0:
+                raise ValueError(
+                    "For STREAMABLE_HTTP transport, exactly one of the following must be provided: "
+                    "url, connection, genie_room, sql, vector_search, or functions"
+                )
+            if len(provided_sources) > 1:
+                raise ValueError(
+                    f"For STREAMABLE_HTTP transport, only one URL source can be provided. "
+                    f"Found: {', '.join(provided_sources)}. "
+                    f"Please provide only one of: url, connection, genie_room, sql, vector_search, or functions"
+                )
+
+        if self.transport == TransportType.STDIO:
+            if not self.command:
+                raise ValueError("command must be provided for STDIO transport")
+            if not self.args:
+                raise ValueError("args must be provided for STDIO transport")
+
         return self
 
     @model_validator(mode="after")
-    def update_url(self):
+    def update_url(self) -> "McpFunctionModel":
         self.url = value_of(self.url)
         return self
 
     @model_validator(mode="after")
-    def update_headers(self):
+    def update_headers(self) -> "McpFunctionModel":
         for key, value in self.headers.items():
             self.headers[key] = value_of(value)
         return self
 
     @model_validator(mode="after")
-    def validate_auth_methods(self):
+    def validate_auth_methods(self) -> "McpFunctionModel":
         oauth_fields: Sequence[Any] = [
             self.client_id,
             self.client_secret,
@@ -1062,10 +1191,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
                 "Please provide either OAuth credentials or user credentials."
             )
 
-        if (has_oauth or has_user_auth) and not self.workspace_host:
-            raise ValueError(
-                "Workspace host must be provided when using OAuth or user credentials."
-            )
+        # Note: workspace_host is optional - it will be derived from workspace client if not provided
 
         return self
 

@@ -1786,17 +1786,6 @@
           "default": null,
           "title": "Url"
         },
-        "connection": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConnectionModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "headers": {
           "additionalProperties": {
             "anyOf": [
@@ -1967,6 +1956,62 @@
           ],
           "default": null,
           "title": "Workspace Host"
+        },
+        "connection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "functions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "genie_room": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenieRoomModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sql": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql"
+        },
+        "vector_search": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VectorStoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [

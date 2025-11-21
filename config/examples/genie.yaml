@@ -16,6 +16,14 @@ resources:
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: False
 
+  warehouses:
+
+    shared_endpoint_warehouse: 
+      name: "Shared Endpoint Warehouse"             # Human-readable name
+      description: "A warehouse for shared endpoints"  # Description
+      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
+      on_behalf_of_user: False
+
   tables:
 
     all:
