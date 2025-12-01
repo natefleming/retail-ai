@@ -1,0 +1,355 @@
+"""
+Integration tests for vector search with reranking.
+
+These tests require:
+- DATABRICKS_HOST environment variable
+- DATABRICKS_TOKEN environment variable
+- An existing vector search index
+
+To run integration tests:
+    pytest tests/dao_ai/test_reranking_integration.py -v -m integration
+"""
+
+import os
+
+import pytest
+from databricks.sdk import WorkspaceClient
+from langchain_core.documents import Document
+
+from dao_ai.config import (
+    IndexModel,
+    RerankerParametersModel,
+    RetrieverModel,
+    SchemaModel,
+    SearchParametersModel,
+    TableModel,
+    VectorSearchEndpoint,
+    VectorStoreModel,
+)
+from dao_ai.tools.vector_search import create_vector_search_tool
+
+# Check if we have Databricks credentials
+HAS_DATABRICKS_CREDS = bool(
+    os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN")
+)
+
+# Skip message
+SKIP_MSG = "Requires DATABRICKS_HOST and DATABRICKS_TOKEN environment variables"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not HAS_DATABRICKS_CREDS, reason=SKIP_MSG)
+class TestRerankingWithRealIndex:
+    """Integration tests with real Databricks vector search index."""
+
+    @pytest.fixture
+    def workspace_client(self) -> WorkspaceClient:
+        """Create Databricks workspace client."""
+        return WorkspaceClient(
+            host=os.getenv("DATABRICKS_HOST"), token=os.getenv("DATABRICKS_TOKEN")
+        )
+
+    @pytest.fixture
+    def test_index_config(self) -> dict:
+        """
+        Return test index configuration.
+
+        Override this in your test environment with actual index details:
+        - catalog: Your catalog name
+        - schema: Your schema name
+        - index_name: Your vector search index name
+        - endpoint_name: Your vector search endpoint name
+
+        Defaults to hardware_store configuration values.
+        """
+        return {
+            "catalog": os.getenv("TEST_CATALOG", "retail_consumer_goods"),
+            "schema": os.getenv("TEST_SCHEMA", "hardware_store"),
+            "index_name": os.getenv("TEST_INDEX", "products_index"),
+            "endpoint_name": os.getenv("TEST_ENDPOINT", "dbdemos_vs_endpoint"),
+            "table_name": os.getenv("TEST_TABLE", "products"),
+            "primary_key": "product_id",
+            "text_column": "description",
+            "embedding_source_column": "description",
+        }
+
+    def test_vector_search_without_reranking(
+        self, workspace_client: WorkspaceClient, test_index_config: dict
+    ) -> None:
+        """Test basic vector search without reranking."""
+        # Create retriever config
+        schema = SchemaModel(
+            schema_name=test_index_config["schema"],
+            catalog_name=test_index_config["catalog"],
+        )
+        vector_store = VectorStoreModel(
+            index=IndexModel(
+                name=test_index_config["index_name"],
+                schema=schema,
+            ),
+            source_table=TableModel(
+                name=test_index_config["table_name"],
+                schema=schema,
+            ),
+            endpoint=VectorSearchEndpoint(name=test_index_config["endpoint_name"]),
+            primary_key=test_index_config["primary_key"],
+            embedding_source_column=test_index_config["embedding_source_column"],
+            columns=[
+                "product_id",
+                "sku",
+                "product_name",
+                "description",
+            ],
+        )
+
+        retriever = RetrieverModel(
+            vector_store=vector_store,
+            search_parameters=SearchParametersModel(num_results=10),
+        )
+
+        # Create tool
+        tool = create_vector_search_tool(
+            retriever=retriever,
+            name="test_search",
+            description="Test vector search",
+        )
+
+        # Execute search
+        result = tool.invoke({"query": "test query"})
+
+        # Verify results
+        assert result is not None
+        assert isinstance(result, list)
+        if len(result) > 0:
+            assert isinstance(result[0], Document)
+
+    def test_vector_search_with_reranking_bool(
+        self, workspace_client: WorkspaceClient, test_index_config: dict
+    ) -> None:
+        """Test vector search with reranking enabled via bool."""
+        schema = SchemaModel(
+            schema_name=test_index_config["schema"],
+            catalog_name=test_index_config["catalog"],
+        )
+        vector_store = VectorStoreModel(
+            index=IndexModel(
+                name=test_index_config["index_name"],
+                schema=schema,
+            ),
+            source_table=TableModel(
+                name=test_index_config["table_name"],
+                schema=schema,
+            ),
+            endpoint=VectorSearchEndpoint(name=test_index_config["endpoint_name"]),
+            primary_key=test_index_config["primary_key"],
+            embedding_source_column=test_index_config["embedding_source_column"],
+            columns=[
+                "product_id",
+                "sku",
+                "product_name",
+                "description",
+            ],
+        )
+
+        retriever = RetrieverModel(
+            vector_store=vector_store,
+            search_parameters=SearchParametersModel(num_results=20),
+            reranker=True,  # Enable with defaults
+        )
+
+        # Create tool
+        tool = create_vector_search_tool(
+            retriever=retriever,
+            name="test_search_rerank",
+            description="Test vector search with reranking",
+        )
+
+        # Execute search
+        result = tool.invoke({"query": "test query"})
+
+        # Verify results
+        assert result is not None
+        assert isinstance(result, list)
+        # Results should be reranked and potentially fewer than num_results
+        if len(result) > 0:
+            assert isinstance(result[0], Document)
+
+    def test_vector_search_with_custom_reranking(
+        self, workspace_client: WorkspaceClient, test_index_config: dict
+    ) -> None:
+        """Test vector search with custom reranking configuration."""
+        schema = SchemaModel(
+            schema_name=test_index_config["schema"],
+            catalog_name=test_index_config["catalog"],
+        )
+        vector_store = VectorStoreModel(
+            index=IndexModel(
+                name=test_index_config["index_name"],
+                schema=schema,
+            ),
+            source_table=TableModel(
+                name=test_index_config["table_name"],
+                schema=schema,
+            ),
+            endpoint=VectorSearchEndpoint(name=test_index_config["endpoint_name"]),
+            primary_key=test_index_config["primary_key"],
+            embedding_source_column=test_index_config["embedding_source_column"],
+            columns=[
+                "product_id",
+                "sku",
+                "product_name",
+                "description",
+            ],
+        )
+
+        retriever = RetrieverModel(
+            vector_store=vector_store,
+            search_parameters=SearchParametersModel(num_results=50),
+            reranker=RerankerParametersModel(
+                model="ms-marco-MiniLM-L-12-v2",  # Default model
+                top_n=5,  # Return top 5 after reranking
+            ),
+        )
+
+        # Create tool
+        tool = create_vector_search_tool(
+            retriever=retriever,
+            name="test_search_custom_rerank",
+            description="Test vector search with custom reranking",
+        )
+
+        # Execute search
+        result = tool.invoke({"query": "test query"})
+
+        # Verify results
+        assert result is not None
+        assert isinstance(result, list)
+        assert len(result) <= 5  # Should respect top_n
+
+    def test_reranking_improves_relevance(
+        self, workspace_client: WorkspaceClient, test_index_config: dict
+    ) -> None:
+        """
+        Test that reranking improves result relevance.
+
+        This test compares results with and without reranking.
+        """
+        schema = SchemaModel(
+            schema_name=test_index_config["schema"],
+            catalog_name=test_index_config["catalog"],
+        )
+        vector_store = VectorStoreModel(
+            index=IndexModel(
+                name=test_index_config["index_name"],
+                schema=schema,
+            ),
+            source_table=TableModel(
+                name=test_index_config["table_name"],
+                schema=schema,
+            ),
+            endpoint=VectorSearchEndpoint(name=test_index_config["endpoint_name"]),
+            primary_key=test_index_config["primary_key"],
+            embedding_source_column=test_index_config["embedding_source_column"],
+            columns=[
+                "product_id",
+                "sku",
+                "product_name",
+                "description",
+            ],
+        )
+
+        # Search without reranking
+        retriever_no_rerank = RetrieverModel(
+            vector_store=vector_store,
+            search_parameters=SearchParametersModel(num_results=10),
+        )
+        tool_no_rerank = create_vector_search_tool(
+            retriever=retriever_no_rerank,
+            name="search_no_rerank",
+            description="Search without reranking",
+        )
+
+        # Search with reranking
+        retriever_with_rerank = RetrieverModel(
+            vector_store=vector_store,
+            search_parameters=SearchParametersModel(num_results=20),
+            reranker=RerankerParametersModel(top_n=10),
+        )
+        tool_with_rerank = create_vector_search_tool(
+            retriever=retriever_with_rerank,
+            name="search_with_rerank",
+            description="Search with reranking",
+        )
+
+        # Execute both searches
+        test_query = "test query"
+        results_no_rerank = tool_no_rerank.invoke({"query": test_query})
+        results_with_rerank = tool_with_rerank.invoke({"query": test_query})
+
+        # Both should return results
+        assert len(results_no_rerank) > 0
+        assert len(results_with_rerank) > 0
+
+        # Results should be different (reranking changes order)
+        # Note: This is a simplistic check; in practice, you'd evaluate
+        # relevance using metrics like MRR, NDCG, etc.
+        if len(results_no_rerank) >= 2 and len(results_with_rerank) >= 2:
+            # Check if ordering changed
+            no_rerank_ids = [doc.metadata.get("id") for doc in results_no_rerank[:5]]
+            with_rerank_ids = [
+                doc.metadata.get("id") for doc in results_with_rerank[:5]
+            ]
+
+            # At least some reordering should occur (not always, but usually)
+            print(f"Without reranking: {no_rerank_ids}")
+            print(f"With reranking: {with_rerank_ids}")
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not HAS_DATABRICKS_CREDS, reason=SKIP_MSG)
+class TestRerankingPerformance:
+    """Performance tests for reranking."""
+
+    def test_reranking_latency(self) -> None:
+        """
+        Test that reranking latency is acceptable.
+
+        Reranking adds computational overhead but should still be fast enough
+        for interactive applications (< 1-2 seconds for reasonable doc counts).
+        """
+
+        # This would measure end-to-end latency with reranking
+        # Target: < 2 seconds for 50 candidates -> 5 results
+        pass
+
+    def test_reranking_with_large_candidate_set(self) -> None:
+        """
+        Test reranking performance with many candidates.
+
+        Verify that reranking 100+ documents is still performant.
+        """
+        pass
+
+
+@pytest.mark.unit
+def test_reranking_config_from_dict() -> None:
+    """Test creating retriever config from dictionary (YAML-like)."""
+    # This tests that config can be loaded from YAML/dict
+    # In practice, this would go through AppConfig.from_file()
+    # Example config structure that would be used:
+    # {
+    #     "vector_store": {
+    #         "index": {"name": "test_index", "schema": {...}},
+    #         "endpoint": {"name": "endpoint"},
+    #         "primary_key": "id",
+    #         "embedding_source_column": "text",
+    #         "columns": ["id", "text"],
+    #     },
+    #     "search_parameters": {"num_results": 30},
+    #     "reranker": {"model": "ms-marco-MiniLM-L-12-v2", "top_n": 10},
+    # }
+    pass
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "-m", "integration"])

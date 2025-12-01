@@ -1,6 +1,5 @@
 import bisect
 import json
-import logging
 import os
 import time
 from dataclasses import asdict, dataclass
@@ -184,7 +183,7 @@ class Genie:
                         conversation_id, result, query_str, description
                     )
                 elif state in ["RUNNING", "PENDING"]:
-                    logging.debug("Waiting for query result...")
+                    logger.debug("Waiting for query result...")
                     time.sleep(self.poll_interval)
                 else:
                     return GenieResponse(
@@ -250,7 +249,7 @@ class Genie:
                     )
                 # includes EXECUTING_QUERY, Genie can retry after this status
                 else:
-                    logging.debug(f"Waiting...: {resp['status']}")
+                    logger.debug(f"Waiting...: {resp['status']}")
                     time.sleep(self.poll_interval)
             return GenieResponse(
                 conversation_id,

@@ -7,6 +7,9 @@ from mlflow.pyfunc import ResponsesAgent
 
 from dao_ai.config import AppConfig
 
+mlflow.set_registry_uri("databricks-uc")
+mlflow.set_tracking_uri("databricks")
+
 mlflow.langchain.autolog()
 
 model_config: ModelConfig = ModelConfig()
