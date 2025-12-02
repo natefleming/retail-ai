@@ -60,6 +60,7 @@ dependencies:
   - gunicorn==23.0.0
   # Search and tools
   - duckduckgo-search==8.0.4
+  - flashrank==0.2.8
   - litellm==1.75.9
   # Utilities
   - loguru==0.7.3

@@ -47,6 +47,7 @@ dependencies = [
     "databricks-mcp>=0.3.0",
     "databricks-sdk[openai]>=0.67.0",
     "duckduckgo-search>=8.0.2",
+    "flashrank>=0.2.8",
     "gepa>=0.0.17",
     "grandalf>=0.8",
     "langchain>=0.3.27",
@@ -102,7 +103,7 @@ test = [
     "pytest-mock>=3.10.0",
 ]
 databricks = [
-    "databricks-vectorsearch>=0.56",
+    "databricks-vectorsearch>=0.63",
     "pyspark>=3.5.0",
     "databricks-connect>=15.0.0",
 ]

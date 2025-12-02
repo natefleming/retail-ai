@@ -100,6 +100,7 @@ def get_installed_packages() -> dict[str, str]:
         f"databricks-mcp=={version('databricks-mcp')}",
         f"databricks-sdk[openai]=={version('databricks-sdk')}",
         f"duckduckgo-search=={version('duckduckgo-search')}",
+        f"flashrank=={version('flashrank')}",
         f"langchain=={version('langchain')}",
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
         f"langchain-openai=={version('langchain-openai')}",

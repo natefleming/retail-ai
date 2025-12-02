@@ -108,12 +108,12 @@ resources:
   # Define Unity Catalog tables used by the system
   tables:
     # Product catalog table
-    product_table: &product_table
+    product_table: 
       schema: *retail_schema                        # Reference to schema defined above
       name: products                                # Table name
     
     # Inventory tracking table
-    inventory_table: &inventory_table
+    inventory_table: 
       schema: *retail_schema
       name: inventory
 
@@ -123,7 +123,7 @@ resources:
   # Define Unity Catalog volumes for file storage
   volumes:
     # Volume for retail AI assets and files
-    retail_volume: &retail_volume
+    retail_volume: 
       schema: *retail_schema
       name: retail_ai
 
@@ -162,88 +162,11 @@ resources:
   # Define SQL warehouses for query execution
   warehouses:
     # Shared warehouse for general query execution
-    shared_endpoint_warehouse: &shared_endpoint_warehouse
+    shared_endpoint_warehouse: 
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
 
-  # ---------------------------------------------------------------------------
-  # DATABASES
-  # ---------------------------------------------------------------------------
-  # Configure external databases (e.g., PostgreSQL for checkpoints and memory)
-  databases:
-    # PostgreSQL database for agent memory and checkpoints
-    retail_database: &retail_database
-      name: "retail-consumer-goods"
-      description: "Database for agent memory and checkpoints" 
-      
-      # Database connection parameters
-      # These can be set via environment variables or Databricks secrets
-      host:                                                 
-        default_value: localhost                                             
-        options:
-          - env: PGHOST                              # Environment variable
-          - scope: retail_ai                         # Databricks secret scope
-            secret: PGHOST                           # Secret name
-      port: 
-        default_value: 5432
-        options:
-        - env: PGPORT 
-        - scope: retail_ai
-          secret: PGPORT
-      database: 
-        default_value: databricks_postgres           # Default database name
-        options:
-        - env: PGDATABASE 
-        - scope: retail_ai
-          secret: PGDATABASE
-
-
-      # Traditional PostgreSQL authentication (commented out)
-      # Uncomment and configure if using direct database auth instead of OAuth2
-      # user: 
-      #   default_value: postgres
-      #   options:
-      #   - env: PGUSER 
-      #   - scope: retail_ai
-      #     secret: PGUSER
-      # password: 
-      #   default_value: postgres
-      #   options:
-      #   - env: PGPASSWORD 
-      #   - scope: retail_ai
-      #     secret: PGPASSWORD
-
-      # OAuth2 client credentials for Databricks authentication
-      # Used to generate access tokens for database connections
-      # This approach is recommended for Databricks environments
-      client_id:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      client_secret:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      workspace_host:
-        options:
-          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_HOST
-          
-      # Optional: Additional PostgreSQL connection parameters
-      # Uncomment and modify as needed for your specific setup
-      # connection_kwargs:                            # Additional connection parameters
-      #   autocommit: True                            # Enable autocommit mode
-      #   prepare_threshold: 0                        # Disable prepared statements
-      #   sslmode: require                            # Require SSL connection
-      #   connect_timeout: 10                         # Connection timeout in seconds
-      
-      # Optional: Connection pool configuration
-      # max_pool_size: 20                             # Maximum connections in pool
-      # timeout: 5                                    # Connection timeout in seconds
 
 # =============================================================================
 # RETRIEVERS CONFIGURATION
@@ -264,9 +187,15 @@ retrievers:
       - class_cd
       - description
     search_parameters:                              # Search configuration
-      num_results: 10                               # Maximum number of results to return
+      num_results: 50                               # Maximum number of results to return
       filters: {}                                   # Additional filters (empty in this case)
       query_type: ANN                               # Approximate Nearest Neighbor search
+    rerank:
+      top_n: 10
+      columns:
+        - merchandise_class
+        - product_name
+        - brand_name
 
 # =============================================================================
 # TOOLS CONFIGURATION
@@ -310,7 +239,7 @@ tools:
       args: {}                                      # No arguments needed
 
   # Vector search tool for product similarity
-  vector_search_tool: &vector_search_tool
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
     name: vector_search
     function:
       type: factory
@@ -318,17 +247,17 @@ tools:
       args:
         retriever: *products_retriever              # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name
-        description: "Search for products using vector search"  # Tool description
+        description: "Search for products by description"  # Tool description
 
   # Product details search by description
-  find_product_details_by_description_tool:
-    &find_product_details_by_description_tool
-    name: find_product_details_by_description
-    function:
-      type: factory
-      name: hardware_store.tools.find_product_details_by_description_tool
-      args:
-        retriever: *products_retriever              # Uses product retriever for search
+  # find_product_details_by_description_tool:
+  #   &find_product_details_by_description_tool
+  #   name: find_product_details_by_description
+  #   function:
+  #     type: factory
+  #     name: hardware_store.tools.find_product_details_by_description_tool
+  #     args:
+  #       retriever: *products_retriever              # Uses product retriever for search
 
   # ---------------------------------------------------------------------------
   # UNITY CATALOG TOOLS
@@ -360,20 +289,6 @@ tools:
     function:
       type: unity_catalog
       <<: *find_inventory_by_upc
-
-  # Store-specific inventory tools using Unity Catalog functions
-  find_store_inventory_by_sku_uc_tool: &find_store_inventory_by_sku_uc_tool
-    name: find_store_inventory_by_sku_uc
-    function:
-      type: unity_catalog
-      <<: *find_store_inventory_by_sku
-
-  find_store_inventory_by_upc_uc_tool: &find_store_inventory_by_upc_uc_tool
-    name: find_store_inventory_by_upc_uc
-    function:
-      type: unity_catalog
-      <<: *find_store_inventory_by_upc
-      
 
       
 # =============================================================================
@@ -407,26 +322,6 @@ guardrails:
 
       ### Response:
       {outputs}
-
-# =============================================================================
-# MEMORY CONFIGURATION
-# =============================================================================
-# Configure persistent storage for agent conversations and context
-
-memory: &memory
-  # Conversation checkpointing for state persistence
-  checkpointer: 
-    name: default_checkpointer                      # Checkpointer identifier
-    type: memory                                    # Storage type (postgres or memory)
-    #database: *retail_database                     # Reference to database configuration
-
-  # Long-term memory store for agent context
-  store: 
-    name: default_store                             # Store identifier
-    type: memory                                    # Store type (memory or postgres)
-    embedding_model: *embedding_model               # Model for semantic memory
-    dims: 1536                                      # Embedding dimensions
-   # database: *retail_database                     # Database for persistence (if needed)
 
 # =============================================================================
 # AGENTS CONFIGURATION
@@ -863,32 +758,7 @@ agents:
       Questions asking for product suggestions, recommendations, or "best" products for specific needs
       Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
 
-  process_image: &process_image
-    name: process_image
-    description: "Image analysis specialist for extracting product information from images, including summaries, product names, and UPC codes"
-    model: *reasoning_llm
-    tools: []
-    prompt: |
-      ### Task Description
-
-      Analyze the provided product image and extract the following specific information into a structured format:
-
-      - Summary: Provide a concise summary (1-3 sentences) describing what is shown in the image. Focus on describing the product(s), packaging, and any prominent visual elements.
-      - Product Names: Extract the exact product name(s) as they appear on the packaging. Include brand names and specific product variants if visible. List each distinct product separately.
-      - UPC Codes: Identify and extract any UPC (Universal Product Code) barcodes visible in the image. These typically appear as 12-digit numbers beneath a barcode. Provide the complete numeric sequence without dashes or spaces.
-
-      ### Important Guidelines
-
-      - Extract information ONLY if it is clearly visible in the image
-      - For product names, use the EXACT text as it appears on packaging
-      - For UPC codes, verify all digits are clearly legible before extraction
-      - If any requested information is not visible or legible in the image, omit it entirely rather than guessing
-      - Do not provide placeholder values, assumptions, or partial information
-      - Format all extracted information according to the specified output structure
-
-      ### Response Guidelines
-      If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
-
+ 
 # =============================================================================
 # APPLICATION CONFIGURATION
 # =============================================================================
@@ -919,7 +789,6 @@ app:
     - *recommendation                               # Product recommendation agent
     - *general                                      # General purpose agent
   orchestration:                                    # Agent orchestration configuration
-    #memory: *memory                                 # Reference to memory configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
   message_hooks: 

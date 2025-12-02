@@ -895,6 +895,55 @@ class SearchParametersModel(BaseModel):
     query_type: Optional[str] = "ANN"
 
 
+class RerankParametersModel(BaseModel):
+    """
+    Configuration for reranking retrieved documents using FlashRank.
+
+    FlashRank provides fast, local reranking without API calls using lightweight
+    cross-encoder models. Reranking improves retrieval quality by reordering results
+    based on semantic relevance to the query.
+
+    Typical workflow:
+    1. Retrieve more documents than needed (e.g., 50 via num_results)
+    2. Rerank all retrieved documents
+    3. Return top_n best matches (e.g., 5)
+
+    Example:
+        ```yaml
+        retriever:
+          search_parameters:
+            num_results: 50  # Retrieve more candidates
+          rerank:
+            model: ms-marco-MiniLM-L-12-v2
+            top_n: 5  # Return top 5 after reranking
+        ```
+
+    Available models (from fastest to most accurate):
+    - "ms-marco-TinyBERT-L-2-v2" (fastest, smallest)
+    - "ms-marco-MiniLM-L-6-v2"
+    - "ms-marco-MiniLM-L-12-v2" (default, good balance)
+    - "rank-T5-flan" (most accurate, slower)
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    model: str = Field(
+        default="ms-marco-MiniLM-L-12-v2",
+        description="FlashRank model name. Default provides good balance of speed and accuracy.",
+    )
+    top_n: Optional[int] = Field(
+        default=None,
+        description="Number of documents to return after reranking. If None, uses search_parameters.num_results.",
+    )
+    cache_dir: Optional[str] = Field(
+        default="/tmp/flashrank_cache",
+        description="Directory to cache downloaded model weights.",
+    )
+    columns: Optional[list[str]] = Field(
+        default_factory=list, description="Columns to rerank using DatabricksReranker"
+    )
+
+
 class RetrieverModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     vector_store: VectorStoreModel
@@ -902,12 +951,23 @@ class RetrieverModel(BaseModel):
     search_parameters: SearchParametersModel = Field(
         default_factory=SearchParametersModel
     )
+    rerank: Optional[RerankParametersModel | bool] = Field(
+        default=None,
+        description="Optional reranking configuration. Set to true for defaults, or provide ReRankParametersModel for custom settings.",
+    )
 
     @model_validator(mode="after")
     def set_default_columns(self):
         if not self.columns:
             columns: Sequence[str] = self.vector_store.columns
             self.columns = columns
+        return self
+
+    @model_validator(mode="after")
+    def set_default_reranker(self):
+        """Convert bool to ReRankParametersModel with defaults."""
+        if isinstance(self.rerank, bool) and self.rerank:
+            self.rerank = RerankParametersModel()
         return self
 
 
