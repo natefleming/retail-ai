@@ -103,7 +103,7 @@ test = [
     "pytest-mock>=3.10.0",
 ]
 databricks = [
-    "databricks-vectorsearch>=0.56",
+    "databricks-vectorsearch>=0.63",
     "pyspark>=3.5.0",
     "databricks-connect>=15.0.0",
 ]

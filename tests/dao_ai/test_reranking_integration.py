@@ -10,15 +10,16 @@ To run integration tests:
     pytest tests/dao_ai/test_reranking_integration.py -v -m integration
 """
 
+import json
 import os
 
 import pytest
 from databricks.sdk import WorkspaceClient
-from langchain_core.documents import Document
+from langchain_core.messages import ToolMessage
 
 from dao_ai.config import (
     IndexModel,
-    RerankerParametersModel,
+    RerankParametersModel,
     RetrieverModel,
     SchemaModel,
     SearchParametersModel,
@@ -27,6 +28,39 @@ from dao_ai.config import (
     VectorStoreModel,
 )
 from dao_ai.tools.vector_search import create_vector_search_tool
+
+
+def extract_documents_from_tool_result(result):
+    """Helper function to extract documents from a tool invocation result.
+
+    When a tool is invoked with a ToolCall object, LangChain wraps the result
+    in a ToolMessage. This function extracts the actual documents from the message.
+    """
+    if isinstance(result, ToolMessage):
+        content = result.content
+        # Content might be a string (Python repr or JSON) or already a list
+        if isinstance(content, str):
+            # Try to parse as JSON first
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try Python literal_eval (for single-quoted strings)
+                import ast
+
+                try:
+                    return ast.literal_eval(content)
+                except (ValueError, SyntaxError):
+                    # If all parsing fails, raise an error
+                    raise ValueError(
+                        f"Failed to parse tool result content: {content[:200]}"
+                    )
+        else:
+            # Content is already a list
+            return content
+    else:
+        # Direct result (not wrapped in ToolMessage)
+        return result
+
 
 # Check if we have Databricks credentials
 HAS_DATABRICKS_CREDS = bool(
@@ -114,14 +148,31 @@ class TestRerankingWithRealIndex:
             description="Test vector search",
         )
 
-        # Execute search
-        result = tool.invoke({"query": "test query"})
+        # Execute search - tools with InjectedState/InjectedToolCallId must be invoked
+        # with a full ToolCall object, not just args
+        from langchain_core.messages import ToolCall as LCToolCall
 
-        # Verify results
-        assert result is not None
-        assert isinstance(result, list)
-        if len(result) > 0:
-            assert isinstance(result[0], Document)
+        tool_call = LCToolCall(
+            name=tool.name,
+            args={"query": "test query"},
+            id="test_tool_call_123",
+            type="tool_call",
+        )
+
+        result = tool.invoke(tool_call)
+
+        # When invoked with ToolCall, result is wrapped in ToolMessage
+        assert isinstance(result, ToolMessage)
+
+        # Extract documents using helper function
+        documents = extract_documents_from_tool_result(result)
+
+        assert isinstance(documents, list)
+        if len(documents) > 0:
+            # Documents are serialized as dicts
+            assert isinstance(documents[0], dict)
+            assert "page_content" in documents[0]
+            assert "metadata" in documents[0]
 
     def test_vector_search_with_reranking_bool(
         self, workspace_client: WorkspaceClient, test_index_config: dict
@@ -154,7 +205,7 @@ class TestRerankingWithRealIndex:
         retriever = RetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=20),
-            reranker=True,  # Enable with defaults
+            rerank=True,  # Enable with defaults
         )
 
         # Create tool
@@ -164,15 +215,30 @@ class TestRerankingWithRealIndex:
             description="Test vector search with reranking",
         )
 
-        # Execute search
-        result = tool.invoke({"query": "test query"})
+        # Execute search - use full ToolCall format
+        from langchain_core.messages import ToolCall as LCToolCall
 
-        # Verify results
-        assert result is not None
-        assert isinstance(result, list)
+        tool_call = LCToolCall(
+            name=tool.name,
+            args={"query": "test query"},
+            id="test_tool_call_234",
+            type="tool_call",
+        )
+        result = tool.invoke(tool_call)
+
+        # When invoked with ToolCall, result is wrapped in ToolMessage
+        assert isinstance(result, ToolMessage)
+
+        # Extract documents using helper function
+        documents = extract_documents_from_tool_result(result)
+
+        assert isinstance(documents, list)
         # Results should be reranked and potentially fewer than num_results
-        if len(result) > 0:
-            assert isinstance(result[0], Document)
+        if len(documents) > 0:
+            # Documents are serialized as dicts
+            assert isinstance(documents[0], dict)
+            assert "page_content" in documents[0]
+            assert "metadata" in documents[0]
 
     def test_vector_search_with_custom_reranking(
         self, workspace_client: WorkspaceClient, test_index_config: dict
@@ -205,7 +271,7 @@ class TestRerankingWithRealIndex:
         retriever = RetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=50),
-            reranker=RerankerParametersModel(
+            rerank=RerankParametersModel(
                 model="ms-marco-MiniLM-L-12-v2",  # Default model
                 top_n=5,  # Return top 5 after reranking
             ),
@@ -218,13 +284,30 @@ class TestRerankingWithRealIndex:
             description="Test vector search with custom reranking",
         )
 
-        # Execute search
-        result = tool.invoke({"query": "test query"})
+        # Execute search - use full ToolCall format
+        from langchain_core.messages import ToolCall as LCToolCall
 
-        # Verify results
-        assert result is not None
-        assert isinstance(result, list)
-        assert len(result) <= 5  # Should respect top_n
+        tool_call = LCToolCall(
+            name=tool.name,
+            args={"query": "test query"},
+            id="test_tool_call_345",
+            type="tool_call",
+        )
+        result = tool.invoke(tool_call)
+
+        # When invoked with ToolCall, result is wrapped in ToolMessage
+        assert isinstance(result, ToolMessage)
+
+        # Extract documents using helper function
+        documents = extract_documents_from_tool_result(result)
+
+        assert isinstance(documents, list)
+        assert len(documents) <= 5  # Should respect top_n
+        if len(documents) > 0:
+            # Documents are serialized as dicts
+            assert isinstance(documents[0], dict)
+            assert "page_content" in documents[0]
+            assert "metadata" in documents[0]
 
     def test_reranking_improves_relevance(
         self, workspace_client: WorkspaceClient, test_index_config: dict
@@ -273,7 +356,7 @@ class TestRerankingWithRealIndex:
         retriever_with_rerank = RetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=20),
-            reranker=RerankerParametersModel(top_n=10),
+            rerank=RerankParametersModel(top_n=10),
         )
         tool_with_rerank = create_vector_search_tool(
             retriever=retriever_with_rerank,
@@ -281,10 +364,38 @@ class TestRerankingWithRealIndex:
             description="Search with reranking",
         )
 
-        # Execute both searches
+        # Execute both searches - use full ToolCall format
+        from langchain_core.messages import ToolCall as LCToolCall
+
         test_query = "test query"
-        results_no_rerank = tool_no_rerank.invoke({"query": test_query})
-        results_with_rerank = tool_with_rerank.invoke({"query": test_query})
+
+        tool_call_no_rerank = LCToolCall(
+            name=tool_no_rerank.name,
+            args={"query": test_query},
+            id="test_tool_call_456",
+            type="tool_call",
+        )
+        tool_call_with_rerank = LCToolCall(
+            name=tool_with_rerank.name,
+            args={"query": test_query},
+            id="test_tool_call_567",
+            type="tool_call",
+        )
+
+        result_no_rerank = tool_no_rerank.invoke(tool_call_no_rerank)
+        result_with_rerank = tool_with_rerank.invoke(tool_call_with_rerank)
+
+        # When invoked with ToolCall, results are wrapped in ToolMessage
+        assert isinstance(result_no_rerank, ToolMessage)
+        assert isinstance(result_with_rerank, ToolMessage)
+
+        # Extract documents using helper function
+        results_no_rerank = extract_documents_from_tool_result(result_no_rerank)
+        results_with_rerank = extract_documents_from_tool_result(result_with_rerank)
+
+        # Verify both return lists of documents
+        assert isinstance(results_no_rerank, list)
+        assert isinstance(results_with_rerank, list)
 
         # Both should return results
         assert len(results_no_rerank) > 0
@@ -294,10 +405,12 @@ class TestRerankingWithRealIndex:
         # Note: This is a simplistic check; in practice, you'd evaluate
         # relevance using metrics like MRR, NDCG, etc.
         if len(results_no_rerank) >= 2 and len(results_with_rerank) >= 2:
-            # Check if ordering changed
-            no_rerank_ids = [doc.metadata.get("id") for doc in results_no_rerank[:5]]
+            # Check if ordering changed (documents are dicts now)
+            no_rerank_ids = [
+                doc.get("metadata", {}).get("id") for doc in results_no_rerank[:5]
+            ]
             with_rerank_ids = [
-                doc.metadata.get("id") for doc in results_with_rerank[:5]
+                doc.get("metadata", {}).get("id") for doc in results_with_rerank[:5]
             ]
 
             # At least some reordering should occur (not always, but usually)

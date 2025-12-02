@@ -2438,9 +2438,9 @@
       "title": "RegisteredModelModel",
       "type": "object"
     },
-    "RerankerParametersModel": {
+    "RerankParametersModel": {
       "additionalProperties": false,
-      "description": "Configuration for reranking retrieved documents using FlashRank.\n\nFlashRank provides fast, local reranking without API calls using lightweight\ncross-encoder models. Reranking improves retrieval quality by reordering results\nbased on semantic relevance to the query.\n\nTypical workflow:\n1. Retrieve more documents than needed (e.g., 50 via num_results)\n2. Rerank all retrieved documents\n3. Return top_n best matches (e.g., 5)\n\nExample:\n    ```yaml\n    retriever:\n      search_parameters:\n        num_results: 50  # Retrieve more candidates\n      reranker:\n        model: ms-marco-MiniLM-L-12-v2\n        top_n: 5  # Return top 5 after reranking\n    ```\n\nAvailable models (from fastest to most accurate):\n- \"ms-marco-TinyBERT-L-2-v2\" (fastest, smallest)\n- \"ms-marco-MiniLM-L-6-v2\"\n- \"ms-marco-MiniLM-L-12-v2\" (default, good balance)\n- \"rank-T5-flan\" (most accurate, slower)",
+      "description": "Configuration for reranking retrieved documents using FlashRank.\n\nFlashRank provides fast, local reranking without API calls using lightweight\ncross-encoder models. Reranking improves retrieval quality by reordering results\nbased on semantic relevance to the query.\n\nTypical workflow:\n1. Retrieve more documents than needed (e.g., 50 via num_results)\n2. Rerank all retrieved documents\n3. Return top_n best matches (e.g., 5)\n\nExample:\n    ```yaml\n    retriever:\n      search_parameters:\n        num_results: 50  # Retrieve more candidates\n      rerank:\n        model: ms-marco-MiniLM-L-12-v2\n        top_n: 5  # Return top 5 after reranking\n    ```\n\nAvailable models (from fastest to most accurate):\n- \"ms-marco-TinyBERT-L-2-v2\" (fastest, smallest)\n- \"ms-marco-MiniLM-L-6-v2\"\n- \"ms-marco-MiniLM-L-12-v2\" (default, good balance)\n- \"rank-T5-flan\" (most accurate, slower)",
       "properties": {
         "model": {
           "default": "ms-marco-MiniLM-L-12-v2",
@@ -2473,9 +2473,24 @@
           "default": "/tmp/flashrank_cache",
           "description": "Directory to cache downloaded model weights.",
           "title": "Cache Dir"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Columns to rerank using DatabricksReranker",
+          "title": "Columns"
         }
       },
-      "title": "RerankerParametersModel",
+      "title": "RerankParametersModel",
       "type": "object"
     },
     "ResourcesModel": {
@@ -2571,10 +2586,10 @@
         "search_parameters": {
           "$ref": "#/$defs/SearchParametersModel"
         },
-        "reranker": {
+        "rerank": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RerankerParametersModel"
+              "$ref": "#/$defs/RerankParametersModel"
             },
             {
               "type": "boolean"
@@ -2585,7 +2600,7 @@
           ],
           "default": null,
           "description": "Optional reranking configuration. Set to true for defaults, or provide ReRankParametersModel for custom settings.",
-          "title": "Reranker"
+          "title": "Rerank"
         }
       },
       "required": [

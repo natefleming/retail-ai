@@ -581,7 +581,7 @@ requires-dist = [
     { name = "databricks-langchain", specifier = ">=0.8.1" },
     { name = "databricks-mcp", specifier = ">=0.3.0" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.67.0" },
-    { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.56" },
+    { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.63" },
     { name = "duckduckgo-search", specifier = ">=8.0.2" },
     { name = "flashrank", specifier = ">=0.2.8" },
     { name = "gepa", specifier = ">=0.0.17" },
@@ -773,7 +773,7 @@ openai = [
 
 [[package]]
 name = "databricks-vectorsearch"
-version = "0.56"
+version = "0.63"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "deprecation" },
@@ -782,7 +782,7 @@ dependencies = [
     { name = "requests" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/91/70e08f3d107f662d014df78f0c9bb792da6bb9deaa02c6dfd4abd54bece1/databricks_vectorsearch-0.56-py3-none-any.whl", hash = "sha256:f208d670316908b2423b178713ac676264a309e00770664f8e32184cfd698c7d", size = 15193, upload-time = "2025-04-17T20:25:08.597Z" },
+    { url = "https://files.pythonhosted.org/packages/43/ab/4d6ba34ff89e326cd867e3d1ccf503a2e826558942a36ab3da34e1970ae7/databricks_vectorsearch-0.63-py3-none-any.whl", hash = "sha256:21d98c6f8fb5c35f2177e0d8f22bc3f2ea354089e41537ff83ad8722a553c713", size = 19714, upload-time = "2025-11-13T01:49:19.434Z" },
 ]
 
 [[package]]

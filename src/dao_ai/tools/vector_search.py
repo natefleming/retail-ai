@@ -1,91 +1,182 @@
-from typing import Any, List, Optional, Sequence
+from typing import Annotated, Any, Callable, List, Optional, Sequence
 
 import mlflow
+from databricks.vector_search.reranker import DatabricksReranker
 from databricks_ai_bridge.vector_search_retriever_tool import (
     FilterItem,
-    vector_search_retriever_tool_trace,
+    VectorSearchRetrieverToolInput,
 )
-from databricks_langchain.vector_search_retriever_tool import VectorSearchRetrieverTool
+from databricks_langchain.vectorstores import DatabricksVectorSearch
+from flashrank import Ranker, RerankRequest
 from langchain_core.documents import Document
-from langchain_core.tools import BaseTool
+from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.prebuilt import InjectedState
 from loguru import logger
 from mlflow.entities import SpanType
-from pydantic import Field
 
 from dao_ai.config import (
-    RerankerParametersModel,
+    RerankParametersModel,
     RetrieverModel,
     VectorStoreModel,
 )
 
 
-class RerankingVectorSearchRetrieverTool(VectorSearchRetrieverTool):
+def create_vector_search_tool(
+    retriever: RetrieverModel | dict[str, Any],
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Callable:
     """
-    Vector search retrieval tool with optional reranking support.
+    Create a Vector Search tool for retrieving documents from a Databricks Vector Search index.
 
-    This is the default tool for all vector search operations. It performs similarity
-    search using the parent class, then optionally reranks results if reranking is configured.
+    This function creates a tool that enables semantic search over product information,
+    documentation, or other content using the @tool decorator pattern. It supports optional
+    reranking of results using FlashRank for improved relevance.
 
-    Workflow:
-    1. Perform vector similarity search (always)
-    2. If reranking enabled: rerank candidates using cross-encoder model
-    3. Return final documents
+    Args:
+        retriever: Configuration details for the vector search retriever, including:
+            - name: Name of the tool
+            - description: Description of the tool's purpose
+            - primary_key: Primary key column for the vector store
+            - text_column: Text column used for vector search
+            - doc_uri: URI for documentation or additional context
+            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
+            - columns: List of columns to retrieve from the vector store
+            - search_parameters: Additional parameters for customizing the search behavior
+            - rerank: Optional rerank configuration for result reranking
+        name: Optional custom name for the tool
+        description: Optional custom description for the tool
 
-    Both retrieval steps are traced in MLflow for observability.
+    Returns:
+        A LangChain tool that performs vector search with optional reranking
     """
 
-    reranker_model: Optional[str] = Field(
-        default=None,
-        description="FlashRank model name for reranking. If None, reranking is disabled.",
-    )
-    reranker_top_n: Optional[int] = Field(
-        default=None, description="Number of documents to return after reranking."
-    )
-    reranker_cache_dir: Optional[str] = Field(
-        default="/tmp/flashrank_cache",
-        description="Directory to cache model weights.",
-    )
+    if isinstance(retriever, dict):
+        retriever = RetrieverModel(**retriever)
 
-    @mlflow.trace(name="rerank_documents", span_type=SpanType.RETRIEVER)
-    def _rerank_documents(
-        self, query: str, documents: List[Document]
-    ) -> List[Document]:
-        """
-        Rerank documents using FlashRank.
+    vector_store_config: VectorStoreModel = retriever.vector_store
 
-        This method is traced separately in MLflow for observability.
+    # Index is required for vector search
+    if vector_store_config.index is None:
+        raise ValueError("vector_store.index is required for vector search")
 
-        Args:
-            query: The search query
-            documents: List of documents to rerank
+    index_name: str = vector_store_config.index.full_name
+    columns: Sequence[str] = retriever.columns or []
+    search_parameters: dict[str, Any] = retriever.search_parameters.model_dump()
+    primary_key: str = vector_store_config.primary_key or ""
+    doc_uri: str = vector_store_config.doc_uri or ""
+    text_column: str = vector_store_config.embedding_source_column
 
-        Returns:
-            Reranked and filtered list of documents
-        """
-        from flashrank import Ranker, RerankRequest
+    # Extract reranker configuration
+    reranker_config: Optional[RerankParametersModel] = retriever.rerank
 
+    # Initialize FlashRank ranker once if reranking is enabled
+    # This is expensive (loads model weights), so we do it once and reuse across invocations
+    ranker: Optional[Ranker] = None
+    if reranker_config:
         logger.debug(
-            f"Starting reranking for {len(documents)} documents using model '{self.reranker_model}'"
+            f"Creating vector search tool with reranking: '{name}' "
+            f"(model: {reranker_config.model}, top_n: {reranker_config.top_n or 'auto'})"
         )
-
-        # Log input to MLflow trace
-        mlflow.log_text(
-            f"Reranking {len(documents)} candidates with model '{self.reranker_model}'",
-            "reranking_info.txt",
-        )
-
-        # Initialize FlashRank ranker
         try:
-            ranker: Ranker = Ranker(
-                model_name=self.reranker_model, cache_dir=self.reranker_cache_dir
+            ranker = Ranker(
+                model_name=reranker_config.model, cache_dir=reranker_config.cache_dir
             )
-            logger.debug(
-                f"FlashRank ranker initialized (model: {self.reranker_model}, cache: {self.reranker_cache_dir})"
+            logger.info(
+                f"FlashRank ranker initialized successfully (model: {reranker_config.model})"
             )
         except Exception as e:
-            logger.error(f"Failed to initialize FlashRank ranker: {e}")
-            logger.warning("Returning original documents without reranking")
+            logger.warning(
+                f"Failed to initialize FlashRank ranker during tool creation: {e}. "
+                "Reranking will be disabled for this tool."
+            )
+            # Set reranker_config to None so we don't attempt reranking
+            reranker_config = None
+    else:
+        logger.debug(
+            f"Creating vector search tool without reranking: '{name}' (standard similarity search only)"
+        )
+
+    # Initialize the vector store
+    # Note: text_column is only required for self-managed embeddings
+    # For Databricks-managed embeddings, it's automatically determined from the index
+    vector_store: DatabricksVectorSearch = DatabricksVectorSearch(
+        index_name=index_name,
+        text_column=None,  # Let DatabricksVectorSearch determine this from the index
+        columns=columns,
+        include_score=True,
+        workspace_client=vector_store_config.workspace_client,
+    )
+
+    # Register the retriever schema with MLflow for model serving integration
+    mlflow.models.set_retriever_schema(
+        name=name or "retriever",
+        primary_key=primary_key,
+        text_column=text_column,
+        doc_uri=doc_uri,
+        other_columns=list(columns),
+    )
+
+    # Helper function to perform vector similarity search
+    @mlflow.trace(name="find_documents", span_type=SpanType.RETRIEVER)
+    def _find_documents(
+        query: str, filters: Optional[List[FilterItem]] = None
+    ) -> List[Document]:
+        """Perform vector similarity search."""
+        # Convert filters to dict format
+        filters_dict: dict[str, Any] = {}
+        if filters:
+            for item in filters:
+                item_dict = dict(item)
+                filters_dict[item_dict["key"]] = item_dict["value"]
+
+        # Merge with any configured filters
+        combined_filters: dict[str, Any] = {
+            **filters_dict,
+            **search_parameters.get("filters", {}),
+        }
+
+        # Perform similarity search
+        num_results: int = search_parameters.get("num_results", 10)
+        query_type: str = search_parameters.get("query_type", "ANN")
+
+        logger.debug(
+            f"Performing vector search: query='{query[:50]}...', k={num_results}, filters={combined_filters}"
+        )
+
+        # Build similarity search kwargs
+        search_kwargs = {
+            "query": query,
+            "k": num_results,
+            "filter": combined_filters if combined_filters else None,
+            "query_type": query_type,
+        }
+
+        # Add DatabricksReranker if configured with columns
+        if reranker_config and reranker_config.columns:
+            search_kwargs["reranker"] = DatabricksReranker(
+                columns_to_rerank=reranker_config.columns
+            )
+
+        documents: List[Document] = vector_store.similarity_search(**search_kwargs)
+
+        logger.debug(f"Retrieved {len(documents)} documents from vector search")
+        return documents
+
+    # Helper function to rerank documents
+    @mlflow.trace(name="rerank_documents", span_type=SpanType.RETRIEVER)
+    def _rerank_documents(query: str, documents: List[Document]) -> List[Document]:
+        """Rerank documents using FlashRank.
+
+        Uses the ranker instance initialized at tool creation time (captured in closure).
+        This avoids expensive model loading on every invocation.
+        """
+        if not reranker_config or ranker is None:
             return documents
+
+        logger.debug(
+            f"Starting reranking for {len(documents)} documents using model '{reranker_config.model}'"
+        )
 
         # Prepare passages for reranking
         passages: List[dict[str, Any]] = [
@@ -100,7 +191,7 @@ class RerankingVectorSearchRetrieverTool(VectorSearchRetrieverTool):
         results: List[dict[str, Any]] = ranker.rerank(rerank_request)
 
         # Apply top_n filtering
-        top_n: int = self.reranker_top_n or len(documents)
+        top_n: int = reranker_config.top_n or len(documents)
         results = results[:top_n]
         logger.debug(
             f"Reranking complete. Filtered to top {top_n} results from {len(documents)} candidates"
@@ -124,183 +215,68 @@ class RerankingVectorSearchRetrieverTool(VectorSearchRetrieverTool):
                 )
                 reranked_docs.append(reranked_doc)
 
-        logger.info(
+        logger.debug(
             f"Reranked {len(documents)} documents → {len(reranked_docs)} results "
-            f"(model: {self.reranker_model}, top score: {reranked_docs[0].metadata.get('reranker_score', 0):.4f})"
+            f"(model: {reranker_config.model}, top score: {reranked_docs[0].metadata.get('reranker_score', 0):.4f})"
             if reranked_docs
             else f"Reranking completed with {len(reranked_docs)} results"
         )
 
         return reranked_docs
 
-    @mlflow.trace(name="find_documents", span_type=SpanType.RETRIEVER)
-    def _find_documents(
-        self, query: str, filters: Optional[List[FilterItem]] = None, **kwargs
-    ) -> str:
-        kwargs = {**kwargs, **(self.model_extra or {})}
-        # Since LLM can generate either a dict or FilterItem, convert to dict always
-        filters_dict = {
-            dict(item)["key"]: dict(item)["value"] for item in (filters or [])
-        }
-        combined_filters = {**filters_dict, **(self.filters or {})}
-
-        # Allow kwargs to override the default values upon invocation
-        num_results = kwargs.pop("k", self.num_results)
-        query_type = kwargs.pop("query_type", self.query_type)
-
-        # Ensure that we don't have duplicate keys
-        kwargs.update(
-            {
-                "query": query,
-                "k": num_results,
-                "filter": combined_filters,
-                "query_type": query_type,
-            }
-        )
-        return self._vector_store.similarity_search(**kwargs)
-
-    @vector_search_retriever_tool_trace
-    def _run(
-        self, query: str, filters: Optional[List[FilterItem]] = None, **kwargs
-    ) -> List[Document]:
+    # Create the main vector search tool using @tool decorator
+    # Note: args_schema provides descriptions for query and filters,
+    # so Annotated is only needed for injected LangGraph parameters
+    @tool(
+        name_or_callable=name or index_name,
+        description=description or "Search for documents using vector similarity",
+        args_schema=VectorSearchRetrieverToolInput,
+    )
+    def vector_search_tool(
+        query: str,
+        filters: Optional[List[FilterItem]] = None,
+        state: Annotated[dict, InjectedState] = None,
+        tool_call_id: Annotated[str, InjectedToolCallId] = None,
+    ) -> list[dict[str, Any]]:
         """
-        Execute the retrieval with optional reranking.
+        Search for documents using vector similarity with optional reranking.
 
-        This method performs two-stage retrieval:
-        1. Vector similarity search (always, traced in MLflow)
-        2. Reranking (if enabled, traced separately in MLflow)
+        This tool performs a two-stage retrieval process:
+        1. Vector similarity search to find candidate documents
+        2. Optional reranking using cross-encoder model for improved relevance
 
-        Args:
-            query: Search query string
-            filters: Optional filters to apply
-            **kwargs: Additional search parameters
+        Both stages are traced in MLflow for observability.
 
         Returns:
-            List of Document objects, reranked if reranking is enabled
+            Command with ToolMessage containing the retrieved documents
         """
-        # Step 1: Always perform vector similarity search using parent implementation
-        # This is automatically traced by @vector_search_retriever_tool_trace decorator
         logger.debug(
-            f"Executing vector similarity search for tool '{self.name}' (reranking: {self.reranker_model is not None})"
+            f"Vector search tool called: query='{query[:50]}...', reranking={reranker_config is not None}"
         )
 
-        # Call parent's _run to get similarity search results
-        # This will be traced as the primary retrieval span
-        documents: List[Document] = self._find_documents(query, filters, **kwargs)
-
-        logger.info(
-            f"Retrieved {len(documents)} documents from vector search (tool: '{self.name}')"
-        )
+        # Step 1: Perform vector similarity search
+        documents: List[Document] = _find_documents(query, filters)
 
         # Step 2: If reranking is enabled, rerank the documents
-        if self.reranker_model:
-            logger.info(
-                f"Reranking enabled (model: '{self.reranker_model}', top_n: {self.reranker_top_n or 'all'})"
+        if reranker_config:
+            logger.debug(
+                f"Reranking enabled (model: '{reranker_config.model}', top_n: {reranker_config.top_n or 'all'})"
             )
-            # This will be traced separately in its own MLflow span
-            reranked_docs: List[Document] = self._rerank_documents(query, documents)
-            logger.info(
-                f"Returning {len(reranked_docs)} reranked documents (from {len(documents)} candidates)"
-            )
-            return reranked_docs
+            documents = _rerank_documents(query, documents)
+            logger.debug(f"Returning {len(documents)} reranked documents")
+        else:
+            logger.debug("Reranking disabled, returning original vector search results")
 
-        # No reranking - return original documents
-        logger.debug("Reranking disabled, returning original vector search results")
-        return documents
-
-
-def create_vector_search_tool(
-    retriever: RetrieverModel | dict[str, Any],
-    name: Optional[str] = None,
-    description: Optional[str] = None,
-) -> BaseTool:
-    """
-    Create a Vector Search tool for retrieving documents from a Databricks Vector Search index.
-
-    This function creates a tool that enables semantic search over product information,
-    documentation, or other content. It also registers the retriever schema with MLflow
-    for proper integration with the model serving infrastructure.
-
-    Args:
-        retriever: Configuration details for the vector search retriever, including:
-            - name: Name of the tool
-            - description: Description of the tool's purpose
-            - primary_key: Primary key column for the vector store
-            - text_column: Text column used for vector search
-            - doc_uri: URI for documentation or additional context
-            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
-            - columns: List of columns to retrieve from the vector store
-            - search_parameters: Additional parameters for customizing the search behavior
-
-    Returns:
-        A BaseTool instance that can perform vector search operations
-    """
-
-    if isinstance(retriever, dict):
-        retriever = RetrieverModel(**retriever)
-
-    vector_store: VectorStoreModel = retriever.vector_store
-
-    # Index is required for vector search
-    if vector_store.index is None:
-        raise ValueError("vector_store.index is required for vector search")
-
-    index_name: str = vector_store.index.full_name
-    columns: Sequence[str] = retriever.columns or []
-    search_parameters: dict[str, Any] = retriever.search_parameters.model_dump()
-    primary_key: str = vector_store.primary_key or ""
-    doc_uri: str = vector_store.doc_uri or ""
-    text_column: str = vector_store.embedding_source_column
-
-    # Always use RerankingVectorSearchRetrieverTool (it handles both cases)
-    reranker_config: Optional[RerankerParametersModel] = (
-        retriever.reranker
-        if isinstance(retriever.reranker, RerankerParametersModel)
-        else None
-    )
-
-    if reranker_config:
-        logger.info(
-            f"Creating vector search tool with reranking: '{name}' "
-            f"(model: {reranker_config.model}, top_n: {reranker_config.top_n or 'auto'})"
-        )
-    else:
-        logger.debug(
-            f"Creating vector search tool without reranking: '{name}' (standard similarity search only)"
-        )
-
-    # Build tool kwargs
-    tool_kwargs: dict[str, Any] = {
-        "name": name,
-        "tool_name": name,
-        "description": description,
-        "tool_description": description,
-        "index_name": index_name,
-        "columns": columns,
-        **search_parameters,
-        "workspace_client": vector_store.workspace_client,
-    }
-
-    # Add reranking parameters if configured
-    if reranker_config:
-        tool_kwargs.update(
+        # Return Command with ToolMessage containing the documents
+        # Serialize documents to dicts for proper ToolMessage handling
+        serialized_docs: list[dict[str, Any]] = [
             {
-                "reranker_model": reranker_config.model,
-                "reranker_top_n": reranker_config.top_n,
-                "reranker_cache_dir": reranker_config.cache_dir,
+                "page_content": doc.page_content,
+                "metadata": doc.metadata,
             }
-        )
+            for doc in documents
+        ]
 
-    # Always use RerankingVectorSearchRetrieverTool (handles both with/without reranking)
-    vector_search_tool: BaseTool = RerankingVectorSearchRetrieverTool(**tool_kwargs)
-
-    # Register the retriever schema with MLflow for model serving integration
-    mlflow.models.set_retriever_schema(
-        name=name or "retriever",
-        primary_key=primary_key,
-        text_column=text_column,
-        doc_uri=doc_uri,
-        other_columns=list(columns),
-    )
+        return serialized_docs
 
     return vector_search_tool

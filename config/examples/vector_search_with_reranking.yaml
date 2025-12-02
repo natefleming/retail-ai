@@ -67,7 +67,7 @@ retrievers:
       num_results: 50                               # Retrieve more candidates for reranking
       filters: {}
       query_type: ANN
-    reranker: true                                  # Enable reranking with default settings
+    rerank: true                                    # Enable reranking with default settings
 
   # Retriever WITH custom reranking (fast model)
   fast_reranked_retriever: &fast_reranked_retriever
@@ -82,7 +82,7 @@ retrievers:
       num_results: 100                              # Cast wide net for reranking
       filters: {}
       query_type: ANN
-    reranker:                                       # Custom reranking configuration
+    rerank:                                         # Custom reranking configuration
       model: ms-marco-MiniLM-L-6-v2                 # Faster, lighter model
       top_n: 5                                      # Return top 5 after reranking
       cache_dir: /tmp/flashrank_cache               # Cache directory for model weights
@@ -100,7 +100,7 @@ retrievers:
       num_results: 50
       filters: {}
       query_type: HYBRID                            # Use hybrid search for better recall
-    reranker:
+    rerank:
       model: ms-marco-MiniLM-L-12-v2                # Balanced model (default)
       top_n: 10                                     # Return top 10 after reranking
       cache_dir: /tmp/flashrank_cache
@@ -252,7 +252,7 @@ app:
 #    - Use when: Speed is critical, simple queries
 #
 # 2. Default Reranking - reranked_search_agent
-#    - Uses reranker: true for automatic configuration
+#    - Uses rerank: true for automatic configuration
 #    - Retrieves 50 candidates, reranks with ms-marco-MiniLM-L-12-v2
 #    - Good balance of speed and accuracy
 #    - Use when: Need better results than standard search
@@ -275,7 +275,7 @@ app:
 #     search_parameters:
 #       num_results: 50              # Retrieve 2-10x more than needed
 #       query_type: ANN              # or HYBRID for better recall
-#     reranker:                      # Optional reranking
+#     rerank:                        # Optional reranking
 #       model: ms-marco-MiniLM-L-12-v2  # Choose model
 #       top_n: 10                    # Final count after reranking
 #       cache_dir: /tmp/flashrank_cache

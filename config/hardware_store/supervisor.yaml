@@ -187,11 +187,15 @@ retrievers:
       - class_cd
       - description
     search_parameters:                              # Search configuration
-      num_results: 10                               # Maximum number of results to return
+      num_results: 50                               # Maximum number of results to return
       filters: {}                                   # Additional filters (empty in this case)
       query_type: ANN                               # Approximate Nearest Neighbor search
-    reranker: 
-      top_n: 5
+    rerank:
+      top_n: 10
+      columns:
+        - merchandise_class
+        - product_name
+        - brand_name
 
 # =============================================================================
 # TOOLS CONFIGURATION

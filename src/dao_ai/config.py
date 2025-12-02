@@ -895,7 +895,7 @@ class SearchParametersModel(BaseModel):
     query_type: Optional[str] = "ANN"
 
 
-class RerankerParametersModel(BaseModel):
+class RerankParametersModel(BaseModel):
     """
     Configuration for reranking retrieved documents using FlashRank.
 
@@ -913,7 +913,7 @@ class RerankerParametersModel(BaseModel):
         retriever:
           search_parameters:
             num_results: 50  # Retrieve more candidates
-          reranker:
+          rerank:
             model: ms-marco-MiniLM-L-12-v2
             top_n: 5  # Return top 5 after reranking
         ```
@@ -939,6 +939,9 @@ class RerankerParametersModel(BaseModel):
         default="/tmp/flashrank_cache",
         description="Directory to cache downloaded model weights.",
     )
+    columns: Optional[list[str]] = Field(
+        default_factory=list, description="Columns to rerank using DatabricksReranker"
+    )
 
 
 class RetrieverModel(BaseModel):
@@ -948,7 +951,7 @@ class RetrieverModel(BaseModel):
     search_parameters: SearchParametersModel = Field(
         default_factory=SearchParametersModel
     )
-    reranker: Optional[RerankerParametersModel | bool] = Field(
+    rerank: Optional[RerankParametersModel | bool] = Field(
         default=None,
         description="Optional reranking configuration. Set to true for defaults, or provide ReRankParametersModel for custom settings.",
     )
@@ -961,10 +964,10 @@ class RetrieverModel(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def set_default_rerank(self):
+    def set_default_reranker(self):
         """Convert bool to ReRankParametersModel with defaults."""
-        if isinstance(self.reranker, bool) and self.reranker:
-            self.reranker = RerankerParametersModel()
+        if isinstance(self.rerank, bool) and self.rerank:
+            self.rerank = RerankParametersModel()
         return self
 
 
