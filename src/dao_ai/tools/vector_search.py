@@ -1,3 +1,4 @@
+import os
 from typing import Annotated, Any, Callable, List, Optional, Sequence
 
 import mlflow
@@ -100,12 +101,36 @@ def create_vector_search_tool(
     # Initialize the vector store
     # Note: text_column is only required for self-managed embeddings
     # For Databricks-managed embeddings, it's automatically determined from the index
+    
+    # Build client_args for VectorSearchClient from environment variables
+    # This is needed because during MLflow model validation, credentials must be
+    # explicitly passed to VectorSearchClient via client_args.
+    # The workspace_client parameter in DatabricksVectorSearch is only used to detect
+    # model serving mode - it doesn't pass credentials to VectorSearchClient.
+    client_args: dict[str, Any] = {}
+    if os.environ.get("DATABRICKS_HOST"):
+        client_args["workspace_url"] = os.environ.get("DATABRICKS_HOST")
+    if os.environ.get("DATABRICKS_TOKEN"):
+        client_args["personal_access_token"] = os.environ.get("DATABRICKS_TOKEN")
+    if os.environ.get("DATABRICKS_CLIENT_ID"):
+        client_args["service_principal_client_id"] = os.environ.get(
+            "DATABRICKS_CLIENT_ID"
+        )
+    if os.environ.get("DATABRICKS_CLIENT_SECRET"):
+        client_args["service_principal_client_secret"] = os.environ.get(
+            "DATABRICKS_CLIENT_SECRET"
+        )
+
+    logger.debug(f"Creating DatabricksVectorSearch with client_args keys: {list(client_args.keys())}")
+
+    # Pass both workspace_client (for model serving detection) and client_args (for credentials)
     vector_store: DatabricksVectorSearch = DatabricksVectorSearch(
         index_name=index_name,
         text_column=None,  # Let DatabricksVectorSearch determine this from the index
         columns=columns,
         include_score=True,
         workspace_client=vector_store_config.workspace_client,
+        client_args=client_args if client_args else None,
     )
 
     # Register the retriever schema with MLflow for model serving integration
