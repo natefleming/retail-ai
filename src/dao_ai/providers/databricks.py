@@ -219,6 +219,13 @@ class DatabricksProvider(ServiceProvider):
         logger.debug("Creating agent...")
         mlflow.set_registry_uri("databricks-uc")
 
+        # Set up experiment for proper tracking
+        experiment: Experiment = self.get_or_create_experiment(config)
+        mlflow.set_experiment(experiment_id=experiment.experiment_id)
+        logger.debug(
+            f"Using experiment: {experiment.name} (ID: {experiment.experiment_id})"
+        )
+
         llms: Sequence[LLMModel] = list(config.resources.llms.values())
         vector_indexes: Sequence[IndexModel] = list(
             config.resources.vector_stores.values()
