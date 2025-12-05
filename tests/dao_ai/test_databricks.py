@@ -304,6 +304,75 @@ def test_function_model_api_scopes():
 
 
 @pytest.mark.unit
+def test_create_agent_sets_experiment():
+    """Test that create_agent properly sets up MLflow experiment before starting run."""
+    from unittest.mock import MagicMock, patch
+
+    import mlflow
+
+    from dao_ai.config import AppConfig
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    # Create a minimal mock config
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock()
+    mock_app.name = "test_app"
+    mock_app.code_paths = []
+    mock_app.pip_requirements = []
+    mock_app.input_example = None
+    mock_config.app = mock_app
+
+    # Mock resources
+    mock_resources = MagicMock()
+    mock_resources.llms = MagicMock(values=lambda: [])
+    mock_resources.vector_stores = MagicMock(values=lambda: [])
+    mock_resources.warehouses = MagicMock(values=lambda: [])
+    mock_resources.genie_rooms = MagicMock(values=lambda: [])
+    mock_resources.tables = MagicMock(values=lambda: [])
+    mock_resources.functions = MagicMock(values=lambda: [])
+    mock_resources.connections = MagicMock(values=lambda: [])
+    mock_resources.databases = MagicMock(values=lambda: [])
+    mock_resources.volumes = MagicMock(values=lambda: [])
+    mock_config.resources = mock_resources
+
+    # Create mock experiment
+    mock_experiment = MagicMock()
+    mock_experiment.experiment_id = "test_experiment_123"
+    mock_experiment.name = "/Users/test_user/test_app"
+
+    with (
+        patch.object(
+            DatabricksProvider, "get_or_create_experiment", return_value=mock_experiment
+        ) as mock_get_experiment,
+        patch.object(mlflow, "set_experiment") as mock_set_experiment,
+        patch.object(mlflow, "set_registry_uri"),
+        patch.object(mlflow, "start_run") as mock_start_run,
+        patch.object(mlflow, "set_tag"),
+        patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
+        patch.object(mlflow, "register_model"),
+        patch("dao_ai.providers.databricks.MlflowClient"),
+        patch("dao_ai.providers.databricks.is_installed", return_value=True),
+        patch(
+            "dao_ai.providers.databricks.is_lib_provided",
+            return_value=True,
+        ),
+    ):
+        # Set up mock context managers
+        mock_start_run.return_value.__enter__.return_value = MagicMock()
+        mock_log_model.return_value = MagicMock(model_uri="test_uri")
+
+        # Create provider and call create_agent
+        provider = DatabricksProvider()
+        provider.create_agent(config=mock_config)
+
+        # Verify experiment was retrieved/created and set
+        mock_get_experiment.assert_called_once_with(mock_config)
+        mock_set_experiment.assert_called_once_with(
+            experiment_id=mock_experiment.experiment_id
+        )
+
+
+@pytest.mark.unit
 def test_create_agent_sets_framework_tags():
     """Test that create_agent sets framework and framework_version tags."""
     from unittest.mock import MagicMock, call, patch

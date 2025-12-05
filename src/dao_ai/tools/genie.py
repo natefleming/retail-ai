@@ -301,9 +301,6 @@ def create_genie_tool(
     space_id: AnyVariable = genie_room.space_id or os.environ.get(
         "DATABRICKS_GENIE_SPACE_ID"
     )
-    space_id: AnyVariable = genie_room.space_id or os.environ.get(
-        "DATABRICKS_GENIE_SPACE_ID"
-    )
     if isinstance(space_id, dict):
         space_id = CompositeVariableModel(**space_id)
     space_id = value_of(space_id)
