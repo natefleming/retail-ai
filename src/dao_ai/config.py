@@ -2009,21 +2009,45 @@ class AppConfig(BaseModel):
     def create_agent(
         self,
         w: WorkspaceClient | None = None,
+        vsc: "VectorSearchClient | None" = None,
+        pat: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        workspace_host: str | None = None,
     ) -> None:
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
-        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider: ServiceProvider = DatabricksProvider(
+            w=w,
+            vsc=vsc,
+            pat=pat,
+            client_id=client_id,
+            client_secret=client_secret,
+            workspace_host=workspace_host,
+        )
         provider.create_agent(self)
 
     def deploy_agent(
         self,
         w: WorkspaceClient | None = None,
+        vsc: "VectorSearchClient | None" = None,
+        pat: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        workspace_host: str | None = None,
     ) -> None:
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
-        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider: ServiceProvider = DatabricksProvider(
+            w=w,
+            vsc=vsc,
+            pat=pat,
+            client_id=client_id,
+            client_secret=client_secret,
+            workspace_host=workspace_host,
+        )
         provider.deploy_agent(self)
 
     def find_agents(
