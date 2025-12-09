@@ -1,10 +1,10 @@
 from typing import Any, Callable, Optional, Sequence
 
-from langchain.prompts import PromptTemplate
 from langchain_core.messages import (
     BaseMessage,
     SystemMessage,
 )
+from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 

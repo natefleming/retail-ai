@@ -569,7 +569,9 @@ def test_database_model_workspace_client_uses_ambient_auth():
         # Verify WorkspaceClient was called with default auth (no OAuth credentials)
         # The OAuth credentials are for DB connection, not workspace API
         mock_ws_client.assert_called()
-        call_kwargs = mock_ws_client.call_args.kwargs if mock_ws_client.call_args else {}
+        call_kwargs = (
+            mock_ws_client.call_args.kwargs if mock_ws_client.call_args else {}
+        )
         # Should NOT have client_id/client_secret - those are for DB connection only
         assert "client_id" not in call_kwargs
         assert "client_secret" not in call_kwargs

@@ -796,7 +796,9 @@ class DatabricksProvider(ServiceProvider):
         import time
         from typing import Any
 
-        logger.info(f"Waiting for database instance {instance_name} to become AVAILABLE...")
+        logger.info(
+            f"Waiting for database instance {instance_name} to become AVAILABLE..."
+        )
         elapsed: int = 0
 
         while elapsed < max_wait_time:
@@ -805,7 +807,9 @@ class DatabricksProvider(ServiceProvider):
                     name=instance_name
                 )
                 current_state: str = current_instance.state
-                logger.debug(f"Database instance {instance_name} state: {current_state}")
+                logger.debug(
+                    f"Database instance {instance_name} state: {current_state}"
+                )
 
                 if current_state == "AVAILABLE":
                     logger.info(f"Database instance {instance_name} is now AVAILABLE")
