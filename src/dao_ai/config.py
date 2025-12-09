@@ -1653,6 +1653,12 @@ class AppModel(BaseModel):
     chat_history: Optional[ChatHistoryModel] = None
     code_paths: list[str] = Field(default_factory=list)
     pip_requirements: list[str] = Field(default_factory=list)
+    python_version: Optional[str] = Field(
+        default="3.12",
+        description="Python version for Model Serving deployment. Defaults to 3.12 "
+        "which is supported by Databricks Model Serving. This allows deploying from "
+        "environments with different Python versions (e.g., Databricks Apps with 3.11).",
+    )
 
     @model_validator(mode="after")
     def validate_agents_not_empty(self):

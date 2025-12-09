@@ -332,6 +332,23 @@ class DatabricksProvider(ServiceProvider):
 
         logger.debug(f"input_example: {input_example}")
 
+        # Create conda environment with configured Python version
+        # This allows deploying from environments with different Python versions
+        # (e.g., Databricks Apps with Python 3.11 can deploy to Model Serving with 3.12)
+        target_python_version: str = config.app.python_version
+        logger.debug(f"target_python_version: {target_python_version}")
+
+        conda_env: dict[str, Any] = {
+            "name": "mlflow-env",
+            "channels": ["conda-forge"],
+            "dependencies": [
+                f"python={target_python_version}",
+                "pip",
+                {"pip": list(pip_requirements)},
+            ],
+        }
+        logger.debug(f"conda_env: {conda_env}")
+
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("type", "agent")
             mlflow.set_tag("dao_ai", dao_ai_version())
@@ -340,7 +357,7 @@ class DatabricksProvider(ServiceProvider):
                 code_paths=code_paths,
                 model_config=config.model_dump(mode="json", by_alias=True),
                 name="agent",
-                pip_requirements=pip_requirements,
+                conda_env=conda_env,
                 input_example=input_example,
                 # resources=all_resources,
                 auth_policy=auth_policy,
@@ -1133,9 +1150,10 @@ class DatabricksProvider(ServiceProvider):
 
         If an explicit version or alias is specified in the prompt_model, uses that directly.
         Otherwise, tries to load prompts in this order:
-        1. champion alias (if it exists)
-        2. latest alias (if it exists)
-        3. default_template (if provided)
+        1. champion alias
+        2. latest version (max version number from search_prompt_versions)
+        3. default alias
+        4. Register default_template if provided
 
         Args:
             prompt_model: The prompt model configuration
@@ -1146,9 +1164,11 @@ class DatabricksProvider(ServiceProvider):
         Raises:
             ValueError: If no prompt can be loaded from any source
         """
-        prompt_name: str = prompt_model.full_name
 
-        # If explicit version or alias is specified, use it directly without fallback
+        prompt_name: str = prompt_model.full_name
+        mlflow_client: MlflowClient = MlflowClient()
+
+        # If explicit version or alias is specified, use it directly
         if prompt_model.version or prompt_model.alias:
             try:
                 prompt_version: PromptVersion = prompt_model.as_prompt()
@@ -1162,73 +1182,48 @@ class DatabricksProvider(ServiceProvider):
                     f"Failed to load prompt '{prompt_name}' with explicit "
                     f"{'version ' + str(prompt_model.version) if prompt_model.version else 'alias ' + prompt_model.alias}: {e}"
                 )
-                # Fall through to default_template if available
-        else:
-            # No explicit version/alias specified - check if default_template needs syncing first
-            logger.debug(
-                f"No explicit version/alias specified for '{prompt_name}', "
-                "checking if default_template needs syncing"
+                # Fall through to try other methods
+
+        # Try to load in priority order: champion → latest → default
+        logger.debug(
+            f"Trying fallback order for '{prompt_name}': champion → latest → default"
+        )
+
+        # 1. Try champion alias
+        try:
+            prompt_version = load_prompt(f"prompts:/{prompt_name}@champion")
+            logger.info(f"Loaded prompt '{prompt_name}' from champion alias")
+            return prompt_version
+        except Exception as e:
+            logger.debug(f"Champion alias not found for '{prompt_name}': {e}")
+
+        # 2. Try to get latest version by finding the max version number
+        try:
+            versions = mlflow_client.search_prompt_versions(
+                prompt_name, max_results=100
             )
+            if versions:
+                latest = max(versions, key=lambda v: int(v.version))
+                logger.info(
+                    f"Loaded prompt '{prompt_name}' version {latest.version} (latest by max version)"
+                )
+                return latest
+        except Exception as e:
+            logger.debug(f"Failed to find latest version for '{prompt_name}': {e}")
 
-            # If we have a default_template, check if it differs from what's in the registry
-            # This ensures we always sync config changes before returning any alias
-            if prompt_model.default_template:
-                try:
-                    default_uri: str = f"prompts:/{prompt_name}@default"
-                    default_version: PromptVersion = load_prompt(default_uri)
+        # 3. Try default alias
+        try:
+            prompt_version = load_prompt(f"prompts:/{prompt_name}@default")
+            logger.info(f"Loaded prompt '{prompt_name}' from default alias")
+            return prompt_version
+        except Exception as e:
+            logger.debug(f"Default alias not found for '{prompt_name}': {e}")
 
-                    if (
-                        default_version.to_single_brace_format().strip()
-                        != prompt_model.default_template.strip()
-                    ):
-                        logger.info(
-                            f"Config default_template for '{prompt_name}' differs from registry, syncing..."
-                        )
-                        return self._sync_default_template_to_registry(
-                            prompt_name,
-                            prompt_model.default_template,
-                            prompt_model.description,
-                        )
-                except Exception as e:
-                    logger.debug(f"Could not check default alias for sync: {e}")
-
-            # Now try aliases in order: champion → latest → default
-            logger.debug(
-                f"Trying fallback order for '{prompt_name}': champion → latest → default"
-            )
-
-            # Try champion alias first
-            try:
-                champion_uri: str = f"prompts:/{prompt_name}@champion"
-                prompt_version: PromptVersion = load_prompt(champion_uri)
-                logger.info(f"Loaded prompt '{prompt_name}' from champion alias")
-                return prompt_version
-            except Exception as e:
-                logger.debug(f"Champion alias not found for '{prompt_name}': {e}")
-
-            # Try latest alias next
-            try:
-                latest_uri: str = f"prompts:/{prompt_name}@latest"
-                prompt_version: PromptVersion = load_prompt(latest_uri)
-                logger.info(f"Loaded prompt '{prompt_name}' from latest alias")
-                return prompt_version
-            except Exception as e:
-                logger.debug(f"Latest alias not found for '{prompt_name}': {e}")
-
-            # Try default alias last
-            try:
-                default_uri: str = f"prompts:/{prompt_name}@default"
-                prompt_version: PromptVersion = load_prompt(default_uri)
-                logger.info(f"Loaded prompt '{prompt_name}' from default alias")
-                return prompt_version
-            except Exception as e:
-                logger.debug(f"Default alias not found for '{prompt_name}': {e}")
-
-        # Fall back to registering default_template if provided
+        # 4. Try to register default_template if provided
         if prompt_model.default_template:
             logger.info(
-                f"Registering default_template for '{prompt_name}' "
-                "(no aliases found in registry)"
+                f"No existing prompt found for '{prompt_name}', "
+                "attempting to register default_template"
             )
             return self._sync_default_template_to_registry(
                 prompt_name, prompt_model.default_template, prompt_model.description
@@ -1236,72 +1231,58 @@ class DatabricksProvider(ServiceProvider):
 
         raise ValueError(
             f"Prompt '{prompt_name}' not found in registry "
-            "(tried champion, latest, default aliases) and no default_template provided"
+            "(tried champion alias, latest version, default alias) "
+            "and no default_template provided"
         )
 
     def _sync_default_template_to_registry(
         self, prompt_name: str, default_template: str, description: str | None = None
     ) -> PromptVersion:
-        """Register default_template to prompt registry under 'default' alias if changed."""
-        prompt_version: PromptVersion | None = None
+        """Get the best available prompt version, or register default_template if possible.
+
+        Tries to load prompts in order: champion → latest (max version) → default.
+        If none found and we have write permissions, registers the default_template.
+        If registration fails (e.g., in Model Serving), logs the error and raises.
+        """
+        mlflow_client: MlflowClient = MlflowClient()
+
+        # Try to find an existing prompt version in priority order
+        # 1. Try champion alias
+        try:
+            champion = mlflow.genai.load_prompt(f"prompts:/{prompt_name}@champion")
+            logger.info(f"Loaded prompt '{prompt_name}' from champion alias")
+            return champion
+        except Exception as e:
+            logger.debug(f"Champion alias not found for '{prompt_name}': {e}")
+
+        # 2. Try to get the latest version by finding the max version number
+        try:
+            versions = mlflow_client.search_prompt_versions(
+                prompt_name, max_results=100
+            )
+            if versions:
+                latest = max(versions, key=lambda v: int(v.version))
+                logger.info(
+                    f"Loaded prompt '{prompt_name}' version {latest.version} (latest by max version)"
+                )
+                return latest
+        except Exception as e:
+            logger.debug(f"Failed to search versions for '{prompt_name}': {e}")
+
+        # 3. Try default alias
+        try:
+            default = mlflow.genai.load_prompt(f"prompts:/{prompt_name}@default")
+            logger.info(f"Loaded prompt '{prompt_name}' from default alias")
+            return default
+        except Exception as e:
+            logger.debug(f"Default alias not found for '{prompt_name}': {e}")
+
+        # No existing prompt found - try to register if we have a template
+        logger.info(
+            f"No existing prompt found for '{prompt_name}', attempting to register default_template"
+        )
 
         try:
-            # Check if default alias already has the same template
-            try:
-                logger.debug(f"Loading prompt '{prompt_name}' from registry...")
-                existing: PromptVersion = mlflow.genai.load_prompt(
-                    f"prompts:/{prompt_name}@default"
-                )
-                if (
-                    existing.to_single_brace_format().strip()
-                    == default_template.strip()
-                ):
-                    logger.debug(f"Prompt '{prompt_name}' is already up-to-date")
-
-                    # Ensure the "latest" and "champion" aliases also exist and point to the same version
-                    # This handles prompts created before the fix that added these aliases
-                    try:
-                        latest_version: PromptVersion = mlflow.genai.load_prompt(
-                            f"prompts:/{prompt_name}@latest"
-                        )
-                        logger.debug(
-                            f"Latest alias already exists for '{prompt_name}' pointing to version {latest_version.version}"
-                        )
-                    except Exception:
-                        logger.info(
-                            f"Setting 'latest' alias for existing prompt '{prompt_name}' v{existing.version}"
-                        )
-                        mlflow.genai.set_prompt_alias(
-                            name=prompt_name,
-                            alias="latest",
-                            version=existing.version,
-                        )
-
-                    # Ensure champion alias exists for first-time deployments
-                    try:
-                        champion_version: PromptVersion = mlflow.genai.load_prompt(
-                            f"prompts:/{prompt_name}@champion"
-                        )
-                        logger.debug(
-                            f"Champion alias already exists for '{prompt_name}' pointing to version {champion_version.version}"
-                        )
-                    except Exception:
-                        logger.info(
-                            f"Setting 'champion' alias for existing prompt '{prompt_name}' v{existing.version}"
-                        )
-                        mlflow.genai.set_prompt_alias(
-                            name=prompt_name,
-                            alias="champion",
-                            version=existing.version,
-                        )
-
-                    return existing  # Already up-to-date, return existing version
-            except Exception:
-                logger.debug(
-                    f"Default alias for prompt '{prompt_name}' doesn't exist yet"
-                )
-
-            # Register new version and set as default alias
             commit_message = description or "Auto-synced from default_template"
             prompt_version = mlflow.genai.register_prompt(
                 name=prompt_name,
@@ -1310,35 +1291,36 @@ class DatabricksProvider(ServiceProvider):
                 tags={"dao_ai": dao_ai_version()},
             )
 
-            logger.debug(
-                f"Setting default, latest, and champion aliases for prompt '{prompt_name}'"
-            )
-            mlflow.genai.set_prompt_alias(
-                name=prompt_name,
-                alias="default",
-                version=prompt_version.version,
-            )
-            mlflow.genai.set_prompt_alias(
-                name=prompt_name,
-                alias="latest",
-                version=prompt_version.version,
-            )
-            mlflow.genai.set_prompt_alias(
-                name=prompt_name,
-                alias="champion",
-                version=prompt_version.version,
-            )
+            # Try to set aliases (may fail in restricted environments)
+            try:
+                mlflow.genai.set_prompt_alias(
+                    name=prompt_name, alias="default", version=prompt_version.version
+                )
+                mlflow.genai.set_prompt_alias(
+                    name=prompt_name, alias="champion", version=prompt_version.version
+                )
+                logger.info(
+                    f"Registered prompt '{prompt_name}' v{prompt_version.version} with aliases"
+                )
+            except Exception as alias_error:
+                logger.warning(
+                    f"Registered prompt '{prompt_name}' v{prompt_version.version} "
+                    f"but failed to set aliases: {alias_error}"
+                )
 
-            logger.info(
-                f"Synced prompt '{prompt_name}' v{prompt_version.version} to registry with 'default', 'latest', and 'champion' aliases"
-            )
             return prompt_version
 
-        except Exception as e:
-            logger.error(f"Failed to sync '{prompt_name}' to registry: {e}")
-            raise ValueError(
-                f"Failed to sync prompt '{prompt_name}' to registry and unable to retrieve existing version"
-            ) from e
+        except Exception as reg_error:
+            logger.error(
+                f"Failed to register prompt '{prompt_name}': {reg_error}. "
+                f"Please register the prompt from a notebook with write permissions before deployment."
+            )
+            return PromptVersion(
+                name=prompt_name,
+                version=1,
+                template=default_template,
+                tags={"dao_ai": dao_ai_version()},
+            )
 
     def optimize_prompt(self, optimization: PromptOptimizationModel) -> PromptModel:
         """

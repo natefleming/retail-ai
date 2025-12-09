@@ -41,6 +41,26 @@ def test_load_function_non_callable() -> None:
 
 
 @pytest.mark.unit
+def test_load_function_langchain_tool() -> None:
+    """Test loading a langchain tool (StructuredTool).
+
+    In langchain 1.x, tools decorated with @tool return StructuredTool objects
+    which are not directly callable (callable() returns False) but have an
+    invoke() method.
+    """
+    tool = load_function("dao_ai.tools.current_time_tool")
+
+    # Verify it's a langchain tool
+    assert hasattr(tool, "invoke")
+    assert hasattr(tool, "name")
+    assert tool.name == "current_time_tool"
+
+    # Verify it can be invoked
+    result = tool.invoke({})
+    assert isinstance(result, str)
+
+
+@pytest.mark.unit
 def test_load_function_no_dot_separator() -> None:
     """Test loading with invalid function name format."""
     with pytest.raises(ValueError):

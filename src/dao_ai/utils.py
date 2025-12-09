@@ -141,12 +141,12 @@ def load_function(function_name: str) -> Callable[..., Any]:
              "module.submodule.function_name"
 
     Returns:
-        The imported callable function
+        The imported callable function or langchain tool
 
     Raises:
         ImportError: If the module cannot be imported
         AttributeError: If the function doesn't exist in the module
-        TypeError: If the resolved object is not callable
+        TypeError: If the resolved object is not callable or invocable
 
     Example:
         >>> func = callable_from_fqn("dao_ai.models.get_latest_model_version")
@@ -164,9 +164,14 @@ def load_function(function_name: str) -> Callable[..., Any]:
         # Get the function from the module
         func = getattr(module, func_name)
 
-        # Verify that the resolved object is callable
-        if not callable(func):
-            raise TypeError(f"Function {func_name} is not callable.")
+        # Verify that the resolved object is callable or is a langchain tool
+        # In langchain 1.x, StructuredTool objects are not directly callable
+        # but have an invoke() method
+        is_callable = callable(func)
+        is_langchain_tool = hasattr(func, "invoke") and hasattr(func, "name")
+
+        if not is_callable and not is_langchain_tool:
+            raise TypeError(f"Function {func_name} is not callable or invocable.")
 
         return func
     except (ImportError, AttributeError, TypeError) as e:
@@ -175,4 +180,26 @@ def load_function(function_name: str) -> Callable[..., Any]:
 
 
 def is_in_model_serving() -> bool:
-    return os.environ.get("IS_IN_DB_MODEL_SERVING_ENV", "false").lower() == "true"
+    """Check if running in Databricks Model Serving environment.
+
+    Detects Model Serving by checking for environment variables that are
+    typically set in that environment.
+    """
+    # Primary check - explicit Databricks Model Serving env var
+    if os.environ.get("IS_IN_DB_MODEL_SERVING_ENV", "false").lower() == "true":
+        return True
+
+    # Secondary check - Model Serving sets these environment variables
+    if os.environ.get("DATABRICKS_MODEL_SERVING_ENV"):
+        return True
+
+    # Check for cluster type indicator
+    cluster_type = os.environ.get("DATABRICKS_CLUSTER_TYPE", "")
+    if "model-serving" in cluster_type.lower():
+        return True
+
+    # Check for model serving specific paths
+    if os.path.exists("/opt/conda/envs/mlflow-env"):
+        return True
+
+    return False

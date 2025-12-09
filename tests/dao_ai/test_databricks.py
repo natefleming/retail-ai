@@ -406,6 +406,89 @@ def test_create_agent_sets_framework_tags():
 
 
 @pytest.mark.unit
+def test_create_agent_uses_configured_python_version():
+    """Test that create_agent uses the configured python_version for Model Serving.
+
+    This allows deploying from environments with different Python versions
+    (e.g., Databricks Apps with Python 3.11 can deploy to Model Serving with 3.12).
+    """
+    from unittest.mock import MagicMock, patch
+
+    import mlflow
+
+    from dao_ai.config import AppConfig
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    # Create a minimal mock config
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock()
+    mock_app.name = "test_app"
+    mock_app.code_paths = []
+    mock_app.pip_requirements = ["test-package==1.0.0"]
+    mock_app.input_example = None
+    mock_app.python_version = "3.12"  # Configure target Python version
+    mock_config.app = mock_app
+
+    # Mock resources
+    mock_resources = MagicMock()
+    mock_resources.llms = MagicMock(values=lambda: [])
+    mock_resources.vector_stores = MagicMock(values=lambda: [])
+    mock_resources.warehouses = MagicMock(values=lambda: [])
+    mock_resources.genie_rooms = MagicMock(values=lambda: [])
+    mock_resources.tables = MagicMock(values=lambda: [])
+    mock_resources.functions = MagicMock(values=lambda: [])
+    mock_resources.connections = MagicMock(values=lambda: [])
+    mock_resources.databases = MagicMock(values=lambda: [])
+    mock_resources.volumes = MagicMock(values=lambda: [])
+    mock_config.resources = mock_resources
+
+    # Create mock experiment
+    mock_experiment = MagicMock()
+    mock_experiment.experiment_id = "test_experiment_123"
+    mock_experiment.name = "/Users/test_user/test_app"
+
+    with (
+        patch.object(
+            DatabricksProvider, "get_or_create_experiment", return_value=mock_experiment
+        ),
+        patch.object(mlflow, "set_experiment"),
+        patch.object(mlflow, "set_registry_uri"),
+        patch.object(mlflow, "start_run") as mock_start_run,
+        patch.object(mlflow, "set_tag"),
+        patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
+        patch.object(mlflow, "register_model"),
+        patch("dao_ai.providers.databricks.MlflowClient"),
+        patch("dao_ai.providers.databricks.is_installed", return_value=True),
+        patch(
+            "dao_ai.providers.databricks.is_lib_provided",
+            return_value=True,
+        ),
+    ):
+        # Set up mock context managers
+        mock_start_run.return_value.__enter__.return_value = MagicMock()
+        mock_log_model.return_value = MagicMock(model_uri="test_uri")
+
+        # Create provider and call create_agent
+        provider = DatabricksProvider()
+        provider.create_agent(config=mock_config)
+
+        # Verify log_model was called with conda_env containing the configured Python version
+        mock_log_model.assert_called_once()
+        call_kwargs = mock_log_model.call_args.kwargs
+        assert "conda_env" in call_kwargs, "conda_env should be passed to log_model"
+
+        conda_env = call_kwargs["conda_env"]
+        assert conda_env["name"] == "mlflow-env"
+        assert "python=3.12" in conda_env["dependencies"]
+
+        # Verify pip requirements are included
+        pip_deps = next(
+            d for d in conda_env["dependencies"] if isinstance(d, dict) and "pip" in d
+        )
+        assert "test-package==1.0.0" in pip_deps["pip"]
+
+
+@pytest.mark.unit
 def test_deploy_agent_sets_endpoint_tag():
     """Test that deploy_agent adds dao_ai tag to the endpoint."""
     from unittest.mock import MagicMock, patch
