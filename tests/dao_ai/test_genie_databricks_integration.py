@@ -49,9 +49,9 @@ def mock_genie_response():
     """Mock Genie response object."""
     response = Mock()
     response.conversation_id = "test-conversation-123"
-    response.response = "Test response from Genie"
+    response.description = "Test description from Genie"
     response.query = "SELECT * FROM test_table"
-    response.result = Mock()
+    response.result = "Test result data"
     return response
 
 
@@ -72,9 +72,9 @@ def mock_genie_tool():
         mock_genie_instance.ask_question = Mock(
             return_value=Mock(
                 conversation_id="test-conv-123",
-                response="Test response",
+                description="Test description",
                 query="SELECT * FROM test",
-                result=Mock(),
+                result="Test result data",
             )
         )
         mock_genie_class.return_value = mock_genie_instance
