@@ -101,7 +101,7 @@ def create_vector_search_tool(
     # Initialize the vector store
     # Note: text_column is only required for self-managed embeddings
     # For Databricks-managed embeddings, it's automatically determined from the index
-    
+
     # Build client_args for VectorSearchClient from environment variables
     # This is needed because during MLflow model validation, credentials must be
     # explicitly passed to VectorSearchClient via client_args.
@@ -121,7 +121,9 @@ def create_vector_search_tool(
             "DATABRICKS_CLIENT_SECRET"
         )
 
-    logger.debug(f"Creating DatabricksVectorSearch with client_args keys: {list(client_args.keys())}")
+    logger.debug(
+        f"Creating DatabricksVectorSearch with client_args keys: {list(client_args.keys())}"
+    )
 
     # Pass both workspace_client (for model serving detection) and client_args (for credentials)
     vector_store: DatabricksVectorSearch = DatabricksVectorSearch(

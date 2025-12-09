@@ -136,8 +136,9 @@ class TestVectorSearchToolCreation:
             description="Test description",
         )
 
-        # Verify tool was created
-        assert callable(tool)
+        # Verify tool was created (StructuredTool in langchain 1.x is not directly callable,
+        # but has .invoke() method)
+        assert hasattr(tool, "invoke")
         assert tool.name == "test_tool"
         assert tool.description == "Test description"
         assert mock_set_schema.called
@@ -175,8 +176,9 @@ class TestVectorSearchToolCreation:
             description="Reranking test",
         )
 
-        # Verify tool was created
-        assert callable(tool)
+        # Verify tool was created (StructuredTool in langchain 1.x is not directly callable,
+        # but has .invoke() method)
+        assert hasattr(tool, "invoke")
         assert tool.name == "reranking_tool"
         assert tool.description == "Reranking test"
         assert mock_set_schema.called
@@ -260,8 +262,9 @@ class TestRerankingE2E:
             retriever=retriever_config, name="test_tool", description="Test"
         )
 
-        # Verify tool is callable and has expected attributes
-        assert callable(tool)
+        # Verify tool has expected attributes (StructuredTool in langchain 1.x
+        # is not directly callable, but has .invoke() method)
+        assert hasattr(tool, "invoke")
         assert hasattr(tool, "name")
         assert hasattr(tool, "description")
 
