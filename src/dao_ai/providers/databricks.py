@@ -773,6 +773,68 @@ class DatabricksProvider(ServiceProvider):
         logger.debug(f"Vector search index found: {found_endpoint_name}")
         return found_endpoint_name
 
+    def _wait_for_database_available(
+        self,
+        workspace_client: WorkspaceClient,
+        instance_name: str,
+        max_wait_time: int = 600,
+        wait_interval: int = 10,
+    ) -> None:
+        """
+        Wait for a database instance to become AVAILABLE.
+
+        Args:
+            workspace_client: The Databricks workspace client
+            instance_name: Name of the database instance to wait for
+            max_wait_time: Maximum time to wait in seconds (default: 600 = 10 minutes)
+            wait_interval: Time between status checks in seconds (default: 10)
+
+        Raises:
+            TimeoutError: If the database doesn't become AVAILABLE within max_wait_time
+            RuntimeError: If the database enters a failed or deleted state
+        """
+        import time
+        from typing import Any
+
+        logger.info(f"Waiting for database instance {instance_name} to become AVAILABLE...")
+        elapsed: int = 0
+
+        while elapsed < max_wait_time:
+            try:
+                current_instance: Any = workspace_client.database.get_database_instance(
+                    name=instance_name
+                )
+                current_state: str = current_instance.state
+                logger.debug(f"Database instance {instance_name} state: {current_state}")
+
+                if current_state == "AVAILABLE":
+                    logger.info(f"Database instance {instance_name} is now AVAILABLE")
+                    return
+                elif current_state in ["STARTING", "UPDATING", "PROVISIONING"]:
+                    logger.debug(
+                        f"Database instance still in {current_state} state, waiting {wait_interval} seconds..."
+                    )
+                    time.sleep(wait_interval)
+                    elapsed += wait_interval
+                elif current_state in ["STOPPED", "DELETING", "FAILED"]:
+                    raise RuntimeError(
+                        f"Database instance {instance_name} entered unexpected state: {current_state}"
+                    )
+                else:
+                    logger.warning(
+                        f"Unknown database state: {current_state}, continuing to wait..."
+                    )
+                    time.sleep(wait_interval)
+                    elapsed += wait_interval
+            except NotFound:
+                raise RuntimeError(
+                    f"Database instance {instance_name} was deleted while waiting for it to become AVAILABLE"
+                )
+
+        raise TimeoutError(
+            f"Timed out waiting for database instance {instance_name} to become AVAILABLE after {max_wait_time} seconds"
+        )
+
     def create_lakebase(self, database: DatabaseModel) -> None:
         """
         Create a Lakebase database instance using the Databricks workspace client.
@@ -907,6 +969,12 @@ class DatabricksProvider(ServiceProvider):
                     f"Successfully created database instance: {database.instance_name}"
                 )
 
+                # Wait for the newly created database to become AVAILABLE
+                self._wait_for_database_available(
+                    workspace_client, database.instance_name
+                )
+                return
+
             except Exception as create_error:
                 error_msg: str = str(create_error)
 
@@ -917,6 +985,10 @@ class DatabricksProvider(ServiceProvider):
                 ):
                     logger.info(
                         f"Database instance {database.instance_name} was created concurrently by another process"
+                    )
+                    # Still need to wait for the database to become AVAILABLE
+                    self._wait_for_database_available(
+                        workspace_client, database.instance_name
                     )
                     return
                 else:

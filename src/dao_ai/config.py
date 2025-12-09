@@ -725,6 +725,46 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
 
 
 class DatabaseModel(BaseModel, IsDatabricksResource):
+    """
+    Configuration for a Databricks Lakebase (PostgreSQL) database instance.
+
+    Authentication Model:
+    --------------------
+    This model uses TWO separate authentication contexts:
+
+    1. **Workspace API Authentication** (inherited from IsDatabricksResource):
+       - Uses ambient/default authentication (environment variables, notebook context, app service principal)
+       - Used for: discovering database instance, getting host DNS, checking instance status
+       - Controlled by: DATABRICKS_HOST, DATABRICKS_TOKEN env vars, or SDK default config
+
+    2. **Database Connection Authentication** (configured via client_id/client_secret OR user):
+       - Used for: connecting to the PostgreSQL database as a specific identity
+       - OAuth M2M: Set client_id, client_secret, workspace_host to connect as a service principal
+       - User Auth: Set user (and optionally password) to connect as a user identity
+
+    Example OAuth M2M Configuration:
+    ```yaml
+    databases:
+      my_lakebase:
+        name: my-database
+        client_id:
+          env: SERVICE_PRINCIPAL_CLIENT_ID
+        client_secret:
+          scope: my-scope
+          secret: sp-client-secret
+        workspace_host:
+          env: DATABRICKS_HOST
+    ```
+
+    Example User Configuration:
+    ```yaml
+    databases:
+      my_lakebase:
+        name: my-database
+        user: my-user@databricks.com
+    ```
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     instance_name: Optional[str] = None
@@ -883,7 +923,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.databricks import DatabricksProvider
 
-        provider: DatabricksProvider = DatabricksProvider()
+        provider: DatabricksProvider = DatabricksProvider(w=w)
         provider.create_lakebase(self)
         provider.create_lakebase_instance_role(self)
 

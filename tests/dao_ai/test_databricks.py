@@ -470,6 +470,111 @@ def test_databricks_create_agent(config: AppConfig) -> None:
     assert True
 
 
+# ==================== DatabaseModel Authentication Tests ====================
+
+
+@pytest.mark.unit
+def test_database_model_auth_validation_oauth_for_db_connection():
+    """Test DatabaseModel accepts OAuth credentials for database connection.
+
+    Note: OAuth credentials (client_id, client_secret, workspace_host) are used
+    for DATABASE CONNECTION authentication, not for workspace API calls.
+    Workspace API calls use ambient/default authentication.
+    """
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        workspace_host="https://test.databricks.com",
+    )
+    # Should not raise - OAuth for DB connection is valid
+    assert database.client_id == "test_client_id"
+    assert database.client_secret == "test_client_secret"
+    assert database.workspace_host == "https://test.databricks.com"
+
+
+@pytest.mark.unit
+def test_database_model_auth_validation_user_for_db_connection():
+    """Test DatabaseModel accepts user credentials for database connection.
+
+    Note: User credentials are used for DATABASE CONNECTION authentication.
+    Workspace API calls use ambient/default authentication.
+    """
+    database = DatabaseModel(
+        name="test_db",
+        instance_name="test_db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+    # Should not raise - user auth for DB connection is valid
+    assert database.user == "test_user"
+
+
+@pytest.mark.unit
+def test_database_model_auth_validation_mixed_error():
+    """Test DatabaseModel rejects mixed OAuth and user authentication for DB connection."""
+    import pytest
+
+    with pytest.raises(ValueError) as exc_info:
+        DatabaseModel(
+            name="test_db",
+            instance_name="test_db",
+            host="localhost",
+            user="test_user",
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            workspace_host="https://test.databricks.com",
+        )
+
+    assert "Cannot use both OAuth and user authentication" in str(exc_info.value)
+
+
+@pytest.mark.unit
+def test_database_model_workspace_client_uses_ambient_auth():
+    """Test that DatabaseModel.workspace_client uses ambient/default authentication.
+
+    The workspace_client property is inherited from IsDatabricksResource and uses
+    ambient authentication (env vars, notebook context) for workspace API operations
+    like discovering database instances. The client_id/client_secret are NOT used
+    for workspace API calls - they're only for database connections.
+    """
+    from unittest.mock import MagicMock, patch
+
+    # Mock the WorkspaceClient and its current_user.me() method
+    mock_user = MagicMock()
+    mock_user.user_name = "test_user@example.com"
+
+    mock_ws_client_instance = MagicMock()
+    mock_ws_client_instance.current_user.me.return_value = mock_user
+
+    with patch("dao_ai.config.WorkspaceClient") as mock_ws_client:
+        mock_ws_client.return_value = mock_ws_client_instance
+
+        # Create database with OAuth credentials for DB connection
+        database = DatabaseModel(
+            name="test_db",
+            instance_name="test_db",
+            host="localhost",  # Provide host to skip update_host validator
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            workspace_host="https://test.databricks.com",
+        )
+
+        # Access workspace_client property - should use DEFAULT auth, not OAuth
+        _ = database.workspace_client
+
+        # Verify WorkspaceClient was called with default auth (no OAuth credentials)
+        # The OAuth credentials are for DB connection, not workspace API
+        mock_ws_client.assert_called()
+        call_kwargs = mock_ws_client.call_args.kwargs if mock_ws_client.call_args else {}
+        # Should NOT have client_id/client_secret - those are for DB connection only
+        assert "client_id" not in call_kwargs
+        assert "client_secret" not in call_kwargs
+
+
 # ==================== create_lakebase Tests ====================
 
 
@@ -514,7 +619,16 @@ def test_create_lakebase_new_database():
     """Test create_lakebase when database doesn't exist."""
     # Mock workspace client
     mock_workspace_client = MagicMock()
-    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+
+    # Mock available database instance for wait check
+    mock_available_instance = MagicMock()
+    mock_available_instance.state = "AVAILABLE"
+
+    # First call raises NotFound (database doesn't exist), subsequent calls return available instance
+    mock_workspace_client.database.get_database_instance.side_effect = [
+        NotFound(),  # Initial check - database doesn't exist
+        mock_available_instance,  # Wait check - database is now AVAILABLE
+    ]
     mock_workspace_client.database.create_database_instance.return_value = None
 
     # Create database model
@@ -756,7 +870,16 @@ def test_create_lakebase_concurrent_creation():
     """Test create_lakebase when database is created concurrently by another process."""
     # Mock workspace client
     mock_workspace_client = MagicMock()
-    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+
+    # Mock available database instance for wait check after concurrent creation
+    mock_available_instance = MagicMock()
+    mock_available_instance.state = "AVAILABLE"
+
+    # First call raises NotFound, subsequent calls return available instance (for wait)
+    mock_workspace_client.database.get_database_instance.side_effect = [
+        NotFound(),  # Initial check - database doesn't exist
+        mock_available_instance,  # Wait check after concurrent creation detected
+    ]
 
     # Simulate concurrent creation - create raises "already exists" error
     mock_workspace_client.database.create_database_instance.side_effect = Exception(
@@ -782,8 +905,7 @@ def test_create_lakebase_concurrent_creation():
         # Should not raise exception
         provider.create_lakebase(database)
 
-    # Verify both get and create were called
-    mock_workspace_client.database.get_database_instance.assert_called_once()
+    # Verify create was called (even though it failed)
     mock_workspace_client.database.create_database_instance.assert_called_once()
 
 
@@ -865,7 +987,16 @@ def test_create_lakebase_default_values():
     """Test create_lakebase uses correct default values."""
     # Mock workspace client
     mock_workspace_client = MagicMock()
-    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+
+    # Mock available database instance for wait check
+    mock_available_instance = MagicMock()
+    mock_available_instance.state = "AVAILABLE"
+
+    # First call raises NotFound, subsequent calls return available instance
+    mock_workspace_client.database.get_database_instance.side_effect = [
+        NotFound(),  # Initial check - database doesn't exist
+        mock_available_instance,  # Wait check - database is now AVAILABLE
+    ]
     mock_workspace_client.database.create_database_instance.return_value = None
 
     # Create database model with minimal parameters
@@ -899,7 +1030,16 @@ def test_create_lakebase_custom_capacity_cu1():
     """Test create_lakebase with custom capacity CU_1."""
     # Mock workspace client
     mock_workspace_client = MagicMock()
-    mock_workspace_client.database.get_database_instance.side_effect = NotFound()
+
+    # Mock available database instance for wait check
+    mock_available_instance = MagicMock()
+    mock_available_instance.state = "AVAILABLE"
+
+    # First call raises NotFound, subsequent calls return available instance
+    mock_workspace_client.database.get_database_instance.side_effect = [
+        NotFound(),  # Initial check - database doesn't exist
+        mock_available_instance,  # Wait check - database is now AVAILABLE
+    ]
     mock_workspace_client.database.create_database_instance.return_value = None
 
     # Create database model with CU_1 capacity
