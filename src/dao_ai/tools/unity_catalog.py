@@ -265,22 +265,51 @@ def with_partial_args(
 
     Args:
         tool: ToolModel containing the Unity Catalog function configuration
-        partial_args: Dictionary of arguments to pre-fill in the tool
+        partial_args: Dictionary of arguments to pre-fill in the tool.
+            Supports:
+            - client_id, client_secret: OAuth credentials directly
+            - service_principal: ServicePrincipalModel with client_id and client_secret
+            - host or workspace_host: Databricks workspace host
 
     Returns:
         StructuredTool: A LangChain tool with partial arguments pre-filled
     """
     from unitycatalog.ai.langchain.toolkit import generate_function_input_params_schema
 
+    from dao_ai.config import ServicePrincipalModel
+
     logger.debug(f"with_partial_args: {tool}")
 
     # Convert dict-based variables to CompositeVariableModel and resolve their values
-    resolved_args = {}
+    resolved_args: dict[str, Any] = {}
     for k, v in partial_args.items():
         if isinstance(v, dict):
             resolved_args[k] = value_of(CompositeVariableModel(**v))
         else:
             resolved_args[k] = value_of(v)
+
+    # Handle service_principal - expand into client_id and client_secret
+    if "service_principal" in resolved_args:
+        sp = resolved_args.pop("service_principal")
+        if isinstance(sp, dict):
+            sp = ServicePrincipalModel(**sp)
+        if isinstance(sp, ServicePrincipalModel):
+            if "client_id" not in resolved_args:
+                resolved_args["client_id"] = value_of(sp.client_id)
+            if "client_secret" not in resolved_args:
+                resolved_args["client_secret"] = value_of(sp.client_secret)
+
+    # Normalize host/workspace_host - accept either key
+    if "workspace_host" in resolved_args and "host" not in resolved_args:
+        resolved_args["host"] = resolved_args.pop("workspace_host")
+
+    # Default host from WorkspaceClient if not provided
+    if "host" not in resolved_args:
+        from dao_ai.utils import get_default_databricks_host
+
+        host: str | None = get_default_databricks_host()
+        if host:
+            resolved_args["host"] = host
 
     logger.debug(f"Resolved partial args: {resolved_args.keys()}")
 

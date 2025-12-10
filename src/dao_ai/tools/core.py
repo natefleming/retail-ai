@@ -35,7 +35,7 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
         if name in tools:
             logger.warning(f"Tools already registered for: {name}, skipping creation.")
             continue
-        registered_tools: Sequence[RunnableLike] = tool_registry.get(name)
+        registered_tools: Sequence[RunnableLike] | None = tool_registry.get(name)
         if registered_tools is None:
             logger.debug(f"Creating tools for: {name}...")
             function: AnyTool = tool_config.function

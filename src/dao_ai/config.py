@@ -12,6 +12,7 @@ from typing import (
     Iterator,
     Literal,
     Optional,
+    Self,
     Sequence,
     TypeAlias,
     Union,
@@ -198,6 +199,15 @@ AnyVariable: TypeAlias = (
     | float
     | bool
 )
+
+
+class ServicePrincipalModel(BaseModel):
+    model_config = ConfigDict(
+        frozen=True,
+        use_enum_values=True,
+    )
+    client_id: AnyVariable
+    client_secret: AnyVariable
 
 
 class Privilege(str, Enum):
@@ -451,7 +461,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
         ]
 
     @model_validator(mode="after")
-    def update_space_id(self):
+    def update_space_id(self) -> Self:
         self.space_id = value_of(self.space_id)
         return self
 
@@ -530,13 +540,13 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
     embedding_source_column: str
 
     @model_validator(mode="after")
-    def set_default_embedding_model(self):
+    def set_default_embedding_model(self) -> Self:
         if not self.embedding_model:
             self.embedding_model = LLMModel(name="databricks-gte-large-en")
         return self
 
     @model_validator(mode="after")
-    def set_default_primary_key(self):
+    def set_default_primary_key(self) -> Self:
         if self.primary_key is None:
             from dao_ai.providers.databricks import DatabricksProvider
 
@@ -557,14 +567,14 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
         return self
 
     @model_validator(mode="after")
-    def set_default_index(self):
+    def set_default_index(self) -> Self:
         if self.index is None:
             name: str = f"{self.source_table.name}_index"
             self.index = IndexModel(schema=self.source_table.schema_model, name=name)
         return self
 
     @model_validator(mode="after")
-    def set_default_endpoint(self):
+    def set_default_endpoint(self) -> Self:
         if self.endpoint is None:
             from dao_ai.providers.databricks import (
                 DatabricksProvider,
@@ -719,7 +729,7 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
         ]
 
     @model_validator(mode="after")
-    def update_warehouse_id(self):
+    def update_warehouse_id(self) -> Self:
         self.warehouse_id = value_of(self.warehouse_id)
         return self
 
@@ -737,12 +747,28 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
        - Used for: discovering database instance, getting host DNS, checking instance status
        - Controlled by: DATABRICKS_HOST, DATABRICKS_TOKEN env vars, or SDK default config
 
-    2. **Database Connection Authentication** (configured via client_id/client_secret OR user):
+    2. **Database Connection Authentication** (configured via service_principal, client_id/client_secret, OR user):
        - Used for: connecting to the PostgreSQL database as a specific identity
+       - Service Principal: Set service_principal with workspace_host to connect as a service principal
        - OAuth M2M: Set client_id, client_secret, workspace_host to connect as a service principal
        - User Auth: Set user (and optionally password) to connect as a user identity
 
-    Example OAuth M2M Configuration:
+    Example Service Principal Configuration:
+    ```yaml
+    databases:
+      my_lakebase:
+        name: my-database
+        service_principal:
+          client_id:
+            env: SERVICE_PRINCIPAL_CLIENT_ID
+          client_secret:
+            scope: my-scope
+            secret: sp-client-secret
+        workspace_host:
+          env: DATABRICKS_HOST
+    ```
+
+    Example OAuth M2M Configuration (alternative):
     ```yaml
     databases:
       my_lakebase:
@@ -779,6 +805,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     node_count: Optional[int] = None
     user: Optional[AnyVariable] = None
     password: Optional[AnyVariable] = None
+    service_principal: Optional[ServicePrincipalModel] = None
     client_id: Optional[AnyVariable] = None
     client_secret: Optional[AnyVariable] = None
     workspace_host: Optional[AnyVariable] = None
@@ -796,14 +823,24 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         ]
 
     @model_validator(mode="after")
-    def update_instance_name(self):
+    def update_instance_name(self) -> Self:
         if self.instance_name is None:
             self.instance_name = self.name
 
         return self
 
     @model_validator(mode="after")
-    def update_user(self):
+    def expand_service_principal(self) -> Self:
+        """Expand service_principal into client_id and client_secret if provided."""
+        if self.service_principal is not None:
+            if self.client_id is None:
+                self.client_id = self.service_principal.client_id
+            if self.client_secret is None:
+                self.client_secret = self.service_principal.client_secret
+        return self
+
+    @model_validator(mode="after")
+    def update_user(self) -> Self:
         if self.client_id or self.user:
             return self
 
@@ -816,7 +853,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         return self
 
     @model_validator(mode="after")
-    def update_host(self):
+    def update_host(self) -> Self:
         if self.host is not None:
             return self
 
@@ -829,7 +866,7 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         return self
 
     @model_validator(mode="after")
-    def validate_auth_methods(self):
+    def validate_auth_methods(self) -> Self:
         oauth_fields: Sequence[Any] = [
             self.workspace_host,
             self.client_id,
@@ -849,8 +886,8 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         if not has_oauth and not has_user_auth:
             raise ValueError(
                 "At least one authentication method must be provided: "
-                "either OAuth credentials (workspace_host, client_id, client_secret) "
-                "or user credentials (user, password)."
+                "either OAuth credentials (workspace_host, client_id, client_secret), "
+                "service_principal with workspace_host, or user credentials (user, password)."
             )
 
         return self
@@ -997,14 +1034,14 @@ class RetrieverModel(BaseModel):
     )
 
     @model_validator(mode="after")
-    def set_default_columns(self):
+    def set_default_columns(self) -> Self:
         if not self.columns:
             columns: Sequence[str] = self.vector_store.columns
             self.columns = columns
         return self
 
     @model_validator(mode="after")
-    def set_default_reranker(self):
+    def set_default_reranker(self) -> Self:
         """Convert bool to ReRankParametersModel with defaults."""
         if isinstance(self.rerank, bool) and self.rerank:
             self.rerank = RerankParametersModel()
@@ -1091,7 +1128,7 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
         return [create_factory_tool(self, **kwargs)]
 
     @model_validator(mode="after")
-    def update_args(self):
+    def update_args(self) -> Self:
         for key, value in self.args.items():
             self.args[key] = value_of(value)
         return self
@@ -1111,6 +1148,7 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     headers: dict[str, AnyVariable] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
     pat: Optional[AnyVariable] = None
+    service_principal: Optional[ServicePrincipalModel] = None
     client_id: Optional[AnyVariable] = None
     client_secret: Optional[AnyVariable] = None
     workspace_host: Optional[AnyVariable] = None
@@ -1119,6 +1157,16 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     genie_room: Optional[GenieRoomModel] = None
     sql: Optional[bool] = None
     vector_search: Optional[VectorStoreModel] = None
+
+    @model_validator(mode="after")
+    def expand_service_principal(self) -> Self:
+        """Expand service_principal into client_id and client_secret if provided."""
+        if self.service_principal is not None:
+            if self.client_id is None:
+                self.client_id = self.service_principal.client_id
+            if self.client_secret is None:
+                self.client_secret = self.service_principal.client_secret
+        return self
 
     @property
     def full_name(self) -> str:
@@ -1129,12 +1177,12 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
         Get the workspace host, either from config or from workspace client.
 
         If connection is provided, uses its workspace client.
-        Otherwise, falls back to creating a new workspace client.
+        Otherwise, falls back to the default Databricks host.
 
         Returns:
             str: The workspace host URL without trailing slash
         """
-        from databricks.sdk import WorkspaceClient
+        from dao_ai.utils import get_default_databricks_host
 
         # Try to get workspace_host from config
         workspace_host: str | None = (
@@ -1147,9 +1195,13 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             if self.connection:
                 workspace_host = self.connection.workspace_client.config.host
             else:
-                # Create a default workspace client
-                w: WorkspaceClient = WorkspaceClient()
-                workspace_host = w.config.host
+                workspace_host = get_default_databricks_host()
+
+        if not workspace_host:
+            raise ValueError(
+                "Could not determine workspace host. "
+                "Please set workspace_host in config or DATABRICKS_HOST environment variable."
+            )
 
         # Remove trailing slash
         return workspace_host.rstrip("/")
@@ -1356,7 +1408,7 @@ class CheckpointerModel(BaseModel):
     database: Optional[DatabaseModel] = None
 
     @model_validator(mode="after")
-    def validate_postgres_requires_database(self):
+    def validate_postgres_requires_database(self) -> Self:
         if self.type == StorageType.POSTGRES and not self.database:
             raise ValueError("Database must be provided when storage type is POSTGRES")
         return self
@@ -1381,7 +1433,7 @@ class StoreModel(BaseModel):
     namespace: Optional[str] = None
 
     @model_validator(mode="after")
-    def validate_postgres_requires_database(self):
+    def validate_postgres_requires_database(self) -> Self:
         if self.type == StorageType.POSTGRES and not self.database:
             raise ValueError("Database must be provided when storage type is POSTGRES")
         return self
@@ -1445,7 +1497,7 @@ class PromptModel(BaseModel, HasFullName):
         return prompt_version
 
     @model_validator(mode="after")
-    def validate_mutually_exclusive(self):
+    def validate_mutually_exclusive(self) -> Self:
         if self.alias and self.version:
             raise ValueError("Cannot specify both alias and version")
         return self
@@ -1499,7 +1551,7 @@ class OrchestrationModel(BaseModel):
     memory: Optional[MemoryModel] = None
 
     @model_validator(mode="after")
-    def validate_mutually_exclusive(self):
+    def validate_mutually_exclusive(self) -> Self:
         if self.supervisor is not None and self.swarm is not None:
             raise ValueError("Cannot specify both supervisor and swarm")
         if self.supervisor is None and self.swarm is None:
@@ -1626,6 +1678,7 @@ class ChatHistoryModel(BaseModel):
 class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
+    service_principal: Optional[ServicePrincipalModel] = None
     description: Optional[str] = None
     log_level: Optional[LogLevel] = "WARNING"
     registered_model: RegisteredModelModel
@@ -1661,14 +1714,42 @@ class AppModel(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_agents_not_empty(self):
+    def set_databricks_env_vars(self) -> Self:
+        """Set Databricks environment variables for Model Serving.
+
+        Sets DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET.
+        Values explicitly provided in environment_vars take precedence.
+        """
+        from dao_ai.utils import get_default_databricks_host
+
+        # Set DATABRICKS_HOST if not already provided
+        if "DATABRICKS_HOST" not in self.environment_vars:
+            host: str | None = get_default_databricks_host()
+            if host:
+                self.environment_vars["DATABRICKS_HOST"] = host
+
+        # Set service principal credentials if provided
+        if self.service_principal is not None:
+            if "DATABRICKS_CLIENT_ID" not in self.environment_vars:
+                self.environment_vars["DATABRICKS_CLIENT_ID"] = (
+                    self.service_principal.client_id
+                )
+            if "DATABRICKS_CLIENT_SECRET" not in self.environment_vars:
+                self.environment_vars["DATABRICKS_CLIENT_SECRET"] = (
+                    self.service_principal.client_secret
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_agents_not_empty(self) -> Self:
         if not self.agents:
             raise ValueError("At least one agent must be specified")
         return self
 
     @model_validator(mode="after")
-    def update_environment_vars(self):
+    def resolve_environment_vars(self) -> Self:
         for key, value in self.environment_vars.items():
+            updated_value: str
             if isinstance(value, SecretVariableModel):
                 updated_value = str(value)
             else:
@@ -1678,7 +1759,7 @@ class AppModel(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def set_default_orchestration(self):
+    def set_default_orchestration(self) -> Self:
         if self.orchestration is None:
             if len(self.agents) > 1:
                 default_agent: AgentModel = self.agents[0]
@@ -1698,14 +1779,14 @@ class AppModel(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def set_default_endpoint_name(self):
+    def set_default_endpoint_name(self) -> Self:
         if self.endpoint_name is None:
             self.endpoint_name = self.name
         return self
 
     @model_validator(mode="after")
-    def set_default_agent(self):
-        default_agent_name = self.agents[0].name
+    def set_default_agent(self) -> Self:
+        default_agent_name: str = self.agents[0].name
 
         if self.orchestration.swarm and not self.orchestration.swarm.default_agent:
             self.orchestration.swarm.default_agent = default_agent_name
@@ -1713,7 +1794,7 @@ class AppModel(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def add_code_paths_to_sys_path(self):
+    def add_code_paths_to_sys_path(self) -> Self:
         for code_path in self.code_paths:
             parent_path: str = str(Path(code_path).parent)
             if parent_path not in sys.path:
@@ -1746,7 +1827,7 @@ class EvaluationDatasetExpectationsModel(BaseModel):
     expected_facts: Optional[list[str]] = None
 
     @model_validator(mode="after")
-    def validate_mutually_exclusive(self):
+    def validate_mutually_exclusive(self) -> Self:
         if self.expected_response is not None and self.expected_facts is not None:
             raise ValueError("Cannot specify both expected_response and expected_facts")
         return self
@@ -1854,7 +1935,7 @@ class PromptOptimizationModel(BaseModel):
         return optimized_prompt
 
     @model_validator(mode="after")
-    def set_defaults(self):
+    def set_defaults(self) -> Self:
         # If no prompt is specified, try to use the agent's prompt
         if self.prompt is None:
             if isinstance(self.agent.prompt, PromptModel):
@@ -1976,6 +2057,7 @@ class ResourcesModel(BaseModel):
 class AppConfig(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     variables: dict[str, AnyVariable] = Field(default_factory=dict)
+    service_principals: dict[str, ServicePrincipalModel] = Field(default_factory=dict)
     schemas: dict[str, SchemaModel] = Field(default_factory=dict)
     resources: Optional[ResourcesModel] = None
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)

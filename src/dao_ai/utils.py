@@ -38,6 +38,32 @@ def normalize_name(name: str) -> str:
     return normalized.strip("_")
 
 
+def get_default_databricks_host() -> str | None:
+    """Get the default Databricks workspace host.
+
+    Attempts to get the host from:
+    1. DATABRICKS_HOST environment variable
+    2. WorkspaceClient ambient authentication (e.g., from ~/.databrickscfg)
+
+    Returns:
+        The Databricks workspace host URL, or None if not available.
+    """
+    # Try environment variable first
+    host: str | None = os.environ.get("DATABRICKS_HOST")
+    if host:
+        return host
+
+    # Fall back to WorkspaceClient
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        w: WorkspaceClient = WorkspaceClient()
+        return w.config.host
+    except Exception:
+        logger.debug("Could not get default Databricks host from WorkspaceClient")
+        return None
+
+
 def dao_ai_version() -> str:
     """
     Get the dao-ai package version, with fallback for source installations.
