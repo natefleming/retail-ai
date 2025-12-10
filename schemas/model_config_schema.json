@@ -132,6 +132,17 @@
           "title": "Name",
           "type": "string"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "description": {
           "anyOf": [
             {
@@ -434,6 +445,19 @@
           },
           "title": "Pip Requirements",
           "type": "array"
+        },
+        "python_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "3.12",
+          "description": "Python version for Model Serving deployment. Defaults to 3.12 which is supported by Databricks Model Serving. This allows deploying from environments with different Python versions (e.g., Databricks Apps with 3.11).",
+          "title": "Python Version"
         }
       },
       "required": [
@@ -671,6 +695,7 @@
     },
     "DatabaseModel": {
       "additionalProperties": false,
+      "description": "Configuration for a Databricks Lakebase (PostgreSQL) database instance.\n\nAuthentication Model:\n--------------------\nThis model uses TWO separate authentication contexts:\n\n1. **Workspace API Authentication** (inherited from IsDatabricksResource):\n   - Uses ambient/default authentication (environment variables, notebook context, app service principal)\n   - Used for: discovering database instance, getting host DNS, checking instance status\n   - Controlled by: DATABRICKS_HOST, DATABRICKS_TOKEN env vars, or SDK default config\n\n2. **Database Connection Authentication** (configured via service_principal, client_id/client_secret, OR user):\n   - Used for: connecting to the PostgreSQL database as a specific identity\n   - Service Principal: Set service_principal with workspace_host to connect as a service principal\n   - OAuth M2M: Set client_id, client_secret, workspace_host to connect as a service principal\n   - User Auth: Set user (and optionally password) to connect as a user identity\n\nExample Service Principal Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample OAuth M2M Configuration (alternative):\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    client_id:\n      env: SERVICE_PRINCIPAL_CLIENT_ID\n    client_secret:\n      scope: my-scope\n      secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample User Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    user: my-user@databricks.com\n```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -940,6 +965,17 @@
           ],
           "default": null,
           "title": "Password"
+        },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "client_id": {
           "anyOf": [
@@ -1858,6 +1894,17 @@
           "default": null,
           "title": "Pat"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "client_id": {
           "anyOf": [
             {
@@ -2713,6 +2760,74 @@
       "title": "SecretVariableModel",
       "type": "object"
     },
+    "ServicePrincipalModel": {
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Client Secret"
+        }
+      },
+      "required": [
+        "client_id",
+        "client_secret"
+      ],
+      "title": "ServicePrincipalModel",
+      "type": "object"
+    },
     "StorageType": {
       "enum": [
         "postgres",
@@ -3434,6 +3549,13 @@
         ]
       },
       "title": "Variables",
+      "type": "object"
+    },
+    "service_principals": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ServicePrincipalModel"
+      },
+      "title": "Service Principals",
       "type": "object"
     },
     "schemas": {
