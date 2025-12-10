@@ -236,8 +236,20 @@ class Privilege(str, Enum):
 
 class PermissionModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    principals: list[str] = Field(default_factory=list)
+    principals: list[ServicePrincipalModel | str] = Field(default_factory=list)
     privileges: list[Privilege]
+
+    @model_validator(mode="after")
+    def resolve_principals(self) -> Self:
+        """Resolve ServicePrincipalModel objects to their client_id."""
+        resolved: list[str] = []
+        for principal in self.principals:
+            if isinstance(principal, ServicePrincipalModel):
+                resolved.append(value_of(principal.client_id))
+            else:
+                resolved.append(principal)
+        self.principals = resolved
+        return self
 
 
 class SchemaModel(BaseModel, HasFullName):
@@ -1581,8 +1593,20 @@ class Entitlement(str, Enum):
 
 class AppPermissionModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    principals: list[str] = Field(default_factory=list)
+    principals: list[ServicePrincipalModel | str] = Field(default_factory=list)
     entitlements: list[Entitlement]
+
+    @model_validator(mode="after")
+    def resolve_principals(self) -> Self:
+        """Resolve ServicePrincipalModel objects to their client_id."""
+        resolved: list[str] = []
+        for principal in self.principals:
+            if isinstance(principal, ServicePrincipalModel):
+                resolved.append(value_of(principal.client_id))
+            else:
+                resolved.append(principal)
+        self.principals = resolved
+        return self
 
 
 class LogLevel(str, Enum):
