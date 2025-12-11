@@ -63,7 +63,7 @@ pip_requirements: Sequence[str] = (
   f"python-dotenv=={version('python-dotenv')}",
   f"loguru=={version('loguru')}",
   f"openevals=={version('openevals')}",
-  f"duckduckgo-search=={version('duckduckgo-search')}",
+  f"ddgs=={version('ddgs')}",
   f"faker=={version('faker')}",
 )
 

@@ -5,8 +5,9 @@ from typing import Annotated, Any, Callable
 
 import pandas as pd
 from databricks_ai_bridge.genie import Genie, GenieResponse
+from langchain.tools import tool
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
+from langchain_core.tools import InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from loguru import logger
@@ -43,7 +44,7 @@ def create_genie_tool(
     genie_room: GenieRoomModel | dict[str, Any],
     name: str | None = None,
     description: str | None = None,
-    persist_conversation: bool = False,
+    persist_conversation: bool = True,
     truncate_results: bool = False,
 ) -> Callable[..., Command]:
     """
@@ -64,6 +65,16 @@ def create_genie_tool(
     Returns:
         A LangGraph tool that processes natural language queries through Genie
     """
+    logger.debug("create_genie_tool")
+    logger.debug(f"genie_room type: {type(genie_room)}")
+    logger.debug(f"genie_room: {genie_room}")
+    logger.debug(f"persist_conversation: {persist_conversation}")
+    logger.debug(f"truncate_results: {truncate_results}")
+    logger.debug(f"name: {name}")
+    logger.debug(f"description: {description}")
+    logger.debug(f"genie_room: {genie_room}")
+    logger.debug(f"persist_conversation: {persist_conversation}")
+    logger.debug(f"truncate_results: {truncate_results}")
 
     if isinstance(genie_room, dict):
         genie_room = GenieRoomModel(**genie_room)
@@ -106,14 +117,13 @@ GenieResponse: A response object containing the conversation ID and result from 
         state: Annotated[dict, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
-        """Process a natural language question through Databricks Genie."""
-        # Create Genie instance using databricks_langchain implementation
         genie: Genie = Genie(
             space_id=space_id,
             client=genie_room.workspace_client,
             truncate_results=truncate_results,
         )
 
+        """Process a natural language question through Databricks Genie."""
         # Get existing conversation mapping and retrieve conversation ID for this space
         conversation_ids: dict[str, str] = state.get("genie_conversation_ids", {})
         existing_conversation_id: str | None = conversation_ids.get(space_id)
@@ -131,6 +141,7 @@ GenieResponse: A response object containing the conversation ID and result from 
         )
 
         # Update the conversation mapping with the new conversation ID for this space
+
         update: dict[str, Any] = {
             "messages": [
                 ToolMessage(_response_to_json(response), tool_call_id=tool_call_id)

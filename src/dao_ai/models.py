@@ -331,13 +331,23 @@ class LanggraphResponsesAgent(ResponsesAgent):
         context: Context = self._convert_request_to_context(request)
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
+        # Build the graph input state, including genie_conversation_ids if provided
+        graph_input: dict[str, Any] = {"messages": messages}
+        if request.custom_inputs and "genie_conversation_ids" in request.custom_inputs:
+            graph_input["genie_conversation_ids"] = request.custom_inputs[
+                "genie_conversation_ids"
+            ]
+            logger.debug(
+                f"Including genie_conversation_ids in graph input: {graph_input['genie_conversation_ids']}"
+            )
+
         # Use async ainvoke internally for parallel execution
         import asyncio
 
         async def _async_invoke():
             try:
                 return await self.graph.ainvoke(
-                    {"messages": messages}, context=context, config=custom_inputs
+                    graph_input, context=context, config=custom_inputs
                 )
             except Exception as e:
                 logger.error(f"Error in graph.ainvoke: {e}")
@@ -399,6 +409,16 @@ class LanggraphResponsesAgent(ResponsesAgent):
         context: Context = self._convert_request_to_context(request)
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
+        # Build the graph input state, including genie_conversation_ids if provided
+        graph_input: dict[str, Any] = {"messages": messages}
+        if request.custom_inputs and "genie_conversation_ids" in request.custom_inputs:
+            graph_input["genie_conversation_ids"] = request.custom_inputs[
+                "genie_conversation_ids"
+            ]
+            logger.debug(
+                f"Including genie_conversation_ids in graph input: {graph_input['genie_conversation_ids']}"
+            )
+
         # Use async astream internally for parallel execution
         import asyncio
 
@@ -408,7 +428,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
             try:
                 async for nodes, stream_mode, messages_batch in self.graph.astream(
-                    {"messages": messages},
+                    graph_input,
                     context=context,
                     config=custom_inputs,
                     stream_mode=["messages", "custom"],

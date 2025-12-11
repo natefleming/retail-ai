@@ -53,7 +53,7 @@ pip_requirements: Sequence[str] = [
     f"databricks-connect=={get_distribution('databricks-connect').version}",
     f"databricks-langchain=={version('databricks-langchain')}",
     f"databricks-sdk=={version('databricks-sdk')}",
-    f"duckduckgo-search=={version('duckduckgo-search')}",
+    f"ddgs=={version('ddgs')}",
     f"langchain=={version('langchain')}",
     f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
     f"langgraph=={version('langgraph')}",

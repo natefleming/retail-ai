@@ -59,7 +59,7 @@ dependencies:
   - flask-cors==6.0.1
   - gunicorn==23.0.0
   # Search and tools
-  - duckduckgo-search==8.0.4
+  - ddgs==9.9.3
   - flashrank==0.2.8
   - litellm==1.75.9
   # Utilities
