@@ -97,22 +97,24 @@ class TestGenieDatabricksIntegration:
     RESULT: Tool validation only includes user inputs, not LangGraph injected state
     """
 
-    def test_genie_tool_uses_tool_runtime_pattern(self, mock_genie_tool):
-        """Test that the tool uses the ToolRuntime pattern for accessing state."""
+    def test_genie_tool_uses_injected_state_pattern(self, mock_genie_tool):
+        """Test that the tool uses the InjectedState pattern for accessing state."""
         tool = mock_genie_tool
 
-        # Verify the function signature has ToolRuntime parameter
+        # Verify the function signature has injected parameters
         import inspect
 
         sig = inspect.signature(tool.func)
         params = list(sig.parameters.keys())
 
-        # With @tool decorator and ToolRuntime, the function signature includes runtime
+        # With @tool decorator and InjectedState/InjectedToolCallId, the function signature
+        # includes question, state, and tool_call_id
         assert "question" in params
-        assert "runtime" in params
+        assert "state" in params
+        assert "tool_call_id" in params
 
-        # The ToolRuntime parameter will be hidden from the model at runtime by LangGraph
-        # but is present in the function signature for dependency injection
+        # The InjectedState and InjectedToolCallId parameters will be injected by LangGraph
+        # at runtime and hidden from the model
 
     def test_genie_tool_input_validation_success(self):
         """Test that GenieToolInput validates correctly with just question."""
@@ -160,13 +162,15 @@ class TestGenieDatabricksIntegration:
 
         This test reproduces and verifies the fix for the conditions where:
         1. Tool is invoked with only user inputs (question)
-        2. ToolRuntime provides access to state, tool_call_id, etc.
-        3. Tool works correctly with ToolRuntime injection
+        2. State and tool_call_id are injected by LangGraph using Annotated types
+        3. Tool works correctly with injected parameters
 
         THE FIX:
-        1. Used @tool decorator with ToolRuntime parameter
-        2. ToolRuntime replaces separate InjectedState and InjectedToolCallId annotations
-        3. LangGraph injects ToolRuntime at runtime with full context access
+        1. Used @tool decorator which properly handles Annotated injected parameters
+        2. Annotated[dict, InjectedState] and Annotated[str, InjectedToolCallId]
+           tell LangGraph to inject these parameters at runtime
+        3. The tool function signature includes all parameters, but LangGraph
+           handles injection transparently
         """
         # Use the mocked tool
         tool = mock_genie_tool
@@ -177,16 +181,17 @@ class TestGenieDatabricksIntegration:
         sig = inspect.signature(tool.func)
         params = list(sig.parameters.keys())
 
-        # Should have question and runtime parameters
+        # Should have question, state, and tool_call_id parameters
         assert "question" in params
-        assert "runtime" in params
+        assert "state" in params
+        assert "tool_call_id" in params
 
         # Verify the tool is properly configured
         assert isinstance(tool, StructuredTool)
         assert tool.name == "genie_tool"
 
-        # The key fix: @tool decorator with ToolRuntime handles injection properly
-        # LangGraph will inject ToolRuntime at runtime with state and tool_call_id
+        # The key fix: @tool decorator with Annotated types handles injection properly
+        # LangGraph will inject state and tool_call_id at runtime
 
     def test_structured_tool_configuration(self, mock_genie_tool):
         """Test that StructuredTool is configured correctly with @tool decorator."""
@@ -209,22 +214,18 @@ class TestGenieDatabricksIntegration:
         assert tool.func is not None
 
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
-    def test_conversation_persistence_with_tool_runtime(self, mock_genie_tool):
+    def test_conversation_persistence_with_injected_state(self, mock_genie_tool):
         """
-        Test that conversation persistence works correctly with ToolRuntime pattern.
+        Test that conversation persistence works correctly with InjectedState pattern.
 
         This verifies that the fix doesn't break the core functionality of
         conversation mapping using space_id from the state.
         """
-        from langchain.tools import ToolRuntime
-
-        # Create a mock ToolRuntime with state
-        mock_runtime = Mock(spec=ToolRuntime)
-        mock_runtime.state = {
+        # Create a mock state dict
+        mock_state = {
             "genie_conversation_ids": {"test-space-123": "existing-conversation-id"},
             "messages": [],
         }
-        mock_runtime.tool_call_id = "test-call-id"
 
         # Use the fixture genie tool
         tool = mock_genie_tool
@@ -232,7 +233,8 @@ class TestGenieDatabricksIntegration:
         # Call the tool - this should work without validation errors
         result = tool.func(
             question="Continue our previous conversation",
-            runtime=mock_runtime,
+            state=mock_state,
+            tool_call_id="test-call-id",
         )
 
         # Verify the result structure (basic validation that it executed)
@@ -242,12 +244,12 @@ class TestGenieDatabricksIntegration:
         assert result.update is not None
         assert "genie_conversation_ids" in result.update
 
-    def test_tool_runtime_pattern(self, mock_genie_tool):
+    def test_injected_state_pattern(self, mock_genie_tool):
         """
-        Test that the tool uses the modern ToolRuntime pattern.
+        Test that the tool uses the InjectedState pattern.
 
-        The ToolRuntime provides unified access to state, context, store,
-        streaming, config, and tool_call_id without separate injected parameters.
+        The InjectedState and InjectedToolCallId annotations provide access
+        to state and tool_call_id through LangGraph's dependency injection.
         """
         tool = mock_genie_tool
 
@@ -255,18 +257,19 @@ class TestGenieDatabricksIntegration:
         assert isinstance(tool, StructuredTool)
         assert tool.name == "genie_tool"
 
-        # Verify function signature has ToolRuntime parameter
+        # Verify function signature has injected parameters
         import inspect
 
         sig = inspect.signature(tool.func)
         params = list(sig.parameters.keys())
 
-        # Should have question and runtime parameters
+        # Should have question, state, and tool_call_id parameters
         assert "question" in params
-        assert "runtime" in params
+        assert "state" in params
+        assert "tool_call_id" in params
 
-        # The ToolRuntime pattern replaces the older InjectedState and InjectedToolCallId
-        # annotations with a single unified parameter
+        # The InjectedState and InjectedToolCallId annotations tell LangGraph
+        # to inject these parameters at runtime
 
 
 if __name__ == "__main__":
