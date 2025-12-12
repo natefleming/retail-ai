@@ -73,6 +73,7 @@ from dao_ai.utils import (
     get_installed_packages,
     is_installed,
     is_lib_provided,
+    normalize_host,
     normalize_name,
 )
 from dao_ai.vector_search import endpoint_exists, index_exists
@@ -94,15 +95,18 @@ def _workspace_client(
     Create a WorkspaceClient instance with the provided parameters.
     If no parameters are provided, it will use the default configuration.
     """
-    if client_id and client_secret and workspace_host:
+    # Normalize the workspace host to ensure it has https:// scheme
+    normalized_host = normalize_host(workspace_host)
+
+    if client_id and client_secret and normalized_host:
         return WorkspaceClient(
-            host=workspace_host,
+            host=normalized_host,
             client_id=client_id,
             client_secret=client_secret,
             auth_type="oauth-m2m",
         )
     elif pat:
-        return WorkspaceClient(host=workspace_host, token=pat, auth_type="pat")
+        return WorkspaceClient(host=normalized_host, token=pat, auth_type="pat")
     else:
         return WorkspaceClient()
 
@@ -117,15 +121,18 @@ def _vector_search_client(
     Create a VectorSearchClient instance with the provided parameters.
     If no parameters are provided, it will use the default configuration.
     """
-    if client_id and client_secret and workspace_host:
+    # Normalize the workspace host to ensure it has https:// scheme
+    normalized_host = normalize_host(workspace_host)
+
+    if client_id and client_secret and normalized_host:
         return VectorSearchClient(
-            workspace_url=workspace_host,
+            workspace_url=normalized_host,
             service_principal_client_id=client_id,
             service_principal_client_secret=client_secret,
         )
-    elif pat and workspace_host:
+    elif pat and normalized_host:
         return VectorSearchClient(
-            workspace_url=workspace_host,
+            workspace_url=normalized_host,
             personal_access_token=pat,
         )
     else:

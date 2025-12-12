@@ -1192,21 +1192,26 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
         Otherwise, falls back to the default Databricks host.
 
         Returns:
-            str: The workspace host URL without trailing slash
+            str: The workspace host URL with https:// scheme and without trailing slash
         """
-        from dao_ai.utils import get_default_databricks_host
+        from dao_ai.utils import get_default_databricks_host, normalize_host
 
         # Try to get workspace_host from config
         workspace_host: str | None = (
-            value_of(self.workspace_host) if self.workspace_host else None
+            normalize_host(value_of(self.workspace_host))
+            if self.workspace_host
+            else None
         )
 
         # If no workspace_host in config, get it from workspace client
         if not workspace_host:
             # Use connection's workspace client if available
             if self.connection:
-                workspace_host = self.connection.workspace_client.config.host
+                workspace_host = normalize_host(
+                    self.connection.workspace_client.config.host
+                )
             else:
+                # get_default_databricks_host already normalizes the host
                 workspace_host = get_default_databricks_host()
 
         if not workspace_host:

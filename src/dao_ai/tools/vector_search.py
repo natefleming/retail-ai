@@ -20,6 +20,7 @@ from dao_ai.config import (
     RetrieverModel,
     VectorStoreModel,
 )
+from dao_ai.utils import normalize_host
 
 
 def create_vector_search_tool(
@@ -108,8 +109,9 @@ def create_vector_search_tool(
     # The workspace_client parameter in DatabricksVectorSearch is only used to detect
     # model serving mode - it doesn't pass credentials to VectorSearchClient.
     client_args: dict[str, Any] = {}
-    if os.environ.get("DATABRICKS_HOST"):
-        client_args["workspace_url"] = os.environ.get("DATABRICKS_HOST")
+    databricks_host = normalize_host(os.environ.get("DATABRICKS_HOST"))
+    if databricks_host:
+        client_args["workspace_url"] = databricks_host
     if os.environ.get("DATABRICKS_TOKEN"):
         client_args["personal_access_token"] = os.environ.get("DATABRICKS_TOKEN")
     if os.environ.get("DATABRICKS_CLIENT_ID"):

@@ -15,6 +15,7 @@ from dao_ai.config import (
     value_of,
 )
 from dao_ai.tools.human_in_the_loop import as_human_in_the_loop
+from dao_ai.utils import normalize_host
 
 
 def create_uc_tools(
@@ -299,9 +300,11 @@ def with_partial_args(
             if "client_secret" not in resolved_args:
                 resolved_args["client_secret"] = value_of(sp.client_secret)
 
-    # Normalize host/workspace_host - accept either key
+    # Normalize host/workspace_host - accept either key, ensure https:// scheme
     if "workspace_host" in resolved_args and "host" not in resolved_args:
-        resolved_args["host"] = resolved_args.pop("workspace_host")
+        resolved_args["host"] = normalize_host(resolved_args.pop("workspace_host"))
+    elif "host" in resolved_args:
+        resolved_args["host"] = normalize_host(resolved_args["host"])
 
     # Default host from WorkspaceClient if not provided
     if "host" not in resolved_args:
