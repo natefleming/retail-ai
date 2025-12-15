@@ -977,6 +977,27 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         provider.create_lakebase_instance_role(self)
 
 
+class GenieLRUCacheParametersModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    capacity: int = 1000
+    time_to_live_seconds: int = 60 * 60 * 24  # 1 day default
+    warehouse: WarehouseModel
+
+
+class GenieSemanticCacheParametersModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    time_to_live_seconds: int = 60 * 60 * 24  # 1 day default
+    similarity_threshold: float = 0.85  # Minimum cosine similarity for cache hit
+    embedding_model: str | LLMModel = "databricks-gte-large-en"
+    embedding_dims: int | None = None  # Auto-detected if None
+    database: DatabaseModel
+    warehouse: WarehouseModel
+    table_name: str = "genie_semantic_cache"
+    cleanup_probability: float = (
+        0.1  # Probability of cleaning expired entries on write (0.0-1.0)
+    )
+
+
 class SearchParametersModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     num_results: Optional[int] = 10

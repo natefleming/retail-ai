@@ -1,3 +1,4 @@
+from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
 from dao_ai.hooks.core import create_hooks
 from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.core import (
@@ -35,7 +36,9 @@ __all__ = [
     "current_time_tool",
     "format_time_tool",
     "is_business_hours_tool",
+    "LRUCacheService",
     "search_tool",
+    "SemanticCacheService",
     "time_difference_tool",
     "time_in_timezone_tool",
     "time_until_tool",

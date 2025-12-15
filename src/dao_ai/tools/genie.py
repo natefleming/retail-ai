@@ -1,3 +1,14 @@
+"""
+Genie tool for natural language queries to databases.
+
+This module provides the tool factory for creating LangGraph tools that
+interact with Databricks Genie.
+
+For the core Genie service and cache implementations, see:
+- dao_ai.genie: GenieService, GenieServiceBase
+- dao_ai.genie.cache: LRUCacheService, SemanticCacheService
+"""
+
 import json
 import os
 from textwrap import dedent
@@ -11,17 +22,24 @@ from langchain_core.tools import InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from dao_ai.config import AnyVariable, CompositeVariableModel, GenieRoomModel, value_of
+from dao_ai.config import (
+    AnyVariable,
+    CompositeVariableModel,
+    GenieLRUCacheParametersModel,
+    GenieRoomModel,
+    GenieSemanticCacheParametersModel,
+    value_of,
+)
+from dao_ai.genie import GenieService, GenieServiceBase
+from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
 
 
 class GenieToolInput(BaseModel):
-    """Input schema for the Genie tool."""
+    """Input schema for Genie tool - only includes user-facing parameters."""
 
-    question: str = Field(
-        description="The question to ask Genie about your data. Ask simple, clear questions about your tabular data. For complex analysis, ask multiple simple questions rather than one complex question."
-    )
+    question: str
 
 
 def _response_to_json(response: GenieResponse) -> str:
@@ -46,6 +64,10 @@ def create_genie_tool(
     description: str | None = None,
     persist_conversation: bool = True,
     truncate_results: bool = False,
+    lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
+    semantic_cache_parameters: GenieSemanticCacheParametersModel
+    | dict[str, Any]
+    | None = None,
 ) -> Callable[..., Command]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
@@ -61,6 +83,9 @@ def create_genie_tool(
         persist_conversation: Whether to persist conversation IDs across tool calls for
             multi-turn conversations within the same Genie space
         truncate_results: Whether to truncate large query results to fit token limits
+        lru_cache_parameters: Optional LRU cache configuration for SQL query caching
+        semantic_cache_parameters: Optional semantic cache configuration using pg_vector
+            for similarity-based query matching
 
     Returns:
         A LangGraph tool that processes natural language queries through Genie
@@ -75,9 +100,19 @@ def create_genie_tool(
     logger.debug(f"genie_room: {genie_room}")
     logger.debug(f"persist_conversation: {persist_conversation}")
     logger.debug(f"truncate_results: {truncate_results}")
+    logger.debug(f"lru_cache_parameters: {lru_cache_parameters}")
+    logger.debug(f"semantic_cache_parameters: {semantic_cache_parameters}")
 
     if isinstance(genie_room, dict):
         genie_room = GenieRoomModel(**genie_room)
+
+    if isinstance(lru_cache_parameters, dict):
+        lru_cache_parameters = GenieLRUCacheParametersModel(**lru_cache_parameters)
+
+    if isinstance(semantic_cache_parameters, dict):
+        semantic_cache_parameters = GenieSemanticCacheParametersModel(
+            **semantic_cache_parameters
+        )
 
     space_id: AnyVariable = genie_room.space_id or os.environ.get(
         "DATABRICKS_GENIE_SPACE_ID"
@@ -108,6 +143,29 @@ Returns:
 GenieResponse: A response object containing the conversation ID and result from Genie."""
     tool_description = tool_description + function_docs
 
+    genie: Genie = Genie(
+        space_id=space_id,
+        client=genie_room.workspace_client,
+        truncate_results=truncate_results,
+    )
+
+    genie_service: GenieServiceBase = GenieService(genie)
+
+    # Wrap with semantic cache first (checked second due to decorator pattern)
+    if semantic_cache_parameters is not None:
+        genie_service = SemanticCacheService(
+            impl=genie_service,
+            parameters=semantic_cache_parameters,
+            genie_space_id=space_id,
+        ).initialize()  # Eagerly initialize to fail fast and create table
+
+    # Wrap with LRU cache last (checked first - fast O(1) exact match)
+    if lru_cache_parameters is not None:
+        genie_service = LRUCacheService(
+            impl=genie_service,
+            parameters=lru_cache_parameters,
+        )
+
     @tool(
         name_or_callable=tool_name,
         description=tool_description,
@@ -117,12 +175,6 @@ GenieResponse: A response object containing the conversation ID and result from 
         state: Annotated[dict, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
-        genie: Genie = Genie(
-            space_id=space_id,
-            client=genie_room.workspace_client,
-            truncate_results=truncate_results,
-        )
-
         """Process a natural language question through Databricks Genie."""
         # Get existing conversation mapping and retrieve conversation ID for this space
         conversation_ids: dict[str, str] = state.get("genie_conversation_ids", {})
@@ -131,7 +183,7 @@ GenieResponse: A response object containing the conversation ID and result from 
             f"Existing conversation ID for space {space_id}: {existing_conversation_id}"
         )
 
-        response: GenieResponse = genie.ask_question(
+        response: GenieResponse = genie_service.ask_question(
             question, conversation_id=existing_conversation_id
         )
 
@@ -152,8 +204,6 @@ GenieResponse: A response object containing the conversation ID and result from 
             updated_conversation_ids: dict[str, str] = conversation_ids.copy()
             updated_conversation_ids[space_id] = current_conversation_id
             update["genie_conversation_ids"] = updated_conversation_ids
-
-        logger.debug(f"State update: {update}")
 
         return Command(update=update)
 
