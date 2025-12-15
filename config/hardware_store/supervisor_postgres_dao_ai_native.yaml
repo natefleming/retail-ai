@@ -924,10 +924,10 @@ app:
     name: hardware_store_postgres_beta                  # Model name in MLflow registry
   endpoint_name: hardware_store_postgres_beta           # Model serving endpoint name
   environment_vars: 
-    PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
-    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
-    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
-    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
+    PGHOST: "{{secrets/retail_consumer_goods/PGHOST}}"  # Databricks host URL
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_HOST}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: True                                 # Indicates streaming capabilities
@@ -953,7 +953,7 @@ app:
 
   message_hooks: 
     - dao_ai.hooks.null_hook
-    - hardware_store.hooks.require_store_num_hook
+    #- hardware_store.hooks.require_store_num_hook
   input_example:
       messages:
         - role: user
