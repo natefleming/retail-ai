@@ -17,7 +17,6 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementResponse, StatementState
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
-from mlflow.entities import SpanType
 
 from dao_ai.config import GenieLRUCacheParametersModel, WarehouseModel
 from dao_ai.genie.cache.base import (
@@ -89,9 +88,12 @@ class LRUCacheService(GenieServiceBase):
         return self.parameters.capacity
 
     @property
-    def time_to_live(self) -> timedelta:
-        """Duration after which cached queries expire."""
-        return timedelta(seconds=self.parameters.time_to_live_seconds)
+    def time_to_live(self) -> timedelta | None:
+        """Duration after which cached queries expire. None means never expires."""
+        ttl = self.parameters.time_to_live_seconds
+        if ttl is None or ttl < 0:
+            return None
+        return timedelta(seconds=ttl)
 
     @staticmethod
     def _normalize_key(question: str) -> str:
@@ -99,7 +101,9 @@ class LRUCacheService(GenieServiceBase):
         return question.strip().lower()
 
     def _is_expired(self, entry: SQLCacheEntry) -> bool:
-        """Check if a cache entry has exceeded its TTL."""
+        """Check if a cache entry has exceeded its TTL. Returns False if TTL is disabled."""
+        if self.time_to_live is None:
+            return False
         age: timedelta = datetime.now() - entry.created_at
         return age > self.time_to_live
 
@@ -142,10 +146,10 @@ class LRUCacheService(GenieServiceBase):
         logger.info(
             f"[{self.name}] Stored cache entry: key='{key[:50]}...' "
             f"sql='{response.query[:50] if response.query else 'None'}...' "
-            f"cache_size={len(self._cache)}/{self.capacity}"
+            f"(cache_size={len(self._cache)}/{self.capacity})"
         )
 
-    @mlflow.trace(name="execute_cached_sql", span_type=SpanType.TOOL)
+    @mlflow.trace(name="execute_cached_sql")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
         """
         Execute SQL using the warehouse and return results as DataFrame.
@@ -156,14 +160,6 @@ class LRUCacheService(GenieServiceBase):
         Returns:
             DataFrame with results, or error message string
         """
-        # Log SQL to trace span
-        mlflow.update_current_trace(
-            tags={
-                "cache_layer": self.name,
-                "warehouse_id": str(self.warehouse.warehouse_id),
-            }
-        )
-
         w: WorkspaceClient = self.warehouse.workspace_client
         warehouse_id: str = str(self.warehouse.warehouse_id)
 
@@ -221,12 +217,11 @@ class LRUCacheService(GenieServiceBase):
         )
         return result.response
 
-    @mlflow.trace(name="genie_lru_cache_lookup", span_type=SpanType.TOOL)
+    @mlflow.trace(name="genie_lru_cache_lookup")
     def ask_question_with_cache_info(
         self,
         question: str,
         conversation_id: str | None = None,
-        skip_cache: bool = False,
     ) -> CacheResult:
         """
         Ask a question with detailed cache hit information.
@@ -236,72 +231,38 @@ class LRUCacheService(GenieServiceBase):
         Args:
             question: The question to ask
             conversation_id: Optional conversation ID
-            skip_cache: If True, bypass this cache (still queries downstream)
 
         Returns:
             CacheResult with fresh response and cache metadata
         """
         key: str = self._normalize_key(question)
 
-        # Check cache unless skipping
-        if not skip_cache:
-            with self._lock:
-                cached: SQLCacheEntry | None = self._get(key)
+        # Check cache
+        with self._lock:
+            cached: SQLCacheEntry | None = self._get(key)
 
-            if cached is not None:
-                logger.debug(f"[{self.name}] SQL cache hit: {question[:50]}...")
+        if cached is not None:
+            logger.info(
+                f"[{self.name}] Cache HIT: '{question[:50]}...' "
+                f"(cache_size={self.size}/{self.capacity})"
+            )
 
-                # Calculate cache entry age
-                cache_age: timedelta = datetime.now() - cached.created_at
-                cache_age_seconds: float = cache_age.total_seconds()
+            # Re-execute the cached SQL to get fresh data
+            result: pd.DataFrame | str = self._execute_sql(cached.query)
 
-                # Log cache hit to trace with TTL and timing info
-                mlflow.update_current_trace(
-                    tags={
-                        "cache_hit": "true",
-                        "cache_layer": self.name,
-                        "cached_sql": cached.query[:200] if cached.query else "",
-                        "cache_entry_created_at": cached.created_at.isoformat(),
-                        "cache_entry_age_seconds": str(int(cache_age_seconds)),
-                        "cache_ttl_seconds": str(
-                            int(self.time_to_live.total_seconds())
-                        ),
-                        "cache_ttl_remaining_seconds": str(
-                            int(self.time_to_live.total_seconds() - cache_age_seconds)
-                        ),
-                    }
-                )
+            response: GenieResponse = GenieResponse(
+                result=result,
+                query=cached.query,
+                description=cached.description,
+                conversation_id=cached.conversation_id,
+            )
 
-                # Re-execute the cached SQL to get fresh data
-                result: pd.DataFrame | str = self._execute_sql(cached.query)
-
-                response: GenieResponse = GenieResponse(
-                    result=result,
-                    query=cached.query,
-                    description=cached.description,
-                    conversation_id=cached.conversation_id,
-                )
-
-                return CacheResult(
-                    response=response, cache_hit=True, served_by=self.name
-                )
+            return CacheResult(response=response, cache_hit=True, served_by=self.name)
 
         # Cache miss - delegate to wrapped service
         logger.info(
-            f"[{self.name}] Cache {'skip' if skip_cache else 'miss'}: '{question[:50]}...' "
+            f"[{self.name}] Cache MISS: '{question[:50]}...' "
             f"(cache_size={self.size}/{self.capacity}, delegating to {type(self.impl).__name__})"
-        )
-
-        # Log cache miss to trace with TTL info
-        mlflow.update_current_trace(
-            tags={
-                "cache_hit": "false",
-                "cache_layer": self.name,
-                "skip_cache": str(skip_cache),
-                "cache_ttl_seconds": str(int(self.time_to_live.total_seconds())),
-                "cache_size": str(self.size),
-                "cache_capacity": str(self.capacity),
-            }
         )
 
         response = self.impl.ask_question(question, conversation_id)
@@ -331,14 +292,15 @@ class LRUCacheService(GenieServiceBase):
         with self._lock:
             return len(self._cache)
 
-    def stats(self) -> dict[str, int | float]:
+    def stats(self) -> dict[str, int | float | None]:
         """Return cache statistics."""
         with self._lock:
             expired: int = sum(1 for e in self._cache.values() if self._is_expired(e))
+            ttl = self.time_to_live
             return {
                 "size": len(self._cache),
                 "capacity": self.capacity,
-                "ttl_seconds": self.time_to_live.total_seconds(),
+                "ttl_seconds": ttl.total_seconds() if ttl else None,
                 "expired_entries": expired,
                 "valid_entries": len(self._cache) - expired,
             }

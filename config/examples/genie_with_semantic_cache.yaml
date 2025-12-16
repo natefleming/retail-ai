@@ -125,11 +125,10 @@ tools:
           warehouse: *shared_endpoint_warehouse     # Warehouse used to re-execute cached SQL
           embedding_model: *embedding_model         # Reference to embedding model
           # embedding_dims: 1024                    # Auto-detected if omitted (recommended)
-          similarity_threshold: 0.85                # Minimum cosine similarity for cache hit
+          similarity_threshold: 0.85                # Minimum similarity (L2 distance converted to 0-1)
           time_to_live_seconds: 86400               # Cache entries expire after 1 day
-          table_name: genie_semantic_cache          # Table name for storing cache entries
-          cleanup_probability: 0.1                  # 10% chance to clean expired entries on write
           # Note: Cache is automatically partitioned by genie space_id
+          # Note: Expired entries are cleaned up via "refresh on hit" strategy
 
         persist_conversation: true
 

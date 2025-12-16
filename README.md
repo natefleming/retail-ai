@@ -224,7 +224,7 @@ tools:
 
 ### 2. Advanced Caching (Genie Queries)
 
-DAO provides two-tier caching for Genie natural language queries, dramatically reducing costs and latency:
+DAO provides **two-tier caching** for Genie natural language queries, dramatically reducing costs and latency. Unlike simple response caching, DAO caches the **generated SQL** and re-executes it against your warehouse—ensuring you always get **fresh data** while avoiding the cost of repeated Genie API calls.
 
 ```yaml
 genie_tool:
@@ -234,44 +234,192 @@ genie_tool:
     args:
       genie_room: *retail_genie_room
       
-      # L1: Fast O(1) exact match
+      # L1: Fast O(1) exact match lookup
       lru_cache_parameters:
         warehouse: *warehouse
-        capacity: 100
-        time_to_live_seconds: 3600  # 1 hour
+        capacity: 100                    # Max cached queries
+        time_to_live_seconds: 86400      # 1 day (use -1 for never expire)
 
-      # L2: Semantic similarity search
+      # L2: Semantic similarity search via pg_vector
       semantic_cache_parameters:
         database: *postgres_db
         warehouse: *warehouse
         embedding_model: *embedding_model
-        similarity_threshold: 0.85
-        time_to_live_seconds: 86400  # 1 day
+        similarity_threshold: 0.85       # 0.0-1.0, higher = stricter matching
+        time_to_live_seconds: 86400      # 1 day (use -1 for never expire)
 ```
 
-**Cache Flow:**
+#### Cache Architecture
+
 ```
-Question → LRU Cache (exact match) → Semantic Cache (similarity) → Genie API
-              │                            │
-              │ Hit: Execute cached SQL    │ Hit: Execute cached SQL
-              └────────────────────────────┴──────────────────────────▶ Fresh Data
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Two-Tier Cache Flow                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Question: "What products are low on stock?"                               │
+│                          │                                                   │
+│                          ▼                                                   │
+│   ┌──────────────────────────────────────┐                                  │
+│   │     L1: LRU Cache (In-Memory)        │  ◄── O(1) exact string match     │
+│   │     • Capacity: 100 entries          │      Fastest lookup              │
+│   │     • Hash-based lookup              │                                  │
+│   └──────────────────────────────────────┘                                  │
+│              │ Miss                                                          │
+│              ▼                                                               │
+│   ┌──────────────────────────────────────┐                                  │
+│   │  L2: Semantic Cache (PostgreSQL)     │  ◄── Vector similarity search    │
+│   │     • pg_vector embeddings           │      Catches rephrased questions │
+│   │     • L2 distance similarity         │                                  │
+│   │     • Partitioned by Genie space ID  │                                  │
+│   └──────────────────────────────────────┘                                  │
+│              │ Miss                                                          │
+│              ▼                                                               │
+│   ┌──────────────────────────────────────┐                                  │
+│   │       Genie API                       │  ◄── Natural language to SQL    │
+│   │       (Expensive call)                │                                  │
+│   └──────────────────────────────────────┘                                  │
+│              │                                                               │
+│              ▼                                                               │
+│   ┌──────────────────────────────────────┐                                  │
+│   │    Execute SQL via Warehouse         │  ◄── Always fresh data!         │
+│   └──────────────────────────────────────┘                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3. Human-in-the-Loop Approvals
+#### LRU Cache (L1)
+
+The **LRU (Least Recently Used) Cache** provides instant lookups for exact question matches:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `capacity` | 100 | Maximum number of cached queries |
+| `time_to_live_seconds` | 86400 | Cache entry lifetime (-1 = never expire) |
+| `warehouse` | Required | Databricks warehouse for SQL execution |
+
+**Best for:** Repeated exact queries, chatbot interactions, dashboard refreshes
+
+#### Semantic Cache (L2)
+
+The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions even when worded differently:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `similarity_threshold` | 0.85 | Minimum similarity for cache hit (0.0-1.0) |
+| `time_to_live_seconds` | 86400 | Cache entry lifetime (-1 = never expire) |
+| `embedding_model` | Required | Model for generating question embeddings |
+| `database` | Required | PostgreSQL with pg_vector extension |
+| `table_name` | `genie_semantic_cache` | Table name for cache storage |
+
+**Best for:** Catching rephrased questions like:
+- "What's our inventory status?" ≈ "Show me stock levels"
+- "Top selling products this month" ≈ "Best sellers in December"
+
+#### Cache Behavior
+
+1. **SQL Caching, Not Results**: The cache stores the *generated SQL query*, not the query results. On a cache hit, the SQL is re-executed against your warehouse, ensuring **data freshness**.
+
+2. **Refresh on Hit**: When a semantic cache entry is found but expired:
+   - The expired entry is deleted
+   - A cache miss is returned
+   - Genie generates fresh SQL
+   - The new SQL is cached
+
+3. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The semantic cache is shared across all instances via PostgreSQL.
+
+4. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
+
+### 3. Vector Search Reranking
+
+DAO supports **two-stage retrieval** with FlashRank reranking to improve search relevance without external API calls:
+
+```yaml
+retrievers:
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store
+    columns: [product_id, name, description, price]
+    search_parameters:
+      num_results: 50        # Retrieve more candidates
+      query_type: ANN
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2   # Local cross-encoder model
+      top_n: 5                          # Return top 5 after reranking
+```
+
+#### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Two-Stage Retrieval Flow                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Query: "heavy duty outdoor extension cord"                                │
+│                          │                                                   │
+│                          ▼                                                   │
+│   ┌──────────────────────────────────────┐                                  │
+│   │   Stage 1: Vector Similarity Search  │  ◄── Fast, approximate matching  │
+│   │   • Returns 50 candidates            │      Uses embedding similarity   │
+│   │   • Milliseconds latency             │                                  │
+│   └──────────────────────────────────────┘                                  │
+│              │                                                               │
+│              ▼ 50 documents                                                  │
+│   ┌──────────────────────────────────────┐                                  │
+│   │     Stage 2: Cross-Encoder Rerank    │  ◄── Precise relevance scoring   │
+│   │     • FlashRank (local, no API)      │      Query-document interaction  │
+│   │     • Returns top 5 most relevant    │                                  │
+│   └──────────────────────────────────────┘                                  │
+│              │                                                               │
+│              ▼ 5 documents (reordered by relevance)                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Why Reranking?
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Vector Search Only** | Fast, scalable | Embedding similarity ≠ relevance |
+| **Reranking** | More accurate relevance | Slightly higher latency |
+| **Both (Two-Stage)** | Best of both worlds | Optimal quality/speed tradeoff |
+
+Vector embeddings capture semantic similarity but may rank loosely related documents highly. Cross-encoder reranking evaluates query-document pairs directly, dramatically improving result quality for the final user.
+
+#### Available Models
+
+| Model | Speed | Quality | Use Case |
+|-------|-------|---------|----------|
+| `ms-marco-TinyBERT-L-2-v2` | ⚡⚡⚡ Fastest | Good | High-throughput, latency-sensitive |
+| `ms-marco-MiniLM-L-6-v2` | ⚡⚡ Fast | Better | Balanced performance |
+| `ms-marco-MiniLM-L-12-v2` | ⚡ Moderate | Best | Default, recommended |
+| `rank-T5-flan` | Slower | Excellent | Maximum accuracy |
+
+#### Configuration Options
+
+```yaml
+rerank:
+  model: ms-marco-MiniLM-L-12-v2    # FlashRank model name
+  top_n: 10                          # Documents to return (default: all)
+  cache_dir: /tmp/flashrank_cache    # Model weights cache location
+  columns: [description, name]       # Columns for Databricks Reranker (optional)
+```
+
+**Note:** Model weights are downloaded automatically on first use (~20MB for MiniLM-L-12-v2).
+
+### 4. Human-in-the-Loop Approvals
 
 Add approval gates to sensitive tool calls without changing tool code:
 
-   ```yaml
-   tools:
+```yaml
+tools:
   dangerous_operation:
-       function:
+    function:
       type: python
       name: my_package.dangerous_function
       human_in_the_loop:
         review_prompt: "This operation will modify production data. Approve?"
 ```
 
-### 4. Memory & State Persistence
+### 5. Memory & State Persistence
 
 Configure conversation memory with in-memory or PostgreSQL backends:
 
@@ -289,7 +437,7 @@ memory:
     embedding_model: *embedding_model
 ```
 
-### 5. Hook System
+### 6. Hook System
 
 Inject custom logic at key points in the agent lifecycle:
 
@@ -316,7 +464,7 @@ agents:
     post_agent_hook: my_package.hooks.collect_metrics
 ```
 
-### 6. MLflow Prompt Registry Integration
+### 7. MLflow Prompt Registry Integration
 
 Store and version prompts externally, enabling prompt engineers to iterate without code changes:
 
@@ -337,7 +485,7 @@ agents:
     prompt: *product_expert_prompt  # Loaded from MLflow registry
 ```
 
-### 7. Automated Prompt Optimization
+### 8. Automated Prompt Optimization
 
 Use DSPy-style optimization to automatically improve prompts:
 

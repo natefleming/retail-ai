@@ -19,7 +19,6 @@ Example usage:
 
 import mlflow
 from databricks_ai_bridge.genie import Genie, GenieResponse
-from mlflow.entities import SpanType
 
 from dao_ai.genie.cache import (
     CacheResult,
@@ -38,20 +37,12 @@ class GenieService(GenieServiceBase):
     def __init__(self, genie: Genie) -> None:
         self.genie = genie
 
-    @mlflow.trace(name="genie_ask_question", span_type=SpanType.TOOL)
+    @mlflow.trace(name="genie_ask_question")
     def ask_question(
         self, question: str, conversation_id: str | None = None
     ) -> GenieResponse:
         response: GenieResponse = self.genie.ask_question(
             question, conversation_id=conversation_id
-        )
-        # Log response metadata to trace
-        mlflow.update_current_trace(
-            tags={
-                "genie_space_id": self.genie.space_id,
-                "conversation_id": response.conversation_id or "",
-                "has_sql": "true" if response.query else "false",
-            }
         )
         return response
 

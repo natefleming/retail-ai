@@ -6,7 +6,7 @@ to find cached queries that match the intent of new questions. Cache entries are
 partitioned by genie_space_id to ensure proper isolation between Genie spaces.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 import mlflow
@@ -27,6 +27,9 @@ from dao_ai.genie.cache.base import (
     GenieServiceBase,
     SQLCacheEntry,
 )
+
+# Type alias for database row (dict due to row_factory=dict_row)
+DbRow = dict[str, Any]
 
 
 class SemanticCacheService(GenieServiceBase):
@@ -162,13 +165,16 @@ class SemanticCacheService(GenieServiceBase):
         return self.parameters.warehouse
 
     @property
-    def time_to_live(self) -> timedelta:
-        """Time-to-live for cache entries."""
-        return timedelta(seconds=self.parameters.time_to_live_seconds)
+    def time_to_live(self) -> timedelta | None:
+        """Time-to-live for cache entries. None means never expires."""
+        ttl = self.parameters.time_to_live_seconds
+        if ttl is None or ttl < 0:
+            return None
+        return timedelta(seconds=ttl)
 
     @property
     def similarity_threshold(self) -> float:
-        """Minimum cosine similarity for cache hit."""
+        """Minimum similarity for cache hit (using L2 distance converted to similarity)."""
         return self.parameters.similarity_threshold
 
     @property
@@ -185,14 +191,22 @@ class SemanticCacheService(GenieServiceBase):
         """Name of the cache table."""
         return self.parameters.table_name
 
-    @property
-    def cleanup_probability(self) -> float:
-        """Probability of cleaning expired entries on write (0.0-1.0)."""
-        return self.parameters.cleanup_probability
-
     def _create_table_if_not_exists(self) -> None:
-        """Create the cache table with pg_vector extension if it doesn't exist."""
+        """Create the cache table with pg_vector extension if it doesn't exist.
+
+        If the table exists but has a different embedding dimension, it will be
+        dropped and recreated with the new dimension size.
+        """
         create_extension_sql: str = "CREATE EXTENSION IF NOT EXISTS vector"
+
+        # Check if table exists and get current embedding dimensions
+        check_dims_sql: str = """
+            SELECT atttypmod 
+            FROM pg_attribute 
+            WHERE attrelid = %s::regclass 
+              AND attname = 'question_embedding'
+        """
+
         create_table_sql: str = f"""
             CREATE TABLE IF NOT EXISTS {self.table_name} (
                 id SERIAL PRIMARY KEY,
@@ -206,10 +220,11 @@ class SemanticCacheService(GenieServiceBase):
             )
         """
         # Index for efficient similarity search partitioned by genie_space_id
+        # Use L2 (Euclidean) distance - optimal for Databricks GTE embeddings
         create_embedding_index_sql: str = f"""
             CREATE INDEX IF NOT EXISTS {self.table_name}_embedding_idx 
             ON {self.table_name} 
-            USING ivfflat (question_embedding vector_cosine_ops)
+            USING ivfflat (question_embedding vector_l2_ops)
             WITH (lists = 100)
         """
         # Index for filtering by genie_space_id
@@ -221,33 +236,35 @@ class SemanticCacheService(GenieServiceBase):
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(create_extension_sql)
+
+                # Check if table exists and verify embedding dimensions
+                try:
+                    cur.execute(check_dims_sql, (self.table_name,))
+                    row: DbRow | None = cur.fetchone()
+                    if row is not None:
+                        # atttypmod for vector type contains the dimension
+                        current_dims = row.get("atttypmod", 0)
+                        if current_dims != self.embedding_dims:
+                            logger.warning(
+                                f"[{self.name}] Embedding dimension mismatch: "
+                                f"table has {current_dims}, expected {self.embedding_dims}. "
+                                f"Dropping and recreating table '{self.table_name}'."
+                            )
+                            cur.execute(f"DROP TABLE {self.table_name}")
+                except Exception:
+                    # Table doesn't exist, which is fine
+                    pass
+
                 cur.execute(create_table_sql)
                 cur.execute(create_space_index_sql)
-                # Only create ivfflat index if table has enough rows
-                cur.execute(f"SELECT COUNT(*) FROM {self.table_name}")
-                row: tuple[Any, ...] | dict[str, Any] | None = cur.fetchone()
-                # Handle both dict-like and tuple-like row access
-                row_count: int
-                if row is None:
-                    row_count = 0
-                elif isinstance(row, dict):
-                    row_count = row.get("count", 0)
-                else:
-                    row_count = row[0]
-                if row_count >= 100:
-                    try:
-                        cur.execute(create_embedding_index_sql)
-                    except Exception as e:
-                        logger.debug(
-                            f"[{self.name}] Embedding index creation skipped: {e}"
-                        )
+                cur.execute(create_embedding_index_sql)
 
     def _embed_question(self, question: str) -> list[float]:
         """Generate embedding for a question."""
         embeddings: list[list[float]] = self._embeddings.embed_documents([question])
         return embeddings[0]
 
-    @mlflow.trace(name="semantic_search", span_type=SpanType.TOOL)
+    @mlflow.trace(name="semantic_search")
     def _find_similar(
         self, question: str, embedding: list[float]
     ) -> tuple[SQLCacheEntry, float] | None:
@@ -261,132 +278,111 @@ class SemanticCacheService(GenieServiceBase):
         Returns:
             Tuple of (SQLCacheEntry, similarity_score) if found, None otherwise
         """
-        # Use cosine similarity: 1 - cosine_distance
-        # pg_vector's <=> operator returns cosine distance (0 = identical, 2 = opposite)
-        # Filter by genie_space_id to ensure cache partitioning
+        # Use L2 (Euclidean) distance - optimal for Databricks GTE embeddings
+        # pg_vector's <-> operator returns L2 distance (0 = identical)
+        # Convert to similarity: 1 / (1 + distance) gives range [0, 1]
+        #
+        # Refresh-on-hit strategy:
+        # 1. Search without TTL filter to find best semantic match
+        # 2. If match is within TTL (or TTL disabled) → cache hit
+        # 3. If match is expired → delete it, return miss (triggers refresh)
+        ttl_seconds = self.parameters.time_to_live_seconds
+        ttl_disabled = ttl_seconds is None or ttl_seconds < 0
+
+        # When TTL is disabled, all entries are always valid
+        if ttl_disabled:
+            is_valid_expr = "TRUE"
+        else:
+            is_valid_expr = f"created_at > NOW() - INTERVAL '{ttl_seconds} seconds'"
+
         search_sql: str = f"""
             SELECT 
+                id,
                 question,
                 sql_query,
                 description,
                 conversation_id,
                 created_at,
-                1 - (question_embedding <=> %s::vector) as similarity
+                1.0 / (1.0 + (question_embedding <-> %s::vector)) as similarity,
+                {is_valid_expr} as is_valid
             FROM {self.table_name}
             WHERE genie_space_id = %s
-              AND created_at > NOW() - INTERVAL '%s seconds'
-            ORDER BY question_embedding <=> %s::vector
+            ORDER BY question_embedding <-> %s::vector
             LIMIT 1
         """
 
         embedding_str: str = f"[{','.join(str(x) for x in embedding)}]"
-        ttl_seconds: int = self.parameters.time_to_live_seconds
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     search_sql,
-                    (embedding_str, self.genie_space_id, ttl_seconds, embedding_str),
+                    (embedding_str, self.genie_space_id, embedding_str),
                 )
-                row: tuple[Any, ...] | dict[str, Any] | None = cur.fetchone()
+                row: DbRow | None = cur.fetchone()
 
                 if row is None:
                     logger.info(
-                        f"[{self.name}] No cached entries found for space '{self.genie_space_id}' "
-                        f"(threshold={self.similarity_threshold}, ttl={ttl_seconds}s)"
-                    )
-                    mlflow.update_current_trace(
-                        tags={
-                            "cache_layer": self.name,
-                            "semantic_search_result": "no_entries",
-                            "similarity_threshold": str(self.similarity_threshold),
-                            "genie_space_id": self.genie_space_id,
-                        }
+                        f"[{self.name}] MISS (no entries): "
+                        f"question='{question[:50]}...' space='{self.genie_space_id}'"
                     )
                     return None
 
-                # Access by index since we may not have dict_row
-                similarity: float
-                cached_question: str
-                entry: SQLCacheEntry
-                if isinstance(row, dict):
-                    similarity = row["similarity"]
-                    cached_question = row.get("question", "")
-                    if similarity < self.similarity_threshold:
-                        logger.info(
-                            f"[{self.name}] Best match similarity={similarity:.4f} < threshold={self.similarity_threshold} "
-                            f"(cached_question='{cached_question[:50]}...')"
-                        )
-                        mlflow.update_current_trace(
-                            tags={
-                                "cache_layer": self.name,
-                                "semantic_search_result": "below_threshold",
-                                "similarity_score": f"{similarity:.4f}",
-                                "similarity_threshold": str(self.similarity_threshold),
-                                "cached_question_preview": cached_question[:50],
-                            }
-                        )
-                        return None
+                # Extract values from dict row
+                entry_id = row.get("id")
+                cached_question = row.get("question", "")
+                sql_query = row["sql_query"]
+                description = row.get("description", "")
+                conversation_id = row.get("conversation_id", "")
+                created_at = row["created_at"]
+                similarity = row["similarity"]
+                is_valid = row.get("is_valid", False)
 
-                    entry = SQLCacheEntry(
-                        query=row["sql_query"],
-                        description=row["description"] or "",
-                        conversation_id=row["conversation_id"] or "",
-                        created_at=row["created_at"],
-                    )
-                else:
-                    # Tuple access (question, sql_query, description, conversation_id, created_at, similarity)
-                    similarity = row[5]
-                    cached_question = row[0] if row[0] else ""
-                    if similarity < self.similarity_threshold:
-                        logger.info(
-                            f"[{self.name}] Best match similarity={similarity:.4f} < threshold={self.similarity_threshold} "
-                            f"(cached_question='{cached_question[:50]}...')"
-                        )
-                        mlflow.update_current_trace(
-                            tags={
-                                "cache_layer": self.name,
-                                "semantic_search_result": "below_threshold",
-                                "similarity_score": f"{similarity:.4f}",
-                                "similarity_threshold": str(self.similarity_threshold),
-                                "cached_question_preview": cached_question[:50],
-                            }
-                        )
-                        return None
+                # Log best match info (L2 distance can be computed from similarity: d = 1/s - 1)
+                l2_distance = (
+                    (1.0 / similarity) - 1.0 if similarity > 0 else float("inf")
+                )
+                logger.info(
+                    f"[{self.name}] Best match: l2_distance={l2_distance:.4f}, similarity={similarity:.4f}, "
+                    f"is_valid={is_valid}, question='{cached_question[:50]}...'"
+                )
 
-                    entry = SQLCacheEntry(
-                        query=row[1],
-                        description=row[2] or "",
-                        conversation_id=row[3] or "",
-                        created_at=row[4],
+                # Check similarity threshold
+                if similarity < self.similarity_threshold:
+                    logger.info(
+                        f"[{self.name}] MISS (below threshold): similarity={similarity:.4f} < threshold={self.similarity_threshold} "
+                        f"(cached_question='{cached_question[:50]}...')"
                     )
+                    return None
+
+                # Check TTL - refresh on hit strategy
+                if not is_valid:
+                    # Entry is expired - delete it and return miss to trigger refresh
+                    delete_sql = f"DELETE FROM {self.table_name} WHERE id = %s"
+                    cur.execute(delete_sql, (entry_id,))
+                    logger.info(
+                        f"[{self.name}] MISS (expired, deleted for refresh): similarity={similarity:.4f}, "
+                        f"ttl={ttl_seconds}s, question='{cached_question[:50]}...'"
+                    )
+                    return None
 
                 logger.info(
-                    f"[{self.name}] Semantic match found: similarity={similarity:.4f} >= threshold={self.similarity_threshold} "
+                    f"[{self.name}] HIT: similarity={similarity:.4f} >= threshold={self.similarity_threshold} "
                     f"(cached_question='{cached_question[:50]}...')"
                 )
-                mlflow.update_current_trace(
-                    tags={
-                        "cache_layer": self.name,
-                        "semantic_search_result": "hit",
-                        "similarity_score": f"{similarity:.4f}",
-                        "similarity_threshold": str(self.similarity_threshold),
-                        "cached_question_preview": cached_question[:50],
-                    }
-                )
 
+                entry = SQLCacheEntry(
+                    query=sql_query,
+                    description=description,
+                    conversation_id=conversation_id,
+                    created_at=created_at,
+                )
                 return entry, similarity
 
     def _store_entry(
         self, question: str, embedding: list[float], response: GenieResponse
     ) -> None:
-        """Store a new cache entry for this Genie space.
-
-        Includes probabilistic cleanup of expired entries to prevent unbounded table growth.
-        Cleanup runs with probability defined by cleanup_probability parameter (default 10%).
-        """
-        import random
-
+        """Store a new cache entry for this Genie space."""
         insert_sql: str = f"""
             INSERT INTO {self.table_name} 
             (genie_space_id, question, question_embedding, sql_query, description, conversation_id)
@@ -396,29 +392,6 @@ class SemanticCacheService(GenieServiceBase):
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                # Probabilistic cleanup of expired entries
-                if random.random() < self.parameters.cleanup_probability:
-                    cleanup_sql: str = f"""
-                        DELETE FROM {self.table_name}
-                        WHERE genie_space_id = %s
-                          AND created_at < NOW() - INTERVAL '%s seconds'
-                    """
-                    ttl_seconds: int = self.parameters.time_to_live_seconds
-                    cur.execute(cleanup_sql, (self.genie_space_id, ttl_seconds))
-                    deleted: int = cur.rowcount
-                    logger.info(
-                        f"[{self.name}] On-write cleanup: pruned {deleted} expired entries "
-                        f"(space={self.genie_space_id}, ttl={ttl_seconds}s)"
-                    )
-                    # Add to MLflow trace for observability
-                    mlflow.update_current_trace(
-                        tags={
-                            "cleanup_triggered": "true",
-                            "cleanup_entries_pruned": str(deleted),
-                        }
-                    )
-
-                # Insert the new entry
                 cur.execute(
                     insert_sql,
                     (
@@ -432,19 +405,12 @@ class SemanticCacheService(GenieServiceBase):
                 )
                 logger.info(
                     f"[{self.name}] Stored cache entry: question='{question[:50]}...' "
-                    f"sql='{response.query[:50]}...' space={self.genie_space_id}"
+                    f"sql='{response.query[:50]}...' (space={self.genie_space_id}, table={self.table_name})"
                 )
 
-    @mlflow.trace(name="execute_cached_sql_semantic", span_type=SpanType.TOOL)
+    @mlflow.trace(name="execute_cached_sql_semantic")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
         """Execute SQL using the warehouse and return results."""
-        mlflow.update_current_trace(
-            tags={
-                "cache_layer": self.name,
-                "warehouse_id": self.warehouse.warehouse_id or "",
-            }
-        )
-
         client: WorkspaceClient = self.warehouse.workspace_client
         warehouse_id: str = self.warehouse.warehouse_id
 
@@ -505,7 +471,6 @@ class SemanticCacheService(GenieServiceBase):
         self,
         question: str,
         conversation_id: str | None = None,
-        skip_cache: bool = False,
     ) -> CacheResult:
         """
         Ask a question with detailed cache hit information.
@@ -515,86 +480,46 @@ class SemanticCacheService(GenieServiceBase):
         Args:
             question: The question to ask
             conversation_id: Optional conversation ID
-            skip_cache: If True, bypass this cache (still queries downstream)
 
         Returns:
             CacheResult with fresh response and cache metadata
         """
-        # Ensure setup is complete
+        # Ensure initialization (lazy init if initialize() wasn't called)
         self._setup()
 
         # Generate embedding for the question
         embedding: list[float] = self._embed_question(question)
 
-        # Check cache unless skipping
-        if not skip_cache:
-            cache_result: tuple[SQLCacheEntry, float] | None = self._find_similar(
-                question, embedding
+        # Check cache
+        cache_result: tuple[SQLCacheEntry, float] | None = self._find_similar(
+            question, embedding
+        )
+
+        if cache_result is not None:
+            cached, similarity = cache_result
+            logger.debug(
+                f"[{self.name}] Semantic cache hit (similarity={similarity:.3f}): {question[:50]}..."
             )
 
-            if cache_result is not None:
-                cached, similarity = cache_result
-                logger.debug(
-                    f"[{self.name}] Semantic cache hit (similarity={similarity:.3f}): {question[:50]}..."
-                )
+            # Re-execute the cached SQL to get fresh data
+            result: pd.DataFrame | str = self._execute_sql(cached.query)
 
-                # Calculate cache entry age
-                cache_age: timedelta = (
-                    datetime.now(cached.created_at.tzinfo) - cached.created_at
-                )
-                cache_age_seconds: float = cache_age.total_seconds()
+            response: GenieResponse = GenieResponse(
+                result=result,
+                query=cached.query,
+                description=cached.description,
+                conversation_id=cached.conversation_id,
+            )
 
-                # Log cache hit to trace with TTL and timing info
-                mlflow.update_current_trace(
-                    tags={
-                        "cache_hit": "true",
-                        "cache_layer": self.name,
-                        "similarity_score": f"{similarity:.4f}",
-                        "cached_sql": cached.query[:200] if cached.query else "",
-                        "cache_entry_created_at": cached.created_at.isoformat(),
-                        "cache_entry_age_seconds": str(int(cache_age_seconds)),
-                        "cache_ttl_seconds": str(
-                            int(self.time_to_live.total_seconds())
-                        ),
-                        "cache_ttl_remaining_seconds": str(
-                            int(self.time_to_live.total_seconds() - cache_age_seconds)
-                        ),
-                    }
-                )
-
-                # Re-execute the cached SQL to get fresh data
-                result: pd.DataFrame | str = self._execute_sql(cached.query)
-
-                response: GenieResponse = GenieResponse(
-                    result=result,
-                    query=cached.query,
-                    description=cached.description,
-                    conversation_id=cached.conversation_id,
-                )
-
-                return CacheResult(
-                    response=response, cache_hit=True, served_by=self.name
-                )
+            return CacheResult(response=response, cache_hit=True, served_by=self.name)
 
         # Cache miss - delegate to wrapped service
-        logger.debug(
-            f"[{self.name}] {'Skip' if skip_cache else 'Miss'}: {question[:50]}..."
-        )
-
-        # Log cache miss to trace with TTL info
-        mlflow.update_current_trace(
-            tags={
-                "cache_hit": "false",
-                "cache_layer": self.name,
-                "skip_cache": str(skip_cache),
-                "cache_ttl_seconds": str(int(self.time_to_live.total_seconds())),
-            }
-        )
+        logger.debug(f"[{self.name}] Miss: {question[:50]}...")
 
         response = self.impl.ask_question(question, conversation_id)
 
         # Store in cache if we got a SQL query
-        if response.query and not skip_cache:
+        if response.query:
             logger.info(
                 f"[{self.name}] Storing new cache entry for question: '{question[:50]}...' "
                 f"(space={self.genie_space_id})"
@@ -609,14 +534,25 @@ class SemanticCacheService(GenieServiceBase):
         return CacheResult(response=response, cache_hit=False, served_by=None)
 
     def invalidate_expired(self) -> int:
-        """Remove expired entries from the cache for this Genie space."""
+        """Remove expired entries from the cache for this Genie space.
+
+        Returns 0 if TTL is disabled (entries never expire).
+        """
         self._setup()
+        ttl_seconds = self.parameters.time_to_live_seconds
+
+        # If TTL is disabled, nothing can expire
+        if ttl_seconds is None or ttl_seconds < 0:
+            logger.debug(
+                f"[{self.name}] TTL disabled, no entries to expire for space {self.genie_space_id}"
+            )
+            return 0
+
         delete_sql: str = f"""
             DELETE FROM {self.table_name}
             WHERE genie_space_id = %s
               AND created_at < NOW() - INTERVAL '%s seconds'
         """
-        ttl_seconds: int = self.parameters.time_to_live_seconds
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -646,23 +582,40 @@ class SemanticCacheService(GenieServiceBase):
         """Current number of entries in the cache for this Genie space."""
         self._setup()
         count_sql: str = (
-            f"SELECT COUNT(*) FROM {self.table_name} WHERE genie_space_id = %s"
+            f"SELECT COUNT(*) as count FROM {self.table_name} WHERE genie_space_id = %s"
         )
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(count_sql, (self.genie_space_id,))
-                row: tuple[Any, ...] | dict[str, Any] | None = cur.fetchone()
-                if row is None:
-                    return 0
-                elif isinstance(row, dict):
-                    return row.get("count", 0)
-                else:
-                    return row[0]
+                row: DbRow | None = cur.fetchone()
+                return row.get("count", 0) if row else 0
 
-    def stats(self) -> dict[str, int | float]:
+    def stats(self) -> dict[str, int | float | None]:
         """Return cache statistics for this Genie space."""
         self._setup()
+        ttl_seconds = self.parameters.time_to_live_seconds
+        ttl = self.time_to_live
+
+        # If TTL is disabled, all entries are valid
+        if ttl_seconds is None or ttl_seconds < 0:
+            count_sql: str = f"""
+                SELECT COUNT(*) as total FROM {self.table_name}
+                WHERE genie_space_id = %s
+            """
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(count_sql, (self.genie_space_id,))
+                    row: DbRow | None = cur.fetchone()
+                    total = row.get("total", 0) if row else 0
+                    return {
+                        "size": total,
+                        "ttl_seconds": None,
+                        "similarity_threshold": self.similarity_threshold,
+                        "expired_entries": 0,
+                        "valid_entries": total,
+                    }
+
         stats_sql: str = f"""
             SELECT
                 COUNT(*) as total,
@@ -671,33 +624,15 @@ class SemanticCacheService(GenieServiceBase):
             FROM {self.table_name}
             WHERE genie_space_id = %s
         """
-        ttl_seconds: int = self.parameters.time_to_live_seconds
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(stats_sql, (ttl_seconds, ttl_seconds, self.genie_space_id))
-                row: tuple[Any, ...] | dict[str, Any] | None = cur.fetchone()
-                if row:
-                    if isinstance(row, dict):
-                        return {
-                            "size": row["total"],
-                            "ttl_seconds": self.time_to_live.total_seconds(),
-                            "similarity_threshold": self.similarity_threshold,
-                            "expired_entries": row["expired"],
-                            "valid_entries": row["valid"],
-                        }
-                    else:
-                        return {
-                            "size": row[0],
-                            "ttl_seconds": self.time_to_live.total_seconds(),
-                            "similarity_threshold": self.similarity_threshold,
-                            "expired_entries": row[2],
-                            "valid_entries": row[1],
-                        }
+                row: DbRow | None = cur.fetchone()
                 return {
-                    "size": 0,
-                    "ttl_seconds": self.time_to_live.total_seconds(),
+                    "size": row.get("total", 0) if row else 0,
+                    "ttl_seconds": ttl.total_seconds() if ttl else None,
                     "similarity_threshold": self.similarity_threshold,
-                    "expired_entries": 0,
-                    "valid_entries": 0,
+                    "expired_entries": row.get("expired", 0) if row else 0,
+                    "valid_entries": row.get("valid", 0) if row else 0,
                 }

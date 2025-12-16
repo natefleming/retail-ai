@@ -1448,26 +1448,6 @@ class TestLRUCacheServiceWithCacheInfo:
         assert result.cache_hit is True
         assert result.served_by == "test-cache"
 
-    @pytest.mark.unit
-    def test_skip_cache_bypasses_cache(
-        self,
-        lru_cache_service: LRUCacheService,
-        mock_genie_service: MockGenieService,
-    ) -> None:
-        """Test that skip_cache=True bypasses the cache."""
-        # First call - cache miss, adds to cache
-        lru_cache_service.ask_question("test question")
-        assert mock_genie_service.call_count == 1
-        assert lru_cache_service.size == 1
-
-        # Second call with skip_cache - should call impl despite cache entry
-        result = lru_cache_service.ask_question_with_cache_info(
-            "test question",
-            skip_cache=True,
-        )
-        assert mock_genie_service.call_count == 2
-        assert result.cache_hit is False
-
 
 class TestLRUCacheServiceManagement:
     """Tests for cache management operations."""
@@ -1803,20 +1783,23 @@ def test_create_genie_tool_with_cache_parameters() -> None:
 
 
 class MockPostgresPool:
-    """Mock PostgreSQL connection pool for testing."""
+    """Mock PostgreSQL connection pool for testing.
+
+    Mimics psycopg pool with row_factory=dict_row, returning dicts.
+    """
 
     def __init__(self) -> None:
         self.executed_queries: list[tuple[str, tuple]] = []
-        self.query_results: list[tuple | dict | None] = []
+        self.query_results: list[dict | None] = []
         self._result_index = 0
         self._current_cursor: "MockCursor | None" = None
 
-    def set_query_results(self, results: list[tuple | dict | None]) -> None:
+    def set_query_results(self, results: list[dict | None]) -> None:
         """Set the results to return for subsequent SELECT/COUNT queries."""
         self.query_results = results
         self._result_index = 0
 
-    def get_next_result(self) -> tuple | dict | None:
+    def get_next_result(self) -> dict | None:
         """Get the next result from the queue."""
         if self.query_results and self._result_index < len(self.query_results):
             result = self.query_results[self._result_index]
@@ -1845,11 +1828,11 @@ class MockConnection:
 
 
 class MockCursor:
-    """Mock database cursor."""
+    """Mock database cursor (mimics psycopg cursor with dict_row)."""
 
     def __init__(self, pool: MockPostgresPool) -> None:
         self.pool = pool
-        self._last_result: tuple | dict | None = None
+        self._last_result: dict | None = None
         self.rowcount: int = 0
 
     def __enter__(self) -> "MockCursor":
@@ -1868,7 +1851,7 @@ class MockCursor:
             self._last_result = None
             self.rowcount = 1  # Assume successful for non-SELECT queries
 
-    def fetchone(self) -> tuple | dict | None:
+    def fetchone(self) -> dict | None:
         return self._last_result
 
 
@@ -2044,9 +2027,10 @@ class TestSemanticCacheServiceCacheOperations:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        # First query returns 0 rows (for table creation check)
-        # Second query returns None (no similar entry found)
-        mock_pool.set_query_results([(0,), None])
+        # First query returns None (dimension check - table doesn't exist)
+        # Second query returns 0 rows (for table row count check)
+        # Third query returns None (no similar entry found)
+        mock_pool.set_query_results([None, None])
 
         params = Mock(spec=GenieSemanticCacheParametersModel)
         params.database = Mock()
@@ -2056,11 +2040,10 @@ class TestSemanticCacheServiceCacheOperations:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
-        )
+        ).initialize()
         result = cache.ask_question_with_cache_info("What is the inventory?")
 
         # Verify cache miss
@@ -2120,28 +2103,29 @@ class TestSemanticCacheServiceCacheOperations:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
-        # First query returns 0 rows (for table creation check)
-        # Second query returns a cached entry with similarity > threshold
-        # Format: (question, sql_query, description, conversation_id, created_at, similarity)
+        # First query returns None (dimension check - table doesn't exist)
+        # Second query returns 0 rows (for table row count check)
+        # Third query returns a cached entry with similarity > threshold and valid TTL
         mock_pool.set_query_results(
             [
-                (0,),  # table count
-                (
-                    "Similar question?",
-                    "SELECT * FROM inventory",
-                    "Cached description",
-                    "cached-conv-123",
-                    cached_time,
-                    0.92,
-                ),
+                None,  # dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Similar question?",
+                    "sql_query": "SELECT * FROM inventory",
+                    "description": "Cached description",
+                    "conversation_id": "cached-conv-123",
+                    "created_at": cached_time,
+                    "similarity": 0.92,
+                    "is_valid": True,  # Within TTL
+                },
             ]
         )
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
-        )
+        ).initialize()
         result = cache.ask_question_with_cache_info("What is the inventory?")
 
         # Verify cache hit
@@ -2181,43 +2165,40 @@ class TestSemanticCacheServiceCacheOperations:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
         # Return entry with similarity below threshold (0.75 < 0.85)
         mock_pool.set_query_results(
             [
-                (0,),  # table count
-                (
-                    "Different question",
-                    "SELECT * FROM inventory",
-                    "Description",
-                    "conv-123",
-                    cached_time,
-                    0.75,  # Below threshold
-                ),
+                None,  # dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Different question",
+                    "sql_query": "SELECT * FROM inventory",
+                    "description": "Description",
+                    "conversation_id": "conv-123",
+                    "created_at": cached_time,
+                    "similarity": 0.75,  # Below threshold
+                    "is_valid": True,
+                },
             ]
         )
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
-        )
+        ).initialize()
         result = cache.ask_question_with_cache_info("What is the inventory?")
 
         # Should be a miss because similarity is below threshold
         assert result.cache_hit is False
 
-
-class TestSemanticCacheServiceSkipCache:
-    """Tests for skip_cache functionality."""
-
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
     @patch("databricks_langchain.DatabricksEmbeddings")
-    def test_skip_cache_bypasses_lookup(
+    def test_expired_entry_deleted_and_refreshed(
         self,
         mock_embeddings_class: Mock,
         mock_pool_manager: Mock,
     ) -> None:
-        """Test that skip_cache=True bypasses cache lookup."""
+        """Test that expired entries are deleted and trigger a refresh (miss)."""
         mock_service = MockGenieService()
         mock_pool = MockPostgresPool()
 
@@ -2226,36 +2207,49 @@ class TestSemanticCacheServiceSkipCache:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
+        from datetime import timezone
+
+        old_time = datetime.now(timezone.utc) - timedelta(days=2)  # Older than TTL
+
         params = Mock(spec=GenieSemanticCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
-        params.time_to_live_seconds = 86400
+        params.time_to_live_seconds = 86400  # 1 day
         params.similarity_threshold = 0.85
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
-        # First query returns 0 rows (for table creation check)
-        mock_pool.set_query_results([(0,)])
+        # Return entry with high similarity but EXPIRED (is_valid=False)
+        mock_pool.set_query_results(
+            [
+                None,  # dimension check - table doesn't exist
+                {
+                    "id": 123,  # ID used for deletion
+                    "question": "Similar question?",
+                    "sql_query": "SELECT * FROM inventory",
+                    "description": "Description",
+                    "conversation_id": "conv-123",
+                    "created_at": old_time,
+                    "similarity": 0.95,  # High similarity
+                    "is_valid": False,  # EXPIRED - outside TTL window
+                },
+            ]
+        )
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
-        )
-        result = cache.ask_question_with_cache_info(
-            "What is the inventory?", skip_cache=True
-        )
+        ).initialize()
+        result = cache.ask_question_with_cache_info("What is the inventory?")
 
-        # Should be a miss because we skipped the cache
+        # Should be a miss because entry is expired (triggers refresh)
         assert result.cache_hit is False
 
-        # Verify no SELECT query was made for cache lookup
-        select_queries = [
-            q
-            for q, _ in mock_pool.executed_queries
-            if "SELECT" in q and "FROM test_cache" in q and "question_embedding" in q
+        # Verify DELETE query was executed
+        delete_queries = [
+            q for q, _ in mock_pool.executed_queries if "DELETE" in q.upper()
         ]
-        assert len(select_queries) == 0
+        assert len(delete_queries) >= 1
 
 
 class TestSemanticCacheServiceManagement:
@@ -2284,10 +2278,9 @@ class TestSemanticCacheServiceManagement:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
-        # First query for table creation, second for clear
-        mock_pool.set_query_results([(0,)])
+        # First query for dimension check, second for table creation
+        mock_pool.set_query_results([None])
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
@@ -2322,7 +2315,8 @@ class TestSemanticCacheServiceManagement:
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
 
-        mock_pool.set_query_results([(0,)])
+        # First query for dimension check, second for table creation
+        mock_pool.set_query_results([None])
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
@@ -2362,10 +2356,9 @@ class TestSemanticCacheServiceManagement:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
-        # First query for table creation, second for count
-        mock_pool.set_query_results([(0,), (42,)])
+        # First query for dimension check, second for table creation, third for count
+        mock_pool.set_query_results([None, {"count": 42}])
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
@@ -2395,10 +2388,9 @@ class TestSemanticCacheServiceManagement:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
-        # First query for table creation, second for stats (total, valid, expired)
-        mock_pool.set_query_results([(0,), (100, 95, 5)])
+        # First query for dimension check, second for stats
+        mock_pool.set_query_results([None, {"total": 100, "valid": 95, "expired": 5}])
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
@@ -2438,14 +2430,13 @@ class TestSemanticCacheServiceTableCreation:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "my_semantic_cache"
-        params.cleanup_probability = 0.0  # Disable cleanup in tests
 
-        # Table count returns 0
-        mock_pool.set_query_results([(0,), None])
+        # Dimension check returns None (table doesn't exist), table count returns 0
+        mock_pool.set_query_results([None, None])
 
         cache = SemanticCacheService(
             impl=mock_service, parameters=params, genie_space_id="test-space"
-        )
+        ).initialize()
         cache.ask_question("Test question")
 
         # Verify CREATE EXTENSION and CREATE TABLE were executed
@@ -2489,10 +2480,9 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
-        semantic_params.cleanup_probability = 0.0
 
-        # Table count returns 0, then no similar entry found
-        mock_pool.set_query_results([(0,), None])
+        # Dimension check, table count returns 0, then no similar entry found
+        mock_pool.set_query_results([None, None])
 
         # Create semantic cache wrapping Genie
         semantic_cache = SemanticCacheService(
@@ -2500,7 +2490,7 @@ class TestLRUPlusSemanticCacheIntegration:
             parameters=semantic_params,
             genie_space_id="test-space",
             name="SemanticCache",
-        )
+        ).initialize()
 
         # Setup LRU cache parameters
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
@@ -2569,15 +2559,14 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
-        semantic_params.cleanup_probability = 0.0
 
-        mock_pool.set_query_results([(0,), None])
+        mock_pool.set_query_results([None, None])
 
         semantic_cache = SemanticCacheService(
             impl=mock_genie_service,
             parameters=semantic_params,
             genie_space_id="test-space",
-        )
+        ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
         lru_params.warehouse = mock_warehouse
@@ -2653,27 +2642,28 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
-        semantic_params.cleanup_probability = 0.0
 
         cached_time = datetime.now(timezone.utc)
 
         # Query sequence:
-        # 1. First ask_question: table check (0) -> find_similar (None) -> INSERT
+        # 1. First ask_question: dim check (None) -> table check (0) -> find_similar (None) -> INSERT
         # 2. Second ask_question: find_similar (hit with 0.92)
         mock_pool.set_query_results(
             [
-                (0,),  # Table creation check for first call
+                None,  # Dimension check - table doesn't exist
                 None,  # No similar entry for first question
                 # INSERT happens here (no result needed)
                 # Second call:
-                (
-                    "What is the inventory?",  # Similar cached question
-                    "SELECT COUNT(*) FROM inventory",  # Cached SQL
-                    "Inventory count",  # Description
-                    "conv-123",  # Conversation ID
-                    cached_time,  # Created at
-                    0.92,  # Similarity score (above 0.85 threshold)
-                ),
+                {
+                    "id": 1,
+                    "question": "What is the inventory?",  # Similar cached question
+                    "sql_query": "SELECT COUNT(*) FROM inventory",  # Cached SQL
+                    "description": "Inventory count",  # Description
+                    "conversation_id": "conv-123",  # Conversation ID
+                    "created_at": cached_time,  # Created at
+                    "similarity": 0.92,  # Similarity score (above 0.85 threshold)
+                    "is_valid": True,  # Within TTL
+                },
             ]
         )
 
@@ -2681,7 +2671,7 @@ class TestLRUPlusSemanticCacheIntegration:
             impl=mock_genie_service,
             parameters=semantic_params,
             genie_space_id="test-space",
-        )
+        ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
         lru_params.warehouse = mock_warehouse
@@ -2755,22 +2745,23 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
-        semantic_params.cleanup_probability = 0.0
 
         cached_time = datetime.now(timezone.utc)
 
         # Semantic cache has a similar entry
         mock_pool.set_query_results(
             [
-                (0,),  # Table creation
-                (
-                    "Original question",
-                    "SELECT * FROM data",
-                    "Description",
-                    "conv-id",
-                    cached_time,
-                    0.95,  # High similarity
-                ),
+                None,  # Dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Original question",
+                    "sql_query": "SELECT * FROM data",
+                    "description": "Description",
+                    "conversation_id": "conv-id",
+                    "created_at": cached_time,
+                    "similarity": 0.95,  # High similarity
+                    "is_valid": True,  # Within TTL
+                },
             ]
         )
 
@@ -2778,7 +2769,7 @@ class TestLRUPlusSemanticCacheIntegration:
             impl=mock_genie_service,
             parameters=semantic_params,
             genie_space_id="test-space",
-        )
+        ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
         lru_params.warehouse = mock_warehouse
@@ -2836,22 +2827,23 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
-        semantic_params.cleanup_probability = 0.0
 
         cached_time = datetime.now(timezone.utc)
 
         # Return entry with similarity BELOW threshold
         mock_pool.set_query_results(
             [
-                (0,),  # Table creation
-                (
-                    "Unrelated question",
-                    "SELECT * FROM other",
-                    "Description",
-                    "conv-id",
-                    cached_time,
-                    0.60,  # Below 0.85 threshold
-                ),
+                None,  # Dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Unrelated question",
+                    "sql_query": "SELECT * FROM other",
+                    "description": "Description",
+                    "conversation_id": "conv-id",
+                    "created_at": cached_time,
+                    "similarity": 0.60,  # Below 0.85 threshold
+                    "is_valid": True,
+                },
             ]
         )
 
@@ -2859,7 +2851,7 @@ class TestLRUPlusSemanticCacheIntegration:
             impl=mock_genie_service,
             parameters=semantic_params,
             genie_space_id="test-space",
-        )
+        ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
         lru_params.warehouse = mock_warehouse
