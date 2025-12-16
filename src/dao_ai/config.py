@@ -28,8 +28,10 @@ from databricks.sdk.service.database import DatabaseInstance
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
+    DatabricksEmbeddings,
     DatabricksFunctionClient,
 )
+from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, messages_from_dict
 from langchain_core.runnables.base import RunnableLike
@@ -407,6 +409,9 @@ class LLMModel(BaseModel, IsDatabricksResource):
         chat_client.max_tokens = self.max_tokens
 
         return chat_client
+
+    def as_embeddings_model(self) -> Embeddings:
+        return DatabricksEmbeddings(endpoint=self.name)
 
 
 class VectorSearchEndpointType(str, Enum):
@@ -975,6 +980,30 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         provider: DatabricksProvider = DatabricksProvider(w=w)
         provider.create_lakebase(self)
         provider.create_lakebase_instance_role(self)
+
+
+class GenieLRUCacheParametersModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    capacity: int = 1000
+    time_to_live_seconds: int | None = (
+        60 * 60 * 24
+    )  # 1 day default, None or negative = never expires
+    warehouse: WarehouseModel
+
+
+class GenieSemanticCacheParametersModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    time_to_live_seconds: int | None = (
+        60 * 60 * 24
+    )  # 1 day default, None or negative = never expires
+    similarity_threshold: float = (
+        0.85  # Minimum similarity for cache hit (L2 distance converted to 0-1 scale)
+    )
+    embedding_model: str | LLMModel = "databricks-gte-large-en"
+    embedding_dims: int | None = None  # Auto-detected if None
+    database: DatabaseModel
+    warehouse: WarehouseModel
+    table_name: str = "genie_semantic_cache"
 
 
 class SearchParametersModel(BaseModel):

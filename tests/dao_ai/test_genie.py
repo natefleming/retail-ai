@@ -1,14 +1,29 @@
 """Integration tests for Databricks Genie tool functionality."""
 
 import os
-from unittest.mock import patch
+from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
 
+import pandas as pd
 import pytest
 from conftest import has_retail_ai_env
+from databricks.sdk.service.sql import StatementState
+from databricks_ai_bridge.genie import Genie, GenieResponse
 from langchain_core.tools import StructuredTool
 
-from dao_ai.config import GenieRoomModel
-from dao_ai.tools.genie import Genie, GenieResponse, create_genie_tool
+from dao_ai.config import (
+    GenieLRUCacheParametersModel,
+    GenieRoomModel,
+    GenieSemanticCacheParametersModel,
+)
+from dao_ai.genie import GenieServiceBase
+from dao_ai.genie.cache import (
+    CacheResult,
+    LRUCacheService,
+    SemanticCacheService,
+    SQLCacheEntry,
+)
+from dao_ai.tools.genie import create_genie_tool
 
 
 @pytest.mark.slow
@@ -980,3 +995,1876 @@ def test_genie_config_validation_and_tool_creation() -> None:
             f"\n❌ Configuration validation test FAILED: {type(e).__name__}: {str(e)}"
         )
         raise
+
+
+# =============================================================================
+# LRUCacheService Unit Tests
+# =============================================================================
+
+
+class MockGenieService(GenieServiceBase):
+    """Mock implementation of GenieServiceBase for testing."""
+
+    call_count: int
+    last_question: str | None
+    last_conversation_id: str | None
+    response_to_return: GenieResponse
+
+    def __init__(self, response: GenieResponse | None = None) -> None:
+        self.call_count = 0
+        self.last_question = None
+        self.last_conversation_id = None
+        self.response_to_return = response or GenieResponse(
+            result="Mock result",
+            query="SELECT * FROM mock_table",
+            description="Mock description",
+            conversation_id="mock-conv-123",
+        )
+
+    def ask_question(
+        self, question: str, conversation_id: str | None = None
+    ) -> GenieResponse:
+        self.call_count += 1
+        self.last_question = question
+        self.last_conversation_id = conversation_id
+        return self.response_to_return
+
+
+class MockColumn:
+    """Mock column object with a name attribute."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+def create_mock_warehouse() -> Mock:
+    """Create a mock WarehouseModel with mocked workspace_client."""
+    mock_warehouse = Mock()
+    mock_warehouse.warehouse_id = "test-warehouse-123"
+
+    # Mock the workspace client and statement execution
+    mock_ws_client = Mock()
+
+    # Create a successful statement response
+    mock_statement_response = Mock()
+    mock_statement_response.status.state = StatementState.SUCCEEDED
+    mock_statement_response.statement_id = "stmt-123"
+    mock_statement_response.result = Mock()
+    mock_statement_response.result.data_array = [
+        ["value1", "value2"],
+        ["value3", "value4"],
+    ]
+    mock_statement_response.manifest = Mock()
+    mock_statement_response.manifest.schema = Mock()
+    # Use real objects with name attributes for columns
+    mock_statement_response.manifest.schema.columns = [
+        MockColumn("col1"),
+        MockColumn("col2"),
+    ]
+
+    mock_ws_client.statement_execution.execute_statement.return_value = (
+        mock_statement_response
+    )
+    mock_warehouse.workspace_client = mock_ws_client
+
+    return mock_warehouse
+
+
+def create_mock_cache_parameters(
+    warehouse: Mock | None = None,
+    capacity: int = 3,
+    time_to_live_seconds: int = 3600,
+) -> Mock:
+    """
+    Create mock cache parameters that bypass Pydantic validation.
+
+    This is necessary for unit tests because GenieLRUCacheParametersModel
+    requires a valid WarehouseModel instance.
+    """
+    mock_params = Mock()
+    mock_params.warehouse = (
+        warehouse if warehouse is not None else create_mock_warehouse()
+    )
+    mock_params.capacity = capacity
+    mock_params.time_to_live_seconds = time_to_live_seconds
+    return mock_params
+
+
+@pytest.fixture
+def mock_warehouse_model() -> Mock:
+    """Create a mock WarehouseModel with mocked workspace_client."""
+    return create_mock_warehouse()
+
+
+@pytest.fixture
+def mock_cache_parameters(mock_warehouse_model: Mock) -> Mock:
+    """Create mock cache parameters."""
+    return create_mock_cache_parameters(warehouse=mock_warehouse_model)
+
+
+@pytest.fixture
+def mock_genie_service() -> MockGenieService:
+    """Create a mock genie service."""
+    return MockGenieService()
+
+
+@pytest.fixture
+def lru_cache_service(
+    mock_genie_service: MockGenieService,
+    mock_cache_parameters: Mock,
+) -> LRUCacheService:
+    """Create an LRUCacheService with mock dependencies."""
+    return LRUCacheService(
+        impl=mock_genie_service,
+        parameters=mock_cache_parameters,
+        name="test-cache",
+    )
+
+
+class TestSQLCacheEntry:
+    """Tests for SQLCacheEntry dataclass."""
+
+    @pytest.mark.unit
+    def test_cache_entry_creation(self) -> None:
+        """Test creating a SQLCacheEntry with all fields."""
+        now = datetime.now()
+        entry = SQLCacheEntry(
+            query="SELECT * FROM products",
+            description="Get all products",
+            conversation_id="conv-123",
+            created_at=now,
+        )
+
+        assert entry.query == "SELECT * FROM products"
+        assert entry.description == "Get all products"
+        assert entry.conversation_id == "conv-123"
+        assert entry.created_at == now
+
+
+class TestCacheResult:
+    """Tests for CacheResult dataclass."""
+
+    @pytest.mark.unit
+    def test_cache_result_cache_hit(self) -> None:
+        """Test CacheResult for a cache hit."""
+        response = GenieResponse(
+            result="test result",
+            query="SELECT 1",
+            description="test",
+            conversation_id="conv-1",
+        )
+        result = CacheResult(
+            response=response,
+            cache_hit=True,
+            served_by="test-cache",
+        )
+
+        assert result.response == response
+        assert result.cache_hit is True
+        assert result.served_by == "test-cache"
+
+    @pytest.mark.unit
+    def test_cache_result_cache_miss(self) -> None:
+        """Test CacheResult for a cache miss."""
+        response = GenieResponse(
+            result="test result",
+            query="SELECT 1",
+            description="test",
+            conversation_id="conv-1",
+        )
+        result = CacheResult(
+            response=response,
+            cache_hit=False,
+            served_by=None,
+        )
+
+        assert result.response == response
+        assert result.cache_hit is False
+        assert result.served_by is None
+
+
+class TestLRUCacheServiceInitialization:
+    """Tests for LRUCacheService initialization."""
+
+    @pytest.mark.unit
+    def test_initialization_with_custom_name(
+        self,
+        mock_genie_service: MockGenieService,
+        mock_cache_parameters: GenieLRUCacheParametersModel,
+    ) -> None:
+        """Test initialization with a custom name."""
+        cache = LRUCacheService(
+            impl=mock_genie_service,
+            parameters=mock_cache_parameters,
+            name="custom-cache-name",
+        )
+
+        assert cache.name == "custom-cache-name"
+        assert cache.impl == mock_genie_service
+        assert cache.parameters == mock_cache_parameters
+        assert cache.size == 0
+
+    @pytest.mark.unit
+    def test_initialization_with_default_name(
+        self,
+        mock_genie_service: MockGenieService,
+        mock_cache_parameters: GenieLRUCacheParametersModel,
+    ) -> None:
+        """Test initialization with default name (class name)."""
+        cache = LRUCacheService(
+            impl=mock_genie_service,
+            parameters=mock_cache_parameters,
+        )
+
+        assert cache.name == "LRUCacheService"
+
+    @pytest.mark.unit
+    def test_properties(self, lru_cache_service: LRUCacheService) -> None:
+        """Test property accessors."""
+        assert lru_cache_service.capacity == 3
+        assert lru_cache_service.time_to_live == timedelta(seconds=3600)
+        assert lru_cache_service.warehouse is not None
+
+
+class TestLRUCacheServiceKeyNormalization:
+    """Tests for key normalization."""
+
+    @pytest.mark.unit
+    def test_normalize_key_strips_whitespace(self) -> None:
+        """Test that normalization strips leading/trailing whitespace."""
+        assert LRUCacheService._normalize_key("  hello world  ") == "hello world"
+
+    @pytest.mark.unit
+    def test_normalize_key_lowercases(self) -> None:
+        """Test that normalization converts to lowercase."""
+        assert LRUCacheService._normalize_key("HELLO WORLD") == "hello world"
+
+    @pytest.mark.unit
+    def test_normalize_key_combined(self) -> None:
+        """Test combined normalization."""
+        assert LRUCacheService._normalize_key("  HELLO World  ") == "hello world"
+
+
+class TestLRUCacheServiceExpiration:
+    """Tests for cache expiration logic."""
+
+    @pytest.mark.unit
+    def test_is_expired_fresh_entry(self, lru_cache_service: LRUCacheService) -> None:
+        """Test that a fresh entry is not expired."""
+        entry = SQLCacheEntry(
+            query="SELECT 1",
+            description="test",
+            conversation_id="conv-1",
+            created_at=datetime.now(),
+        )
+        assert lru_cache_service._is_expired(entry) is False
+
+    @pytest.mark.unit
+    def test_is_expired_old_entry(self, lru_cache_service: LRUCacheService) -> None:
+        """Test that an old entry is expired."""
+        entry = SQLCacheEntry(
+            query="SELECT 1",
+            description="test",
+            conversation_id="conv-1",
+            created_at=datetime.now() - timedelta(hours=2),  # TTL is 1 hour
+        )
+        assert lru_cache_service._is_expired(entry) is True
+
+
+class TestLRUCacheServiceCacheOperations:
+    """Tests for basic cache operations."""
+
+    @pytest.mark.unit
+    def test_cache_miss_calls_impl(
+        self,
+        lru_cache_service: LRUCacheService,
+        mock_genie_service: MockGenieService,
+    ) -> None:
+        """Test that a cache miss delegates to the wrapped service."""
+        response = lru_cache_service.ask_question("What is the total sales?")
+
+        assert mock_genie_service.call_count == 1
+        assert mock_genie_service.last_question == "What is the total sales?"
+        assert response.query == "SELECT * FROM mock_table"
+        assert lru_cache_service.size == 1
+
+    @pytest.mark.unit
+    def test_cache_hit_does_not_call_impl(
+        self,
+        lru_cache_service: LRUCacheService,
+        mock_genie_service: MockGenieService,
+    ) -> None:
+        """Test that a cache hit does not call the wrapped service."""
+        # First call - cache miss
+        lru_cache_service.ask_question("What is the total sales?")
+        assert mock_genie_service.call_count == 1
+
+        # Second call - cache hit
+        lru_cache_service.ask_question("What is the total sales?")
+        assert mock_genie_service.call_count == 1  # Still 1, not called again
+
+    @pytest.mark.unit
+    def test_cache_hit_with_different_case(
+        self,
+        lru_cache_service: LRUCacheService,
+        mock_genie_service: MockGenieService,
+    ) -> None:
+        """Test that cache keys are case-insensitive."""
+        # First call - cache miss
+        lru_cache_service.ask_question("What is the total sales?")
+        assert mock_genie_service.call_count == 1
+
+        # Second call with different case - should still be cache hit
+        lru_cache_service.ask_question("WHAT IS THE TOTAL SALES?")
+        assert mock_genie_service.call_count == 1
+
+    @pytest.mark.unit
+    def test_cache_hit_with_whitespace_variation(
+        self,
+        lru_cache_service: LRUCacheService,
+        mock_genie_service: MockGenieService,
+    ) -> None:
+        """Test that cache keys ignore leading/trailing whitespace."""
+        # First call - cache miss
+        lru_cache_service.ask_question("What is the total sales?")
+        assert mock_genie_service.call_count == 1
+
+        # Second call with whitespace - should still be cache hit
+        lru_cache_service.ask_question("  What is the total sales?  ")
+        assert mock_genie_service.call_count == 1
+
+    @pytest.mark.unit
+    def test_lru_eviction_at_capacity(
+        self,
+        lru_cache_service: LRUCacheService,
+        mock_genie_service: MockGenieService,
+    ) -> None:
+        """Test that oldest entries are evicted when at capacity."""
+        # Fill cache to capacity (3)
+        lru_cache_service.ask_question("question 1")
+        lru_cache_service.ask_question("question 2")
+        lru_cache_service.ask_question("question 3")
+        assert lru_cache_service.size == 3
+        assert mock_genie_service.call_count == 3
+
+        # Add one more - should evict "question 1"
+        lru_cache_service.ask_question("question 4")
+        assert lru_cache_service.size == 3  # Still at capacity
+        assert mock_genie_service.call_count == 4
+
+        # "question 1" should now be a cache miss
+        lru_cache_service.ask_question("question 1")
+        assert mock_genie_service.call_count == 5  # Had to call impl again
+
+        # "question 2" should now be evicted
+        lru_cache_service.ask_question("question 2")
+        assert mock_genie_service.call_count == 6
+
+    @pytest.mark.unit
+    def test_lru_access_updates_recency(
+        self,
+        lru_cache_service: LRUCacheService,
+        mock_genie_service: MockGenieService,
+    ) -> None:
+        """Test that accessing an entry updates its recency."""
+        # Fill cache
+        lru_cache_service.ask_question("question 1")
+        lru_cache_service.ask_question("question 2")
+        lru_cache_service.ask_question("question 3")
+
+        # Access question 1 again - moves to end
+        lru_cache_service.ask_question("question 1")
+
+        # Add new question - should evict question 2 (oldest now)
+        lru_cache_service.ask_question("question 4")
+
+        # question 1 should still be in cache
+        lru_cache_service.ask_question("question 1")
+        assert mock_genie_service.call_count == 4  # No new call
+
+        # question 2 should be evicted
+        lru_cache_service.ask_question("question 2")
+        assert mock_genie_service.call_count == 5  # Had to call impl
+
+    @pytest.mark.unit
+    def test_expired_entry_causes_cache_miss(
+        self,
+        mock_genie_service: MockGenieService,
+        mock_warehouse_model: Mock,
+    ) -> None:
+        """Test that expired entries result in cache miss."""
+        # Create cache with very short TTL
+        params = create_mock_cache_parameters(
+            warehouse=mock_warehouse_model,
+            capacity=10,
+            time_to_live_seconds=1,  # 1 second TTL
+        )
+        cache = LRUCacheService(
+            impl=mock_genie_service,
+            parameters=params,
+        )
+
+        # First call - cache miss
+        cache.ask_question("test question")
+        assert mock_genie_service.call_count == 1
+
+        # Manually expire the entry by modifying created_at
+        key = cache._normalize_key("test question")
+        with cache._lock:
+            cache._cache[key].created_at = datetime.now() - timedelta(seconds=5)
+
+        # Second call - should be cache miss due to expiration
+        cache.ask_question("test question")
+        assert mock_genie_service.call_count == 2
+
+
+class TestLRUCacheServiceWithCacheInfo:
+    """Tests for ask_question_with_cache_info method."""
+
+    @pytest.mark.unit
+    def test_cache_miss_returns_correct_info(
+        self,
+        lru_cache_service: LRUCacheService,
+    ) -> None:
+        """Test that cache miss returns correct CacheResult."""
+        result = lru_cache_service.ask_question_with_cache_info("new question")
+
+        assert result.cache_hit is False
+        assert result.served_by is None
+        assert result.response.query == "SELECT * FROM mock_table"
+
+    @pytest.mark.unit
+    def test_cache_hit_returns_correct_info(
+        self,
+        lru_cache_service: LRUCacheService,
+    ) -> None:
+        """Test that cache hit returns correct CacheResult."""
+        # First call - cache miss
+        lru_cache_service.ask_question("test question")
+
+        # Second call - cache hit
+        result = lru_cache_service.ask_question_with_cache_info("test question")
+
+        assert result.cache_hit is True
+        assert result.served_by == "test-cache"
+
+
+class TestLRUCacheServiceManagement:
+    """Tests for cache management operations."""
+
+    @pytest.mark.unit
+    def test_invalidate_existing_entry(
+        self,
+        lru_cache_service: LRUCacheService,
+    ) -> None:
+        """Test invalidating an existing cache entry."""
+        lru_cache_service.ask_question("test question")
+        assert lru_cache_service.size == 1
+
+        result = lru_cache_service.invalidate("test question")
+        assert result is True
+        assert lru_cache_service.size == 0
+
+    @pytest.mark.unit
+    def test_invalidate_nonexistent_entry(
+        self,
+        lru_cache_service: LRUCacheService,
+    ) -> None:
+        """Test invalidating a non-existent cache entry."""
+        result = lru_cache_service.invalidate("nonexistent")
+        assert result is False
+
+    @pytest.mark.unit
+    def test_clear_removes_all_entries(
+        self,
+        lru_cache_service: LRUCacheService,
+    ) -> None:
+        """Test clearing all cache entries."""
+        lru_cache_service.ask_question("question 1")
+        lru_cache_service.ask_question("question 2")
+        assert lru_cache_service.size == 2
+
+        count = lru_cache_service.clear()
+        assert count == 2
+        assert lru_cache_service.size == 0
+
+    @pytest.mark.unit
+    def test_stats_returns_correct_info(
+        self,
+        lru_cache_service: LRUCacheService,
+    ) -> None:
+        """Test stats method returns correct information."""
+        lru_cache_service.ask_question("question 1")
+        lru_cache_service.ask_question("question 2")
+
+        stats = lru_cache_service.stats()
+
+        assert stats["size"] == 2
+        assert stats["capacity"] == 3
+        assert stats["ttl_seconds"] == 3600.0
+        assert stats["expired_entries"] == 0
+        assert stats["valid_entries"] == 2
+
+
+class TestLRUCacheServiceSQLExecution:
+    """Tests for SQL execution on cache hit."""
+
+    @pytest.mark.unit
+    def test_cache_hit_executes_sql(
+        self,
+        lru_cache_service: LRUCacheService,
+        mock_warehouse_model: Mock,
+    ) -> None:
+        """Test that cache hit executes cached SQL via warehouse."""
+        # First call - cache miss
+        lru_cache_service.ask_question("test question")
+
+        # Second call - cache hit, should execute SQL
+        response = lru_cache_service.ask_question("test question")
+
+        # Verify SQL was executed
+        mock_warehouse_model.workspace_client.statement_execution.execute_statement.assert_called()
+
+        # Verify response contains data from SQL execution
+        assert isinstance(response.result, pd.DataFrame)
+        assert list(response.result.columns) == ["col1", "col2"]
+
+    @pytest.mark.unit
+    def test_sql_execution_failure_returns_error(
+        self,
+        mock_genie_service: MockGenieService,
+        mock_warehouse_model: Mock,
+    ) -> None:
+        """Test that SQL execution failure returns error message."""
+        # Configure failed SQL execution
+        mock_statement_response = Mock()
+        mock_statement_response.status.state = StatementState.FAILED
+        mock_statement_response.status.error = Mock(message="SQL syntax error")
+        mock_warehouse_model.workspace_client.statement_execution.execute_statement.return_value = mock_statement_response
+
+        params = create_mock_cache_parameters(
+            warehouse=mock_warehouse_model,
+            capacity=10,
+            time_to_live_seconds=3600,
+        )
+        cache = LRUCacheService(
+            impl=mock_genie_service,
+            parameters=params,
+        )
+
+        # First call - cache miss
+        cache.ask_question("test question")
+
+        # Second call - cache hit, SQL execution fails
+        response = cache.ask_question("test question")
+
+        assert "SQL execution failed" in str(response.result)
+
+
+# =============================================================================
+# LRUCacheService Integration Tests
+# =============================================================================
+
+
+class TestLRUCacheServiceIntegration:
+    """Integration tests for LRUCacheService."""
+
+    @pytest.mark.integration
+    def test_full_cache_flow(
+        self,
+        mock_warehouse_model: Mock,
+    ) -> None:
+        """Test full cache flow: miss -> hit -> eviction -> miss."""
+        mock_service = MockGenieService()
+        params = create_mock_cache_parameters(
+            warehouse=mock_warehouse_model,
+            capacity=2,
+            time_to_live_seconds=3600,
+        )
+        cache = LRUCacheService(impl=mock_service, parameters=params)
+
+        # Step 1: Cache miss for question 1
+        result1 = cache.ask_question_with_cache_info("question 1")
+        assert result1.cache_hit is False
+        assert mock_service.call_count == 1
+
+        # Step 2: Cache hit for question 1
+        result2 = cache.ask_question_with_cache_info("question 1")
+        assert result2.cache_hit is True
+        assert mock_service.call_count == 1  # No new call
+
+        # Step 3: Cache miss for question 2
+        result3 = cache.ask_question_with_cache_info("question 2")
+        assert result3.cache_hit is False
+        assert mock_service.call_count == 2
+
+        # Step 4: Cache miss for question 3 (evicts question 1)
+        result4 = cache.ask_question_with_cache_info("question 3")
+        assert result4.cache_hit is False
+        assert mock_service.call_count == 3
+        assert cache.size == 2
+
+        # Step 5: Cache miss for question 1 (was evicted)
+        result5 = cache.ask_question_with_cache_info("question 1")
+        assert result5.cache_hit is False
+        assert mock_service.call_count == 4
+
+    @pytest.mark.integration
+    def test_chained_cache_services(
+        self,
+        mock_warehouse_model: Mock,
+    ) -> None:
+        """Test chaining multiple cache services."""
+        # Create base service
+        mock_service = MockGenieService()
+
+        # Create first cache layer
+        params1 = create_mock_cache_parameters(
+            warehouse=mock_warehouse_model,
+            capacity=10,
+            time_to_live_seconds=3600,
+        )
+        cache1 = LRUCacheService(
+            impl=mock_service,
+            parameters=params1,
+            name="cache-layer-1",
+        )
+
+        # Create second cache layer wrapping the first
+        params2 = create_mock_cache_parameters(
+            warehouse=mock_warehouse_model,
+            capacity=5,
+            time_to_live_seconds=1800,
+        )
+        cache2 = LRUCacheService(
+            impl=cache1,
+            parameters=params2,
+            name="cache-layer-2",
+        )
+
+        # First call - misses both caches
+        result1 = cache2.ask_question_with_cache_info("test question")
+        assert result1.cache_hit is False
+        assert mock_service.call_count == 1
+        assert cache1.size == 1
+        assert cache2.size == 1
+
+        # Second call - hits outer cache (cache2)
+        result2 = cache2.ask_question_with_cache_info("test question")
+        assert result2.cache_hit is True
+        assert result2.served_by == "cache-layer-2"
+        assert mock_service.call_count == 1  # No new call
+
+    @pytest.mark.integration
+    def test_conversation_id_preserved(
+        self,
+        mock_warehouse_model: Mock,
+    ) -> None:
+        """Test that conversation_id is preserved through cache."""
+        custom_response = GenieResponse(
+            result="Custom result",
+            query="SELECT * FROM custom",
+            description="Custom description",
+            conversation_id="custom-conv-456",
+        )
+        mock_service = MockGenieService(response=custom_response)
+
+        params = create_mock_cache_parameters(
+            warehouse=mock_warehouse_model,
+            capacity=10,
+            time_to_live_seconds=3600,
+        )
+        cache = LRUCacheService(impl=mock_service, parameters=params)
+
+        # First call - cache miss
+        response1 = cache.ask_question("test")
+        assert response1.conversation_id == "custom-conv-456"
+
+        # Second call - cache hit
+        response2 = cache.ask_question("test")
+        assert response2.conversation_id == "custom-conv-456"
+
+    @pytest.mark.integration
+    def test_thread_safety_basic(
+        self,
+        mock_warehouse_model: Mock,
+    ) -> None:
+        """Basic test for thread safety of cache operations."""
+        import threading
+
+        mock_service = MockGenieService()
+        params = create_mock_cache_parameters(
+            warehouse=mock_warehouse_model,
+            capacity=100,
+            time_to_live_seconds=3600,
+        )
+        cache = LRUCacheService(impl=mock_service, parameters=params)
+
+        results: list[GenieResponse] = []
+        errors: list[Exception] = []
+
+        def worker(question: str) -> None:
+            try:
+                response = cache.ask_question(question)
+                results.append(response)
+            except Exception as e:
+                errors.append(e)
+
+        # Create multiple threads making concurrent requests
+        threads: list[threading.Thread] = []
+        for i in range(10):
+            t = threading.Thread(target=worker, args=(f"question {i % 3}",))
+            threads.append(t)
+
+        # Start all threads
+        for t in threads:
+            t.start()
+
+        # Wait for all threads to complete
+        for t in threads:
+            t.join()
+
+        # Verify no errors occurred
+        assert len(errors) == 0, f"Errors during concurrent access: {errors}"
+        assert len(results) == 10
+        # Only 3 unique questions, so at most 3 calls to impl
+        assert mock_service.call_count <= 10
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
+def test_create_genie_tool_with_cache_parameters() -> None:
+    """Test creating a genie tool with LRU cache parameters."""
+    from dao_ai.config import WarehouseModel
+
+    # Create a mock warehouse model for testing
+    # In real integration, you would use actual Databricks credentials
+    with patch("dao_ai.tools.genie.Genie") as mock_genie_class:
+        mock_genie_instance = Mock()
+        mock_genie_instance.ask_question = Mock(
+            return_value=GenieResponse(
+                result="Test result",
+                query="SELECT 1",
+                description="Test",
+                conversation_id="test-conv",
+            )
+        )
+        mock_genie_class.return_value = mock_genie_instance
+
+        genie_room = GenieRoomModel(
+            name="Test Room",
+            space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
+        )
+
+        # Create mock warehouse
+        mock_warehouse = Mock(spec=WarehouseModel)
+        mock_warehouse.warehouse_id = "test-warehouse"
+        mock_warehouse.workspace_client = Mock()
+
+        cache_params = GenieLRUCacheParametersModel(
+            warehouse=mock_warehouse,
+            capacity=50,
+            time_to_live_seconds=7200,
+        )
+
+        tool = create_genie_tool(
+            genie_room=genie_room,
+            name="cached_genie_tool",
+            lru_cache_parameters=cache_params,
+        )
+
+        assert isinstance(tool, StructuredTool)
+        assert tool.name == "cached_genie_tool"
+
+
+# =============================================================================
+# SemanticCacheService Tests
+# =============================================================================
+
+
+class MockPostgresPool:
+    """Mock PostgreSQL connection pool for testing.
+
+    Mimics psycopg pool with row_factory=dict_row, returning dicts.
+    """
+
+    def __init__(self) -> None:
+        self.executed_queries: list[tuple[str, tuple]] = []
+        self.query_results: list[dict | None] = []
+        self._result_index = 0
+        self._current_cursor: "MockCursor | None" = None
+
+    def set_query_results(self, results: list[dict | None]) -> None:
+        """Set the results to return for subsequent SELECT/COUNT queries."""
+        self.query_results = results
+        self._result_index = 0
+
+    def get_next_result(self) -> dict | None:
+        """Get the next result from the queue."""
+        if self.query_results and self._result_index < len(self.query_results):
+            result = self.query_results[self._result_index]
+            self._result_index += 1
+            return result
+        return None
+
+    def connection(self) -> "MockConnection":
+        return MockConnection(self)
+
+
+class MockConnection:
+    """Mock database connection."""
+
+    def __init__(self, pool: MockPostgresPool) -> None:
+        self.pool = pool
+
+    def __enter__(self) -> "MockConnection":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def cursor(self) -> "MockCursor":
+        return MockCursor(self.pool)
+
+
+class MockCursor:
+    """Mock database cursor (mimics psycopg cursor with dict_row)."""
+
+    def __init__(self, pool: MockPostgresPool) -> None:
+        self.pool = pool
+        self._last_result: dict | None = None
+        self.rowcount: int = 0
+
+    def __enter__(self) -> "MockCursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def execute(self, query: str, params: tuple = ()) -> None:
+        self.pool.executed_queries.append((query, params))
+        # Only fetch a result for SELECT queries
+        if "SELECT" in query.upper():
+            self._last_result = self.pool.get_next_result()
+            self.rowcount = 1 if self._last_result else 0
+        else:
+            self._last_result = None
+            self.rowcount = 1  # Assume successful for non-SELECT queries
+
+    def fetchone(self) -> dict | None:
+        return self._last_result
+
+
+class MockEmbeddings:
+    """Mock embeddings model for testing."""
+
+    def __init__(self, dims: int = 1024) -> None:
+        self.dims = dims
+        self.embed_calls: list[list[str]] = []
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.embed_calls.append(texts)
+        # Return deterministic embeddings based on text content
+        return [[hash(text) % 1000 / 1000.0] * self.dims for text in texts]
+
+
+def create_mock_semantic_cache_parameters(
+    database: Mock,
+    warehouse: Mock,
+    time_to_live_seconds: int = 86400,
+    similarity_threshold: float = 0.85,
+    embedding_dims: int = 1024,
+    table_name: str = "test_semantic_cache",
+) -> GenieSemanticCacheParametersModel:
+    """Create a mock GenieSemanticCacheParametersModel for testing."""
+    return GenieSemanticCacheParametersModel(
+        database=database,
+        warehouse=warehouse,
+        time_to_live_seconds=time_to_live_seconds,
+        similarity_threshold=similarity_threshold,
+        embedding_dims=embedding_dims,
+        table_name=table_name,
+    )
+
+
+class TestSemanticCacheServiceInitialization:
+    """Tests for SemanticCacheService initialization."""
+
+    def test_init_with_defaults(self) -> None:
+        """Test initialization with default name."""
+        mock_service = MockGenieService()
+        mock_database = Mock()
+        mock_database.name = "test_db"
+        mock_database.connection_params = {"host": "localhost"}
+        mock_database.connection_kwargs = {}
+        mock_database.max_pool_size = 10
+        mock_database.timeout_seconds = 10
+
+        mock_warehouse = Mock()
+        mock_warehouse.warehouse_id = "test-warehouse"
+        mock_warehouse.workspace_client = Mock()
+
+        # Mock the parameters model - we'll create a real one with mocked dependencies
+        with patch(
+            "dao_ai.config.GenieSemanticCacheParametersModel.__init__",
+            return_value=None,
+        ):
+            params = Mock(spec=GenieSemanticCacheParametersModel)
+            params.database = mock_database
+            params.warehouse = mock_warehouse
+            params.time_to_live_seconds = 86400
+            params.similarity_threshold = 0.85
+            params.embedding_dims = 1024
+            params.embedding_model = "databricks-gte-large-en"
+            params.table_name = "test_cache"
+
+            cache = SemanticCacheService(
+                impl=mock_service, parameters=params, genie_space_id="test-space"
+            )
+
+            assert cache.impl is mock_service
+            assert cache.name == "SemanticCacheService"
+            assert cache.genie_space_id == "test-space"
+            assert cache._setup_complete is False
+
+    def test_init_with_custom_name(self) -> None:
+        """Test initialization with custom name."""
+        mock_service = MockGenieService()
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+
+        cache = SemanticCacheService(
+            impl=mock_service,
+            parameters=params,
+            genie_space_id="test-space",
+            name="CustomSemanticCache",
+        )
+
+        assert cache.name == "CustomSemanticCache"
+
+
+class TestSemanticCacheServiceProperties:
+    """Tests for SemanticCacheService properties."""
+
+    def test_database_property(self) -> None:
+        """Test database property returns correct value."""
+        mock_service = MockGenieService()
+        mock_database = Mock()
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = mock_database
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        assert cache.database is mock_database
+
+    def test_warehouse_property(self) -> None:
+        """Test warehouse property returns correct value."""
+        mock_service = MockGenieService()
+        mock_warehouse = Mock()
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.warehouse = mock_warehouse
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        assert cache.warehouse is mock_warehouse
+
+    def test_time_to_live_property(self) -> None:
+        """Test time_to_live returns timedelta."""
+        mock_service = MockGenieService()
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.time_to_live_seconds = 7200
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        assert cache.time_to_live == timedelta(seconds=7200)
+
+    def test_similarity_threshold_property(self) -> None:
+        """Test similarity_threshold property returns correct value."""
+        mock_service = MockGenieService()
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.similarity_threshold = 0.9
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        assert cache.similarity_threshold == 0.9
+
+    def test_table_name_property(self) -> None:
+        """Test table_name property returns correct value."""
+        mock_service = MockGenieService()
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.table_name = "custom_cache_table"
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        assert cache.table_name == "custom_cache_table"
+
+
+class TestSemanticCacheServiceCacheOperations:
+    """Tests for SemanticCacheService cache lookup and storage operations."""
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_cache_miss_stores_entry(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that cache miss stores the new entry."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        # Setup mocks
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        # First query returns None (dimension check - table doesn't exist)
+        # Second query returns 0 rows (for table row count check)
+        # Third query returns None (no similar entry found)
+        mock_pool.set_query_results([None, None])
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        ).initialize()
+        result = cache.ask_question_with_cache_info("What is the inventory?")
+
+        # Verify cache miss
+        assert result.cache_hit is False
+        assert result.served_by is None
+
+        # Verify entry was stored (INSERT query was executed)
+        insert_queries = [
+            q for q, _ in mock_pool.executed_queries if "INSERT INTO" in q
+        ]
+        assert len(insert_queries) >= 1
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_cache_hit_returns_cached_entry(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that cache hit returns cached SQL and re-executes it."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        # Setup mocks
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        # Create warehouse mock with statement execution
+        from datetime import timezone
+
+        cached_time = datetime.now(timezone.utc)
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        mock_warehouse = Mock()
+        mock_workspace_client = Mock()
+
+        # Mock statement execution response
+        mock_statement_response = Mock()
+        mock_statement_response.status.state = StatementState.SUCCEEDED
+        mock_statement_response.result.data_array = [["value1", "value2"]]
+        mock_statement_response.manifest.schema.columns = [
+            Mock(name="col1"),
+            Mock(name="col2"),
+        ]
+        mock_workspace_client.statement_execution.execute_statement.return_value = (
+            mock_statement_response
+        )
+
+        mock_warehouse.workspace_client = mock_workspace_client
+        mock_warehouse.warehouse_id = "test-warehouse"
+
+        params.warehouse = mock_warehouse
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        # First query returns None (dimension check - table doesn't exist)
+        # Second query returns 0 rows (for table row count check)
+        # Third query returns a cached entry with similarity > threshold and valid TTL
+        mock_pool.set_query_results(
+            [
+                None,  # dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Similar question?",
+                    "sql_query": "SELECT * FROM inventory",
+                    "description": "Cached description",
+                    "conversation_id": "cached-conv-123",
+                    "created_at": cached_time,
+                    "similarity": 0.92,
+                    "is_valid": True,  # Within TTL
+                },
+            ]
+        )
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        ).initialize()
+        result = cache.ask_question_with_cache_info("What is the inventory?")
+
+        # Verify cache hit
+        assert result.cache_hit is True
+        assert result.served_by == "SemanticCacheService"
+
+        # Verify SQL was executed via warehouse
+        mock_workspace_client.statement_execution.execute_statement.assert_called_once()
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_cache_hit_below_threshold_is_miss(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that similarity below threshold results in cache miss."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        # Setup mocks
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        from datetime import timezone
+
+        cached_time = datetime.now(timezone.utc)
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.warehouse.warehouse_id = "test-warehouse"
+        params.warehouse.workspace_client = Mock()
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85  # Threshold is 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        # Return entry with similarity below threshold (0.75 < 0.85)
+        mock_pool.set_query_results(
+            [
+                None,  # dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Different question",
+                    "sql_query": "SELECT * FROM inventory",
+                    "description": "Description",
+                    "conversation_id": "conv-123",
+                    "created_at": cached_time,
+                    "similarity": 0.75,  # Below threshold
+                    "is_valid": True,
+                },
+            ]
+        )
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        ).initialize()
+        result = cache.ask_question_with_cache_info("What is the inventory?")
+
+        # Should be a miss because similarity is below threshold
+        assert result.cache_hit is False
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_expired_entry_deleted_and_refreshed(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that expired entries are deleted and trigger a refresh (miss)."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        # Setup mocks
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        from datetime import timezone
+
+        old_time = datetime.now(timezone.utc) - timedelta(days=2)  # Older than TTL
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.time_to_live_seconds = 86400  # 1 day
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        # Return entry with high similarity but EXPIRED (is_valid=False)
+        mock_pool.set_query_results(
+            [
+                None,  # dimension check - table doesn't exist
+                {
+                    "id": 123,  # ID used for deletion
+                    "question": "Similar question?",
+                    "sql_query": "SELECT * FROM inventory",
+                    "description": "Description",
+                    "conversation_id": "conv-123",
+                    "created_at": old_time,
+                    "similarity": 0.95,  # High similarity
+                    "is_valid": False,  # EXPIRED - outside TTL window
+                },
+            ]
+        )
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        ).initialize()
+        result = cache.ask_question_with_cache_info("What is the inventory?")
+
+        # Should be a miss because entry is expired (triggers refresh)
+        assert result.cache_hit is False
+
+        # Verify DELETE query was executed
+        delete_queries = [
+            q for q, _ in mock_pool.executed_queries if "DELETE" in q.upper()
+        ]
+        assert len(delete_queries) >= 1
+
+
+class TestSemanticCacheServiceManagement:
+    """Tests for cache management operations."""
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_clear_deletes_all_entries(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that clear() removes all entries."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        # First query for dimension check, second for table creation
+        mock_pool.set_query_results([None])
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        cache.clear()
+
+        # Verify DELETE query was executed
+        delete_queries = [q for q, _ in mock_pool.executed_queries if "DELETE" in q]
+        assert len(delete_queries) >= 1
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_invalidate_expired_removes_old_entries(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that invalidate_expired() removes expired entries."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.time_to_live_seconds = 3600  # 1 hour TTL
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        # First query for dimension check, second for table creation
+        mock_pool.set_query_results([None])
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        cache.invalidate_expired()
+
+        # Verify DELETE with INTERVAL was executed
+        delete_queries = [
+            (q, p)
+            for q, p in mock_pool.executed_queries
+            if "DELETE" in q and "INTERVAL" in q
+        ]
+        assert len(delete_queries) >= 1
+        # Verify genie_space_id and TTL were passed as parameters
+        assert delete_queries[0][1] == ("test-space", 3600)
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_size_returns_count(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that size property returns correct count."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        # First query for dimension check, second for table creation, third for count
+        mock_pool.set_query_results([None, {"count": 42}])
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        assert cache.size == 42
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_stats_returns_statistics(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that stats() returns cache statistics."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "test_cache"
+
+        # First query for dimension check, second for stats
+        mock_pool.set_query_results([None, {"total": 100, "valid": 95, "expired": 5}])
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        )
+        stats = cache.stats()
+
+        assert stats["size"] == 100
+        assert stats["valid_entries"] == 95
+        assert stats["expired_entries"] == 5
+        assert stats["ttl_seconds"] == 86400.0
+        assert stats["similarity_threshold"] == 0.85
+
+
+class TestSemanticCacheServiceTableCreation:
+    """Tests for table creation behavior."""
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_creates_table_on_first_use(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that table is created on first cache access."""
+        mock_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params.database = Mock()
+        params.warehouse = Mock()
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.embedding_dims = 1024
+        params.embedding_model = "databricks-gte-large-en"
+        params.table_name = "my_semantic_cache"
+
+        # Dimension check returns None (table doesn't exist), table count returns 0
+        mock_pool.set_query_results([None, None])
+
+        cache = SemanticCacheService(
+            impl=mock_service, parameters=params, genie_space_id="test-space"
+        ).initialize()
+        cache.ask_question("Test question")
+
+        # Verify CREATE EXTENSION and CREATE TABLE were executed
+        create_queries = [q for q, _ in mock_pool.executed_queries if "CREATE" in q]
+        assert any("CREATE EXTENSION" in q and "vector" in q for q in create_queries)
+        assert any(
+            "CREATE TABLE" in q and "my_semantic_cache" in q for q in create_queries
+        )
+
+
+class TestLRUPlusSemanticCacheIntegration:
+    """Integration tests for LRU + Semantic cache combination (two-tier caching)."""
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_both_caches_store_on_miss(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that both LRU and Semantic caches store entry on complete miss."""
+        # Create base Genie service
+        mock_genie_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        # Setup mocks
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        # Setup semantic cache parameters
+        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params.database = Mock()
+        mock_warehouse = Mock()
+        mock_workspace_client = Mock()
+        mock_warehouse.workspace_client = mock_workspace_client
+        mock_warehouse.warehouse_id = "test-warehouse"
+        semantic_params.warehouse = mock_warehouse
+        semantic_params.time_to_live_seconds = 86400
+        semantic_params.similarity_threshold = 0.85
+        semantic_params.embedding_dims = 1024
+        semantic_params.embedding_model = "databricks-gte-large-en"
+        semantic_params.table_name = "test_cache"
+
+        # Dimension check, table count returns 0, then no similar entry found
+        mock_pool.set_query_results([None, None])
+
+        # Create semantic cache wrapping Genie
+        semantic_cache = SemanticCacheService(
+            impl=mock_genie_service,
+            parameters=semantic_params,
+            genie_space_id="test-space",
+            name="SemanticCache",
+        ).initialize()
+
+        # Setup LRU cache parameters
+        lru_params = Mock(spec=GenieLRUCacheParametersModel)
+        lru_params.warehouse = mock_warehouse
+        lru_params.capacity = 100
+        lru_params.time_to_live_seconds = 3600
+
+        # Create LRU cache wrapping semantic cache (checked first)
+        lru_cache = LRUCacheService(
+            impl=semantic_cache,
+            parameters=lru_params,
+            name="LRUCache",
+        )
+
+        # First call - misses both caches
+        result = lru_cache.ask_question_with_cache_info("What is the inventory count?")
+
+        # Verify cache miss
+        assert result.cache_hit is False
+        assert mock_genie_service.call_count == 1
+
+        # Verify LRU cache stored entry
+        assert lru_cache.size == 1
+
+        # Verify semantic cache stored entry (check INSERT query)
+        insert_queries = [
+            q for q, _ in mock_pool.executed_queries if "INSERT INTO" in q
+        ]
+        assert len(insert_queries) >= 1, "Semantic cache should have stored entry"
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_lru_hit_skips_semantic(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that LRU hit returns immediately without checking semantic cache."""
+        mock_genie_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        # Setup semantic cache
+        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params.database = Mock()
+        mock_warehouse = Mock()
+        mock_workspace_client = Mock()
+
+        # Mock SQL execution for LRU cache hit
+        mock_statement_response = Mock()
+        mock_statement_response.status.state = StatementState.SUCCEEDED
+        mock_statement_response.result.data_array = [["value1"]]
+        mock_statement_response.manifest.schema.columns = [Mock(name="col1")]
+        mock_workspace_client.statement_execution.execute_statement.return_value = (
+            mock_statement_response
+        )
+
+        mock_warehouse.workspace_client = mock_workspace_client
+        mock_warehouse.warehouse_id = "test-warehouse"
+        semantic_params.warehouse = mock_warehouse
+        semantic_params.time_to_live_seconds = 86400
+        semantic_params.similarity_threshold = 0.85
+        semantic_params.embedding_dims = 1024
+        semantic_params.embedding_model = "databricks-gte-large-en"
+        semantic_params.table_name = "test_cache"
+
+        mock_pool.set_query_results([None, None])
+
+        semantic_cache = SemanticCacheService(
+            impl=mock_genie_service,
+            parameters=semantic_params,
+            genie_space_id="test-space",
+        ).initialize()
+
+        lru_params = Mock(spec=GenieLRUCacheParametersModel)
+        lru_params.warehouse = mock_warehouse
+        lru_params.capacity = 100
+        lru_params.time_to_live_seconds = 3600
+
+        lru_cache = LRUCacheService(
+            impl=semantic_cache,
+            parameters=lru_params,
+        )
+
+        # First call - miss both caches
+        question = "What is the inventory count?"
+        lru_cache.ask_question(question)
+        assert mock_genie_service.call_count == 1
+
+        # Record queries executed so far
+        queries_after_first_call = len(mock_pool.executed_queries)
+
+        # Second call with exact same question - should hit LRU
+        result = lru_cache.ask_question_with_cache_info(question)
+
+        assert result.cache_hit is True
+        assert result.served_by == "LRUCacheService"
+        assert mock_genie_service.call_count == 1  # No new Genie calls
+
+        # Semantic cache should NOT have been queried (no new SELECT queries)
+        select_queries_after_second = [
+            q
+            for q, _ in mock_pool.executed_queries[queries_after_first_call:]
+            if "SELECT" in q and "similarity" in q
+        ]
+        assert len(select_queries_after_second) == 0, (
+            "Semantic cache should not be queried on LRU hit"
+        )
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_lru_miss_semantic_hit(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test LRU miss but semantic cache hit for similar question."""
+        from datetime import timezone
+
+        mock_genie_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params.database = Mock()
+        mock_warehouse = Mock()
+        mock_workspace_client = Mock()
+
+        # Mock SQL execution
+        mock_statement_response = Mock()
+        mock_statement_response.status.state = StatementState.SUCCEEDED
+        mock_statement_response.result.data_array = [["fresh_value"]]
+        mock_statement_response.manifest.schema.columns = [Mock(name="result")]
+        mock_workspace_client.statement_execution.execute_statement.return_value = (
+            mock_statement_response
+        )
+
+        mock_warehouse.workspace_client = mock_workspace_client
+        mock_warehouse.warehouse_id = "test-warehouse"
+        semantic_params.warehouse = mock_warehouse
+        semantic_params.time_to_live_seconds = 86400
+        semantic_params.similarity_threshold = 0.85
+        semantic_params.embedding_dims = 1024
+        semantic_params.embedding_model = "databricks-gte-large-en"
+        semantic_params.table_name = "test_cache"
+
+        cached_time = datetime.now(timezone.utc)
+
+        # Query sequence:
+        # 1. First ask_question: dim check (None) -> table check (0) -> find_similar (None) -> INSERT
+        # 2. Second ask_question: find_similar (hit with 0.92)
+        mock_pool.set_query_results(
+            [
+                None,  # Dimension check - table doesn't exist
+                None,  # No similar entry for first question
+                # INSERT happens here (no result needed)
+                # Second call:
+                {
+                    "id": 1,
+                    "question": "What is the inventory?",  # Similar cached question
+                    "sql_query": "SELECT COUNT(*) FROM inventory",  # Cached SQL
+                    "description": "Inventory count",  # Description
+                    "conversation_id": "conv-123",  # Conversation ID
+                    "created_at": cached_time,  # Created at
+                    "similarity": 0.92,  # Similarity score (above 0.85 threshold)
+                    "is_valid": True,  # Within TTL
+                },
+            ]
+        )
+
+        semantic_cache = SemanticCacheService(
+            impl=mock_genie_service,
+            parameters=semantic_params,
+            genie_space_id="test-space",
+        ).initialize()
+
+        lru_params = Mock(spec=GenieLRUCacheParametersModel)
+        lru_params.warehouse = mock_warehouse
+        lru_params.capacity = 100
+        lru_params.time_to_live_seconds = 3600
+
+        lru_cache = LRUCacheService(
+            impl=semantic_cache,
+            parameters=lru_params,
+        )
+
+        # First call - store original question
+        lru_cache.ask_question("What is the inventory?")
+        assert mock_genie_service.call_count == 1
+
+        # Second call with DIFFERENT but similar question
+        # LRU uses ask_question() interface which doesn't propagate cache_hit
+        # but semantic cache DID hit (no new Genie call)
+        result = lru_cache.ask_question_with_cache_info("Show me inventory count")
+
+        # LRU misses (different question text), but semantic hit internally
+        # LRU returns cache_hit=False because LRU itself missed
+        # However, no new Genie call was made (semantic cache served it)
+        assert result.cache_hit is False  # LRU reports its own miss
+        assert mock_genie_service.call_count == 1  # No new Genie call - semantic hit!
+
+        # Verify LRU now has this new question cached
+        # (it learned from the semantic cache hit)
+        assert lru_cache.size == 2  # Both questions now in LRU
+
+        # Third call with same paraphrased question - now hits LRU!
+        result3 = lru_cache.ask_question_with_cache_info("Show me inventory count")
+        assert result3.cache_hit is True
+        assert result3.served_by == "LRUCacheService"
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_semantic_hit_then_stores_in_lru(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that semantic cache hit result gets stored in LRU for next exact match."""
+        from datetime import timezone
+
+        mock_genie_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params.database = Mock()
+        mock_warehouse = Mock()
+        mock_workspace_client = Mock()
+
+        mock_statement_response = Mock()
+        mock_statement_response.status.state = StatementState.SUCCEEDED
+        mock_statement_response.result.data_array = [["value"]]
+        mock_statement_response.manifest.schema.columns = [Mock(name="col")]
+        mock_workspace_client.statement_execution.execute_statement.return_value = (
+            mock_statement_response
+        )
+
+        mock_warehouse.workspace_client = mock_workspace_client
+        mock_warehouse.warehouse_id = "test-warehouse"
+        semantic_params.warehouse = mock_warehouse
+        semantic_params.time_to_live_seconds = 86400
+        semantic_params.similarity_threshold = 0.85
+        semantic_params.embedding_dims = 1024
+        semantic_params.embedding_model = "databricks-gte-large-en"
+        semantic_params.table_name = "test_cache"
+
+        cached_time = datetime.now(timezone.utc)
+
+        # Semantic cache has a similar entry
+        mock_pool.set_query_results(
+            [
+                None,  # Dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Original question",
+                    "sql_query": "SELECT * FROM data",
+                    "description": "Description",
+                    "conversation_id": "conv-id",
+                    "created_at": cached_time,
+                    "similarity": 0.95,  # High similarity
+                    "is_valid": True,  # Within TTL
+                },
+            ]
+        )
+
+        semantic_cache = SemanticCacheService(
+            impl=mock_genie_service,
+            parameters=semantic_params,
+            genie_space_id="test-space",
+        ).initialize()
+
+        lru_params = Mock(spec=GenieLRUCacheParametersModel)
+        lru_params.warehouse = mock_warehouse
+        lru_params.capacity = 100
+        lru_params.time_to_live_seconds = 3600
+
+        lru_cache = LRUCacheService(
+            impl=semantic_cache,
+            parameters=lru_params,
+        )
+
+        # LRU is empty
+        assert lru_cache.size == 0
+
+        # First call - LRU miss, but semantic cache has the data
+        # LRU reports cache_hit=False (because LRU itself missed)
+        # but semantic cache served it (no Genie call)
+        result1 = lru_cache.ask_question_with_cache_info("Similar question here")
+        assert result1.cache_hit is False  # LRU reports its own miss
+
+        # LRU should now have stored this result (learned from semantic)
+        assert lru_cache.size == 1
+
+        # Second call with same text - should hit LRU directly
+        result2 = lru_cache.ask_question_with_cache_info("Similar question here")
+        assert result2.cache_hit is True
+        assert result2.served_by == "LRUCacheService"
+
+    @patch("dao_ai.memory.postgres.PostgresPoolManager")
+    @patch("databricks_langchain.DatabricksEmbeddings")
+    def test_similarity_below_threshold_misses(
+        self,
+        mock_embeddings_class: Mock,
+        mock_pool_manager: Mock,
+    ) -> None:
+        """Test that similarity below threshold is treated as cache miss."""
+        from datetime import timezone
+
+        mock_genie_service = MockGenieService()
+        mock_pool = MockPostgresPool()
+
+        mock_embeddings = MockEmbeddings()
+        mock_embeddings_class.return_value = mock_embeddings
+        mock_pool_manager.get_pool.return_value = mock_pool
+
+        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params.database = Mock()
+        mock_warehouse = Mock()
+        mock_workspace_client = Mock()
+        mock_warehouse.workspace_client = mock_workspace_client
+        mock_warehouse.warehouse_id = "test-warehouse"
+        semantic_params.warehouse = mock_warehouse
+        semantic_params.time_to_live_seconds = 86400
+        semantic_params.similarity_threshold = 0.85  # Threshold is 0.85
+        semantic_params.embedding_dims = 1024
+        semantic_params.embedding_model = "databricks-gte-large-en"
+        semantic_params.table_name = "test_cache"
+
+        cached_time = datetime.now(timezone.utc)
+
+        # Return entry with similarity BELOW threshold
+        mock_pool.set_query_results(
+            [
+                None,  # Dimension check - table doesn't exist
+                {
+                    "id": 1,
+                    "question": "Unrelated question",
+                    "sql_query": "SELECT * FROM other",
+                    "description": "Description",
+                    "conversation_id": "conv-id",
+                    "created_at": cached_time,
+                    "similarity": 0.60,  # Below 0.85 threshold
+                    "is_valid": True,
+                },
+            ]
+        )
+
+        semantic_cache = SemanticCacheService(
+            impl=mock_genie_service,
+            parameters=semantic_params,
+            genie_space_id="test-space",
+        ).initialize()
+
+        lru_params = Mock(spec=GenieLRUCacheParametersModel)
+        lru_params.warehouse = mock_warehouse
+        lru_params.capacity = 100
+        lru_params.time_to_live_seconds = 3600
+
+        lru_cache = LRUCacheService(
+            impl=semantic_cache,
+            parameters=lru_params,
+        )
+
+        # Call should miss both caches (LRU empty, semantic below threshold)
+        result = lru_cache.ask_question_with_cache_info("Very different question")
+
+        assert result.cache_hit is False
+        assert mock_genie_service.call_count == 1  # Had to call Genie

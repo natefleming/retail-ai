@@ -1,12 +1,15 @@
 """
-Genie tool for natural language queries to databases.
+Genie tools for natural language queries to databases.
 
-This module provides the tool factory for creating LangGraph tools that
-interact with Databricks Genie.
+This package provides tools for interacting with Databricks Genie to translate
+natural language questions into SQL queries.
 
-For the core Genie service and cache implementations, see:
-- dao_ai.genie: GenieService, GenieServiceBase
-- dao_ai.genie.cache: LRUCacheService, SemanticCacheService
+Main exports:
+- create_genie_tool: Factory function to create a Genie tool with optional caching
+
+Cache implementations are available in the genie cache package:
+- dao_ai.genie.cache.lru: LRU (Least Recently Used) cache
+- dao_ai.genie.cache.semantic: Semantic similarity cache using pg_vector
 """
 
 import json
@@ -32,8 +35,14 @@ from dao_ai.config import (
     GenieSemanticCacheParametersModel,
     value_of,
 )
-from dao_ai.genie import GenieService, GenieServiceBase
-from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
+from dao_ai.genie import GenieService
+from dao_ai.genie.cache import (
+    CacheResult,
+    GenieServiceBase,
+    LRUCacheService,
+    SemanticCacheService,
+    SQLCacheEntry,
+)
 
 
 class GenieToolInput(BaseModel):
@@ -157,7 +166,7 @@ GenieResponse: A response object containing the conversation ID and result from 
             impl=genie_service,
             parameters=semantic_cache_parameters,
             genie_space_id=space_id,
-        ).initialize()  # Eagerly initialize to fail fast and create table
+        )
 
     # Wrap with LRU cache last (checked first - fast O(1) exact match)
     if lru_cache_parameters is not None:
@@ -208,3 +217,20 @@ GenieResponse: A response object containing the conversation ID and result from 
         return Command(update=update)
 
     return genie_tool
+
+
+# Re-export cache types for convenience
+__all__ = [
+    # Main tool
+    "create_genie_tool",
+    # Input types
+    "GenieToolInput",
+    # Service base classes
+    "GenieService",
+    "GenieServiceBase",
+    # Cache types (from cache subpackage)
+    "CacheResult",
+    "LRUCacheService",
+    "SemanticCacheService",
+    "SQLCacheEntry",
+]

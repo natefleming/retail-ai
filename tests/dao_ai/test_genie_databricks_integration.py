@@ -26,7 +26,7 @@ from conftest import has_databricks_env
 from langchain_core.tools import StructuredTool
 
 from dao_ai.config import GenieRoomModel
-from dao_ai.tools.genie import GenieToolInput
+from dao_ai.tools.genie import GenieToolInput, create_genie_tool
 
 
 @pytest.fixture
@@ -77,8 +77,6 @@ def mock_genie_tool():
             )
         )
         mock_genie_class.return_value = mock_genie_instance
-
-        from dao_ai.tools.genie import create_genie_tool
 
         genie_room = GenieRoomModel(name="test-genie-room", space_id="test-space-123")
 

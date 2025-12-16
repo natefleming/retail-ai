@@ -472,7 +472,14 @@
       "properties": {
         "principals": {
           "items": {
-            "type": "string"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServicePrincipalModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "title": "Principals",
           "type": "array"
@@ -2189,7 +2196,14 @@
       "properties": {
         "principals": {
           "items": {
-            "type": "string"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServicePrincipalModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "title": "Principals",
           "type": "array"
