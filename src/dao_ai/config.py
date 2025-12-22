@@ -928,6 +928,11 @@ class DatabaseModel(IsDatabricksResource):
     user: Optional[AnyVariable] = None
     password: Optional[AnyVariable] = None
 
+    @field_serializer("type")
+    def serialize_type(self, value: DatabaseType | None) -> str | None:
+        """Serialize the database type enum to its string value."""
+        return value.value if value is not None else None
+
     @property
     def api_scopes(self) -> Sequence[str]:
         return ["database.database-instances"]
@@ -1158,6 +1163,10 @@ class GenieSemanticCacheParametersModel(BaseModel):
     database: DatabaseModel
     warehouse: WarehouseModel
     table_name: str = "genie_semantic_cache"
+    context_window_size: int = 3  # Number of previous turns to include for context
+    max_context_tokens: int = (
+        2000  # Maximum context length to prevent extremely long embeddings
+    )
 
 
 class SearchParametersModel(BaseModel):

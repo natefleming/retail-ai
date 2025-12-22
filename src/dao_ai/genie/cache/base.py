@@ -29,6 +29,12 @@ class GenieServiceBase(ABC):
         """Ask a question to Genie and return the response."""
         pass
 
+    @property
+    @abstractmethod
+    def space_id(self) -> str:
+        """The space ID for the Genie service."""
+        pass
+
 
 @dataclass
 class SQLCacheEntry:

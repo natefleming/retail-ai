@@ -4,6 +4,10 @@ Semantic cache implementation for Genie SQL queries using PostgreSQL pg_vector.
 This module provides a semantic cache that uses embeddings and similarity search
 to find cached queries that match the intent of new questions. Cache entries are
 partitioned by genie_space_id to ensure proper isolation between Genie spaces.
+
+The cache supports conversation-aware embedding using a rolling window approach
+to capture context from recent conversation turns, improving accuracy for
+multi-turn conversations with anaphoric references.
 """
 
 from datetime import timedelta
@@ -12,6 +16,10 @@ from typing import Any
 import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.dashboards import (
+    GenieListConversationMessagesResponse,
+    GenieMessage,
+)
 from databricks.sdk.service.sql import StatementResponse, StatementState
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
@@ -19,6 +27,7 @@ from loguru import logger
 from dao_ai.config import (
     DatabaseModel,
     GenieSemanticCacheParametersModel,
+    LLMModel,
     WarehouseModel,
 )
 from dao_ai.genie.cache.base import (
@@ -29,6 +38,112 @@ from dao_ai.genie.cache.base import (
 
 # Type alias for database row (dict due to row_factory=dict_row)
 DbRow = dict[str, Any]
+
+
+def get_conversation_history(
+    workspace_client: WorkspaceClient,
+    space_id: str,
+    conversation_id: str,
+    max_messages: int = 10,
+) -> list[GenieMessage]:
+    """
+    Retrieve conversation history from Genie.
+
+    Args:
+        workspace_client: The Databricks workspace client
+        space_id: The Genie space ID
+        conversation_id: The conversation ID to retrieve
+        max_messages: Maximum number of messages to retrieve
+
+    Returns:
+        List of GenieMessage objects representing the conversation history
+    """
+    try:
+        # Use the Genie API to retrieve conversation messages
+        response: GenieListConversationMessagesResponse = (
+            workspace_client.genie.list_conversation_messages(
+                space_id=space_id,
+                conversation_id=conversation_id,
+            )
+        )
+
+        # Return the most recent messages up to max_messages
+        if response.messages is not None:
+            all_messages: list[GenieMessage] = list(response.messages)
+            return (
+                all_messages[-max_messages:]
+                if len(all_messages) > max_messages
+                else all_messages
+            )
+        return []
+    except Exception as e:
+        logger.warning(
+            f"Failed to retrieve conversation history for conversation_id={conversation_id}: {e}"
+        )
+        return []
+
+
+def build_context_string(
+    question: str,
+    conversation_messages: list[GenieMessage],
+    window_size: int,
+    max_tokens: int = 2000,
+) -> str:
+    """
+    Build a context-aware question string using rolling window.
+
+    This function creates a concatenated string that includes recent conversation
+    turns to provide context for semantic similarity matching.
+
+    Args:
+        question: The current question
+        conversation_messages: List of previous conversation messages
+        window_size: Number of previous turns to include
+        max_tokens: Maximum estimated tokens (rough approximation: 4 chars = 1 token)
+
+    Returns:
+        Context-aware question string formatted for embedding
+    """
+    if window_size <= 0 or not conversation_messages:
+        return question
+
+    # Take the last window_size messages (most recent)
+    recent_messages = (
+        conversation_messages[-window_size:]
+        if len(conversation_messages) > window_size
+        else conversation_messages
+    )
+
+    # Build context parts
+    context_parts: list[str] = []
+
+    for msg in recent_messages:
+        # Only include messages with content from the history
+        if msg.content:
+            # Limit message length to prevent token overflow
+            content: str = msg.content
+            if len(content) > 500:  # Truncate very long messages
+                content = content[:500] + "..."
+            context_parts.append(f"Previous: {content}")
+
+    # Add current question
+    context_parts.append(f"Current: {question}")
+
+    # Join with newlines
+    context_string = "\n".join(context_parts)
+
+    # Rough token limit check (4 chars ≈ 1 token)
+    estimated_tokens = len(context_string) / 4
+    if estimated_tokens > max_tokens:
+        # Truncate to fit max_tokens
+        target_chars = max_tokens * 4
+        context_string = context_string[:target_chars] + "..."
+        logger.debug(
+            f"Truncated context string from {len(context_string)} to {target_chars} chars "
+            f"(estimated {max_tokens} tokens)"
+        )
+
+    return context_string
 
 
 class SemanticCacheService(GenieServiceBase):
@@ -58,8 +173,7 @@ class SemanticCacheService(GenieServiceBase):
         )
         genie = SemanticCacheService(
             impl=GenieService(Genie(space_id="my-space")),
-            parameters=cache_params,
-            genie_space_id="my-space"
+            parameters=cache_params
         )
 
     Thread-safe: Uses connection pooling from psycopg_pool.
@@ -67,7 +181,7 @@ class SemanticCacheService(GenieServiceBase):
 
     impl: GenieServiceBase
     parameters: GenieSemanticCacheParametersModel
-    genie_space_id: str
+    workspace_client: WorkspaceClient | None
     name: str
     _embeddings: Any  # DatabricksEmbeddings
     _pool: Any  # ConnectionPool
@@ -78,21 +192,23 @@ class SemanticCacheService(GenieServiceBase):
         self,
         impl: GenieServiceBase,
         parameters: GenieSemanticCacheParametersModel,
-        genie_space_id: str,
+        workspace_client: WorkspaceClient | None = None,
         name: str | None = None,
     ) -> None:
         """
         Initialize the semantic cache service.
 
         Args:
-            impl: The underlying GenieServiceBase to delegate to on cache miss
+            impl: The underlying GenieServiceBase to delegate to on cache miss.
+                The space_id will be obtained from impl.space_id.
             parameters: Cache configuration including database, warehouse, embedding model
-            genie_space_id: The Genie space ID for partitioning cache entries
+            workspace_client: Optional WorkspaceClient for retrieving conversation history.
+                If None, conversation context will not be used.
             name: Name for this cache layer (for logging). Defaults to class name.
         """
         self.impl = impl
         self.parameters = parameters
-        self.genie_space_id = genie_space_id
+        self.workspace_client = workspace_client
         self.name = name if name is not None else self.__class__.__name__
         self._embeddings = None
         self._pool = None
@@ -119,17 +235,16 @@ class SemanticCacheService(GenieServiceBase):
         if self._setup_complete:
             return
 
-        from databricks_langchain import DatabricksEmbeddings
-
         from dao_ai.memory.postgres import PostgresPoolManager
 
         # Initialize embeddings
-        embedding_model: str = (
-            self.parameters.embedding_model
+        # Convert embedding_model to LLMModel if it's a string
+        embedding_model: LLMModel = (
+            LLMModel(name=self.parameters.embedding_model)
             if isinstance(self.parameters.embedding_model, str)
-            else self.parameters.embedding_model.name
+            else self.parameters.embedding_model
         )
-        self._embeddings = DatabricksEmbeddings(endpoint=embedding_model)
+        self._embeddings = embedding_model.as_embeddings_model()
 
         # Auto-detect embedding dimensions if not provided
         if self.parameters.embedding_dims is None:
@@ -149,7 +264,7 @@ class SemanticCacheService(GenieServiceBase):
 
         self._setup_complete = True
         logger.debug(
-            f"[{self.name}] Semantic cache initialized for space '{self.genie_space_id}' "
+            f"[{self.name}] Semantic cache initialized for space '{self.space_id}' "
             f"with table '{self.table_name}' (dims={self._embedding_dims})"
         )
 
@@ -211,6 +326,7 @@ class SemanticCacheService(GenieServiceBase):
                 id SERIAL PRIMARY KEY,
                 genie_space_id TEXT NOT NULL,
                 question TEXT NOT NULL,
+                context_string TEXT,
                 question_embedding vector({self.embedding_dims}),
                 sql_query TEXT NOT NULL,
                 description TEXT,
@@ -258,21 +374,72 @@ class SemanticCacheService(GenieServiceBase):
                 cur.execute(create_space_index_sql)
                 cur.execute(create_embedding_index_sql)
 
-    def _embed_question(self, question: str) -> list[float]:
-        """Generate embedding for a question."""
-        embeddings: list[list[float]] = self._embeddings.embed_documents([question])
-        return embeddings[0]
+    def _embed_question(
+        self, question: str, conversation_id: str | None = None
+    ) -> tuple[list[float], str]:
+        """
+        Generate embedding for a question with optional conversation context.
+
+        Args:
+            question: The question to embed
+            conversation_id: Optional conversation ID for retrieving context
+
+        Returns:
+            Tuple of (embedding vector, context-aware question string used for embedding)
+        """
+        context_string = question
+
+        # If conversation context is enabled and available
+        if (
+            self.workspace_client is not None
+            and conversation_id is not None
+            and self.parameters.context_window_size > 0
+        ):
+            try:
+                # Retrieve conversation history
+                conversation_messages = get_conversation_history(
+                    workspace_client=self.workspace_client,
+                    space_id=self.space_id,
+                    conversation_id=conversation_id,
+                    max_messages=self.parameters.context_window_size
+                    * 2,  # Get extra for safety
+                )
+
+                # Build context-aware question string
+                context_string = build_context_string(
+                    question=question,
+                    conversation_messages=conversation_messages,
+                    window_size=self.parameters.context_window_size,
+                    max_tokens=self.parameters.max_context_tokens,
+                )
+
+                logger.debug(
+                    f"[{self.name}] Using conversation context: {len(conversation_messages)} messages "
+                    f"(window_size={self.parameters.context_window_size})"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[{self.name}] Failed to build conversation context, using question only: {e}"
+                )
+                context_string = question
+
+        # Generate embedding
+        embeddings: list[list[float]] = self._embeddings.embed_documents(
+            [context_string]
+        )
+        return embeddings[0], context_string
 
     @mlflow.trace(name="semantic_search")
     def _find_similar(
-        self, question: str, embedding: list[float]
+        self, question: str, context_string: str, embedding: list[float]
     ) -> tuple[SQLCacheEntry, float] | None:
         """
         Find a semantically similar cached entry for this Genie space.
 
         Args:
-            question: The question to search for
-            embedding: The embedding vector of the question
+            question: The original question (for logging)
+            context_string: The context-aware question string that was embedded
+            embedding: The embedding vector of the context-aware question
 
         Returns:
             Tuple of (SQLCacheEntry, similarity_score) if found, None otherwise
@@ -316,26 +483,27 @@ class SemanticCacheService(GenieServiceBase):
             with conn.cursor() as cur:
                 cur.execute(
                     search_sql,
-                    (embedding_str, self.genie_space_id, embedding_str),
+                    (embedding_str, self.space_id, embedding_str),
                 )
                 row: DbRow | None = cur.fetchone()
 
                 if row is None:
                     logger.info(
                         f"[{self.name}] MISS (no entries): "
-                        f"question='{question[:50]}...' space='{self.genie_space_id}'"
+                        f"question='{question[:50]}...' space='{self.space_id}'"
                     )
                     return None
 
                 # Extract values from dict row
-                entry_id = row.get("id")
-                cached_question = row.get("question", "")
-                sql_query = row["sql_query"]
-                description = row.get("description", "")
-                conversation_id = row.get("conversation_id", "")
-                created_at = row["created_at"]
-                similarity = row["similarity"]
-                is_valid = row.get("is_valid", False)
+                entry_id: Any = row.get("id")
+                cached_question: str = row.get("question", "")
+                cached_context: str = row.get("context_string", cached_question)
+                sql_query: str = row["sql_query"]
+                description: str = row.get("description", "")
+                conversation_id_cached: str = row.get("conversation_id", "")
+                created_at: Any = row["created_at"]
+                similarity: float = row["similarity"]
+                is_valid: bool = row.get("is_valid", False)
 
                 # Log best match info (L2 distance can be computed from similarity: d = 1/s - 1)
                 l2_distance = (
@@ -343,7 +511,8 @@ class SemanticCacheService(GenieServiceBase):
                 )
                 logger.info(
                     f"[{self.name}] Best match: l2_distance={l2_distance:.4f}, similarity={similarity:.4f}, "
-                    f"is_valid={is_valid}, question='{cached_question[:50]}...'"
+                    f"is_valid={is_valid}, question='{cached_question[:50]}...', "
+                    f"context='{cached_context[:80]}...'"
                 )
 
                 # Check similarity threshold
@@ -373,19 +542,23 @@ class SemanticCacheService(GenieServiceBase):
                 entry = SQLCacheEntry(
                     query=sql_query,
                     description=description,
-                    conversation_id=conversation_id,
+                    conversation_id=conversation_id_cached,
                     created_at=created_at,
                 )
                 return entry, similarity
 
     def _store_entry(
-        self, question: str, embedding: list[float], response: GenieResponse
+        self,
+        question: str,
+        context_string: str,
+        embedding: list[float],
+        response: GenieResponse,
     ) -> None:
         """Store a new cache entry for this Genie space."""
         insert_sql: str = f"""
             INSERT INTO {self.table_name} 
-            (genie_space_id, question, question_embedding, sql_query, description, conversation_id)
-            VALUES (%s, %s, %s::vector, %s, %s, %s)
+            (genie_space_id, question, context_string, question_embedding, sql_query, description, conversation_id)
+            VALUES (%s, %s, %s, %s::vector, %s, %s, %s)
         """
         embedding_str: str = f"[{','.join(str(x) for x in embedding)}]"
 
@@ -394,8 +567,9 @@ class SemanticCacheService(GenieServiceBase):
                 cur.execute(
                     insert_sql,
                     (
-                        self.genie_space_id,
+                        self.space_id,
                         question,
+                        context_string,
                         embedding_str,
                         response.query,
                         response.description,
@@ -404,14 +578,15 @@ class SemanticCacheService(GenieServiceBase):
                 )
                 logger.info(
                     f"[{self.name}] Stored cache entry: question='{question[:50]}...' "
-                    f"sql='{response.query[:50]}...' (space={self.genie_space_id}, table={self.table_name})"
+                    f"context='{context_string[:80]}...' "
+                    f"sql='{response.query[:50]}...' (space={self.space_id}, table={self.table_name})"
                 )
 
     @mlflow.trace(name="execute_cached_sql_semantic")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
         """Execute SQL using the warehouse and return results."""
         client: WorkspaceClient = self.warehouse.workspace_client
-        warehouse_id: str = self.warehouse.warehouse_id
+        warehouse_id: str = str(self.warehouse.warehouse_id)
 
         statement_response: StatementResponse = (
             client.statement_execution.execute_statement(
@@ -421,10 +596,13 @@ class SemanticCacheService(GenieServiceBase):
             )
         )
 
-        if statement_response.status.state != StatementState.SUCCEEDED:
+        if (
+            statement_response.status is not None
+            and statement_response.status.state != StatementState.SUCCEEDED
+        ):
             error_msg: str = (
                 f"SQL execution failed: {statement_response.status.error.message}"
-                if statement_response.status.error
+                if statement_response.status.error is not None
                 else f"SQL execution failed with state: {statement_response.status.state}"
             )
             logger.error(f"[{self.name}] {error_msg}")
@@ -438,7 +616,9 @@ class SemanticCacheService(GenieServiceBase):
                 and statement_response.manifest.schema.columns
             ):
                 columns = [
-                    col.name for col in statement_response.manifest.schema.columns
+                    col.name
+                    for col in statement_response.manifest.schema.columns
+                    if col.name is not None
                 ]
 
             data: list[list[Any]] = statement_response.result.data_array
@@ -472,11 +652,12 @@ class SemanticCacheService(GenieServiceBase):
         """
         Ask a question with detailed cache hit information.
 
-        On cache hit, the cached SQL is re-executed to return fresh data.
+        On cache hit, the cached SQL is re-executed to return fresh data, but the
+        conversation_id returned is the current conversation_id (not the cached one).
 
         Args:
             question: The question to ask
-            conversation_id: Optional conversation ID
+            conversation_id: Optional conversation ID for context and continuation
 
         Returns:
             CacheResult with fresh response and cache metadata
@@ -484,12 +665,14 @@ class SemanticCacheService(GenieServiceBase):
         # Ensure initialization (lazy init if initialize() wasn't called)
         self._setup()
 
-        # Generate embedding for the question
-        embedding: list[float] = self._embed_question(question)
+        # Generate embedding for the question with conversation context
+        embedding: list[float]
+        context_string: str
+        embedding, context_string = self._embed_question(question, conversation_id)
 
         # Check cache
         cache_result: tuple[SQLCacheEntry, float] | None = self._find_similar(
-            question, embedding
+            question, context_string, embedding
         )
 
         if cache_result is not None:
@@ -501,11 +684,15 @@ class SemanticCacheService(GenieServiceBase):
             # Re-execute the cached SQL to get fresh data
             result: pd.DataFrame | str = self._execute_sql(cached.query)
 
+            # IMPORTANT: Use the current conversation_id (from the request), not the cached one
+            # This ensures the conversation continues properly
             response: GenieResponse = GenieResponse(
                 result=result,
                 query=cached.query,
                 description=cached.description,
-                conversation_id=cached.conversation_id,
+                conversation_id=conversation_id
+                if conversation_id
+                else cached.conversation_id,
             )
 
             return CacheResult(response=response, cache_hit=True, served_by=self.name)
@@ -519,9 +706,9 @@ class SemanticCacheService(GenieServiceBase):
         if response.query:
             logger.info(
                 f"[{self.name}] Storing new cache entry for question: '{question[:50]}...' "
-                f"(space={self.genie_space_id})"
+                f"(space={self.space_id})"
             )
-            self._store_entry(question, embedding, response)
+            self._store_entry(question, context_string, embedding, response)
         elif not response.query:
             logger.warning(
                 f"[{self.name}] Not caching: response has no SQL query "
@@ -529,6 +716,10 @@ class SemanticCacheService(GenieServiceBase):
             )
 
         return CacheResult(response=response, cache_hit=False, served_by=None)
+
+    @property
+    def space_id(self) -> str:
+        return self.impl.space_id
 
     def invalidate_expired(self) -> int:
         """Remove expired entries from the cache for this Genie space.
@@ -541,7 +732,7 @@ class SemanticCacheService(GenieServiceBase):
         # If TTL is disabled, nothing can expire
         if ttl_seconds is None or ttl_seconds < 0:
             logger.debug(
-                f"[{self.name}] TTL disabled, no entries to expire for space {self.genie_space_id}"
+                f"[{self.name}] TTL disabled, no entries to expire for space {self.space_id}"
             )
             return 0
 
@@ -553,10 +744,10 @@ class SemanticCacheService(GenieServiceBase):
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(delete_sql, (self.genie_space_id, ttl_seconds))
+                cur.execute(delete_sql, (self.space_id, ttl_seconds))
                 deleted: int = cur.rowcount
                 logger.debug(
-                    f"[{self.name}] Deleted {deleted} expired entries for space {self.genie_space_id}"
+                    f"[{self.name}] Deleted {deleted} expired entries for space {self.space_id}"
                 )
                 return deleted
 
@@ -567,10 +758,10 @@ class SemanticCacheService(GenieServiceBase):
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(delete_sql, (self.genie_space_id,))
+                cur.execute(delete_sql, (self.space_id,))
                 deleted: int = cur.rowcount
                 logger.debug(
-                    f"[{self.name}] Cleared {deleted} entries for space {self.genie_space_id}"
+                    f"[{self.name}] Cleared {deleted} entries for space {self.space_id}"
                 )
                 return deleted
 
@@ -584,7 +775,7 @@ class SemanticCacheService(GenieServiceBase):
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(count_sql, (self.genie_space_id,))
+                cur.execute(count_sql, (self.space_id,))
                 row: DbRow | None = cur.fetchone()
                 return row.get("count", 0) if row else 0
 
@@ -602,7 +793,7 @@ class SemanticCacheService(GenieServiceBase):
             """
             with self._pool.connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(count_sql, (self.genie_space_id,))
+                    cur.execute(count_sql, (self.space_id,))
                     row: DbRow | None = cur.fetchone()
                     total = row.get("total", 0) if row else 0
                     return {
@@ -624,12 +815,12 @@ class SemanticCacheService(GenieServiceBase):
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(stats_sql, (ttl_seconds, ttl_seconds, self.genie_space_id))
-                row: DbRow | None = cur.fetchone()
+                cur.execute(stats_sql, (ttl_seconds, ttl_seconds, self.space_id))
+                stats_row: DbRow | None = cur.fetchone()
                 return {
-                    "size": row.get("total", 0) if row else 0,
+                    "size": stats_row.get("total", 0) if stats_row else 0,
                     "ttl_seconds": ttl.total_seconds() if ttl else None,
                     "similarity_threshold": self.similarity_threshold,
-                    "expired_entries": row.get("expired", 0) if row else 0,
-                    "valid_entries": row.get("valid", 0) if row else 0,
+                    "expired_entries": stats_row.get("expired", 0) if stats_row else 0,
+                    "valid_entries": stats_row.get("valid", 0) if stats_row else 0,
                 }

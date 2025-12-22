@@ -268,6 +268,10 @@ class LRUCacheService(GenieServiceBase):
             self._put(key, response)
         return CacheResult(response=response, cache_hit=False, served_by=None)
 
+    @property
+    def space_id(self) -> str:
+        return self.impl.space_id
+
     def invalidate(self, question: str) -> bool:
         """Remove a specific entry from the cache."""
         key: str = self._normalize_key(question)

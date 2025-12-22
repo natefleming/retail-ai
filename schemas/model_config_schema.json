@@ -613,6 +613,149 @@
           "default": false,
           "title": "On Behalf Of User"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -626,7 +769,7 @@
     },
     "DatabaseModel": {
       "additionalProperties": false,
-      "description": "Configuration for a Databricks Lakebase (PostgreSQL) database instance.\n\nAuthentication Model:\n--------------------\nThis model uses TWO separate authentication contexts:\n\n1. **Workspace API Authentication** (inherited from IsDatabricksResource):\n   - Uses ambient/default authentication (environment variables, notebook context, app service principal)\n   - Used for: discovering database instance, getting host DNS, checking instance status\n   - Controlled by: DATABRICKS_HOST, DATABRICKS_TOKEN env vars, or SDK default config\n\n2. **Database Connection Authentication** (configured via service_principal, client_id/client_secret, OR user):\n   - Used for: connecting to the PostgreSQL database as a specific identity\n   - Service Principal: Set service_principal with workspace_host to connect as a service principal\n   - OAuth M2M: Set client_id, client_secret, workspace_host to connect as a service principal\n   - User Auth: Set user (and optionally password) to connect as a user identity\n\nExample Service Principal Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample OAuth M2M Configuration (alternative):\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    client_id:\n      env: SERVICE_PRINCIPAL_CLIENT_ID\n    client_secret:\n      scope: my-scope\n      secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample User Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    user: my-user@databricks.com\n```",
+      "description": "Configuration for a Databricks Lakebase (PostgreSQL) database instance.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nDatabase Type:\n- lakebase: Databricks-managed Lakebase instance (authentication optional, supports ambient auth)\n- postgres: Standard PostgreSQL database (authentication required)\n\nExample Service Principal Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    type: lakebase\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample User Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    type: lakebase\n    user: my-user@databricks.com\n```\n\nExample Ambient Authentication (Lakebase only):\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    type: lakebase\n    on_behalf_of_user: true\n```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -640,9 +783,163 @@
           "default": false,
           "title": "On Behalf Of User"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabaseType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "lakebase"
         },
         "instance_name": {
           "anyOf": [
@@ -896,116 +1193,6 @@
           ],
           "default": null,
           "title": "Password"
-        },
-        "service_principal": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ServicePrincipalModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "client_id": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Client Id"
-        },
-        "client_secret": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Client Secret"
-        },
-        "workspace_host": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Workspace Host"
         }
       },
       "required": [
@@ -1013,6 +1200,14 @@
       ],
       "title": "DatabaseModel",
       "type": "object"
+    },
+    "DatabaseType": {
+      "enum": [
+        "postgres",
+        "lakebase"
+      ],
+      "title": "DatabaseType",
+      "type": "string"
     },
     "DatasetFormat": {
       "enum": [
@@ -1373,6 +1568,149 @@
           "default": false,
           "title": "On Behalf Of User"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
         "schema": {
           "anyOf": [
             {
@@ -1414,6 +1752,149 @@
           ],
           "default": false,
           "title": "On Behalf Of User"
+        },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
         },
         "name": {
           "title": "Name",
@@ -1576,6 +2057,149 @@
           "default": false,
           "title": "On Behalf Of User"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
         "schema": {
           "anyOf": [
             {
@@ -1612,231 +2236,6 @@
           ],
           "default": false,
           "title": "On Behalf Of User"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "temperature": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": 0.1,
-          "title": "Temperature"
-        },
-        "max_tokens": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": 8192,
-          "title": "Max Tokens"
-        },
-        "fallbacks": {
-          "anyOf": [
-            {
-              "items": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "$ref": "#/$defs/LLMModel"
-                  }
-                ]
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fallbacks"
-        },
-        "use_responses_api": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": false,
-          "description": "Use Responses API for ResponsesAgent endpoints",
-          "title": "Use Responses Api"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "title": "LLMModel",
-      "type": "object"
-    },
-    "LogLevel": {
-      "enum": [
-        "TRACE",
-        "DEBUG",
-        "INFO",
-        "WARNING",
-        "ERROR"
-      ],
-      "title": "LogLevel",
-      "type": "string"
-    },
-    "McpFunctionModel": {
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "const": "mcp",
-          "default": "mcp",
-          "title": "Type",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "human_in_the_loop": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HumanInTheLoopModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "transport": {
-          "$ref": "#/$defs/TransportType",
-          "default": "streamable_http"
-        },
-        "command": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "python",
-          "title": "Command"
-        },
-        "url": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Url"
-        },
-        "headers": {
-          "additionalProperties": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/CompositeVariableModel"
-              },
-              {
-                "$ref": "#/$defs/EnvironmentVariableModel"
-              },
-              {
-                "$ref": "#/$defs/SecretVariableModel"
-              },
-              {
-                "$ref": "#/$defs/PrimitiveVariableModel"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              }
-            ]
-          },
-          "title": "Headers",
-          "type": "object"
-        },
-        "args": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Args",
-          "type": "array"
-        },
-        "pat": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Pat"
         },
         "service_principal": {
           "anyOf": [
@@ -1947,6 +2346,387 @@
           ],
           "default": null,
           "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.1,
+          "title": "Temperature"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 8192,
+          "title": "Max Tokens"
+        },
+        "fallbacks": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/LLMModel"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fallbacks"
+        },
+        "use_responses_api": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Use Responses API for ResponsesAgent endpoints",
+          "title": "Use Responses Api"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "LLMModel",
+      "type": "object"
+    },
+    "LogLevel": {
+      "enum": [
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR"
+      ],
+      "title": "LogLevel",
+      "type": "string"
+    },
+    "McpFunctionModel": {
+      "additionalProperties": false,
+      "description": "MCP Function Model with authentication inherited from IsDatabricksResource.\n\nAuthentication for MCP connections uses the same options as other resources:\n- Service Principal (client_id + client_secret + workspace_host)\n- PAT (pat + workspace_host)\n- OBO (on_behalf_of_user)",
+      "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
+        "type": {
+          "const": "mcp",
+          "default": "mcp",
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "transport": {
+          "$ref": "#/$defs/TransportType",
+          "default": "streamable_http"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "python",
+          "title": "Command"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "headers": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CompositeVariableModel"
+              },
+              {
+                "$ref": "#/$defs/EnvironmentVariableModel"
+              },
+              {
+                "$ref": "#/$defs/SecretVariableModel"
+              },
+              {
+                "$ref": "#/$defs/PrimitiveVariableModel"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Headers",
+          "type": "object"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Args",
+          "type": "array"
         },
         "connection": {
           "anyOf": [
@@ -2973,6 +3753,149 @@
           "default": false,
           "title": "On Behalf Of User"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
         "schema": {
           "anyOf": [
             {
@@ -3225,6 +4148,149 @@
           "default": false,
           "title": "On Behalf Of User"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
         "embedding_model": {
           "anyOf": [
             {
@@ -3348,6 +4414,149 @@
           "default": false,
           "title": "On Behalf Of User"
         },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
         "schema": {
           "anyOf": [
             {
@@ -3413,6 +4622,149 @@
           ],
           "default": false,
           "title": "On Behalf Of User"
+        },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
         },
         "name": {
           "title": "Name",

@@ -15,7 +15,6 @@ Example usage:
     genie_service = SemanticCacheService(
         impl=GenieService(genie),
         parameters=semantic_params,
-        genie_space_id=space_id,
     )
     genie_service = LRUCacheService(
         impl=genie_service,

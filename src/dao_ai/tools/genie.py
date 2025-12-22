@@ -152,7 +152,7 @@ GenieResponse: A response object containing the conversation ID and result from 
         genie_service = SemanticCacheService(
             impl=genie_service,
             parameters=semantic_cache_parameters,
-            genie_space_id=space_id,
+            workspace_client=genie_room.workspace_client,  # Pass workspace client for conversation history
         ).initialize()  # Eagerly initialize to fail fast and create table
 
     # Wrap with LRU cache last (checked first - fast O(1) exact match)

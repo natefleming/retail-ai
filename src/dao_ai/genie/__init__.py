@@ -46,6 +46,10 @@ class GenieService(GenieServiceBase):
         )
         return response
 
+    @property
+    def space_id(self) -> str:
+        return self.genie.space_id
+
 
 __all__ = [
     # Service classes
