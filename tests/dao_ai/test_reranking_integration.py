@@ -67,8 +67,25 @@ HAS_DATABRICKS_CREDS = bool(
     os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN")
 )
 
-# Skip message
+
+# Check if FlashRank model is available
+def _check_flashrank_available() -> bool:
+    """Check if FlashRank model can be initialized."""
+    try:
+        from flashrank import Ranker
+
+        # Try to initialize with the default model
+        Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir="/tmp/flashrank_cache")
+        return True
+    except Exception:
+        return False
+
+
+HAS_FLASHRANK = _check_flashrank_available()
+
+# Skip messages
 SKIP_MSG = "Requires DATABRICKS_HOST and DATABRICKS_TOKEN environment variables"
+SKIP_FLASHRANK_MSG = "Requires FlashRank model to be available (run once to download)"
 
 
 @pytest.mark.integration
@@ -240,6 +257,7 @@ class TestRerankingWithRealIndex:
             assert "page_content" in documents[0]
             assert "metadata" in documents[0]
 
+    @pytest.mark.skipif(not HAS_FLASHRANK, reason=SKIP_FLASHRANK_MSG)
     def test_vector_search_with_custom_reranking(
         self, workspace_client: WorkspaceClient, test_index_config: dict
     ) -> None:
@@ -309,6 +327,7 @@ class TestRerankingWithRealIndex:
             assert "page_content" in documents[0]
             assert "metadata" in documents[0]
 
+    @pytest.mark.skipif(not HAS_FLASHRANK, reason=SKIP_FLASHRANK_MSG)
     def test_reranking_improves_relevance(
         self, workspace_client: WorkspaceClient, test_index_config: dict
     ) -> None:

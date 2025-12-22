@@ -125,8 +125,6 @@ def has_image(messages: BaseMessage | Sequence[BaseMessage]) -> bool:
                     "image_url",
                 ]:
                     return True
-                if hasattr(item, "type") and item.type in ["image", "image_url"]:
-                    return True
         return False
 
     if isinstance(messages, BaseMessage):
@@ -176,7 +174,9 @@ def last_human_message(messages: Sequence[BaseMessage]) -> Optional[HumanMessage
     Returns:
         The last HumanMessage in the sequence, or None if no human messages found
     """
-    return last_message(messages, lambda m: isinstance(m, HumanMessage))
+    return last_message(
+        messages, lambda m: isinstance(m, HumanMessage) and bool(m.content)
+    )
 
 
 def last_ai_message(messages: Sequence[BaseMessage]) -> Optional[AIMessage]:
@@ -192,7 +192,9 @@ def last_ai_message(messages: Sequence[BaseMessage]) -> Optional[AIMessage]:
     Returns:
         The last AIMessage in the sequence, or None if no AI messages found
     """
-    return last_message(messages, lambda m: isinstance(m, AIMessage))
+    return last_message(
+        messages, lambda m: isinstance(m, AIMessage) and bool(m.content)
+    )
 
 
 def last_tool_message(messages: Sequence[BaseMessage]) -> Optional[ToolMessage]:

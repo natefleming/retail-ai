@@ -1,16 +1,18 @@
 import os
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
+from unittest.mock import MagicMock
 
 import pytest
 from dotenv import find_dotenv, load_dotenv
+from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from mlflow.models import ModelConfig
 from mlflow.pyfunc import ChatModel
 
-from dao_ai.config import AppConfig
+from dao_ai.config import AppConfig, LLMModel
 from dao_ai.graph import create_dao_ai_graph
 from dao_ai.models import create_agent
 
@@ -108,3 +110,73 @@ def graph(config: AppConfig) -> CompiledStateGraph:
 def chat_model(graph: CompiledStateGraph) -> ChatModel:
     app: ChatModel = create_agent(graph)
     return app
+
+
+def add_databricks_resource_attrs(mock: Any) -> Any:
+    """
+    Add IsDatabricksResource attributes to a mock object.
+
+    Since IsDatabricksResource is now a BaseModel with validators,
+    mocks with spec=LLMModel (or similar) need these attributes set.
+
+    Args:
+        mock: The MagicMock object to configure
+
+    Returns:
+        The same mock with IsDatabricksResource attributes added
+    """
+    # Set all IsDatabricksResource attributes to None/False
+    mock.on_behalf_of_user = False
+    mock.service_principal = None
+    mock.client_id = None
+    mock.client_secret = None
+    mock.workspace_host = None
+    mock.pat = None
+    return mock
+
+
+def create_mock_databricks_resource(spec_class: type) -> MagicMock:
+    """
+    Create a MagicMock for any IsDatabricksResource subclass.
+
+    Args:
+        spec_class: The class to use as spec (e.g., LLMModel, WarehouseModel)
+
+    Returns:
+        A MagicMock with IsDatabricksResource attributes properly set
+    """
+    mock = MagicMock(spec=spec_class)
+    add_databricks_resource_attrs(mock)
+    return mock
+
+
+def create_mock_llm_model() -> MagicMock:
+    """
+    Create a properly configured mock for LLMModel.
+
+    Returns a MagicMock with:
+    - spec=LLMModel for attribute checking
+    - IsDatabricksResource attributes properly set
+    - as_chat_model() returning a mock that can invoke
+    """
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = AIMessage(content="This is a test summary.")
+
+    mock_llm_model = MagicMock(spec=LLMModel)
+    mock_llm_model.as_chat_model.return_value = mock_llm
+
+    # Add IsDatabricksResource attributes
+    add_databricks_resource_attrs(mock_llm_model)
+
+    return mock_llm_model
+
+
+@pytest.fixture
+def mock_llm_model() -> MagicMock:
+    """
+    Shared fixture for a mock LLMModel.
+
+    Use this fixture instead of creating your own mock_llm_model to ensure
+    all IsDatabricksResource attributes are properly set.
+    """
+    return create_mock_llm_model()

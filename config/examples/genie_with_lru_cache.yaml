@@ -69,7 +69,9 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                        # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea          # Databricks Genie space ID
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
 
 
 # =============================================================================

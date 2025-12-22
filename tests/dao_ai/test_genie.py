@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
-from conftest import has_retail_ai_env
+from conftest import add_databricks_resource_attrs, has_retail_ai_env
 from databricks.sdk.service.sql import StatementState
 from databricks_ai_bridge.genie import Genie, GenieResponse
 from langchain_core.tools import StructuredTool
@@ -456,10 +456,10 @@ def test_genie_tool_usage_pattern_with_state() -> None:
     """
     Test showing how the Genie tool would be used in a real LangGraph application.
 
-    This demonstrates the proper usage pattern with SharedState for conversation
+    This demonstrates the proper usage pattern with AgentState for conversation
     persistence, which is how agents would actually use this tool.
     """
-    from dao_ai.state import SharedState
+    from dao_ai.state import AgentState
 
     real_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
 
@@ -514,7 +514,7 @@ def test_genie_tool_usage_pattern_with_state() -> None:
         mock_ask.side_effect = mock_responses
 
         # Simulate state management as LangGraph would do it
-        shared_state = SharedState()
+        shared_state = AgentState()
 
         # Simulate first tool call (no existing conversation)
         print("\n3. First question (new conversation)...")
@@ -1756,10 +1756,11 @@ def test_create_genie_tool_with_cache_parameters() -> None:
             space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
         )
 
-        # Create mock warehouse
+        # Create mock warehouse with IsDatabricksResource attrs
         mock_warehouse = Mock(spec=WarehouseModel)
         mock_warehouse.warehouse_id = "test-warehouse"
         mock_warehouse.workspace_client = Mock()
+        add_databricks_resource_attrs(mock_warehouse)
 
         cache_params = GenieLRUCacheParametersModel(
             warehouse=mock_warehouse,

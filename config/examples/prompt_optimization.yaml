@@ -135,14 +135,15 @@ tools:
 
 
   # Product details search by description
-  find_product_details_by_description_tool:
-    &find_product_details_by_description_tool
-    name: find_product_details_by_description
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
     function:
       type: factory
-      name: hardware_store.tools.find_product_details_by_description_tool
+      name: dao_ai.tools.create_vector_search_tool
       args:
-        retriever: *products_retriever              # Uses product retriever for search
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products by description"  # Tool description
 
 
 
@@ -276,16 +277,13 @@ app:
         - CAN_QUERY                                # Full management permissions
   agents:                                           # List of agents included in the system
     - *diy                                          # DIY and tutorials agent
-  message_hooks: 
-    - dao_ai.hooks.null_hook
-    - hardware_store.hooks.require_store_num_hook
   input_example:
       input:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
           store_num: 87887
     # swarm:
@@ -302,7 +300,7 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: nate.fleming
       store_num: 87887
 
@@ -343,7 +341,6 @@ optimizations:
                 content: "What's the best drill for home use?"
             custom_inputs:
               configurable:
-                thread_id: "1"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -357,7 +354,6 @@ optimizations:
                 content: "How do I install a ceiling fan?"
             custom_inputs:
               configurable:
-                thread_id: "2"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -373,7 +369,6 @@ optimizations:
                 content: "What type of paint should I use for my bathroom?"
             custom_inputs:
               configurable:
-                thread_id: "3"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -388,7 +383,6 @@ optimizations:
                 content: "How do I fix a leaky faucet?"
             custom_inputs:
               configurable:
-                thread_id: "4"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -404,7 +398,6 @@ optimizations:
                 content: "What tools do I need to hang drywall?"
             custom_inputs:
               configurable:
-                thread_id: "5"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -420,7 +413,6 @@ optimizations:
                 content: "How do I install laminate flooring?"
             custom_inputs:
               configurable:
-                thread_id: "6"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -437,7 +429,6 @@ optimizations:
                 content: "What's the difference between a nail gun and a hammer?"
             custom_inputs:
               configurable:
-                thread_id: "7"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -453,7 +444,6 @@ optimizations:
                 content: "How do I properly prepare a surface for painting?"
             custom_inputs:
               configurable:
-                thread_id: "8"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -470,7 +460,6 @@ optimizations:
                 content: "What safety equipment do I need for woodworking?"
             custom_inputs:
               configurable:
-                thread_id: "9"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -487,7 +476,6 @@ optimizations:
                 content: "How do I choose the right sandpaper grit?"
             custom_inputs:
               configurable:
-                thread_id: "10"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -503,7 +491,6 @@ optimizations:
                 content: "What's the best way to cut PVC pipe?"
             custom_inputs:
               configurable:
-                thread_id: "11"
                 user_id: my_user_id
                 store_num: 87887
           expectations:
@@ -543,8 +530,3 @@ optimizations:
       
       # Optional: Optimization parameters
       num_candidates: 5  # Number of candidate prompts to generate
-      
-      # Optional: Specify scorer model (defaults to "databricks")
-      # Can be LLMModel reference or string model name
-      scorer_model: "openai:/gpt-5"
-      # Or use string: scorer_model: "databricks-claude-sonnet-4-5"

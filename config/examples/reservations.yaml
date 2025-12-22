@@ -71,16 +71,15 @@ app:
     supervisor:                                     # Supervisor orchestration pattern
       model: *default_llm                           # LLM for routing decisions
     memory: *memory                             # Memory for state persistence
-  message_hooks: 
-    - "dao_ai.hooks.require_thread_id_hook"
   input_example:
       messages:
         - role: user
           content: Can create a reservation for me?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: john.smith@databricks.com
+        session: {}
         
 
 

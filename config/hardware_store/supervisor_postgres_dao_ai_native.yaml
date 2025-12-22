@@ -117,7 +117,9 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                  # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea    # Databricks Genie space ID
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
       on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
@@ -508,8 +510,6 @@ agents:
     handoff_prompt: |                               # Conditions for routing to this agent
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
-    pre_agent_hook: "dao_ai.hooks.null_hook"
-    post_agent_hook: "dao_ai.hooks.null_hook"
 
   # ---------------------------------------------------------------------------
   # ORDERS AGENT  
@@ -951,18 +951,16 @@ app:
     #   model: *tool_calling_llm
     #   default_agent: *general
 
-  message_hooks: 
-    - dao_ai.hooks.null_hook
-    #- hardware_store.hooks.require_store_num_hook
   input_example:
       messages:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          #thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
           store_num: 87887
+        session: {}
   #chat_history: 
   #  #max_tokens: 256
   #  max_messages_before_summary: 5
@@ -1034,9 +1032,10 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: nate_fleming
       store_num: 87887
+    session: {}
   guidelines:
     - name: MyRelevanceGuideline
       guidelines:

@@ -7,6 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from langchain_core.tools import BaseTool
 from loguru import logger
 
 import dao_ai
@@ -19,7 +20,7 @@ def is_lib_provided(lib_name: str, pip_requirements: Sequence[str]) -> bool:
     )
 
 
-def is_installed():
+def is_installed() -> bool:
     current_file = os.path.abspath(dao_ai.__file__)
     site_packages = [os.path.abspath(path) for path in site.getsitepackages()]
     if site.getusersitepackages():
@@ -157,9 +158,6 @@ def get_installed_packages() -> dict[str, str]:
         f"langchain-tavily=={version('langchain-tavily')}",
         f"langgraph=={version('langgraph')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
-        f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
-        f"langgraph-supervisor=={version('langgraph-supervisor')}",
-        f"langgraph-swarm=={version('langgraph-swarm')}",
         f"langmem=={version('langmem')}",
         f"loguru=={version('loguru')}",
         f"mcp=={version('mcp')}",
@@ -212,13 +210,13 @@ def load_function(function_name: str) -> Callable[..., Any]:
         module = importlib.import_module(module_path)
 
         # Get the function from the module
-        func = getattr(module, func_name)
+        func: Any = getattr(module, func_name)
 
-        # Verify that the resolved object is callable or is a langchain tool
+        # Verify that the resolved object is callable or is a LangChain tool
         # In langchain 1.x, StructuredTool objects are not directly callable
         # but have an invoke() method
-        is_callable = callable(func)
-        is_langchain_tool = hasattr(func, "invoke") and hasattr(func, "name")
+        is_callable: bool = callable(func)
+        is_langchain_tool: bool = isinstance(func, BaseTool)
 
         if not is_callable and not is_langchain_tool:
             raise TypeError(f"Function {func_name} is not callable or invocable.")
@@ -253,3 +251,50 @@ def is_in_model_serving() -> bool:
         return True
 
     return False
+
+
+def create_databricks_search_memory_tool(namespace: tuple[str, ...]) -> BaseTool:
+    """
+    Create a Databricks-compatible search_memory tool.
+
+    The langmem search_memory tool has a 'filter' field with additionalProperties: true
+    in its schema, which Databricks LLM endpoints reject. This function creates a
+    wrapper tool that omits the problematic filter field.
+
+    Args:
+        namespace: The memory namespace tuple
+
+    Returns:
+        A StructuredTool compatible with Databricks
+    """
+    from langchain_core.tools import StructuredTool
+    from langmem import create_search_memory_tool
+    from pydantic import BaseModel, Field
+
+    # Get the original tool
+    original_tool = create_search_memory_tool(namespace=namespace)
+
+    # Create a schema without the problematic filter field
+    class SearchMemoryInput(BaseModel):
+        """Input for search_memory tool."""
+
+        query: str = Field(..., description="The search query")
+        limit: int = Field(default=10, description="Maximum number of results")
+        offset: int = Field(default=0, description="Offset for pagination")
+
+    # Create a wrapper function
+    async def search_memory_wrapper(
+        query: str, limit: int = 10, offset: int = 0
+    ) -> Any:
+        """Search your long-term memories for information relevant to your current context."""
+        return await original_tool.ainvoke(
+            {"query": query, "limit": limit, "offset": offset}
+        )
+
+    # Create the new tool
+    return StructuredTool.from_function(
+        coroutine=search_memory_wrapper,
+        name="search_memory",
+        description="Search your long-term memories for information relevant to your current context.",
+        args_schema=SearchMemoryInput,
+    )

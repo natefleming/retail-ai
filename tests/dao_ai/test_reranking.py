@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from conftest import add_databricks_resource_attrs
 
 from dao_ai.config import RerankParametersModel, RetrieverModel, VectorStoreModel
 from dao_ai.tools.vector_search import create_vector_search_tool
@@ -40,19 +41,25 @@ class TestReRankParametersModel:
         assert "cache_dir" in dumped
 
 
+def create_mock_vector_store() -> Mock:
+    """Create a mock VectorStoreModel with IsDatabricksResource attrs."""
+    vector_store = Mock(spec=VectorStoreModel)
+    vector_store.columns = ["text", "metadata"]
+    vector_store.embedding_model = None
+    vector_store.primary_key = "id"
+    vector_store.index = Mock()
+    vector_store.endpoint = Mock()
+    add_databricks_resource_attrs(vector_store)
+    return vector_store
+
+
 @pytest.mark.unit
 class TestRetrieverModelWithReranker:
     """Unit tests for RetrieverModel with reranking configuration."""
 
     def test_rerank_as_bool_true(self) -> None:
         """Test that rerank=True is converted to ReRankParametersModel with defaults."""
-        # Create mock vector store with required attributes
-        vector_store = Mock(spec=VectorStoreModel)
-        vector_store.columns = ["text", "metadata"]
-        vector_store.embedding_model = None
-        vector_store.primary_key = "id"
-        vector_store.index = Mock()
-        vector_store.endpoint = Mock()
+        vector_store = create_mock_vector_store()
 
         retriever = RetrieverModel(vector_store=vector_store, rerank=True)
 
@@ -62,12 +69,7 @@ class TestRetrieverModelWithReranker:
 
     def test_rerank_as_bool_false(self) -> None:
         """Test that rerank=False remains False."""
-        vector_store = Mock(spec=VectorStoreModel)
-        vector_store.columns = ["text", "metadata"]
-        vector_store.embedding_model = None
-        vector_store.primary_key = "id"
-        vector_store.index = Mock()
-        vector_store.endpoint = Mock()
+        vector_store = create_mock_vector_store()
 
         retriever = RetrieverModel(vector_store=vector_store, rerank=False)
 
@@ -75,12 +77,7 @@ class TestRetrieverModelWithReranker:
 
     def test_rerank_as_model(self) -> None:
         """Test that ReRankParametersModel is preserved."""
-        vector_store = Mock(spec=VectorStoreModel)
-        vector_store.columns = ["text", "metadata"]
-        vector_store.embedding_model = None
-        vector_store.primary_key = "id"
-        vector_store.index = Mock()
-        vector_store.endpoint = Mock()
+        vector_store = create_mock_vector_store()
 
         rerank_config = RerankParametersModel(model="ms-marco-MiniLM-L-6-v2", top_n=3)
         retriever = RetrieverModel(vector_store=vector_store, rerank=rerank_config)
@@ -91,12 +88,7 @@ class TestRetrieverModelWithReranker:
 
     def test_rerank_none(self) -> None:
         """Test that rerank=None remains None."""
-        vector_store = Mock(spec=VectorStoreModel)
-        vector_store.columns = ["text", "metadata"]
-        vector_store.embedding_model = None
-        vector_store.primary_key = "id"
-        vector_store.index = Mock()
-        vector_store.endpoint = Mock()
+        vector_store = create_mock_vector_store()
 
         retriever = RetrieverModel(vector_store=vector_store, rerank=None)
 

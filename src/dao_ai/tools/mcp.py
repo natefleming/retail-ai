@@ -14,7 +14,6 @@ from dao_ai.config import (
     McpFunctionModel,
     TransportType,
 )
-from dao_ai.tools.human_in_the_loop import as_human_in_the_loop
 
 
 def create_mcp_tools(
@@ -95,7 +94,8 @@ def create_mcp_tools(
                     logger.error(f"MCP tool {mcp_tool.name} failed: {e}")
                     raise
 
-            return as_human_in_the_loop(tool_wrapper, function)
+            # HITL is now handled at middleware level via HumanInTheLoopMiddleware
+            return tool_wrapper
 
         return [_create_tool_wrapper_with_connection(tool) for tool in mcp_tools]
 
@@ -190,6 +190,7 @@ def create_mcp_tools(
                     logger.error(f"MCP tool {mcp_tool.name} failed: {e}")
                     raise
 
-            return as_human_in_the_loop(tool_wrapper, function)
+            # HITL is now handled at middleware level via HumanInTheLoopMiddleware
+            return tool_wrapper
 
         return [_create_tool_wrapper(tool) for tool in mcp_tools]

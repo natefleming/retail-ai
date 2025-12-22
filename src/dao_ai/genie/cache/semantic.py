@@ -15,7 +15,6 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementResponse, StatementState
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
-from mlflow.entities import SpanType
 
 from dao_ai.config import (
     DatabaseModel,
@@ -441,8 +440,6 @@ class SemanticCacheService(GenieServiceBase):
                 columns = [
                     col.name for col in statement_response.manifest.schema.columns
                 ]
-            elif hasattr(statement_response.result, "schema"):
-                columns = [col.name for col in statement_response.result.schema.columns]
 
             data: list[list[Any]] = statement_response.result.data_array
             if columns:
@@ -466,7 +463,7 @@ class SemanticCacheService(GenieServiceBase):
         )
         return result.response
 
-    @mlflow.trace(name="genie_semantic_cache_lookup", span_type=SpanType.TOOL)
+    @mlflow.trace(name="genie_semantic_cache_lookup")
     def ask_question_with_cache_info(
         self,
         question: str,

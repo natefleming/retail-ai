@@ -192,8 +192,6 @@ class LRUCacheService(GenieServiceBase):
                 columns = [
                     col.name for col in statement_response.manifest.schema.columns
                 ]
-            elif hasattr(statement_response.result, "schema"):
-                columns = [col.name for col in statement_response.result.schema.columns]
 
             data: list[list[Any]] = statement_response.result.data_array
             if columns:

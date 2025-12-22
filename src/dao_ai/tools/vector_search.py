@@ -1,5 +1,12 @@
+"""
+Vector search tool for retrieving documents from Databricks Vector Search.
+
+This module provides a tool factory for creating semantic search tools
+using ToolRuntime[Context, AgentState] for type-safe runtime access.
+"""
+
 import os
-from typing import Annotated, Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 import mlflow
 from databricks.vector_search.reranker import DatabricksReranker
@@ -9,9 +16,8 @@ from databricks_ai_bridge.vector_search_retriever_tool import (
 )
 from databricks_langchain.vectorstores import DatabricksVectorSearch
 from flashrank import Ranker, RerankRequest
+from langchain.tools import ToolRuntime, tool
 from langchain_core.documents import Document
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.prebuilt import InjectedState
 from loguru import logger
 from mlflow.entities import SpanType
 
@@ -20,6 +26,7 @@ from dao_ai.config import (
     RetrieverModel,
     VectorStoreModel,
 )
+from dao_ai.state import AgentState, Context
 from dao_ai.utils import normalize_host
 
 
@@ -27,7 +34,7 @@ def create_vector_search_tool(
     retriever: RetrieverModel | dict[str, Any],
     name: Optional[str] = None,
     description: Optional[str] = None,
-) -> Callable:
+) -> Callable[..., list[dict[str, Any]]]:
     """
     Create a Vector Search tool for retrieving documents from a Databricks Vector Search index.
 
@@ -254,8 +261,7 @@ def create_vector_search_tool(
         return reranked_docs
 
     # Create the main vector search tool using @tool decorator
-    # Note: args_schema provides descriptions for query and filters,
-    # so Annotated is only needed for injected LangGraph parameters
+    # Uses ToolRuntime[Context, AgentState] for type-safe runtime access
     @tool(
         name_or_callable=name or index_name,
         description=description or "Search for documents using vector similarity",
@@ -264,8 +270,7 @@ def create_vector_search_tool(
     def vector_search_tool(
         query: str,
         filters: Optional[List[FilterItem]] = None,
-        state: Annotated[dict, InjectedState] = None,
-        tool_call_id: Annotated[str, InjectedToolCallId] = None,
+        runtime: ToolRuntime[Context, AgentState] = None,
     ) -> list[dict[str, Any]]:
         """
         Search for documents using vector similarity with optional reranking.
@@ -276,8 +281,10 @@ def create_vector_search_tool(
 
         Both stages are traced in MLflow for observability.
 
+        Uses ToolRuntime[Context, AgentState] for type-safe runtime access.
+
         Returns:
-            Command with ToolMessage containing the retrieved documents
+            List of serialized documents with page_content and metadata
         """
         logger.debug(
             f"Vector search tool called: query='{query[:50]}...', reranking={reranker_config is not None}"

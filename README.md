@@ -1,5 +1,9 @@
 # DAO: Declarative Agent Orchestration
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Production-grade AI agents defined in YAML, powered by LangGraph, deployed on Databricks.**
 
 DAO is an **infrastructure-as-code framework** for building, deploying, and managing multi-agent AI systems. Instead of writing boilerplate Python code to wire up agents, tools, and orchestration, you define everything declaratively in YAML configuration files.
@@ -487,7 +491,7 @@ agents:
 
 ### 8. Automated Prompt Optimization
 
-Use DSPy-style optimization to automatically improve prompts:
+Use GEPA (Generative Evolution of Prompts and Agents) to automatically improve prompts:
 
 ```yaml
 optimizations:
@@ -499,6 +503,126 @@ optimizations:
       reflection_model: "openai:/gpt-4"
       num_candidates: 5
 ```
+
+### 9. DSPy-Style Assertion Middleware
+
+DAO provides middleware inspired by DSPy's assertion mechanisms for validating and improving agent outputs:
+
+| Middleware | Behavior | Use Case |
+|------------|----------|----------|
+| **AssertMiddleware** | Hard constraint - retries until satisfied or fails | Required output formats, mandatory citations |
+| **SuggestMiddleware** | Soft constraint - logs feedback, optional single retry | Style preferences, quality suggestions |
+| **RefineMiddleware** | Iterative improvement - selects best of N attempts | Optimizing response quality |
+
+```yaml
+# Configure via middleware in agents
+agents:
+  my_agent:
+    middleware:
+      - type: assert
+        constraint: has_citations
+        max_retries: 3
+        on_failure: fallback
+        fallback_message: "Unable to provide cited response."
+```
+
+Or programmatically:
+
+```python
+from dao_ai.middleware.assertions import (
+    create_assert_middleware,
+    create_suggest_middleware,
+    create_refine_middleware,
+    LengthConstraint,
+    KeywordConstraint,
+)
+
+# Hard constraint: response must be between 100-500 chars
+assert_middleware = create_assert_middleware(
+    constraint=LengthConstraint(min_length=100, max_length=500),
+    max_retries=3,
+    on_failure="fallback",
+)
+
+# Soft constraint: suggest professional tone
+suggest_middleware = create_suggest_middleware(
+    constraint=lambda response, ctx: "professional" in response.lower(),
+    allow_one_retry=True,
+)
+
+# Iterative refinement: optimize response quality
+def quality_score(response: str, ctx: dict) -> float:
+    # Score based on length, keywords, structure
+    return min(len(response) / 500, 1.0)
+
+refine_middleware = create_refine_middleware(
+    reward_fn=quality_score,
+    threshold=0.8,
+    max_iterations=3,
+)
+```
+
+### 10. Conversation Summarization
+
+Automatically summarize long conversation histories to stay within context limits:
+
+```yaml
+chat_history:
+  max_tokens: 4096                    # Max tokens for summarized history
+  max_tokens_before_summary: 8000     # Trigger summarization at this threshold
+  max_messages_before_summary: 20     # Or trigger at this message count
+```
+
+The `LoggingSummarizationMiddleware` provides detailed observability:
+
+```
+INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~2100 tokens) | Reduced by ~10400 tokens
+```
+
+### 11. Structured Input/Output Format
+
+DAO uses a structured format for passing configuration and session state:
+
+```python
+# Input format
+custom_inputs = {
+    "configurable": {
+        "thread_id": "uuid-123",        # LangGraph thread ID
+        "conversation_id": "uuid-123",  # Databricks-style (takes precedence)
+        "user_id": "user@example.com",
+        "store_num": "12345",
+    },
+    "session": {
+        # Accumulated runtime state (optional in input)
+    }
+}
+
+# Output format includes session state
+custom_outputs = {
+    "configurable": {
+        "thread_id": "uuid-123",
+        "conversation_id": "uuid-123",
+        "user_id": "user@example.com",
+    },
+    "session": {
+        "genie": {
+            "spaces": {
+                "space_abc": {
+                    "conversation_id": "genie-conv-456",
+                    "cache_hit": True,
+                    "follow_up_questions": ["What about pricing?"]
+                }
+            }
+        }
+    }
+}
+```
+
+**Key features:**
+- `conversation_id` and `thread_id` are interchangeable (conversation_id takes precedence)
+- If neither is provided, a UUID is auto-generated
+- `user_id` is normalized (dots replaced with underscores for memory namespaces)
+- Backward compatible with legacy flat custom_inputs format
 
 ---
 
@@ -770,12 +894,15 @@ The `config/examples/` directory contains ready-to-use configurations:
 | `genie.yaml` | Natural language to SQL with Genie |
 | `genie_with_lru_cache.yaml` | Genie with LRU caching |
 | `genie_with_semantic_cache.yaml` | Genie with two-tier caching |
+| `conversation_summarization.yaml` | **NEW** Long conversation summarization with PostgreSQL persistence |
 | `human_in_the_loop.yaml` | Tool approval workflows |
 | `mcp.yaml` | External service integration via MCP |
-| `prompt_optimization.yaml` | Automated prompt tuning |
+| `prompt_optimization.yaml` | Automated prompt tuning with GEPA |
+| `prompt_registry.yaml` | MLflow prompt registry integration |
 | `vector_search_with_reranking.yaml` | RAG with reranking |
 | `deep_research.yaml` | Multi-step research agent |
 | `slack.yaml` | Slack integration |
+| `reservations.yaml` | Restaurant reservation system |
 
 ---
 
@@ -840,10 +967,20 @@ dao-ai/
 │   ├── graph.py           # LangGraph workflow builder
 │   ├── nodes.py           # Agent node factories
 │   ├── state.py           # State management
+│   ├── optimization.py    # GEPA-based prompt optimization
 │   ├── tools/             # Tool implementations
 │   │   ├── genie.py       # Genie tool with caching
 │   │   ├── mcp.py         # MCP integrations
 │   │   ├── vector_search.py
+│   │   └── ...
+│   ├── middleware/        # Agent middleware
+│   │   ├── assertions.py  # Assert, Suggest, Refine middleware
+│   │   ├── summarization.py # Conversation summarization
+│   │   ├── guardrails.py  # Content filtering and safety
+│   │   └── ...
+│   ├── orchestration/     # Multi-agent orchestration
+│   │   ├── supervisor.py  # Supervisor pattern
+│   │   ├── swarm.py       # Swarm pattern
 │   │   └── ...
 │   ├── genie/
 │   │   └── cache/         # LRU and Semantic cache

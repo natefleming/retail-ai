@@ -28,6 +28,7 @@ from databricks.sdk.service.database import DatabaseInstance
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
+    ChatDatabricks,
     DatabricksEmbeddings,
     DatabricksFunctionClient,
 )
@@ -82,27 +83,6 @@ class HasFullName(ABC):
     @property
     @abstractmethod
     def full_name(self) -> str: ...
-
-
-class IsDatabricksResource(ABC):
-    on_behalf_of_user: Optional[bool] = False
-
-    @abstractmethod
-    def as_resources(self) -> Sequence[DatabricksResource]: ...
-
-    @property
-    @abstractmethod
-    def api_scopes(self) -> Sequence[str]: ...
-
-    @property
-    def workspace_client(self) -> WorkspaceClient:
-        credentials_strategy: CredentialsStrategy = None
-        if self.on_behalf_of_user:
-            credentials_strategy = ModelServingUserCredentials()
-        logger.debug(
-            f"Creating WorkspaceClient with credentials strategy: {credentials_strategy}"
-        )
-        return WorkspaceClient(credentials_strategy=credentials_strategy)
 
 
 class EnvironmentVariableModel(BaseModel, HasValue):
@@ -212,6 +192,138 @@ class ServicePrincipalModel(BaseModel):
     client_secret: AnyVariable
 
 
+class IsDatabricksResource(ABC, BaseModel):
+    """
+    Base class for Databricks resources with authentication support.
+
+    Authentication Options:
+    ----------------------
+    1. **On-Behalf-Of User (OBO)**: Set on_behalf_of_user=True to use the
+       calling user's identity via ModelServingUserCredentials.
+
+    2. **Service Principal (OAuth M2M)**: Provide service_principal or
+       (client_id + client_secret + workspace_host) for service principal auth.
+
+    3. **Personal Access Token (PAT)**: Provide pat (and optionally workspace_host)
+       to authenticate with a personal access token.
+
+    4. **Ambient Authentication**: If no credentials provided, uses SDK defaults
+       (environment variables, notebook context, etc.)
+
+    Authentication Priority:
+    1. OBO (on_behalf_of_user=True)
+    2. Service Principal (client_id + client_secret + workspace_host)
+    3. PAT (pat + workspace_host)
+    4. Ambient/default authentication
+    """
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    on_behalf_of_user: Optional[bool] = False
+    service_principal: Optional[ServicePrincipalModel] = None
+    client_id: Optional[AnyVariable] = None
+    client_secret: Optional[AnyVariable] = None
+    workspace_host: Optional[AnyVariable] = None
+    pat: Optional[AnyVariable] = None
+
+    @abstractmethod
+    def as_resources(self) -> Sequence[DatabricksResource]: ...
+
+    @property
+    @abstractmethod
+    def api_scopes(self) -> Sequence[str]: ...
+
+    @model_validator(mode="after")
+    def _expand_service_principal(self) -> Self:
+        """Expand service_principal into client_id and client_secret if provided."""
+        if self.service_principal is not None:
+            if self.client_id is None:
+                self.client_id = self.service_principal.client_id
+            if self.client_secret is None:
+                self.client_secret = self.service_principal.client_secret
+        return self
+
+    @model_validator(mode="after")
+    def _validate_auth_not_mixed(self) -> Self:
+        """Validate that OAuth and PAT authentication are not both provided."""
+        has_oauth: bool = self.client_id is not None and self.client_secret is not None
+        has_pat: bool = self.pat is not None
+
+        if has_oauth and has_pat:
+            raise ValueError(
+                "Cannot use both OAuth and user authentication methods. "
+                "Please provide either OAuth credentials or user credentials."
+            )
+        return self
+
+    @property
+    def workspace_client(self) -> WorkspaceClient:
+        """
+        Get a WorkspaceClient configured with the appropriate authentication.
+
+        Authentication priority:
+        1. If on_behalf_of_user is True, uses ModelServingUserCredentials (OBO)
+        2. If service principal credentials are configured (client_id, client_secret,
+           workspace_host), uses OAuth M2M
+        3. If PAT is configured, uses token authentication
+        4. Otherwise, uses default/ambient authentication
+        """
+        from dao_ai.utils import normalize_host
+
+        # Check for OBO first (highest priority)
+        if self.on_behalf_of_user:
+            credentials_strategy: CredentialsStrategy = ModelServingUserCredentials()
+            logger.debug(
+                f"Creating WorkspaceClient for {self.__class__.__name__} "
+                f"with OBO credentials strategy"
+            )
+            return WorkspaceClient(credentials_strategy=credentials_strategy)
+
+        # Check for service principal credentials
+        client_id_value: str | None = (
+            value_of(self.client_id) if self.client_id else None
+        )
+        client_secret_value: str | None = (
+            value_of(self.client_secret) if self.client_secret else None
+        )
+        workspace_host_value: str | None = (
+            normalize_host(value_of(self.workspace_host))
+            if self.workspace_host
+            else None
+        )
+
+        if client_id_value and client_secret_value and workspace_host_value:
+            logger.debug(
+                f"Creating WorkspaceClient for {self.__class__.__name__} with service principal: "
+                f"client_id={client_id_value}, host={workspace_host_value}"
+            )
+            return WorkspaceClient(
+                host=workspace_host_value,
+                client_id=client_id_value,
+                client_secret=client_secret_value,
+                auth_type="oauth-m2m",
+            )
+
+        # Check for PAT authentication
+        pat_value: str | None = value_of(self.pat) if self.pat else None
+        if pat_value:
+            logger.debug(
+                f"Creating WorkspaceClient for {self.__class__.__name__} with PAT"
+            )
+            return WorkspaceClient(
+                host=workspace_host_value,
+                token=pat_value,
+                auth_type="pat",
+            )
+
+        # Default: use ambient authentication
+        logger.debug(
+            f"Creating WorkspaceClient for {self.__class__.__name__} "
+            "with default/ambient authentication"
+        )
+        return WorkspaceClient()
+
+
 class Privilege(str, Enum):
     ALL_PRIVILEGES = "ALL_PRIVILEGES"
     USE_CATALOG = "USE_CATALOG"
@@ -272,7 +384,7 @@ class SchemaModel(BaseModel, HasFullName):
         provider.create_schema(self)
 
 
-class TableModel(BaseModel, HasFullName, IsDatabricksResource):
+class TableModel(IsDatabricksResource, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: Optional[str] = None
@@ -341,12 +453,16 @@ class TableModel(BaseModel, HasFullName, IsDatabricksResource):
         return resources
 
 
-class LLMModel(BaseModel, IsDatabricksResource):
+class LLMModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
     fallbacks: Optional[list[Union[str, "LLMModel"]]] = Field(default_factory=list)
+    use_responses_api: Optional[bool] = Field(
+        default=False,
+        description="Use Responses API for ResponsesAgent endpoints",
+    )
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -366,19 +482,12 @@ class LLMModel(BaseModel, IsDatabricksResource):
         ]
 
     def as_chat_model(self) -> LanguageModelLike:
-        # Retrieve langchain chat client from workspace client to enable OBO
-        # ChatOpenAI does not allow additional inputs at the moment, so we cannot use it directly
-        # chat_client: LanguageModelLike = self.as_open_ai_client()
-
-        # Create ChatDatabricksWrapper instance directly
-        from dao_ai.chat_models import ChatDatabricksFiltered
-
-        chat_client: LanguageModelLike = ChatDatabricksFiltered(
-            model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
+        chat_client: LanguageModelLike = ChatDatabricks(
+            model=self.name,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            use_responses_api=self.use_responses_api,
         )
-        # chat_client: LanguageModelLike = ChatDatabricks(
-        #     model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
-        # )
 
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
@@ -432,7 +541,7 @@ class VectorSearchEndpoint(BaseModel):
         return str(value)
 
 
-class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
+class IndexModel(IsDatabricksResource, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
@@ -457,7 +566,7 @@ class IndexModel(BaseModel, HasFullName, IsDatabricksResource):
         ]
 
 
-class GenieRoomModel(BaseModel, IsDatabricksResource):
+class GenieRoomModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
@@ -483,7 +592,7 @@ class GenieRoomModel(BaseModel, IsDatabricksResource):
         return self
 
 
-class VolumeModel(BaseModel, HasFullName, IsDatabricksResource):
+class VolumeModel(IsDatabricksResource, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
@@ -543,7 +652,7 @@ class VolumePathModel(BaseModel, HasFullName):
         provider.create_path(self)
 
 
-class VectorStoreModel(BaseModel, IsDatabricksResource):
+class VectorStoreModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     embedding_model: Optional[LLMModel] = None
     index: Optional[IndexModel] = None
@@ -642,7 +751,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
         provider.create_vector_store(self)
 
 
-class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
+class FunctionModel(IsDatabricksResource, HasFullName):
     model_config = ConfigDict()
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: Optional[str] = None
@@ -697,7 +806,7 @@ class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
         return ["sql.statement-execution"]
 
 
-class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
+class ConnectionModel(IsDatabricksResource, HasFullName):
     model_config = ConfigDict()
     name: str
 
@@ -724,7 +833,7 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
         ]
 
 
-class WarehouseModel(BaseModel, IsDatabricksResource):
+class WarehouseModel(IsDatabricksResource):
     model_config = ConfigDict()
     name: str
     description: Optional[str] = None
@@ -751,30 +860,28 @@ class WarehouseModel(BaseModel, IsDatabricksResource):
         return self
 
 
-class DatabaseModel(BaseModel, IsDatabricksResource):
+class DatabaseType(str, Enum):
+    POSTGRES = "postgres"
+    LAKEBASE = "lakebase"
+
+
+class DatabaseModel(IsDatabricksResource):
     """
     Configuration for a Databricks Lakebase (PostgreSQL) database instance.
 
-    Authentication Model:
-    --------------------
-    This model uses TWO separate authentication contexts:
+    Authentication is inherited from IsDatabricksResource. Additionally supports:
+    - user/password: For user-based database authentication
 
-    1. **Workspace API Authentication** (inherited from IsDatabricksResource):
-       - Uses ambient/default authentication (environment variables, notebook context, app service principal)
-       - Used for: discovering database instance, getting host DNS, checking instance status
-       - Controlled by: DATABRICKS_HOST, DATABRICKS_TOKEN env vars, or SDK default config
-
-    2. **Database Connection Authentication** (configured via service_principal, client_id/client_secret, OR user):
-       - Used for: connecting to the PostgreSQL database as a specific identity
-       - Service Principal: Set service_principal with workspace_host to connect as a service principal
-       - OAuth M2M: Set client_id, client_secret, workspace_host to connect as a service principal
-       - User Auth: Set user (and optionally password) to connect as a user identity
+    Database Type:
+    - lakebase: Databricks-managed Lakebase instance (authentication optional, supports ambient auth)
+    - postgres: Standard PostgreSQL database (authentication required)
 
     Example Service Principal Configuration:
     ```yaml
     databases:
       my_lakebase:
         name: my-database
+        type: lakebase
         service_principal:
           client_id:
             env: SERVICE_PRINCIPAL_CLIENT_ID
@@ -785,31 +892,28 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
           env: DATABRICKS_HOST
     ```
 
-    Example OAuth M2M Configuration (alternative):
-    ```yaml
-    databases:
-      my_lakebase:
-        name: my-database
-        client_id:
-          env: SERVICE_PRINCIPAL_CLIENT_ID
-        client_secret:
-          scope: my-scope
-          secret: sp-client-secret
-        workspace_host:
-          env: DATABRICKS_HOST
-    ```
-
     Example User Configuration:
     ```yaml
     databases:
       my_lakebase:
         name: my-database
+        type: lakebase
         user: my-user@databricks.com
+    ```
+
+    Example Ambient Authentication (Lakebase only):
+    ```yaml
+    databases:
+      my_lakebase:
+        name: my-database
+        type: lakebase
+        on_behalf_of_user: true
     ```
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
+    type: Optional[DatabaseType] = DatabaseType.LAKEBASE
     instance_name: Optional[str] = None
     description: Optional[str] = None
     host: Optional[AnyVariable] = None
@@ -820,16 +924,13 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     timeout_seconds: Optional[int] = 10
     capacity: Optional[Literal["CU_1", "CU_2"]] = "CU_2"
     node_count: Optional[int] = None
+    # Database-specific auth (user identity for DB connection)
     user: Optional[AnyVariable] = None
     password: Optional[AnyVariable] = None
-    service_principal: Optional[ServicePrincipalModel] = None
-    client_id: Optional[AnyVariable] = None
-    client_secret: Optional[AnyVariable] = None
-    workspace_host: Optional[AnyVariable] = None
 
     @property
     def api_scopes(self) -> Sequence[str]:
-        return []
+        return ["database.database-instances"]
 
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
@@ -843,29 +944,33 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     def update_instance_name(self) -> Self:
         if self.instance_name is None:
             self.instance_name = self.name
-
-        return self
-
-    @model_validator(mode="after")
-    def expand_service_principal(self) -> Self:
-        """Expand service_principal into client_id and client_secret if provided."""
-        if self.service_principal is not None:
-            if self.client_id is None:
-                self.client_id = self.service_principal.client_id
-            if self.client_secret is None:
-                self.client_secret = self.service_principal.client_secret
         return self
 
     @model_validator(mode="after")
     def update_user(self) -> Self:
-        if self.client_id or self.user:
+        # Skip if using OBO (passive auth), explicit credentials, or explicit user
+        if self.on_behalf_of_user or self.client_id or self.user or self.pat:
             return self
 
-        self.user = self.workspace_client.current_user.me().user_name
-        if not self.user:
-            raise ValueError(
-                "Unable to determine current user. Please provide a user name or OAuth credentials."
-            )
+        # For postgres, we need explicit user credentials
+        # For lakebase with no auth, ambient auth is allowed
+        if self.type == DatabaseType.POSTGRES:
+            # Try to determine current user for local development
+            try:
+                self.user = self.workspace_client.current_user.me().user_name
+            except Exception as e:
+                logger.warning(
+                    f"Could not determine current user for PostgreSQL database: {e}. "
+                    f"Please provide explicit user credentials."
+                )
+        else:
+            # For lakebase, try to determine current user but don't fail if we can't
+            try:
+                self.user = self.workspace_client.current_user.me().user_name
+            except Exception:
+                # If we can't determine user and no explicit auth, that's okay
+                # for lakebase with ambient auth - credentials will be injected at runtime
+                pass
 
         return self
 
@@ -874,12 +979,28 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         if self.host is not None:
             return self
 
-        existing_instance: DatabaseInstance = (
-            self.workspace_client.database.get_database_instance(
-                name=self.instance_name
+        # Try to fetch host from existing instance
+        # This may fail for OBO/ambient auth during model logging (before deployment)
+        try:
+            existing_instance: DatabaseInstance = (
+                self.workspace_client.database.get_database_instance(
+                    name=self.instance_name
+                )
             )
-        )
-        self.host = existing_instance.read_write_dns
+            self.host = existing_instance.read_write_dns
+        except Exception as e:
+            # For lakebase with OBO/ambient auth, we can't fetch at config time
+            # The host will need to be provided explicitly or fetched at runtime
+            if self.type == DatabaseType.LAKEBASE and self.on_behalf_of_user:
+                logger.debug(
+                    f"Could not fetch host for database {self.instance_name} "
+                    f"(Lakebase with OBO mode - will be resolved at runtime): {e}"
+                )
+            else:
+                raise ValueError(
+                    f"Could not fetch host for database {self.instance_name}. "
+                    f"Please provide the 'host' explicitly or ensure the instance exists: {e}"
+                )
         return self
 
     @model_validator(mode="after")
@@ -890,21 +1011,33 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             self.client_secret,
         ]
         has_oauth: bool = all(field is not None for field in oauth_fields)
+        has_user_auth: bool = self.user is not None
+        has_obo: bool = self.on_behalf_of_user is True
+        has_pat: bool = self.pat is not None
 
-        pat_fields: Sequence[Any] = [self.user]
-        has_user_auth: bool = all(field is not None for field in pat_fields)
+        # Count how many auth methods are configured
+        auth_methods_count: int = sum([has_oauth, has_user_auth, has_obo, has_pat])
 
-        if has_oauth and has_user_auth:
+        if auth_methods_count > 1:
             raise ValueError(
-                "Cannot use both OAuth and user authentication methods. "
-                "Please provide either OAuth credentials or user credentials."
+                "Cannot mix authentication methods. "
+                "Please provide exactly one of: "
+                "on_behalf_of_user=true (for passive auth in model serving), "
+                "OAuth credentials (service_principal or client_id + client_secret + workspace_host), "
+                "PAT (personal access token), "
+                "or user credentials (user)."
             )
 
-        if not has_oauth and not has_user_auth:
+        # For postgres type, at least one auth method must be configured
+        # For lakebase type, auth is optional (supports ambient authentication)
+        if self.type == DatabaseType.POSTGRES and auth_methods_count == 0:
             raise ValueError(
-                "At least one authentication method must be provided: "
-                "either OAuth credentials (workspace_host, client_id, client_secret), "
-                "service_principal with workspace_host, or user credentials (user, password)."
+                "PostgreSQL databases require explicit authentication. "
+                "Please provide one of: "
+                "OAuth credentials (workspace_host, client_id, client_secret), "
+                "service_principal with workspace_host, "
+                "PAT (personal access token), "
+                "or user credentials (user)."
             )
 
         return self
@@ -918,8 +1051,9 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
         If username is configured, it will be included; otherwise it will be omitted
         to allow Lakebase to authenticate using the token's identity.
         """
-        from dao_ai.providers.base import ServiceProvider
-        from dao_ai.providers.databricks import DatabricksProvider
+        import uuid as _uuid
+
+        from databricks.sdk.service.database import DatabaseCredential
 
         username: str | None = None
 
@@ -927,19 +1061,36 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
             username = value_of(self.client_id)
         elif self.user:
             username = value_of(self.user)
+        # For OBO mode, no username is needed - the token identity is used
 
-        host: str = value_of(self.host)
+        # Resolve host - may need to fetch at runtime for OBO mode
+        host_value: Any = self.host
+        if host_value is None and self.on_behalf_of_user:
+            # Fetch host at runtime for OBO mode
+            existing_instance: DatabaseInstance = (
+                self.workspace_client.database.get_database_instance(
+                    name=self.instance_name
+                )
+            )
+            host_value = existing_instance.read_write_dns
+
+        if host_value is None:
+            raise ValueError(
+                f"Database host not configured for {self.instance_name}. "
+                "Please provide 'host' explicitly."
+            )
+
+        host: str = value_of(host_value)
         port: int = value_of(self.port)
         database: str = value_of(self.database)
 
-        provider: ServiceProvider = DatabricksProvider(
-            client_id=value_of(self.client_id),
-            client_secret=value_of(self.client_secret),
-            workspace_host=value_of(self.workspace_host),
-            pat=value_of(self.password),
+        # Use the resource's own workspace_client to generate the database credential
+        w: WorkspaceClient = self.workspace_client
+        cred: DatabaseCredential = w.database.generate_database_credential(
+            request_id=str(_uuid.uuid4()),
+            instance_names=[self.instance_name],
         )
-
-        token: str = provider.lakebase_password_provider(self.instance_name)
+        token: str = cred.token
 
         # Build connection parameters dictionary
         params: dict[str, Any] = {
@@ -977,6 +1128,9 @@ class DatabaseModel(BaseModel, IsDatabricksResource):
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.databricks import DatabricksProvider
 
+        # Use provided workspace client or fall back to resource's own workspace_client
+        if w is None:
+            w = self.workspace_client
         provider: DatabricksProvider = DatabricksProvider(w=w)
         provider.create_lakebase(self)
         provider.create_lakebase_instance_role(self)
@@ -1180,7 +1334,16 @@ class TransportType(str, Enum):
     STDIO = "stdio"
 
 
-class McpFunctionModel(BaseFunctionModel, HasFullName):
+class McpFunctionModel(BaseFunctionModel, IsDatabricksResource, HasFullName):
+    """
+    MCP Function Model with authentication inherited from IsDatabricksResource.
+
+    Authentication for MCP connections uses the same options as other resources:
+    - Service Principal (client_id + client_secret + workspace_host)
+    - PAT (pat + workspace_host)
+    - OBO (on_behalf_of_user)
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: Literal[FunctionType.MCP] = FunctionType.MCP
     transport: TransportType = TransportType.STREAMABLE_HTTP
@@ -1188,26 +1351,27 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
     url: Optional[AnyVariable] = None
     headers: dict[str, AnyVariable] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
-    pat: Optional[AnyVariable] = None
-    service_principal: Optional[ServicePrincipalModel] = None
-    client_id: Optional[AnyVariable] = None
-    client_secret: Optional[AnyVariable] = None
-    workspace_host: Optional[AnyVariable] = None
+    # MCP-specific fields
     connection: Optional[ConnectionModel] = None
     functions: Optional[SchemaModel] = None
     genie_room: Optional[GenieRoomModel] = None
     sql: Optional[bool] = None
     vector_search: Optional[VectorStoreModel] = None
 
-    @model_validator(mode="after")
-    def expand_service_principal(self) -> Self:
-        """Expand service_principal into client_id and client_secret if provided."""
-        if self.service_principal is not None:
-            if self.client_id is None:
-                self.client_id = self.service_principal.client_id
-            if self.client_secret is None:
-                self.client_secret = self.service_principal.client_secret
-        return self
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        """API scopes for MCP connections."""
+        return [
+            "serving.serving-endpoints",
+            "mcp.genie",
+            "mcp.functions",
+            "mcp.vectorsearch",
+            "mcp.external",
+        ]
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        """MCP functions don't declare static resources."""
+        return []
 
     @property
     def full_name(self) -> str:
@@ -1372,27 +1536,6 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             self.headers[key] = value_of(value)
         return self
 
-    @model_validator(mode="after")
-    def validate_auth_methods(self) -> "McpFunctionModel":
-        oauth_fields: Sequence[Any] = [
-            self.client_id,
-            self.client_secret,
-        ]
-        has_oauth: bool = all(field is not None for field in oauth_fields)
-
-        pat_fields: Sequence[Any] = [self.pat]
-        has_user_auth: bool = all(field is not None for field in pat_fields)
-
-        if has_oauth and has_user_auth:
-            raise ValueError(
-                "Cannot use both OAuth and user authentication methods. "
-                "Please provide either OAuth credentials or user credentials."
-            )
-
-        # Note: workspace_host is optional - it will be derived from workspace client if not provided
-
-        return self
-
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_mcp_tools
 
@@ -1442,9 +1585,34 @@ class GuardrailModel(BaseModel):
     num_retries: Optional[int] = 3
 
 
+class MiddlewareModel(BaseModel):
+    """Configuration for middleware that can be applied to agents.
+
+    Middleware is defined at the AppConfig level and can be referenced by name
+    in agent configurations using YAML anchors for reusability.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str = Field(
+        description="Fully qualified name of the middleware factory function"
+    )
+    args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arguments to pass to the middleware factory function",
+    )
+
+    @model_validator(mode="after")
+    def resolve_args(self) -> Self:
+        """Resolve any variable references in args."""
+        for key, value in self.args.items():
+            self.args[key] = value_of(value)
+        return self
+
+
 class StorageType(str, Enum):
     POSTGRES = "postgres"
     MEMORY = "memory"
+    LAKEBASE = "lakebase"
 
 
 class CheckpointerModel(BaseModel):
@@ -1550,6 +1718,16 @@ class PromptModel(BaseModel, HasFullName):
 
 
 class AgentModel(BaseModel):
+    """
+    Configuration model for an agent in the DAO AI framework.
+
+    Agents combine an LLM with tools and middleware to create systems that can
+    reason about tasks, decide which tools to use, and iteratively work towards solutions.
+
+    Middleware replaces the previous pre_agent_hook and post_agent_hook patterns,
+    providing a more flexible and composable way to customize agent behavior.
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
@@ -1558,9 +1736,10 @@ class AgentModel(BaseModel):
     guardrails: list[GuardrailModel] = Field(default_factory=list)
     prompt: Optional[str | PromptModel] = None
     handoff_prompt: Optional[str] = None
-    create_agent_hook: Optional[FunctionHook] = None
-    pre_agent_hook: Optional[FunctionHook] = None
-    post_agent_hook: Optional[FunctionHook] = None
+    middleware: list[MiddlewareModel] = Field(
+        default_factory=list,
+        description="List of middleware to apply to this agent",
+    )
 
     def as_runnable(self) -> RunnableLike:
         from dao_ai.nodes import create_agent_node
@@ -1579,6 +1758,10 @@ class SupervisorModel(BaseModel):
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
     prompt: Optional[str] = None
+    middleware: list[MiddlewareModel] = Field(
+        default_factory=list,
+        description="List of middleware to apply to the supervisor",
+    )
 
 
 class SwarmModel(BaseModel):
@@ -1702,6 +1885,28 @@ class ChatPayload(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def ensure_thread_id(self) -> "ChatPayload":
+        """Ensure thread_id or conversation_id is present in configurable, generating UUID if needed."""
+        import uuid
+
+        if self.custom_inputs is None:
+            self.custom_inputs = {}
+
+        # Get or create configurable section
+        configurable: dict[str, Any] = self.custom_inputs.get("configurable", {})
+
+        # Check if thread_id or conversation_id exists
+        has_thread_id = configurable.get("thread_id") is not None
+        has_conversation_id = configurable.get("conversation_id") is not None
+
+        # If neither is provided, generate a UUID for conversation_id
+        if not has_thread_id and not has_conversation_id:
+            configurable["conversation_id"] = str(uuid.uuid4())
+            self.custom_inputs["configurable"] = configurable
+
+        return self
+
     def as_messages(self) -> Sequence[BaseMessage]:
         return messages_from_dict(
             [{"type": m.role, "content": m.content} for m in self.messages]
@@ -1717,20 +1922,38 @@ class ChatPayload(BaseModel):
 
 
 class ChatHistoryModel(BaseModel):
+    """
+    Configuration for chat history summarization.
+
+    Attributes:
+        model: The LLM to use for generating summaries.
+        max_tokens: Maximum tokens to keep after summarization (the "keep" threshold).
+            After summarization, recent messages totaling up to this many tokens are preserved.
+        max_tokens_before_summary: Token threshold that triggers summarization.
+            When conversation exceeds this, summarization runs. Mutually exclusive with
+            max_messages_before_summary. If neither is set, defaults to max_tokens * 10.
+        max_messages_before_summary: Message count threshold that triggers summarization.
+            When conversation exceeds this many messages, summarization runs.
+            Mutually exclusive with max_tokens_before_summary.
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
-    max_tokens: int = 256
-    max_tokens_before_summary: Optional[int] = None
-    max_messages_before_summary: Optional[int] = None
-    max_summary_tokens: int = 255
-
-    @model_validator(mode="after")
-    def validate_max_summary_tokens(self) -> "ChatHistoryModel":
-        if self.max_summary_tokens >= self.max_tokens:
-            raise ValueError(
-                f"max_summary_tokens ({self.max_summary_tokens}) must be less than max_tokens ({self.max_tokens})"
-            )
-        return self
+    max_tokens: int = Field(
+        default=2048,
+        gt=0,
+        description="Maximum tokens to keep after summarization",
+    )
+    max_tokens_before_summary: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Token threshold that triggers summarization",
+    )
+    max_messages_before_summary: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Message count threshold that triggers summarization",
+    )
 
 
 class AppModel(BaseModel):
@@ -1755,9 +1978,6 @@ class AppModel(BaseModel):
         default_factory=list
     )
     shutdown_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
-        default_factory=list
-    )
-    message_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
         default_factory=list
     )
     input_example: Optional[ChatPayload] = None
@@ -1964,33 +2184,67 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
 
 
 class PromptOptimizationModel(BaseModel):
+    """Configuration for prompt optimization using GEPA.
+
+    GEPA (Generative Evolution of Prompts and Agents) is an evolutionary
+    optimizer that uses reflective mutation to improve prompts based on
+    evaluation feedback.
+
+    Example:
+        prompt_optimization:
+          name: optimize_my_prompt
+          prompt: *my_prompt
+          agent: *my_agent
+          dataset: *my_training_dataset
+          reflection_model: databricks-meta-llama-3-3-70b-instruct
+          num_candidates: 50
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     prompt: Optional[PromptModel] = None
     agent: AgentModel
-    dataset: (
-        EvaluationDatasetModel | str
-    )  # Reference to dataset name (looked up in OptimizationsModel.training_datasets or MLflow)
+    dataset: EvaluationDatasetModel  # Training dataset with examples
     reflection_model: Optional[LLMModel | str] = None
     num_candidates: Optional[int] = 50
-    scorer_model: Optional[LLMModel | str] = None
 
     def optimize(self, w: WorkspaceClient | None = None) -> PromptModel:
         """
-        Optimize the prompt using MLflow's prompt optimization.
+        Optimize the prompt using GEPA.
 
         Args:
-            w: Optional WorkspaceClient for Databricks operations
+            w: Optional WorkspaceClient (not used, kept for API compatibility)
 
         Returns:
-            PromptModel: The optimized prompt model with new URI
+            PromptModel: The optimized prompt model
         """
-        from dao_ai.providers.base import ServiceProvider
-        from dao_ai.providers.databricks import DatabricksProvider
+        from dao_ai.optimization import OptimizationResult, optimize_prompt
 
-        provider: ServiceProvider = DatabricksProvider(w=w)
-        optimized_prompt: PromptModel = provider.optimize_prompt(self)
-        return optimized_prompt
+        # Get reflection model name
+        reflection_model_name: str | None = None
+        if self.reflection_model:
+            if isinstance(self.reflection_model, str):
+                reflection_model_name = self.reflection_model
+            else:
+                reflection_model_name = self.reflection_model.uri
+
+        # Ensure prompt is set
+        prompt = self.prompt
+        if prompt is None:
+            raise ValueError(
+                f"Prompt optimization '{self.name}' requires a prompt to be set"
+            )
+
+        result: OptimizationResult = optimize_prompt(
+            prompt=prompt,
+            agent=self.agent,
+            dataset=self.dataset,
+            reflection_model=reflection_model_name,
+            num_candidates=self.num_candidates or 50,
+            register_if_improved=True,
+        )
+
+        return result.optimized_prompt
 
     @model_validator(mode="after")
     def set_defaults(self) -> Self:
@@ -2003,12 +2257,6 @@ class PromptOptimizationModel(BaseModel):
                     f"Prompt optimization '{self.name}' requires either an explicit prompt "
                     f"or an agent with a prompt configured"
                 )
-
-        if self.reflection_model is None:
-            self.reflection_model = self.agent.model
-
-        if self.scorer_model is None:
-            self.scorer_model = self.agent.model
 
         return self
 
@@ -2121,6 +2369,7 @@ class AppConfig(BaseModel):
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
     tools: dict[str, ToolModel] = Field(default_factory=dict)
     guardrails: dict[str, GuardrailModel] = Field(default_factory=dict)
+    middleware: dict[str, MiddlewareModel] = Field(default_factory=dict)
     memory: Optional[MemoryModel] = None
     prompts: dict[str, PromptModel] = Field(default_factory=dict)
     agents: dict[str, AgentModel] = Field(default_factory=dict)

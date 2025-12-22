@@ -1,8 +1,6 @@
 from typing import Any
 
-from databricks_langchain import (
-    DatabricksEmbeddings,
-)
+from databricks_langchain import DatabricksEmbeddings
 from langchain_core.embeddings.embeddings import Embeddings
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
@@ -60,7 +58,7 @@ class StoreManager:
 
     @classmethod
     def instance(cls, store_model: StoreModel) -> StoreManagerBase:
-        store_manager: StoreManagerBase = None
+        store_manager: StoreManagerBase | None = None
         match store_model.type:
             case StorageType.MEMORY:
                 store_manager = cls.store_managers.get(store_model.name)
@@ -78,6 +76,13 @@ class StoreManager:
                     cls.store_managers[store_model.database.instance_name] = (
                         store_manager
                     )
+            case StorageType.LAKEBASE:
+                from dao_ai.memory.databricks import DatabricksStoreManager
+
+                store_manager = cls.store_managers.get(store_model.name)
+                if store_manager is None:
+                    store_manager = DatabricksStoreManager(store_model)
+                    cls.store_managers[store_model.name] = store_manager
             case _:
                 raise ValueError(f"Unknown store type: {store_model.type}")
 
@@ -89,7 +94,7 @@ class CheckpointManager:
 
     @classmethod
     def instance(cls, checkpointer_model: CheckpointerModel) -> CheckpointManagerBase:
-        checkpointer_manager: CheckpointManagerBase = None
+        checkpointer_manager: CheckpointManagerBase | None = None
         match checkpointer_model.type:
             case StorageType.MEMORY:
                 checkpointer_manager = cls.checkpoint_managers.get(
@@ -115,6 +120,19 @@ class CheckpointManager:
                     cls.checkpoint_managers[
                         checkpointer_model.database.instance_name
                     ] = checkpointer_manager
+            case StorageType.LAKEBASE:
+                from dao_ai.memory.databricks import DatabricksCheckpointerManager
+
+                checkpointer_manager = cls.checkpoint_managers.get(
+                    checkpointer_model.name
+                )
+                if checkpointer_manager is None:
+                    checkpointer_manager = DatabricksCheckpointerManager(
+                        checkpointer_model
+                    )
+                    cls.checkpoint_managers[checkpointer_model.name] = (
+                        checkpointer_manager
+                    )
             case _:
                 raise ValueError(f"Unknown store type: {checkpointer_model.type}")
 

@@ -117,7 +117,9 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                  # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea    # Databricks Genie space ID
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
       on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
@@ -192,9 +194,10 @@ resources:
   # Configure external databases (e.g., PostgreSQL for checkpoints and memory)
   # Supports both traditional user/password auth and OAuth2 client credentials
   databases:
-    # PostgreSQL database for agent memory and checkpoints
+    # Lakebase database for agent memory and checkpoints
     retail_database: &retail_database
       name: "Retail and Consumer Goods Database"
+      type: lakebase  # Database type: 'lakebase' (Databricks-managed, ambient auth allowed) or 'postgres' (requires explicit auth)
       instance_name: "retail-consumer-goods"
       description: "Database for agent memory and checkpoints" 
       
@@ -235,24 +238,28 @@ resources:
       #   - scope: retail_consumer_goods
       #     secret: PGPASSWORD
 
-      # OAuth2 client credentials for Databricks authentication
-      # Used to generate access tokens for database connections
-      # This approach is recommended for Databricks environments
-      client_id:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-          - scope: retail_consumer_goods
-            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      client_secret:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-          - scope: retail_consumer_goods
-            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      workspace_host:
-        options:
-          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-          - scope: retail_consumer_goods
-            secret: RETAIL_AI_DATABRICKS_HOST
+      # Passive authentication (On-Behalf-Of User)
+      # Uses the calling user's identity via Model Serving's built-in auth
+      # No service principal or client credentials needed
+      on_behalf_of_user: false
+
+      # OAuth2 client credentials for Databricks authentication (DISABLED)
+      # Uncomment below and comment out on_behalf_of_user to use service principal auth
+      # client_id:
+      #   options:
+      #     - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+      #     - scope: retail_consumer_goods
+      #       secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      # client_secret:
+      #   options:
+      #     - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+      #     - scope: retail_consumer_goods
+      #       secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      # workspace_host:
+      #   options:
+      #     - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+      #     - scope: retail_consumer_goods
+      #       secret: RETAIL_AI_DATABRICKS_HOST
           
       # Optional: Additional PostgreSQL connection parameters
       # Uncomment and modify as needed for your specific setup
@@ -435,17 +442,17 @@ memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
     name: default_checkpointer                      # Checkpointer identifier
-    type: postgres                                    # Store type (memory or postgres)
+    type: lakebase                                  # Store type (memory, postgres, or lakebase)
     #type: memory
-    database: *retail_database                     # Reference to database configuration
+    database: *retail_database                      # Reference to database configuration
 
-  # Long-term memory store for agent context
+  #Long-term memory store for agent context
   store: 
     name: default_store                             # Store identifier
-    type: postgres                                    # Store type (memory or postgres)
+    type: lakebase                                  # Store type (memory, postgres, or lakebase)
     #type: memory
-    embedding_model: *embedding_model               # Model for semantic memory
-    dims: 1536                                      # Embedding dimensions
+    #embedding_model: *embedding_model               # Model for semantic memory
+    #dims: 1536                                      # Embedding dimensions
     database: *retail_database                      # Database for persistence (if needed)
     namespace: "{user_id}"
 
@@ -508,8 +515,6 @@ agents:
     handoff_prompt: |                               # Conditions for routing to this agent
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
-    pre_agent_hook: "dao_ai.hooks.null_hook"
-    post_agent_hook: "dao_ai.hooks.null_hook"
 
   # ---------------------------------------------------------------------------
   # ORDERS AGENT  
@@ -946,23 +951,21 @@ app:
   orchestration:                                    # Agent orchestration configuration
     memory: *memory                            # Memory store for conversation context
     supervisor:                                     # Supervisor orchestration pattern
-      model: *tool_calling_llm                      # LLM for routing decisions
+      model: *fast_llm                      # LLM for routing decisions
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
 
-  message_hooks: 
-    - dao_ai.hooks.null_hook
-    - hardware_store.hooks.require_store_num_hook
   input_example:
       messages:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          #thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
           store_num: 87887
+        session: {}
   #chat_history: 
   #  #max_tokens: 256
   #  max_messages_before_summary: 5
@@ -1034,9 +1037,10 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: nate_fleming
       store_num: 87887
+    session: {}
   guidelines:
     - name: MyRelevanceGuideline
       guidelines:

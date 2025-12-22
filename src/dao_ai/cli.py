@@ -271,12 +271,18 @@ Examples:
     chat_parser.add_argument(
         "--thread-id",
         type=str,
-        default="1",
+        default=None,
         metavar="ID",
-        help="Thread ID for the chat session (default: 1)",
+        help="Thread ID for the chat session (default: auto-generated UUID)",
     )
 
     options = parser.parse_args(args)
+
+    # Generate a new thread_id UUID if not provided (only for chat command)
+    if hasattr(options, "thread_id") and options.thread_id is None:
+        import uuid
+
+        options.thread_id = str(uuid.uuid4())
 
     return options
 

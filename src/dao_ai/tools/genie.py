@@ -16,10 +16,8 @@ from typing import Annotated, Any, Callable
 
 import pandas as pd
 from databricks_ai_bridge.genie import Genie, GenieResponse
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId
-from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel
@@ -34,6 +32,7 @@ from dao_ai.config import (
 )
 from dao_ai.genie import GenieService, GenieServiceBase
 from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
+from dao_ai.state import AgentState, Context
 
 
 class GenieToolInput(BaseModel):
@@ -97,9 +96,6 @@ def create_genie_tool(
     logger.debug(f"truncate_results: {truncate_results}")
     logger.debug(f"name: {name}")
     logger.debug(f"description: {description}")
-    logger.debug(f"genie_room: {genie_room}")
-    logger.debug(f"persist_conversation: {persist_conversation}")
-    logger.debug(f"truncate_results: {truncate_results}")
     logger.debug(f"lru_cache_parameters: {lru_cache_parameters}")
     logger.debug(f"semantic_cache_parameters: {semantic_cache_parameters}")
 
@@ -172,10 +168,16 @@ GenieResponse: A response object containing the conversation ID and result from 
     )
     def genie_tool(
         question: Annotated[str, "The question to ask Genie about your data"],
-        state: Annotated[dict, InjectedState],
-        tool_call_id: Annotated[str, InjectedToolCallId],
+        runtime: ToolRuntime[Context, AgentState],
     ) -> Command:
-        """Process a natural language question through Databricks Genie."""
+        """Process a natural language question through Databricks Genie.
+
+        Uses ToolRuntime to access state and context in a type-safe way.
+        """
+        # Access state through runtime
+        state: AgentState = runtime.state
+        tool_call_id: str = runtime.tool_call_id
+
         # Get existing conversation mapping and retrieve conversation ID for this space
         conversation_ids: dict[str, str] = state.get("genie_conversation_ids", {})
         existing_conversation_id: str | None = conversation_ids.get(space_id)

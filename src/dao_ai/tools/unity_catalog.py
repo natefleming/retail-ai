@@ -6,6 +6,7 @@ from databricks_langchain import DatabricksFunctionClient, UCFunctionToolkit
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import StructuredTool
 from loguru import logger
+from unitycatalog.ai.core.base import FunctionExecutionResult
 
 from dao_ai.config import (
     AnyVariable,
@@ -14,7 +15,6 @@ from dao_ai.config import (
     UnityCatalogFunctionModel,
     value_of,
 )
-from dao_ai.tools.human_in_the_loop import as_human_in_the_loop
 from dao_ai.utils import normalize_host
 
 
@@ -65,8 +65,8 @@ def create_uc_tools(
         tools = toolkit.tools or []
         logger.debug(f"Retrieved tools: {tools}")
 
-    # Apply human-in-the-loop wrapper to all tools and return
-    return [as_human_in_the_loop(tool=tool, function=function_name) for tool in tools]
+    # HITL is now handled at middleware level via HumanInTheLoopMiddleware
+    return list(tools)
 
 
 def _execute_uc_function(
@@ -87,14 +87,16 @@ def _execute_uc_function(
         f"Calling UC function {function_name} with parameters: {list(all_params.keys())}"
     )
 
-    result = client.execute_function(function_name=function_name, parameters=all_params)
+    result: FunctionExecutionResult = client.execute_function(
+        function_name=function_name, parameters=all_params
+    )
 
     # Handle errors and extract result
-    if hasattr(result, "error") and result.error:
+    if result.error:
         logger.error(f"Unity Catalog function error: {result.error}")
         raise RuntimeError(f"Function execution failed: {result.error}")
 
-    result_value: str = result.value if hasattr(result, "value") else str(result)
+    result_value: str = result.value if result.value is not None else str(result)
     logger.debug(f"UC function result: {result_value}")
     return result_value
 

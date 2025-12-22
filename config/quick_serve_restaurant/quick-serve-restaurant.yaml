@@ -417,17 +417,15 @@ app:
     swarm:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
     memory: *memory                            # Memory store for conversation context
-  message_hooks: 
-    - dao_ai.hooks.require_thread_id_hook
-    - dao_ai.hooks.require_user_id_hook
   input_example:
       messages:
         - role: user
           content: How much is a green tea?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
+        session: {}
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
@@ -472,8 +470,9 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: my_user_id
+    session: {}
 
 # =============================================================================
 # DATASETS CONFIGURATION

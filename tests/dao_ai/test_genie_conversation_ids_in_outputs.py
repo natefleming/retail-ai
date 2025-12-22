@@ -1,8 +1,24 @@
 """
-Tests for including genie_conversation_ids in custom_outputs for ResponsesAgent.
+Tests for including genie conversation IDs in custom_outputs for ResponsesAgent.
 
-This test module validates that genie_conversation_ids are properly extracted
+This test module validates that genie conversation IDs are properly extracted
 from the graph state and included in the custom_outputs of ResponsesAgent responses.
+
+The output structure is:
+{
+    "configurable": {"thread_id": "...", "conversation_id": "...", ...},
+    "session": {
+        "genie": {
+            "spaces": {
+                "<space_id>": {
+                    "conversation_id": "<conv_id>",
+                    "cache_hit": false,
+                    "follow_up_questions": []
+                }
+            }
+        }
+    }
+}
 """
 
 from unittest.mock import MagicMock
@@ -23,7 +39,7 @@ from dao_ai.models import (
 
 
 class TestGenieConversationIdsInOutputs:
-    """Test suite for genie_conversation_ids in custom_outputs."""
+    """Test suite for genie conversation IDs in custom_outputs."""
 
     def test_get_state_snapshot_success(self):
         """Test successful retrieval of state snapshot."""
@@ -31,7 +47,7 @@ class TestGenieConversationIdsInOutputs:
         mock_graph = MagicMock(spec=CompiledStateGraph)
         mock_graph.checkpointer = MagicMock()
 
-        # Mock state snapshot
+        # Mock state snapshot with new structure
         mock_state_snapshot = MagicMock()
         mock_state_snapshot.values = {
             "genie_conversation_ids": {
@@ -147,7 +163,7 @@ class TestGenieConversationIdsInOutputs:
         assert result == {}
 
     def test_responses_agent_predict_includes_genie_conversation_ids(self):
-        """Test that predict() includes genie_conversation_ids in custom_outputs."""
+        """Test that predict() includes genie conversation IDs in session.genie.spaces."""
         # Create mock graph
         mock_graph = MagicMock(spec=CompiledStateGraph)
         mock_graph.checkpointer = MagicMock()
@@ -177,10 +193,12 @@ class TestGenieConversationIdsInOutputs:
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)
 
-        # Create request
+        # Create request with configurable structure
         request = ResponsesAgentRequest(
             input=[Message(role="user", content="Test question")],
-            custom_inputs={"thread_id": "test_thread_123"},
+            custom_inputs={
+                "configurable": {"thread_id": "test_thread_123", "user_id": "test_user"}
+            },
         )
 
         # Execute
@@ -188,10 +206,13 @@ class TestGenieConversationIdsInOutputs:
 
         # Verify
         assert isinstance(response, ResponsesAgentResponse)
-        assert "genie_conversation_ids" in response.custom_outputs
-        assert response.custom_outputs["genie_conversation_ids"] == {
-            "space_123": "conv_abc"
-        }
+        # Check new output structure: session.genie.spaces
+        assert "session" in response.custom_outputs
+        assert "genie" in response.custom_outputs["session"]
+        assert "spaces" in response.custom_outputs["session"]["genie"]
+        spaces = response.custom_outputs["session"]["genie"]["spaces"]
+        assert "space_123" in spaces
+        assert spaces["space_123"]["conversation_id"] == "conv_abc"
 
     def test_responses_agent_predict_no_genie_conversation_ids(self):
         """Test that predict() works when no genie_conversation_ids exist."""
@@ -221,21 +242,26 @@ class TestGenieConversationIdsInOutputs:
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)
 
-        # Create request
+        # Create request with configurable structure
         request = ResponsesAgentRequest(
             input=[Message(role="user", content="Test question")],
-            custom_inputs={"thread_id": "test_thread_123"},
+            custom_inputs={
+                "configurable": {"thread_id": "test_thread_123", "user_id": "test_user"}
+            },
         )
 
         # Execute
         response = agent.predict(request)
 
-        # Verify
+        # Verify - session.genie.spaces should be empty or not have any spaces
         assert isinstance(response, ResponsesAgentResponse)
-        assert "genie_conversation_ids" not in response.custom_outputs
+        session = response.custom_outputs.get("session", {})
+        genie = session.get("genie", {})
+        spaces = genie.get("spaces", {})
+        assert spaces == {}
 
     def test_responses_agent_predict_stream_includes_genie_conversation_ids(self):
-        """Test that predict_stream() includes genie_conversation_ids in final event."""
+        """Test that predict_stream() includes genie conversation IDs in final event."""
         # Create mock graph
         mock_graph = MagicMock(spec=CompiledStateGraph)
         mock_graph.checkpointer = MagicMock()
@@ -264,10 +290,12 @@ class TestGenieConversationIdsInOutputs:
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)
 
-        # Create request
+        # Create request with configurable structure
         request = ResponsesAgentRequest(
             input=[Message(role="user", content="Test question")],
-            custom_inputs={"thread_id": "test_thread_456"},
+            custom_inputs={
+                "configurable": {"thread_id": "test_thread_456", "user_id": "test_user"}
+            },
         )
 
         # Execute and collect events
@@ -278,10 +306,13 @@ class TestGenieConversationIdsInOutputs:
         last_event = events[-1]
         assert last_event.type == "response.output_item.done"
         assert hasattr(last_event, "custom_outputs")
-        assert "genie_conversation_ids" in last_event.custom_outputs
-        assert last_event.custom_outputs["genie_conversation_ids"] == {
-            "space_456": "conv_def"
-        }
+        # Check new output structure: session.genie.spaces
+        assert "session" in last_event.custom_outputs
+        assert "genie" in last_event.custom_outputs["session"]
+        assert "spaces" in last_event.custom_outputs["session"]["genie"]
+        spaces = last_event.custom_outputs["session"]["genie"]["spaces"]
+        assert "space_456" in spaces
+        assert spaces["space_456"]["conversation_id"] == "conv_def"
 
     def test_responses_agent_predict_stream_no_genie_conversation_ids(self):
         """Test that predict_stream() works when no genie_conversation_ids exist."""
@@ -310,18 +341,23 @@ class TestGenieConversationIdsInOutputs:
         # Create agent
         agent = LanggraphResponsesAgent(mock_graph)
 
-        # Create request
+        # Create request with configurable structure
         request = ResponsesAgentRequest(
             input=[Message(role="user", content="Test question")],
-            custom_inputs={"thread_id": "test_thread_456"},
+            custom_inputs={
+                "configurable": {"thread_id": "test_thread_456", "user_id": "test_user"}
+            },
         )
 
         # Execute and collect events
         events = list(agent.predict_stream(request))
 
-        # Verify - last event should not have genie_conversation_ids
+        # Verify - last event should not have genie spaces
         assert len(events) > 0
         last_event = events[-1]
         assert last_event.type == "response.output_item.done"
         assert hasattr(last_event, "custom_outputs")
-        assert "genie_conversation_ids" not in last_event.custom_outputs
+        session = last_event.custom_outputs.get("session", {})
+        genie = session.get("genie", {})
+        spaces = genie.get("spaces", {})
+        assert spaces == {}

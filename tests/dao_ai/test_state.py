@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from dao_ai.config import AppConfig
-from dao_ai.state import SharedState
+from dao_ai.state import AgentState
 
 
 @pytest.mark.unit
@@ -31,7 +31,7 @@ def test_agent_state_creation() -> None:
     """Test creating an AgentState instance."""
     test_document = Document(page_content="Test content", metadata={"source": "test"})
 
-    state = SharedState(
+    state = AgentState(
         messages=[HumanMessage(content="Hello")],
         context=[test_document],
         route="search",
@@ -56,7 +56,7 @@ def test_agent_state_creation() -> None:
 @pytest.mark.unit
 def test_agent_state_inherits_messages_state() -> None:
     """Test that AgentState properly inherits from MessagesState."""
-    state = SharedState(
+    state = AgentState(
         messages=[
             HumanMessage(content="First message"),
             HumanMessage(content="Second message"),
@@ -79,7 +79,7 @@ def test_agent_state_inherits_messages_state() -> None:
 @pytest.mark.unit
 def test_agent_state_with_empty_context() -> None:
     """Test AgentState with empty context list."""
-    state = SharedState(
+    state = AgentState(
         messages=[],
         context=[],
         route="",
@@ -102,7 +102,7 @@ def test_agent_state_with_multiple_documents() -> None:
         Document(page_content="Doc 3", metadata={"id": 3}),
     ]
 
-    state = SharedState(
+    state = AgentState(
         messages=[],
         context=docs,
         route="vector_search",
