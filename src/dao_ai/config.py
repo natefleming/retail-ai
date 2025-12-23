@@ -1155,8 +1155,13 @@ class GenieSemanticCacheParametersModel(BaseModel):
     time_to_live_seconds: int | None = (
         60 * 60 * 24
     )  # 1 day default, None or negative = never expires
-    similarity_threshold: float = (
-        0.85  # Minimum similarity for cache hit (L2 distance converted to 0-1 scale)
+    similarity_threshold: float = 0.85  # Minimum similarity for question matching (L2 distance converted to 0-1 scale)
+    context_similarity_threshold: float = 0.80  # Minimum similarity for context matching (L2 distance converted to 0-1 scale)
+    question_weight: Optional[float] = (
+        0.6  # Weight for question similarity in combined score (0-1). If not provided, computed as 1 - context_weight
+    )
+    context_weight: Optional[float] = (
+        None  # Weight for context similarity in combined score (0-1). If not provided, computed as 1 - question_weight
     )
     embedding_model: str | LLMModel = "databricks-gte-large-en"
     embedding_dims: int | None = None  # Auto-detected if None
@@ -1167,6 +1172,45 @@ class GenieSemanticCacheParametersModel(BaseModel):
     max_context_tokens: int = (
         2000  # Maximum context length to prevent extremely long embeddings
     )
+
+    @model_validator(mode="after")
+    def compute_and_validate_weights(self) -> Self:
+        """
+        Compute missing weight and validate that question_weight + context_weight = 1.0.
+
+        Either question_weight or context_weight (or both) can be provided.
+        The missing one will be computed as 1.0 - provided_weight.
+        If both are provided, they must sum to 1.0.
+        """
+        if self.question_weight is None and self.context_weight is None:
+            # Both missing - use defaults
+            self.question_weight = 0.6
+            self.context_weight = 0.4
+        elif self.question_weight is None:
+            # Compute question_weight from context_weight
+            if not (0.0 <= self.context_weight <= 1.0):
+                raise ValueError(
+                    f"context_weight must be between 0.0 and 1.0, got {self.context_weight}"
+                )
+            self.question_weight = 1.0 - self.context_weight
+        elif self.context_weight is None:
+            # Compute context_weight from question_weight
+            if not (0.0 <= self.question_weight <= 1.0):
+                raise ValueError(
+                    f"question_weight must be between 0.0 and 1.0, got {self.question_weight}"
+                )
+            self.context_weight = 1.0 - self.question_weight
+        else:
+            # Both provided - validate they sum to 1.0
+            total_weight = self.question_weight + self.context_weight
+            if not abs(total_weight - 1.0) < 0.0001:  # Allow small floating point error
+                raise ValueError(
+                    f"question_weight ({self.question_weight}) + context_weight ({self.context_weight}) "
+                    f"must equal 1.0 (got {total_weight}). These weights determine the relative importance "
+                    f"of question vs context similarity in the combined score."
+                )
+
+        return self
 
 
 class SearchParametersModel(BaseModel):
@@ -1586,97 +1630,6 @@ class ToolModel(BaseModel):
     function: AnyTool
 
 
-class GuardrailModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    model: LLMModel
-    prompt: str
-    num_retries: Optional[int] = 3
-
-
-class MiddlewareModel(BaseModel):
-    """Configuration for middleware that can be applied to agents.
-
-    Middleware is defined at the AppConfig level and can be referenced by name
-    in agent configurations using YAML anchors for reusability.
-    """
-
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str = Field(
-        description="Fully qualified name of the middleware factory function"
-    )
-    args: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Arguments to pass to the middleware factory function",
-    )
-
-    @model_validator(mode="after")
-    def resolve_args(self) -> Self:
-        """Resolve any variable references in args."""
-        for key, value in self.args.items():
-            self.args[key] = value_of(value)
-        return self
-
-
-class StorageType(str, Enum):
-    POSTGRES = "postgres"
-    MEMORY = "memory"
-    LAKEBASE = "lakebase"
-
-
-class CheckpointerModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    type: Optional[StorageType] = StorageType.MEMORY
-    database: Optional[DatabaseModel] = None
-
-    @model_validator(mode="after")
-    def validate_postgres_requires_database(self) -> Self:
-        if self.type == StorageType.POSTGRES and not self.database:
-            raise ValueError("Database must be provided when storage type is POSTGRES")
-        return self
-
-    def as_checkpointer(self) -> BaseCheckpointSaver:
-        from dao_ai.memory import CheckpointManager
-
-        checkpointer: BaseCheckpointSaver = CheckpointManager.instance(
-            self
-        ).checkpointer()
-
-        return checkpointer
-
-
-class StoreModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    embedding_model: Optional[LLMModel] = None
-    type: Optional[StorageType] = StorageType.MEMORY
-    dims: Optional[int] = 1536
-    database: Optional[DatabaseModel] = None
-    namespace: Optional[str] = None
-
-    @model_validator(mode="after")
-    def validate_postgres_requires_database(self) -> Self:
-        if self.type == StorageType.POSTGRES and not self.database:
-            raise ValueError("Database must be provided when storage type is POSTGRES")
-        return self
-
-    def as_store(self) -> BaseStore:
-        from dao_ai.memory import StoreManager
-
-        store: BaseStore = StoreManager.instance(self).store()
-        return store
-
-
-class MemoryModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    checkpointer: Optional[CheckpointerModel] = None
-    store: Optional[StoreModel] = None
-
-
-FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
-
-
 class PromptModel(BaseModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
@@ -1724,6 +1677,106 @@ class PromptModel(BaseModel, HasFullName):
         if self.alias and self.version:
             raise ValueError("Cannot specify both alias and version")
         return self
+
+
+class GuardrailModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    model: str | LLMModel
+    prompt: str | PromptModel
+    num_retries: Optional[int] = 3
+
+    @model_validator(mode="after")
+    def validate_llm_model(self) -> Self:
+        if isinstance(self.model, str):
+            self.model = LLMModel(name=self.model)
+        return self
+
+
+class MiddlewareModel(BaseModel):
+    """Configuration for middleware that can be applied to agents.
+
+    Middleware is defined at the AppConfig level and can be referenced by name
+    in agent configurations using YAML anchors for reusability.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str = Field(
+        description="Fully qualified name of the middleware factory function"
+    )
+    args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arguments to pass to the middleware factory function",
+    )
+
+    @model_validator(mode="after")
+    def resolve_args(self) -> Self:
+        """Resolve any variable references in args."""
+        for key, value in self.args.items():
+            self.args[key] = value_of(value)
+        return self
+
+
+class StorageType(str, Enum):
+    POSTGRES = "postgres"
+    MEMORY = "memory"
+    LAKEBASE = "lakebase"
+
+
+class CheckpointerModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    type: Optional[StorageType] = StorageType.MEMORY
+    database: Optional[DatabaseModel] = None
+
+    @model_validator(mode="after")
+    def validate_storage_requires_database(self) -> Self:
+        if (
+            self.type in [StorageType.POSTGRES, StorageType.LAKEBASE]
+            and not self.database
+        ):
+            raise ValueError("Database must be provided when storage type is POSTGRES")
+        return self
+
+    def as_checkpointer(self) -> BaseCheckpointSaver:
+        from dao_ai.memory import CheckpointManager
+
+        checkpointer: BaseCheckpointSaver = CheckpointManager.instance(
+            self
+        ).checkpointer()
+
+        return checkpointer
+
+
+class StoreModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    embedding_model: Optional[LLMModel] = None
+    type: Optional[StorageType] = StorageType.MEMORY
+    dims: Optional[int] = 1536
+    database: Optional[DatabaseModel] = None
+    namespace: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_postgres_requires_database(self) -> Self:
+        if self.type == StorageType.POSTGRES and not self.database:
+            raise ValueError("Database must be provided when storage type is POSTGRES")
+        return self
+
+    def as_store(self) -> BaseStore:
+        from dao_ai.memory import StoreManager
+
+        store: BaseStore = StoreManager.instance(self).store()
+        return store
+
+
+class MemoryModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    checkpointer: Optional[CheckpointerModel] = None
+    store: Optional[StoreModel] = None
+
+
+FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
 
 
 class AgentModel(BaseModel):

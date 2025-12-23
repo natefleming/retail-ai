@@ -31,8 +31,8 @@ from dao_ai.config import (
     value_of,
 )
 from dao_ai.genie import GenieService, GenieServiceBase
-from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
-from dao_ai.state import AgentState, Context
+from dao_ai.genie.cache import CacheResult, LRUCacheService, SemanticCacheService
+from dao_ai.state import AgentState, Context, SessionState
 
 
 class GenieToolInput(BaseModel):
@@ -178,34 +178,55 @@ GenieResponse: A response object containing the conversation ID and result from 
         state: AgentState = runtime.state
         tool_call_id: str = runtime.tool_call_id
 
-        # Get existing conversation mapping and retrieve conversation ID for this space
-        conversation_ids: dict[str, str] = state.get("genie_conversation_ids", {})
-        existing_conversation_id: str | None = conversation_ids.get(space_id)
+        # Ensure space_id is a string for state keys
+        space_id_str: str = str(space_id)
+
+        # Get session state (or create new one)
+        session: SessionState = state.get("session", SessionState())
+
+        # Get existing conversation ID from session
+        existing_conversation_id: str | None = session.genie.get_conversation_id(
+            space_id_str
+        )
         logger.debug(
-            f"Existing conversation ID for space {space_id}: {existing_conversation_id}"
+            f"Existing conversation ID for space {space_id_str}: {existing_conversation_id}"
         )
 
-        response: GenieResponse = genie_service.ask_question(
+        # Call ask_question which always returns CacheResult with cache metadata
+        cache_result: CacheResult = genie_service.ask_question(
             question, conversation_id=existing_conversation_id
         )
+        genie_response: GenieResponse = cache_result.response
+        cache_hit: bool = cache_result.cache_hit
+        cache_key: str | None = cache_result.served_by
 
-        current_conversation_id: str = response.conversation_id
+        current_conversation_id: str = genie_response.conversation_id
         logger.debug(
-            f"Current conversation ID for space {space_id}: {current_conversation_id}"
+            f"Current conversation ID for space {space_id_str}: {current_conversation_id}, "
+            f"cache_hit: {cache_hit}, cache_key: {cache_key}"
         )
 
-        # Update the conversation mapping with the new conversation ID for this space
+        # Update session state with cache information
+        if persist_conversation:
+            session.genie.update_space(
+                space_id=space_id_str,
+                conversation_id=current_conversation_id,
+                cache_hit=cache_hit,
+                cache_key=cache_key,
+                last_query=question,
+            )
 
+        # Build update dict with response and session
         update: dict[str, Any] = {
             "messages": [
-                ToolMessage(_response_to_json(response), tool_call_id=tool_call_id)
+                ToolMessage(
+                    _response_to_json(genie_response), tool_call_id=tool_call_id
+                )
             ],
         }
 
         if persist_conversation:
-            updated_conversation_ids: dict[str, str] = conversation_ids.copy()
-            updated_conversation_ids[space_id] = current_conversation_id
-            update["genie_conversation_ids"] = updated_conversation_ids
+            update["session"] = session
 
         return Command(update=update)
 

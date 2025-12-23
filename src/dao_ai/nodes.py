@@ -20,6 +20,7 @@ from dao_ai.config import (
     AgentModel,
     ChatHistoryModel,
     MemoryModel,
+    PromptModel,
     ToolModel,
 )
 from dao_ai.middleware.core import create_factory_middleware
@@ -67,10 +68,17 @@ def _create_middleware_list(
     if agent.guardrails:
         logger.debug(f"Adding {len(agent.guardrails)} guardrail middleware")
     for guardrail in agent.guardrails:
+        # Extract template string from PromptModel if needed
+        prompt_str: str
+        if isinstance(guardrail.prompt, PromptModel):
+            prompt_str = guardrail.prompt.template
+        else:
+            prompt_str = guardrail.prompt
+
         guardrail_middleware = GuardrailMiddleware(
             name=guardrail.name,
             model=guardrail.model.as_chat_model(),
-            prompt=guardrail.prompt,
+            prompt=prompt_str,
             num_retries=guardrail.num_retries or 3,
         )
         logger.debug(f"Created guardrail middleware: {guardrail.name}")

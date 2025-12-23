@@ -241,9 +241,16 @@ class TestGenieDatabricksIntegration:
         # Verify the result structure (basic validation that it executed)
         from langgraph.types import Command
 
+        from dao_ai.state import SessionState
+
         assert isinstance(result, Command)
         assert result.update is not None
-        assert "genie_conversation_ids" in result.update
+        # Conversation IDs are now stored in session.genie.spaces
+        assert "session" in result.update
+        session: SessionState = result.update["session"]
+        assert session.genie is not None
+        assert session.genie.spaces is not None
+        assert "test-space-123" in session.genie.spaces
 
     def test_injected_state_pattern(self, mock_genie_tool):
         """

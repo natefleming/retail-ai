@@ -96,9 +96,21 @@ class LRUCacheService(GenieServiceBase):
         return timedelta(seconds=ttl)
 
     @staticmethod
-    def _normalize_key(question: str) -> str:
-        """Normalize the question to create a consistent cache key."""
-        return question.strip().lower()
+    def _normalize_key(question: str, conversation_id: str | None = None) -> str:
+        """
+        Normalize the question and conversation_id to create a consistent cache key.
+
+        Args:
+            question: The question text
+            conversation_id: Optional conversation ID to include in the key
+
+        Returns:
+            A normalized cache key combining question and conversation_id
+        """
+        normalized_question = question.strip().lower()
+        if conversation_id:
+            return f"{conversation_id}::{normalized_question}"
+        return normalized_question
 
     def _is_expired(self, entry: SQLCacheEntry) -> bool:
         """Check if a cache entry has exceeded its TTL. Returns False if TTL is disabled."""
@@ -203,17 +215,14 @@ class LRUCacheService(GenieServiceBase):
 
     def ask_question(
         self, question: str, conversation_id: str | None = None
-    ) -> GenieResponse:
+    ) -> CacheResult:
         """
         Ask a question, using cached SQL query if available.
 
         On cache hit, re-executes the cached SQL to get fresh data.
-        Implements GenieServiceBase for seamless chaining.
+        Returns CacheResult with cache metadata.
         """
-        result: CacheResult = self.ask_question_with_cache_info(
-            question, conversation_id
-        )
-        return result.response
+        return self.ask_question_with_cache_info(question, conversation_id)
 
     @mlflow.trace(name="genie_lru_cache_lookup")
     def ask_question_with_cache_info(
@@ -233,7 +242,7 @@ class LRUCacheService(GenieServiceBase):
         Returns:
             CacheResult with fresh response and cache metadata
         """
-        key: str = self._normalize_key(question)
+        key: str = self._normalize_key(question, conversation_id)
 
         # Check cache
         with self._lock:
@@ -242,17 +251,20 @@ class LRUCacheService(GenieServiceBase):
         if cached is not None:
             logger.info(
                 f"[{self.name}] Cache HIT: '{question[:50]}...' "
-                f"(cache_size={self.size}/{self.capacity})"
+                f"(conversation_id={conversation_id}, cache_size={self.size}/{self.capacity})"
             )
 
             # Re-execute the cached SQL to get fresh data
             result: pd.DataFrame | str = self._execute_sql(cached.query)
 
+            # Use current conversation_id, not the cached one
             response: GenieResponse = GenieResponse(
                 result=result,
                 query=cached.query,
                 description=cached.description,
-                conversation_id=cached.conversation_id,
+                conversation_id=conversation_id
+                if conversation_id
+                else cached.conversation_id,
             )
 
             return CacheResult(response=response, cache_hit=True, served_by=self.name)
@@ -260,21 +272,30 @@ class LRUCacheService(GenieServiceBase):
         # Cache miss - delegate to wrapped service
         logger.info(
             f"[{self.name}] Cache MISS: '{question[:50]}...' "
-            f"(cache_size={self.size}/{self.capacity}, delegating to {type(self.impl).__name__})"
+            f"(conversation_id={conversation_id}, cache_size={self.size}/{self.capacity}, delegating to {type(self.impl).__name__})"
         )
 
-        response = self.impl.ask_question(question, conversation_id)
+        result: CacheResult = self.impl.ask_question(question, conversation_id)
         with self._lock:
-            self._put(key, response)
-        return CacheResult(response=response, cache_hit=False, served_by=None)
+            self._put(key, result.response)
+        return CacheResult(response=result.response, cache_hit=False, served_by=None)
 
     @property
     def space_id(self) -> str:
         return self.impl.space_id
 
-    def invalidate(self, question: str) -> bool:
-        """Remove a specific entry from the cache."""
-        key: str = self._normalize_key(question)
+    def invalidate(self, question: str, conversation_id: str | None = None) -> bool:
+        """
+        Remove a specific entry from the cache.
+
+        Args:
+            question: The question text
+            conversation_id: Optional conversation ID to match
+
+        Returns:
+            True if the entry was found and removed, False otherwise
+        """
+        key: str = self._normalize_key(question, conversation_id)
         with self._lock:
             if key in self._cache:
                 del self._cache[key]

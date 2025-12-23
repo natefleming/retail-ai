@@ -5,10 +5,12 @@ This module provides the foundational types used across different cache
 implementations (LRU, Semantic, etc.).
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from databricks.sdk import WorkspaceClient
@@ -18,6 +20,9 @@ from loguru import logger
 
 from dao_ai.config import WarehouseModel
 
+if TYPE_CHECKING:
+    from dao_ai.genie.cache.base import CacheResult
+
 
 class GenieServiceBase(ABC):
     """Abstract base class for Genie service implementations."""
@@ -25,8 +30,13 @@ class GenieServiceBase(ABC):
     @abstractmethod
     def ask_question(
         self, question: str, conversation_id: str | None = None
-    ) -> GenieResponse:
-        """Ask a question to Genie and return the response."""
+    ) -> "CacheResult":
+        """
+        Ask a question to Genie and return the response with cache metadata.
+
+        All implementations return CacheResult to provide consistent cache information,
+        even when caching is disabled (cache_hit=False, served_by=None).
+        """
         pass
 
     @property

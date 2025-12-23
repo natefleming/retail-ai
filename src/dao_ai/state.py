@@ -115,7 +115,6 @@ class AgentState(MessagesState, total=False):
         is_valid: Message validation status
         message_error: Error message if validation failed
         session: Accumulated session state (genie conversations, etc.)
-        genie_conversation_ids: DEPRECATED - use session.genie instead
     """
 
     context: NotRequired[str]
@@ -123,8 +122,6 @@ class AgentState(MessagesState, total=False):
     is_valid: NotRequired[bool]
     message_error: NotRequired[str]
     session: NotRequired[SessionState]
-    # DEPRECATED: Use session.genie instead - kept for backwards compatibility
-    genie_conversation_ids: NotRequired[dict[str, str]]
 
 
 class Context(BaseModel):

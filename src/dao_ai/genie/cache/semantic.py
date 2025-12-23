@@ -326,8 +326,10 @@ class SemanticCacheService(GenieServiceBase):
                 id SERIAL PRIMARY KEY,
                 genie_space_id TEXT NOT NULL,
                 question TEXT NOT NULL,
+                conversation_context TEXT,
                 context_string TEXT,
                 question_embedding vector({self.embedding_dims}),
+                context_embedding vector({self.embedding_dims}),
                 sql_query TEXT NOT NULL,
                 description TEXT,
                 conversation_id TEXT,
@@ -336,10 +338,16 @@ class SemanticCacheService(GenieServiceBase):
         """
         # Index for efficient similarity search partitioned by genie_space_id
         # Use L2 (Euclidean) distance - optimal for Databricks GTE embeddings
-        create_embedding_index_sql: str = f"""
-            CREATE INDEX IF NOT EXISTS {self.table_name}_embedding_idx 
+        create_question_embedding_index_sql: str = f"""
+            CREATE INDEX IF NOT EXISTS {self.table_name}_question_embedding_idx 
             ON {self.table_name} 
             USING ivfflat (question_embedding vector_l2_ops)
+            WITH (lists = 100)
+        """
+        create_context_embedding_index_sql: str = f"""
+            CREATE INDEX IF NOT EXISTS {self.table_name}_context_embedding_idx 
+            ON {self.table_name} 
+            USING ivfflat (context_embedding vector_l2_ops)
             WITH (lists = 100)
         """
         # Index for filtering by genie_space_id
@@ -372,22 +380,30 @@ class SemanticCacheService(GenieServiceBase):
 
                 cur.execute(create_table_sql)
                 cur.execute(create_space_index_sql)
-                cur.execute(create_embedding_index_sql)
+                cur.execute(create_question_embedding_index_sql)
+                cur.execute(create_context_embedding_index_sql)
 
     def _embed_question(
         self, question: str, conversation_id: str | None = None
-    ) -> tuple[list[float], str]:
+    ) -> tuple[list[float], list[float], str]:
         """
-        Generate embedding for a question with optional conversation context.
+        Generate dual embeddings: one for the question, one for the conversation context.
+
+        This enables separate matching of question similarity vs context similarity,
+        improving precision by ensuring both the question AND the conversation context
+        are semantically similar before returning a cached result.
 
         Args:
             question: The question to embed
             conversation_id: Optional conversation ID for retrieving context
 
         Returns:
-            Tuple of (embedding vector, context-aware question string used for embedding)
+            Tuple of (question_embedding, context_embedding, conversation_context_string)
+            - question_embedding: Vector embedding of just the question
+            - context_embedding: Vector embedding of the conversation context (or zero vector if no context)
+            - conversation_context_string: The conversation context string (empty if no context)
         """
-        context_string = question
+        conversation_context = ""
 
         # If conversation context is enabled and available
         if (
@@ -405,13 +421,32 @@ class SemanticCacheService(GenieServiceBase):
                     * 2,  # Get extra for safety
                 )
 
-                # Build context-aware question string
-                context_string = build_context_string(
-                    question=question,
-                    conversation_messages=conversation_messages,
-                    window_size=self.parameters.context_window_size,
-                    max_tokens=self.parameters.max_context_tokens,
-                )
+                # Build context string (just the "Previous:" messages, not the current question)
+                if conversation_messages:
+                    recent_messages = (
+                        conversation_messages[-self.parameters.context_window_size :]
+                        if len(conversation_messages)
+                        > self.parameters.context_window_size
+                        else conversation_messages
+                    )
+
+                    context_parts: list[str] = []
+                    for msg in recent_messages:
+                        if msg.content:
+                            content: str = msg.content
+                            if len(content) > 500:
+                                content = content[:500] + "..."
+                            context_parts.append(f"Previous: {content}")
+
+                    conversation_context = "\n".join(context_parts)
+
+                    # Truncate if too long
+                    estimated_tokens = len(conversation_context) / 4
+                    if estimated_tokens > self.parameters.max_context_tokens:
+                        target_chars = self.parameters.max_context_tokens * 4
+                        conversation_context = (
+                            conversation_context[:target_chars] + "..."
+                        )
 
                 logger.debug(
                     f"[{self.name}] Using conversation context: {len(conversation_messages)} messages "
@@ -421,37 +456,56 @@ class SemanticCacheService(GenieServiceBase):
                 logger.warning(
                     f"[{self.name}] Failed to build conversation context, using question only: {e}"
                 )
-                context_string = question
+                conversation_context = ""
 
-        # Generate embedding
-        embeddings: list[list[float]] = self._embeddings.embed_documents(
-            [context_string]
-        )
-        return embeddings[0], context_string
+        # Generate dual embeddings
+        if conversation_context:
+            # Embed both question and context
+            embeddings: list[list[float]] = self._embeddings.embed_documents(
+                [question, conversation_context]
+            )
+            question_embedding = embeddings[0]
+            context_embedding = embeddings[1]
+        else:
+            # Only embed question, use zero vector for context
+            embeddings = self._embeddings.embed_documents([question])
+            question_embedding = embeddings[0]
+            context_embedding = [0.0] * len(question_embedding)  # Zero vector
+
+        return question_embedding, context_embedding, conversation_context
 
     @mlflow.trace(name="semantic_search")
     def _find_similar(
-        self, question: str, context_string: str, embedding: list[float]
+        self,
+        question: str,
+        conversation_context: str,
+        question_embedding: list[float],
+        context_embedding: list[float],
     ) -> tuple[SQLCacheEntry, float] | None:
         """
-        Find a semantically similar cached entry for this Genie space.
+        Find a semantically similar cached entry using dual embedding matching.
+
+        This method matches BOTH the question AND the conversation context separately,
+        ensuring high precision by requiring both to be semantically similar.
 
         Args:
             question: The original question (for logging)
-            context_string: The context-aware question string that was embedded
-            embedding: The embedding vector of the context-aware question
+            conversation_context: The conversation context string
+            question_embedding: The embedding vector of just the question
+            context_embedding: The embedding vector of the conversation context
 
         Returns:
-            Tuple of (SQLCacheEntry, similarity_score) if found, None otherwise
+            Tuple of (SQLCacheEntry, combined_similarity_score) if found, None otherwise
         """
         # Use L2 (Euclidean) distance - optimal for Databricks GTE embeddings
         # pg_vector's <-> operator returns L2 distance (0 = identical)
         # Convert to similarity: 1 / (1 + distance) gives range [0, 1]
         #
-        # Refresh-on-hit strategy:
-        # 1. Search without TTL filter to find best semantic match
-        # 2. If match is within TTL (or TTL disabled) → cache hit
-        # 3. If match is expired → delete it, return miss (triggers refresh)
+        # Dual embedding strategy:
+        # 1. Calculate separate similarities for question and context
+        # 2. BOTH must exceed their respective thresholds
+        # 3. Combined score is weighted average
+        # 4. Refresh-on-hit: check TTL after similarity check
         ttl_seconds = self.parameters.time_to_live_seconds
         ttl_disabled = ttl_seconds is None or ttl_seconds < 0
 
@@ -461,29 +515,44 @@ class SemanticCacheService(GenieServiceBase):
         else:
             is_valid_expr = f"created_at > NOW() - INTERVAL '{ttl_seconds} seconds'"
 
+        # Weighted combined similarity for ordering
+        question_weight: float = self.parameters.question_weight
+        context_weight: float = self.parameters.context_weight
+
         search_sql: str = f"""
             SELECT 
                 id,
                 question,
+                conversation_context,
                 sql_query,
                 description,
                 conversation_id,
                 created_at,
-                1.0 / (1.0 + (question_embedding <-> %s::vector)) as similarity,
+                1.0 / (1.0 + (question_embedding <-> %s::vector)) as question_similarity,
+                1.0 / (1.0 + (context_embedding <-> %s::vector)) as context_similarity,
+                ({question_weight} * (1.0 / (1.0 + (question_embedding <-> %s::vector)))) +
+                ({context_weight} * (1.0 / (1.0 + (context_embedding <-> %s::vector)))) as combined_similarity,
                 {is_valid_expr} as is_valid
             FROM {self.table_name}
             WHERE genie_space_id = %s
-            ORDER BY question_embedding <-> %s::vector
+            ORDER BY combined_similarity DESC
             LIMIT 1
         """
 
-        embedding_str: str = f"[{','.join(str(x) for x in embedding)}]"
+        question_emb_str: str = f"[{','.join(str(x) for x in question_embedding)}]"
+        context_emb_str: str = f"[{','.join(str(x) for x in context_embedding)}]"
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     search_sql,
-                    (embedding_str, self.space_id, embedding_str),
+                    (
+                        question_emb_str,
+                        context_emb_str,
+                        question_emb_str,
+                        context_emb_str,
+                        self.space_id,
+                    ),
                 )
                 row: DbRow | None = cur.fetchone()
 
@@ -497,29 +566,36 @@ class SemanticCacheService(GenieServiceBase):
                 # Extract values from dict row
                 entry_id: Any = row.get("id")
                 cached_question: str = row.get("question", "")
-                cached_context: str = row.get("context_string", cached_question)
+                cached_context: str = row.get("conversation_context", "")
                 sql_query: str = row["sql_query"]
                 description: str = row.get("description", "")
                 conversation_id_cached: str = row.get("conversation_id", "")
                 created_at: Any = row["created_at"]
-                similarity: float = row["similarity"]
+                question_similarity: float = row["question_similarity"]
+                context_similarity: float = row["context_similarity"]
+                combined_similarity: float = row["combined_similarity"]
                 is_valid: bool = row.get("is_valid", False)
 
-                # Log best match info (L2 distance can be computed from similarity: d = 1/s - 1)
-                l2_distance = (
-                    (1.0 / similarity) - 1.0 if similarity > 0 else float("inf")
-                )
+                # Log best match info
                 logger.info(
-                    f"[{self.name}] Best match: l2_distance={l2_distance:.4f}, similarity={similarity:.4f}, "
-                    f"is_valid={is_valid}, question='{cached_question[:50]}...', "
-                    f"context='{cached_context[:80]}...'"
+                    f"[{self.name}] Best match: "
+                    f"question_sim={question_similarity:.4f}, context_sim={context_similarity:.4f}, "
+                    f"combined_sim={combined_similarity:.4f}, is_valid={is_valid}, "
+                    f"question='{cached_question[:50]}...', context='{cached_context[:80]}...'"
                 )
 
-                # Check similarity threshold
-                if similarity < self.similarity_threshold:
+                # Check BOTH similarity thresholds (dual embedding precision check)
+                if question_similarity < self.parameters.similarity_threshold:
                     logger.info(
-                        f"[{self.name}] MISS (below threshold): similarity={similarity:.4f} < threshold={self.similarity_threshold} "
-                        f"(cached_question='{cached_question[:50]}...')"
+                        f"[{self.name}] MISS (question similarity too low): "
+                        f"question_sim={question_similarity:.4f} < threshold={self.parameters.similarity_threshold}"
+                    )
+                    return None
+
+                if context_similarity < self.parameters.context_similarity_threshold:
+                    logger.info(
+                        f"[{self.name}] MISS (context similarity too low): "
+                        f"context_sim={context_similarity:.4f} < threshold={self.parameters.context_similarity_threshold}"
                     )
                     return None
 
@@ -529,14 +605,14 @@ class SemanticCacheService(GenieServiceBase):
                     delete_sql = f"DELETE FROM {self.table_name} WHERE id = %s"
                     cur.execute(delete_sql, (entry_id,))
                     logger.info(
-                        f"[{self.name}] MISS (expired, deleted for refresh): similarity={similarity:.4f}, "
-                        f"ttl={ttl_seconds}s, question='{cached_question[:50]}...'"
+                        f"[{self.name}] MISS (expired, deleted for refresh): "
+                        f"combined_sim={combined_similarity:.4f}, ttl={ttl_seconds}s, question='{cached_question[:50]}...'"
                     )
                     return None
 
                 logger.info(
-                    f"[{self.name}] HIT: similarity={similarity:.4f} >= threshold={self.similarity_threshold} "
-                    f"(cached_question='{cached_question[:50]}...')"
+                    f"[{self.name}] HIT: question_sim={question_similarity:.4f}, context_sim={context_similarity:.4f}, "
+                    f"combined_sim={combined_similarity:.4f} (cached_question='{cached_question[:50]}...')"
                 )
 
                 entry = SQLCacheEntry(
@@ -545,22 +621,31 @@ class SemanticCacheService(GenieServiceBase):
                     conversation_id=conversation_id_cached,
                     created_at=created_at,
                 )
-                return entry, similarity
+                return entry, combined_similarity
 
     def _store_entry(
         self,
         question: str,
-        context_string: str,
-        embedding: list[float],
+        conversation_context: str,
+        question_embedding: list[float],
+        context_embedding: list[float],
         response: GenieResponse,
     ) -> None:
-        """Store a new cache entry for this Genie space."""
+        """Store a new cache entry with dual embeddings for this Genie space."""
         insert_sql: str = f"""
             INSERT INTO {self.table_name} 
-            (genie_space_id, question, context_string, question_embedding, sql_query, description, conversation_id)
-            VALUES (%s, %s, %s, %s::vector, %s, %s, %s)
+            (genie_space_id, question, conversation_context, context_string, 
+             question_embedding, context_embedding, sql_query, description, conversation_id)
+            VALUES (%s, %s, %s, %s, %s::vector, %s::vector, %s, %s, %s)
         """
-        embedding_str: str = f"[{','.join(str(x) for x in embedding)}]"
+        question_emb_str: str = f"[{','.join(str(x) for x in question_embedding)}]"
+        context_emb_str: str = f"[{','.join(str(x) for x in context_embedding)}]"
+
+        # Build full context string for backward compatibility (used in logging)
+        if conversation_context:
+            full_context_string = f"{conversation_context}\nCurrent: {question}"
+        else:
+            full_context_string = question
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -569,8 +654,10 @@ class SemanticCacheService(GenieServiceBase):
                     (
                         self.space_id,
                         question,
-                        context_string,
-                        embedding_str,
+                        conversation_context,
+                        full_context_string,
+                        question_emb_str,
+                        context_emb_str,
                         response.query,
                         response.description,
                         response.conversation_id,
@@ -578,7 +665,7 @@ class SemanticCacheService(GenieServiceBase):
                 )
                 logger.info(
                     f"[{self.name}] Stored cache entry: question='{question[:50]}...' "
-                    f"context='{context_string[:80]}...' "
+                    f"context='{conversation_context[:80]}...' "
                     f"sql='{response.query[:50]}...' (space={self.space_id}, table={self.table_name})"
                 )
 
@@ -631,17 +718,14 @@ class SemanticCacheService(GenieServiceBase):
 
     def ask_question(
         self, question: str, conversation_id: str | None = None
-    ) -> GenieResponse:
+    ) -> CacheResult:
         """
         Ask a question, using semantic cache if a similar query exists.
 
         On cache hit, re-executes the cached SQL to get fresh data.
-        Implements GenieServiceBase for seamless chaining.
+        Returns CacheResult with cache metadata.
         """
-        result: CacheResult = self.ask_question_with_cache_info(
-            question, conversation_id
-        )
-        return result.response
+        return self.ask_question_with_cache_info(question, conversation_id)
 
     @mlflow.trace(name="genie_semantic_cache_lookup")
     def ask_question_with_cache_info(
@@ -665,20 +749,23 @@ class SemanticCacheService(GenieServiceBase):
         # Ensure initialization (lazy init if initialize() wasn't called)
         self._setup()
 
-        # Generate embedding for the question with conversation context
-        embedding: list[float]
-        context_string: str
-        embedding, context_string = self._embed_question(question, conversation_id)
+        # Generate dual embeddings for the question and conversation context
+        question_embedding: list[float]
+        context_embedding: list[float]
+        conversation_context: str
+        question_embedding, context_embedding, conversation_context = (
+            self._embed_question(question, conversation_id)
+        )
 
-        # Check cache
+        # Check cache using dual embedding similarity
         cache_result: tuple[SQLCacheEntry, float] | None = self._find_similar(
-            question, context_string, embedding
+            question, conversation_context, question_embedding, context_embedding
         )
 
         if cache_result is not None:
-            cached, similarity = cache_result
+            cached, combined_similarity = cache_result
             logger.debug(
-                f"[{self.name}] Semantic cache hit (similarity={similarity:.3f}): {question[:50]}..."
+                f"[{self.name}] Semantic cache hit (combined_similarity={combined_similarity:.3f}): {question[:50]}..."
             )
 
             # Re-execute the cached SQL to get fresh data
@@ -700,22 +787,28 @@ class SemanticCacheService(GenieServiceBase):
         # Cache miss - delegate to wrapped service
         logger.debug(f"[{self.name}] Miss: {question[:50]}...")
 
-        response = self.impl.ask_question(question, conversation_id)
+        result: CacheResult = self.impl.ask_question(question, conversation_id)
 
         # Store in cache if we got a SQL query
-        if response.query:
+        if result.response.query:
             logger.info(
                 f"[{self.name}] Storing new cache entry for question: '{question[:50]}...' "
                 f"(space={self.space_id})"
             )
-            self._store_entry(question, context_string, embedding, response)
-        elif not response.query:
+            self._store_entry(
+                question,
+                conversation_context,
+                question_embedding,
+                context_embedding,
+                result.response,
+            )
+        elif not result.response.query:
             logger.warning(
                 f"[{self.name}] Not caching: response has no SQL query "
                 f"(question='{question[:50]}...')"
             )
 
-        return CacheResult(response=response, cache_hit=False, served_by=None)
+        return CacheResult(response=result.response, cache_hit=False, served_by=None)
 
     @property
     def space_id(self) -> str:

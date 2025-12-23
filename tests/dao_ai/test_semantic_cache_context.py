@@ -250,6 +250,9 @@ class TestSemanticCacheServiceContext:
         params.embedding_dims = None
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.table_name = "test_cache"
         params.database = Mock(spec=DatabaseModel)
         params.warehouse = Mock(spec=WarehouseModel)
@@ -271,13 +274,13 @@ class TestSemanticCacheServiceContext:
         service._embeddings.embed_documents.return_value = [[0.1, 0.2, 0.3]]
 
         question = "What is the total sales?"
-        embedding, context_string = service._embed_question(
-            question, conversation_id=None
+        question_embedding, context_embedding, conversation_context = (
+            service._embed_question(question, conversation_id=None)
         )
 
         # Should use question only (no context)
-        assert context_string == question
-        assert embedding == [0.1, 0.2, 0.3]
+        assert conversation_context == ""
+        assert question_embedding == [0.1, 0.2, 0.3]
         service._embeddings.embed_documents.assert_called_once_with([question])
 
     def test_embed_question_with_conversation_context(
@@ -291,9 +294,13 @@ class TestSemanticCacheServiceContext:
             workspace_client=mock_workspace_client,
         )
 
-        # Mock embeddings
+        # Mock embeddings - return different embeddings for question and context
         service._embeddings = Mock()
-        service._embeddings.embed_documents.return_value = [[0.1, 0.2, 0.3]]
+        # Single call with both documents returns both embeddings
+        service._embeddings.embed_documents.return_value = [
+            [0.1, 0.2, 0.3],  # First embedding: question
+            [0.4, 0.5, 0.6],  # Second embedding: context
+        ]
 
         # Mock conversation history
         mock_messages = [
@@ -306,15 +313,16 @@ class TestSemanticCacheServiceContext:
         )
 
         question = "What about inventory?"
-        embedding, context_string = service._embed_question(
-            question, conversation_id="test-conv"
+        question_embedding, context_embedding, conversation_context = (
+            service._embed_question(question, conversation_id="test-conv")
         )
 
         # Should include context
-        assert "Previous: Show me Store 42" in context_string
-        assert "Previous: What are the sales?" in context_string
-        assert "Current: What about inventory?" in context_string
-        assert embedding == [0.1, 0.2, 0.3]
+        assert "Previous: Show me Store 42" in conversation_context
+        assert "Previous: What are the sales?" in conversation_context
+        assert question_embedding == [0.1, 0.2, 0.3]
+        # Context embedding should be the second embedding
+        assert context_embedding == [0.4, 0.5, 0.6]
 
     def test_embed_question_handles_context_retrieval_error(
         self, mock_workspace_client: Mock, mock_parameters: Mock
@@ -337,13 +345,13 @@ class TestSemanticCacheServiceContext:
         )
 
         question = "What about inventory?"
-        embedding, context_string = service._embed_question(
-            question, conversation_id="test-conv"
+        question_embedding, context_embedding, conversation_context = (
+            service._embed_question(question, conversation_id="test-conv")
         )
 
-        # Should fall back to question only
-        assert context_string == question
-        assert embedding == [0.1, 0.2, 0.3]
+        # Should fall back to question only (no context)
+        assert conversation_context == ""
+        assert question_embedding == [0.1, 0.2, 0.3]
 
     def test_conversation_id_not_from_cache(
         self, mock_workspace_client: Mock, mock_parameters: Mock
@@ -377,7 +385,9 @@ class TestSemanticCacheServiceContext:
             "description": "Inventory query",
             "conversation_id": cached_entry_conversation_id,  # Cached conversation ID
             "created_at": datetime.now(),
-            "similarity": 0.95,
+            "question_similarity": 0.95,
+            "context_similarity": 0.95,
+            "combined_similarity": 0.95,
             "is_valid": True,
         }
         mock_cursor.__enter__ = Mock(return_value=mock_cursor)

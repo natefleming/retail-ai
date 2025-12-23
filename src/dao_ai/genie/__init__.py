@@ -40,11 +40,13 @@ class GenieService(GenieServiceBase):
     @mlflow.trace(name="genie_ask_question")
     def ask_question(
         self, question: str, conversation_id: str | None = None
-    ) -> GenieResponse:
+    ) -> CacheResult:
+        """Ask question to Genie and return CacheResult (no caching at this level)."""
         response: GenieResponse = self.genie.ask_question(
             question, conversation_id=conversation_id
         )
-        return response
+        # No caching at this level - return cache miss
+        return CacheResult(response=response, cache_hit=False, served_by=None)
 
     @property
     def space_id(self) -> str:
