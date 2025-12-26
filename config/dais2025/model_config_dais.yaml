@@ -239,7 +239,7 @@ tools:
     name: search
     function:
       type: factory
-      name: dao_ai.tools.search_tool
+      name: dao_ai.tools.create_search_tool
       args: {}
 
   vector_search_tool: &vector_search_tool

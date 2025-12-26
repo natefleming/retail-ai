@@ -43,7 +43,7 @@ from dao_ai.orchestration import (
 from dao_ai.prompts import make_prompt
 from dao_ai.state import AgentState, Context
 from dao_ai.tools import create_tools
-from dao_ai.utils import create_databricks_search_memory_tool
+from dao_ai.tools.memory import create_search_memory_tool
 
 
 def _create_handoff_back_to_supervisor_tool() -> BaseTool:
@@ -208,7 +208,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         # Use Databricks-compatible search_memory tool (omits problematic filter field)
         supervisor_tools += [
             create_manage_memory_tool(namespace=namespace),
-            create_databricks_search_memory_tool(namespace=namespace),
+            create_search_memory_tool(namespace=namespace),
         ]
 
     # Create the supervisor agent

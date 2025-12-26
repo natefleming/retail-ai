@@ -45,6 +45,7 @@ from mlflow.genai.datasets import EvaluationDataset, create_dataset, get_dataset
 from mlflow.genai.prompts import PromptVersion, load_prompt
 from mlflow.models import ModelConfig
 from mlflow.models.resources import (
+    DatabricksApp,
     DatabricksFunction,
     DatabricksGenieSpace,
     DatabricksLakebase,
@@ -382,6 +383,25 @@ class SchemaModel(BaseModel, HasFullName):
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_schema(self)
+
+
+class DatabricksAppModel(IsDatabricksResource, HasFullName):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    url: str
+
+    @property
+    def full_name(self) -> str:
+        return self.name
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return ["apps.apps"]
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksApp(app_name=self.name, on_behalf_of_user=self.on_behalf_of_user)
+        ]
 
 
 class TableModel(IsDatabricksResource, HasFullName):
@@ -1303,28 +1323,47 @@ class FunctionType(str, Enum):
     MCP = "mcp"
 
 
-class HumanInTheLoopActionType(str, Enum):
-    """Supported action types for human-in-the-loop interactions."""
-
-    ACCEPT = "accept"
-    EDIT = "edit"
-    RESPONSE = "response"
-    DECLINE = "decline"
-
-
 class HumanInTheLoopModel(BaseModel):
+    """
+    Configuration for Human-in-the-Loop tool approval.
+
+    This model configures when and how tools require human approval before execution.
+    It maps to LangChain's HumanInTheLoopMiddleware.
+
+    LangChain supports three decision types:
+    - "approve": Execute tool with original arguments
+    - "edit": Modify arguments before execution
+    - "reject": Skip execution with optional feedback message
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    review_prompt: str = "Please review the tool call"
-    interrupt_config: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "allow_accept": True,
-            "allow_edit": True,
-            "allow_respond": True,
-            "allow_decline": True,
-        }
+
+    review_prompt: Optional[str] = Field(
+        default=None,
+        description="Message shown to the reviewer when approval is requested",
     )
-    decline_message: str = "Tool call declined by user"
-    custom_actions: Optional[dict[str, str]] = Field(default_factory=dict)
+
+    allowed_decisions: list[Literal["approve", "edit", "reject"]] = Field(
+        default_factory=lambda: ["approve", "edit", "reject"],
+        description="List of allowed decision types for this tool",
+    )
+
+    @model_validator(mode="after")
+    def validate_and_normalize_decisions(self) -> Self:
+        """Validate and normalize allowed decisions."""
+        if not self.allowed_decisions:
+            raise ValueError("At least one decision type must be allowed")
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_decisions = []
+        for decision in self.allowed_decisions:
+            if decision not in seen:
+                seen.add(decision)
+                unique_decisions.append(decision)
+        self.allowed_decisions = unique_decisions
+
+        return self
 
 
 class BaseFunctionModel(ABC, BaseModel):
@@ -2420,6 +2459,7 @@ class ResourcesModel(BaseModel):
     warehouses: dict[str, WarehouseModel] = Field(default_factory=dict)
     databases: dict[str, DatabaseModel] = Field(default_factory=dict)
     connections: dict[str, ConnectionModel] = Field(default_factory=dict)
+    apps: dict[str, DatabricksAppModel] = Field(default_factory=dict)
 
 
 class AppConfig(BaseModel):

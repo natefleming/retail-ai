@@ -21,6 +21,34 @@ from dao_ai.messages import last_ai_message, last_human_message
 from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.state import AgentState, Context
 
+
+def _extract_text_content(message: BaseMessage) -> str:
+    """
+    Extract text content from a message, handling both string and list formats.
+
+    Args:
+        message: The message to extract text from
+
+    Returns:
+        The extracted text content as a string
+    """
+    content = message.content
+
+    if isinstance(content, str):
+        return content
+    elif isinstance(content, list):
+        # Extract text from content blocks (e.g., Claude's structured content)
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                text_parts.append(block)
+        return " ".join(text_parts)
+    else:
+        return str(content)
+
+
 __all__ = [
     "GuardrailMiddleware",
     "ContentFilterMiddleware",
@@ -62,6 +90,11 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         self.num_retries = num_retries
         self._retry_count = 0
 
+    @property
+    def name(self) -> str:
+        """Return the guardrail name for middleware identification."""
+        return self.guardrail_name
+
     def after_model(
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
@@ -82,16 +115,39 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         if not ai_message or not human_message:
             return None
 
+        # Skip evaluation if the AI message has tool calls (not the final response yet)
+        if ai_message.tool_calls:
+            logger.debug(
+                f"Guardrail '{self.guardrail_name}' skipping evaluation - "
+                "AI message contains tool calls, waiting for final response"
+            )
+            return None
+
+        # Skip evaluation if the AI message has no content to evaluate
+        if not ai_message.content:
+            logger.debug(
+                f"Guardrail '{self.guardrail_name}' skipping evaluation - "
+                "AI message has no content"
+            )
+            return None
+
         logger.debug(f"Evaluating response with guardrail '{self.guardrail_name}'")
+
+        # Extract text content from messages (handles both string and structured content)
+        human_content = _extract_text_content(human_message)
+        ai_content = _extract_text_content(ai_message)
+
+        logger.debug(
+            f"Guardrail '{self.guardrail_name}' evaluating: "
+            f"input_length={len(human_content)}, output_length={len(ai_content)}"
+        )
 
         evaluator = create_llm_as_judge(
             prompt=self.prompt,
             judge=self.model,
         )
 
-        eval_result = evaluator(
-            inputs=human_message.content, outputs=ai_message.content
-        )
+        eval_result = evaluator(inputs=human_content, outputs=ai_content)
 
         if eval_result["score"]:
             logger.debug(f"Response approved by guardrail '{self.guardrail_name}'")
@@ -100,16 +156,30 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
             return None
         else:
             self._retry_count += 1
+            comment: str = eval_result["comment"]
 
             if self._retry_count >= self.num_retries:
                 logger.warning(
-                    f"Guardrail '{self.guardrail_name}' max retries ({self.num_retries}) reached"
+                    f"Guardrail '{self.guardrail_name}' failed - max retries reached "
+                    f"({self._retry_count}/{self.num_retries})"
                 )
+                logger.warning(f"Final judge's critique: {comment}")
                 self._retry_count = 0
-                return None
 
-            logger.warning(f"Guardrail '{self.guardrail_name}' requested improvements")
-            comment: str = eval_result["comment"]
+                # Add system message to inform user of guardrail failure
+                failure_message = (
+                    f"⚠️ **Quality Check Failed**\n\n"
+                    f"The response did not meet the '{self.guardrail_name}' quality standards "
+                    f"after {self.num_retries} attempts.\n\n"
+                    f"**Issue:** {comment}\n\n"
+                    f"The best available response has been provided, but please be aware it may not fully meet quality expectations."
+                )
+                return {"messages": [AIMessage(content=failure_message)]}
+
+            logger.warning(
+                f"Guardrail '{self.guardrail_name}' requested improvements "
+                f"(retry {self._retry_count}/{self.num_retries})"
+            )
             logger.warning(f"Judge's critique: {comment}")
 
             content: str = "\n".join([str(human_message.content), comment])

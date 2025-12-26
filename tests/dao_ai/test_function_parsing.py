@@ -196,12 +196,7 @@ class TestFunctionModelParsing:
                 "name": "tools.example_function",
                 "human_in_the_loop": {
                     "review_prompt": "Please review this action:",
-                    "interrupt_config": {
-                        "allow_accept": True,
-                        "allow_edit": False,
-                        "allow_respond": True,
-                        "allow_decline": True,
-                    },
+                    "allowed_decisions": ["approve", "reject"],
                 },
             },
         }
@@ -211,12 +206,32 @@ class TestFunctionModelParsing:
         hitl = tool.function.human_in_the_loop
         assert hitl is not None
         assert hitl.review_prompt == "Please review this action:"
-        assert hitl.interrupt_config == {
-            "allow_accept": True,
-            "allow_edit": False,
-            "allow_respond": True,
-            "allow_decline": True,
+        assert "approve" in hitl.allowed_decisions
+        assert "edit" not in hitl.allowed_decisions
+        assert "reject" in hitl.allowed_decisions
+        assert hitl.allowed_decisions == ["approve", "reject"]
+
+    @pytest.mark.unit
+    def test_human_in_the_loop_model_parsing_new_format(self):
+        """Test parsing of HumanInTheLoopModel with all decisions."""
+        yaml_data = {
+            "name": "hitl_tool",
+            "function": {
+                "type": "python",
+                "name": "tools.example_function",
+                "human_in_the_loop": {
+                    "review_prompt": "Please review this action:",
+                    "allowed_decisions": ["approve", "edit", "reject"],
+                },
+            },
         }
+
+        tool = ToolModel(**yaml_data)
+
+        hitl = tool.function.human_in_the_loop
+        assert hitl is not None
+        assert hitl.review_prompt == "Please review this action:"
+        assert hitl.allowed_decisions == ["approve", "edit", "reject"]
 
 
 class TestFunctionModelFromYAML:

@@ -1957,11 +1957,26 @@
           "type": "string"
         },
         "model": {
-          "$ref": "#/$defs/LLMModel"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/LLMModel"
+            }
+          ],
+          "title": "Model"
         },
         "prompt": {
-          "title": "Prompt",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/PromptModel"
+            }
+          ],
+          "title": "Prompt"
         },
         "num_retries": {
           "anyOf": [
@@ -2008,35 +2023,33 @@
     },
     "HumanInTheLoopModel": {
       "additionalProperties": false,
+      "description": "Configuration for Human-in-the-Loop tool approval.\n\nThis model configures when and how tools require human approval before execution.\nIt maps to LangChain's HumanInTheLoopMiddleware.\n\nLangChain supports three decision types:\n- \"approve\": Execute tool with original arguments\n- \"edit\": Modify arguments before execution\n- \"reject\": Skip execution with optional feedback message",
       "properties": {
         "review_prompt": {
-          "default": "Please review the tool call",
-          "title": "Review Prompt",
-          "type": "string"
-        },
-        "interrupt_config": {
-          "additionalProperties": true,
-          "title": "Interrupt Config",
-          "type": "object"
-        },
-        "decline_message": {
-          "default": "Tool call declined by user",
-          "title": "Decline Message",
-          "type": "string"
-        },
-        "custom_actions": {
           "anyOf": [
             {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "type": "object"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Custom Actions"
+          "default": null,
+          "description": "Message shown to the reviewer when approval is requested",
+          "title": "Review Prompt"
+        },
+        "allowed_decisions": {
+          "description": "List of allowed decision types for this tool",
+          "items": {
+            "enum": [
+              "approve",
+              "edit",
+              "reject"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Decisions",
+          "type": "array"
         }
       },
       "title": "HumanInTheLoopModel",

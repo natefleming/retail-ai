@@ -46,11 +46,7 @@ class TestHumanInTheLoopMiddleware:
         """Test creating HITL middleware with HumanInTheLoopModel configuration."""
         hitl_config = HumanInTheLoopModel(
             review_prompt="Please review this email",
-            interrupt_config={
-                "allow_accept": True,
-                "allow_edit": True,
-                "allow_respond": False,
-            },
+            allowed_decisions=["approve", "edit"],
         )
 
         middleware = create_human_in_the_loop_middleware(
@@ -87,11 +83,7 @@ class TestHumanInTheLoopMiddleware:
         """Test that allowed decisions are correctly extracted from HumanInTheLoopModel."""
         hitl_config = HumanInTheLoopModel(
             review_prompt="Review action",
-            interrupt_config={
-                "allow_accept": True,
-                "allow_edit": False,
-                "allow_respond": True,
-            },
+            allowed_decisions=["approve", "reject"],
         )
 
         middleware = create_human_in_the_loop_middleware(
@@ -118,6 +110,34 @@ class TestHumanInTheLoopMiddleware:
         )
 
         mock_logger.debug.assert_called()
+
+    def test_reject_decision_extracted(self):
+        """Test that reject decision is correctly extracted."""
+        from dao_ai.middleware.human_in_the_loop import (
+            _hitl_config_to_allowed_decisions,
+        )
+
+        hitl_config = HumanInTheLoopModel(
+            review_prompt="Test prompt",
+            allowed_decisions=["reject"],
+        )
+
+        decisions = _hitl_config_to_allowed_decisions(hitl_config)
+        assert decisions == ["reject"]
+
+    def test_multiple_decisions_extracted(self):
+        """Test that multiple decisions are correctly extracted."""
+        from dao_ai.middleware.human_in_the_loop import (
+            _hitl_config_to_allowed_decisions,
+        )
+
+        hitl_config = HumanInTheLoopModel(
+            review_prompt="Test prompt",
+            allowed_decisions=["approve", "edit", "reject"],
+        )
+
+        decisions = _hitl_config_to_allowed_decisions(hitl_config)
+        assert decisions == ["approve", "edit", "reject"]
 
 
 class TestHitlMiddlewareFromToolModels:

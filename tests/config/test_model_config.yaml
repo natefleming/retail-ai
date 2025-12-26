@@ -309,7 +309,7 @@ tools:
     name: search
     function:
       type: factory
-      name: dao_ai.tools.search_tool             # Factory function for web search
+      name: dao_ai.tools.create_search_tool             # Factory function for web search
       args: {}                                      # No arguments needed
 
   # Vector search tool for product similarity

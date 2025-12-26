@@ -30,7 +30,7 @@ from dao_ai.middleware.summarization import create_summarization_middleware
 from dao_ai.prompts import make_prompt
 from dao_ai.state import AgentState, Context
 from dao_ai.tools import create_tools
-from dao_ai.utils import create_databricks_search_memory_tool
+from dao_ai.tools.memory import create_search_memory_tool
 
 
 def _create_middleware_list(
@@ -140,7 +140,7 @@ def create_agent_node(
         # Use Databricks-compatible search_memory tool (omits problematic filter field)
         tools += [
             create_manage_memory_tool(namespace=namespace),
-            create_databricks_search_memory_tool(namespace=namespace),
+            create_search_memory_tool(namespace=namespace),
         ]
 
     # Create middleware list from configuration

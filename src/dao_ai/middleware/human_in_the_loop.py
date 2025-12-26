@@ -20,35 +20,62 @@ Example:
 from typing import Any, Sequence
 
 from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain.agents.middleware.human_in_the_loop import (
+    Action,
+    ActionRequest,
+    ApproveDecision,
+    Decision,
+    DecisionType,
+    EditDecision,
+    HITLRequest,
+    HITLResponse,
+    InterruptOnConfig,
+    RejectDecision,
+    ReviewConfig,
+)
 from loguru import logger
 
 from dao_ai.config import HumanInTheLoopModel, ToolModel
 
 __all__ = [
+    # LangChain middleware
     "HumanInTheLoopMiddleware",
+    # LangChain HITL types
+    "Action",
+    "ActionRequest",
+    "ApproveDecision",
+    "Decision",
+    "DecisionType",
+    "EditDecision",
+    "HITLRequest",
+    "HITLResponse",
+    "InterruptOnConfig",
+    "RejectDecision",
+    "ReviewConfig",
+    # DAO AI helper functions and models
     "create_human_in_the_loop_middleware",
     "create_hitl_middleware_from_tool_models",
 ]
 
 
-def _hitl_config_to_allowed_decisions(hitl_config: HumanInTheLoopModel) -> list[str]:
+def _hitl_config_to_allowed_decisions(
+    hitl_config: HumanInTheLoopModel,
+) -> list[DecisionType]:
     """
-    Convert HumanInTheLoopModel to list of allowed decisions.
+    Extract allowed decisions from HumanInTheLoopModel.
+
+    LangChain's HumanInTheLoopMiddleware supports 3 decision types:
+    - "approve": Execute tool with original arguments
+    - "edit": Modify arguments before execution
+    - "reject": Skip execution with optional feedback message
 
     Args:
-        hitl_config: HumanInTheLoopModel with interrupt_config settings
+        hitl_config: HumanInTheLoopModel with allowed_decisions
 
     Returns:
         List of allowed decision types (e.g., ["approve", "edit", "reject"])
     """
-    allowed_decisions: list[str] = []
-    if hitl_config.interrupt_config.get("allow_accept", True):
-        allowed_decisions.append("approve")
-    if hitl_config.interrupt_config.get("allow_edit", True):
-        allowed_decisions.append("edit")
-    if hitl_config.interrupt_config.get("allow_respond", True):
-        allowed_decisions.append("reject")
-    return allowed_decisions
+    return hitl_config.allowed_decisions  # type: ignore
 
 
 def _config_to_interrupt_on_entry(
@@ -61,17 +88,23 @@ def _config_to_interrupt_on_entry(
         config: HumanInTheLoopModel, True, or False
 
     Returns:
-        dict with allowed_decisions, True, or False
+        dict with allowed_decisions and optional description, True, or False
     """
     if config is False:
         return False
-    elif config is True:
+    if config is True:
         return {"allowed_decisions": ["approve", "edit", "reject"]}
-    elif isinstance(config, HumanInTheLoopModel):
-        return {"allowed_decisions": _hitl_config_to_allowed_decisions(config)}
-    else:
-        logger.warning(f"Unknown HITL config type: {type(config)}, defaulting to True")
-        return True
+    if isinstance(config, HumanInTheLoopModel):
+        interrupt_entry: dict[str, Any] = {
+            "allowed_decisions": _hitl_config_to_allowed_decisions(config)
+        }
+        # If review_prompt is provided, use it as the description
+        if config.review_prompt is not None:
+            interrupt_entry["description"] = config.review_prompt
+        return interrupt_entry
+
+    logger.warning(f"Unknown HITL config type: {type(config)}, defaulting to True")
+    return True
 
 
 def create_human_in_the_loop_middleware(

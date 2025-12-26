@@ -5,12 +5,12 @@
 # =============================================================================
 # This configuration demonstrates how to use Human in the Loop approval 
 # for tool executions. HITL pauses agent execution before tool calls,
-# allowing humans to approve, edit, respond with context, or decline.
+# allowing humans to approve, edit, or reject actions.
 #
 # Key Features:
 # - Tool-level configuration via human_in_the_loop field
-# - Customizable review prompts and decline messages  
-# - Fine-grained control over allowed actions (accept/edit/respond/decline)
+# - Customizable review prompts
+# - Fine-grained control over allowed decisions (approve/edit/reject)
 # - Works with all tool types (python, factory, unity_catalog, mcp)
 # - Requires a checkpointer to be configured for persistence
 
@@ -49,58 +49,56 @@ resources:
       temperature: 0.1
       max_tokens: 8192
 
+  databases:
+    lakebase_db: &lakebase_db
+      name: retail-consumer-goods
+      instance_name: retail-consumer-goods
 
 # =============================================================================
 # TOOLS WITH HUMAN-IN-THE-LOOP CONFIGURATIONS
 # =============================================================================
 
 tools:
-  # Example 1: Factory function with full HITL configuration
-  send_email: &send_email
-    name: send_email
-    function:
-      type: factory
-      name: dao_ai.tools.email.create_send_email_tool
-      args:
-        smtp_config:
-          host: smtp.gmail.com           # Or use ${SMTP_HOST}
-          port: 587                      # Or use ${SMTP_PORT}
-          username: *smtp_username       # Reference to variable (env: SMTP_USER)
-          password: *smtp_password       # Reference to variable (env: SMTP_PASSWORD)
-          # Alternative: Use Databricks secrets directly
-          # password:
-          #   type: secret
-          #   scope: email-credentials
-          #   key: smtp_password
-          sender_email: *smtp_sender_email  # Or use ${SENDER_EMAIL}
-          use_tls: true
-      # Full HITL configuration with custom review prompt
-      human_in_the_loop:
-        review_prompt: |
-          Please review this email before sending.
-          Verify the recipient, subject, and content are appropriate.
-        interrupt_config:
-          allow_accept: true    # Allow approving without changes
-          allow_edit: true      # Allow editing before execution
-          allow_respond: true   # Allow providing additional context
-          allow_decline: true   # Allow rejecting the tool call
-        decline_message: "Email sending declined by user"
-        custom_actions:
-          approve_and_send: "Approve and send immediately"
-          schedule: "Schedule for later"
 
 
-
-
-  # Example 5: Tool WITHOUT HITL (for comparison)
+  # Example: Tool WITH HITL configured
   current_time: &current_time
     name: current_time
     function:
       type: python
       name: dao_ai.tools.current_time_tool
-      # No human_in_the_loop configured - executes immediately
+      human_in_the_loop:
+        # Optional: Custom review prompt shown to the reviewer
+        review_prompt: |
+          Please review this time query.
+          This demonstrates HITL configuration.
+        # LangChain supports 3 decision types:
+        # - "approve": Execute with original arguments
+        # - "edit": Modify arguments before execution  
+        # - "reject": Skip execution with optional feedback
+        allowed_decisions:
+          - approve
+          - edit
+          - reject
 
-
+  say_hello: &say_hello
+    name: say_hello
+    function:
+      type: python
+      name: dao_ai.tools.say_hello_tool
+      human_in_the_loop:
+        # Optional: Custom review prompt shown to the reviewer
+        review_prompt: |
+          Please review this greeting request.
+          This demonstrates HITL configuration.
+        # LangChain supports 3 decision types:
+        # - "approve": Execute with original arguments
+        # - "edit": Modify arguments before execution  
+        # - "reject": Skip execution with optional feedback
+        allowed_decisions:
+          - approve
+          - edit
+          - reject
 
 # =============================================================================
 # AGENTS WITH HITL-ENABLED TOOLS
@@ -113,8 +111,8 @@ agents:
     description: "Administrative agent with HITL-protected operations"
     model: *default_llm
     tools:
-      - *send_email        # Requires approval
       - *current_time      # No approval needed (safe)
+      - *say_hello
     prompt: |
       You are an administrative agent with access to sensitive operations.
       
@@ -137,10 +135,12 @@ agents:
 memory: &memory
   checkpointer: 
     name: hitl_checkpointer
-    type: memory             # For production, use postgres or lakebase with database config
+    type: lakebase
+    database: *lakebase_db             # For production, use postgres or lakebase with database config
   store:
     name: hitl_store
-    type: memory
+    type: lakebase
+    database: *lakebase_db   
 
 # =============================================================================
 # APPLICATION CONFIGURATION
@@ -163,10 +163,9 @@ app:
 
   
   orchestration:
-    supervisor:
+    swarm:
       model: *default_llm
-      # You can also add HITL to supervisor tools if needed
-      tools: []
+
     memory: *memory  # CRITICAL: Memory with checkpointer required for HITL
   
   input_example:
@@ -187,10 +186,9 @@ app:
 #    a. Agent decides to call a tool with human_in_the_loop configured
 #    b. Execution pauses (interrupt) with review_prompt displayed
 #    c. Human reviews and chooses action:
-#       - Accept: Execute tool with original arguments
+#       - Approve: Execute tool with original arguments
 #       - Edit: Modify arguments before execution
-#       - Respond: Provide context/feedback to agent without executing
-#       - Decline: Cancel tool call with decline_message
+#       - Reject: Skip tool execution with optional feedback message
 #    d. Agent continues with human's decision
 #
 # 2. Checkpointer Requirement:
@@ -204,18 +202,24 @@ app:
 #          port: 5432
 #          database: your_db_name
 #
-# 3. Action Controls:
-#    Fine-tune allowed actions per tool via interrupt_config:
-#    - allow_accept: Approve and execute
-#    - allow_edit: Modify before execution
-#    - allow_respond: Give feedback without executing
-#    - allow_decline: Cancel the tool call
+# 3. Decision Types:
+#    LangChain's HumanInTheLoopMiddleware supports 3 decision types:
+#    
+#    | Decision Type | Description                                              |
+#    |---------------|----------------------------------------------------------|
+#    | approve       | Execute tool with original arguments (no modifications)  |
+#    | edit          | Modify tool arguments before execution                   |
+#    | reject        | Skip tool execution with optional feedback message       |
+#    
+#    Configure allowed decisions directly in human_in_the_loop:
+#      allowed_decisions: [approve, edit, reject]  # Allow all three
+#      allowed_decisions: [approve, reject]        # Review-only (no edits)
+#      allowed_decisions: [approve]                # Auto-approve only
 #
 # 4. Best Practices:
 #    - Use HITL for: destructive operations, external APIs, costly operations
 #    - Skip HITL for: read-only operations, simple utilities, time-sensitive tasks
 #    - Write clear review_prompts explaining what needs review
-#    - Provide helpful decline_messages for rejected operations
 #
 # 5. Testing HITL:
 #    When testing, the agent will pause at HITL-enabled tools.

@@ -1,7 +1,19 @@
+"""
+Core tool creation infrastructure for DAO AI.
+
+This module provides the foundational tool creation and registration system:
+- Tool registry for caching created tools
+- Factory function for creating tools from configuration
+- Example tools demonstrating runtime context usage
+
+This is "core" because it contains the essential infrastructure that all
+tool creation flows through, not because it contains all tools.
+"""
+
 from collections import OrderedDict
 from typing import Sequence
 
-from langchain_community.tools import DuckDuckGoSearchRun
+from langchain.tools import ToolRuntime, tool
 from langchain_core.runnables.base import RunnableLike
 from loguru import logger
 
@@ -10,7 +22,9 @@ from dao_ai.config import (
     ToolModel,
 )
 from dao_ai.hooks.core import create_hooks
+from dao_ai.state import Context
 
+# Module-level tool registry for caching created tools
 tool_registry: dict[str, Sequence[RunnableLike]] = {}
 
 
@@ -54,6 +68,45 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
     return all_tools
 
 
-def search_tool() -> RunnableLike:
-    logger.debug("search_tool")
-    return DuckDuckGoSearchRun(output_format="list")
+# =============================================================================
+# Example Tools
+# =============================================================================
+# The following tools serve as examples and are included here because they
+# demonstrate core patterns (like ToolRuntime usage) rather than because they
+# are fundamental infrastructure. They're simple enough to colocate with the
+# core tool creation logic.
+
+
+@tool
+def say_hello_tool(
+    name: str | None = None,
+    runtime: ToolRuntime[Context] = None,
+) -> str:
+    """
+    Say hello to someone by name.
+
+    This is an example tool demonstrating how to use ToolRuntime to access
+    runtime context (like user_id) within a tool.
+
+    If no name is provided, uses the user_id from the runtime context.
+
+    Args:
+        name: Optional name of the person to greet. If not provided,
+              uses user_id from context.
+        runtime: Runtime context (automatically injected, not provided by user)
+
+    Returns:
+        A greeting string
+    """
+    # Use provided name, or fall back to user_id from context
+    if name is None:
+        if runtime and runtime.context:
+            user_id = runtime.context.user_id
+            if user_id:
+                name = user_id
+            else:
+                name = "there"  # Default fallback
+        else:
+            name = "there"  # Default fallback
+
+    return f"Hello, {name}!"
