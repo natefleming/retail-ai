@@ -328,7 +328,54 @@ tools:
       connection: *github_connection
 ```
 
-### 2. Advanced Caching (Genie Queries)
+### 2. On-Behalf-Of User Support
+
+**What is this?** Many Databricks resources (like SQL warehouses, Genie spaces, and LLMs) can operate "on behalf of" the end user, using their permissions instead of the agent's service account credentials.
+
+**Why this matters:**
+- **Security**: Users can only access data they're authorized to see
+- **Compliance**: Audit logs show the actual user who made the request, not a service account
+- **Governance**: Unity Catalog permissions are enforced at the user level
+- **Flexibility**: No need to grant broad permissions to a service account
+
+**How it works:** When `on_behalf_of_user: true` is set, the resource inherits the calling user's identity and permissions from the API request.
+
+**Supported resources:**
+```yaml
+resources:
+  # LLMs - use caller's permissions for model access
+  llms:
+    claude: &claude
+      name: databricks-claude-3-7-sonnet
+      on_behalf_of_user: true      # Inherits caller's model access
+  
+  # Warehouses - execute SQL as the calling user
+  warehouses:
+    analytics: &analytics_warehouse
+      warehouse_id: abc123def456
+      on_behalf_of_user: true      # Queries run with user's data permissions
+  
+  # Genie - natural language queries with user's context
+  genie_rooms:
+    sales_genie: &sales_genie
+      space_id: xyz789
+      on_behalf_of_user: true      # Genie uses caller's data access
+```
+
+**Real-world example:**  
+Your agent helps employees query HR data. With `on_behalf_of_user: true`:
+- Managers can see their team's salary data
+- Individual contributors can only see their own data
+- HR admins can see all data
+
+The same agent code enforces different permissions for each user automatically.
+
+**Important notes:**
+- The calling application must pass the user's identity in the API request
+- The user must have the necessary permissions on the underlying resources
+- Not all Databricks resources support on-behalf-of functionality
+
+### 3. Advanced Caching (Genie Queries)
 
 **Why caching matters:** When users ask similar questions repeatedly, you don't want to pay for the same AI processing over and over. Caching stores results so you can reuse them.
 
@@ -441,7 +488,7 @@ The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions 
 
 4. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
 
-### 3. Vector Search Reranking
+### 4. Vector Search Reranking
 
 **The problem:** Vector search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
 
@@ -526,7 +573,7 @@ rerank:
 
 **Note:** Model weights are downloaded automatically on first use (~20MB for MiniLM-L-12-v2).
 
-### 4. Human-in-the-Loop Approvals
+### 5. Human-in-the-Loop Approvals
 
 **Why this matters:** Some actions are too important to automate completely. For example, you might want human approval before an agent:
 - Deletes data
@@ -548,18 +595,26 @@ tools:
         review_prompt: "This operation will modify production data. Approve?"
 ```
 
-### 5. Memory & State Persistence
+### 6. Memory & State Persistence
 
 **What is memory?** Your agent needs to remember past conversations. When a user asks "What about size XL?" the agent should remember they were talking about shirts.
 
-**Two types of memory:**
-1. **In-Memory**: Fast but temporary (resets when agent restarts). Good for testing.
-2. **PostgreSQL**: Persistent (survives restarts). Good for production.
+**Memory backend options:**
+1. **In-Memory**: Fast but temporary (resets when agent restarts). Good for testing and development.
+2. **PostgreSQL**: Persistent relational storage (survives restarts). Good for production systems requiring conversation history and user preferences.
+3. **Lakebase**: Databricks-native persistence layer built on Delta Lake. Good for production deployments that want to stay within the Databricks ecosystem.
 
-Configure conversation memory with in-memory or PostgreSQL backends:
+**Why Lakebase?**
+- **Native Databricks integration** - No external database required
+- **Built on Delta Lake** - ACID transactions, time travel, scalability
+- **Unified governance** - Same Unity Catalog permissions as your data
+- **Cost-effective** - Uses existing Databricks storage and compute
 
-   ```yaml
+Configure conversation memory with in-memory, PostgreSQL, or Lakebase backends:
+
+```yaml
 memory:
+  # Option 1: PostgreSQL (external database)
   checkpointer:
     name: conversation_checkpointer
     type: postgres
@@ -570,17 +625,39 @@ memory:
     type: postgres
     database: *postgres_db
     embedding_model: *embedding_model
+
+# Option 2: Lakebase (Databricks-native)
+memory:
+  checkpointer:
+    name: conversation_checkpointer
+    type: lakebase
+    schema: *my_schema              # Unity Catalog schema
+    table_name: agent_checkpoints   # Delta table for conversation state
+  
+  store:
+    name: user_preferences_store
+    type: lakebase
+    schema: *my_schema
+    table_name: agent_store         # Delta table for key-value storage
+    embedding_model: *embedding_model
 ```
 
-### 6. Hook System
+**Choosing a backend:**
+- **In-Memory**: Development and testing only
+- **PostgreSQL**: When you need external database features or already have PostgreSQL infrastructure
+- **Lakebase**: When you want Databricks-native persistence with Unity Catalog governance
 
-**What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting", "before each message", or "when shutting down".
+### 7. Hook System
+
+**What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting" or "when shutting down".
 
 **Common use cases:**
-- Log every user request for analytics
-- Check permissions before processing
 - Warm up caches on startup
+- Initialize database connections
 - Clean up resources on shutdown
+- Load configuration or credentials
+
+**For per-message logic** (logging requests, checking permissions, etc.), use **middleware** instead. Middleware provides much more flexibility and control over the agent execution flow.
 
 Inject custom logic at key points in the agent lifecycle:
 
@@ -591,23 +668,19 @@ app:
     - my_package.hooks.setup_connections
     - my_package.hooks.warmup_caches
 
-  # Run on every message
-  message_hooks:
-    - dao_ai.hooks.require_user_id_hook
-    - my_package.hooks.log_request
-
   # Run on shutdown
   shutdown_hooks:
     - my_package.hooks.cleanup_resources
 
 agents:
   my_agent:
-    # Run before/after agent execution
-    pre_agent_hook: my_package.hooks.enrich_context
-    post_agent_hook: my_package.hooks.collect_metrics
+    # For per-agent logic, use middleware
+    middleware:
+      - my_package.middleware.log_requests
+      - my_package.middleware.check_permissions
 ```
 
-### 7. MLflow Prompt Registry Integration
+### 8. MLflow Prompt Registry Integration
 
 **The problem:** Prompts (instructions you give to AI models) need constant refinement. Hardcoding them in YAML means every change requires redeployment.
 
@@ -639,7 +712,7 @@ agents:
     prompt: *product_expert_prompt  # Loaded from MLflow registry
 ```
 
-### 8. Automated Prompt Optimization
+### 9. Automated Prompt Optimization
 
 **What is this?** Instead of manually tweaking prompts through trial and error, DAO can automatically test variations and find the best one.
 
@@ -664,39 +737,138 @@ optimizations:
       num_candidates: 5
 ```
 
-### 9. DSPy-Style Assertion Middleware
+### 10. Guardrails & Response Quality Middleware
 
-**What are assertions?** Quality checks for your agent's responses. You can ensure responses meet certain requirements before they're sent to users.
+**What are guardrails?** Safety and quality controls that validate agent responses before they reach users. Think of them as quality assurance checkpoints.
 
-**Why this matters:** AI models sometimes generate responses that are:
+**Why this matters:** AI models can sometimes generate responses that are:
+- Inappropriate or unsafe
 - Too long or too short
 - Missing required information (like citations)
-- In the wrong format
-- Off-topic
+- In the wrong format or tone
+- Off-topic or irrelevant
+- Containing sensitive keywords that should be blocked
 
-Middleware catches these issues and either fixes them automatically or asks the model to try again.
+DAO provides two complementary middleware systems for response quality control:
 
-DAO provides middleware inspired by DSPy's assertion mechanisms for validating and improving agent outputs:
+---
+
+#### A. Guardrail Middleware (Content Safety & Quality)
+
+**GuardrailMiddleware** uses LLM-as-judge to evaluate responses against custom criteria, with automatic retry and improvement loops.
+
+**Use cases:**
+- Professional tone validation
+- Completeness checks (did the agent fully answer the question?)
+- Accuracy verification
+- Brand voice consistency
+- Custom business rules
+
+**How it works:**
+1. Agent generates a response
+2. LLM judge evaluates against your criteria (prompt-based)
+3. If fails: Provides feedback and asks agent to try again
+4. If passes: Response goes to user
+5. After max retries: Falls back or raises error
+
+```yaml
+agents:
+  customer_service_agent:
+    model: *default_llm
+    guardrails:
+      # Professional tone check
+      - name: professional_tone
+        model: *judge_llm
+        prompt: *professional_tone_prompt  # From MLflow Prompt Registry
+        num_retries: 3
+      
+      # Completeness validation
+      - name: completeness_check
+        model: *judge_llm
+        prompt: |
+          Does the response fully address the user's question?
+          Score 1 if yes, 0 if no. Explain your reasoning.
+        num_retries: 2
+```
+
+**Additional guardrail types:**
+
+```yaml
+# Content Filter - Deterministic keyword blocking
+guardrails:
+  - name: sensitive_content_filter
+    type: content_filter
+    blocked_keywords:
+      - password
+      - credit_card
+      - ssn
+    case_sensitive: false
+    on_failure: fallback
+    fallback_message: "I cannot provide that information."
+
+# Safety Guardrail - Model-based safety evaluation
+guardrails:
+  - name: safety_check
+    type: safety
+    model: *safety_model
+    categories:
+      - violence
+      - hate_speech
+      - self_harm
+    threshold: 0.7           # Sensitivity threshold
+    num_retries: 1
+```
+
+**Real-world example:**  
+Your customer service agent must maintain a professional tone and never discuss competitor products:
+
+```yaml
+agents:
+  support_agent:
+    guardrails:
+      - name: professional_tone
+        model: *judge_llm
+        prompt: *professional_tone_prompt
+        num_retries: 3
+      
+      - name: no_competitors
+        type: content_filter
+        blocked_keywords: [competitor_a, competitor_b, competitor_c]
+        on_failure: fallback
+        fallback_message: "I can only discuss our own products and services."
+```
+
+---
+
+#### B. DSPy-Style Assertion Middleware (Programmatic Validation)
+
+**Assertion middleware** provides programmatic, code-based validation inspired by DSPy's assertion mechanisms. Best for deterministic checks and custom logic.
 
 | Middleware | Behavior | Use Case |
 |------------|----------|----------|
-| **AssertMiddleware** | Hard constraint - retries until satisfied or fails | Required output formats, mandatory citations |
-| **SuggestMiddleware** | Soft constraint - logs feedback, optional single retry | Style preferences, quality suggestions |
-| **RefineMiddleware** | Iterative improvement - selects best of N attempts | Optimizing response quality |
+| **AssertMiddleware** | Hard constraint - retries until satisfied or fails | Required output formats, mandatory citations, length constraints |
+| **SuggestMiddleware** | Soft constraint - logs feedback, optional single retry | Style preferences, quality suggestions, optional improvements |
+| **RefineMiddleware** | Iterative improvement - generates N attempts, selects best | Optimizing response quality, A/B testing variations |
 
 ```yaml
 # Configure via middleware in agents
 agents:
-  my_agent:
+  research_agent:
     middleware:
+      # Hard constraint: Must include citations
       - type: assert
         constraint: has_citations
         max_retries: 3
         on_failure: fallback
         fallback_message: "Unable to provide cited response."
+      
+      # Soft suggestion: Prefer concise responses
+      - type: suggest
+        constraint: length_under_500
+        allow_one_retry: true
 ```
 
-Or programmatically:
+**Programmatic usage:**
 
 ```python
 from dao_ai.middleware.assertions import (
@@ -720,10 +892,17 @@ suggest_middleware = create_suggest_middleware(
     allow_one_retry=True,
 )
 
-# Iterative refinement: optimize response quality
+# Iterative refinement: generate 3 attempts, pick best
 def quality_score(response: str, ctx: dict) -> float:
     # Score based on length, keywords, structure
-    return min(len(response) / 500, 1.0)
+    score = 0.0
+    if 100 <= len(response) <= 500:
+        score += 0.5
+    if "please" in response.lower() or "thank you" in response.lower():
+        score += 0.3
+    if response.endswith(".") or response.endswith("!"):
+        score += 0.2
+    return score
 
 refine_middleware = create_refine_middleware(
     reward_fn=quality_score,
@@ -732,7 +911,48 @@ refine_middleware = create_refine_middleware(
 )
 ```
 
-### 10. Conversation Summarization
+---
+
+#### When to Use Which?
+
+| Use Case | Recommended Middleware |
+|----------|------------------------|
+| **Tone/style validation** | GuardrailMiddleware (LLM judge) |
+| **Safety checks** | SafetyGuardrailMiddleware |
+| **Keyword blocking** | ContentFilterMiddleware |
+| **Length constraints** | AssertMiddleware (deterministic) |
+| **Citation requirements** | AssertMiddleware or GuardrailMiddleware |
+| **Custom business logic** | AssertMiddleware (programmable) |
+| **Quality optimization** | RefineMiddleware (generates multiple attempts) |
+| **Soft suggestions** | SuggestMiddleware |
+
+**Best practice:** Combine both approaches:
+- **ContentFilter** for fast, deterministic blocking
+- **AssertMiddleware** for programmatic constraints
+- **GuardrailMiddleware** for nuanced, LLM-based evaluation
+
+```yaml
+agents:
+  production_agent:
+    middleware:
+      # Layer 1: Fast keyword blocking
+      - type: content_filter
+        blocked_keywords: [password, ssn]
+      
+      # Layer 2: Deterministic length check
+      - type: assert
+        constraint: length_range
+        min_length: 50
+        max_length: 1000
+      
+      # Layer 3: LLM-based quality evaluation
+      - type: guardrail
+        name: professional_tone
+        model: *judge_llm
+        prompt: *professional_tone_prompt
+```
+
+### 11. Conversation Summarization
 
 **The problem:** AI models have a maximum amount of text they can process (the "context window"). Long conversations eventually exceed this limit.
 
@@ -759,7 +979,7 @@ The `LoggingSummarizationMiddleware` provides detailed observability:
 INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~2100 tokens) | Reduced by ~10400 tokens
 ```
 
-### 11. Structured Input/Output Format
+### 12. Structured Input/Output Format
 
 **What is this?** A standardized way to send information to your agent and receive responses back.
 
@@ -1151,7 +1371,6 @@ app:
     memory: *memory
   
   initialization_hooks: [string]
-  message_hooks: [string]
   shutdown_hooks: [string]
   
   permissions:
