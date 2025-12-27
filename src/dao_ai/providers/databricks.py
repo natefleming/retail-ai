@@ -1200,6 +1200,21 @@ class DatabricksProvider(ServiceProvider):
                 # Try to load existing default
                 existing_default = load_prompt(f"prompts:/{prompt_name}@default")
 
+                # Check if champion exists and if it matches default
+                champion_matches_default = False
+                try:
+                    existing_champion = load_prompt(f"prompts:/{prompt_name}@champion")
+                    champion_matches_default = (
+                        existing_champion.version == existing_default.version
+                    )
+                    logger.debug(
+                        f"Champion v{existing_champion.version} vs Default v{existing_default.version}: "
+                        f"{'tracking' if champion_matches_default else 'pinned separately'}"
+                    )
+                except Exception:
+                    # No champion exists
+                    logger.debug(f"No champion alias found for '{prompt_name}'")
+
                 # Check if default_template differs from existing default
                 if (
                     existing_default.template.strip()
@@ -1209,13 +1224,23 @@ class DatabricksProvider(ServiceProvider):
                         f"Default template for '{prompt_name}' has changed, "
                         "registering new version with default alias"
                     )
+
+                    # Only update champion if it was pointing to the old default
+                    if champion_matches_default:
+                        logger.info(
+                            f"Champion was tracking default (v{existing_default.version}), "
+                            "will update champion to new default version"
+                        )
+                        set_champion = True
+                    else:
+                        logger.info("Champion is pinned separately, preserving it")
+                        set_champion = False
+
                     self._register_default_template(
                         prompt_name,
                         prompt_model.default_template,
                         prompt_model.description,
-                    )
-                    logger.debug(
-                        "Default alias updated, but will check for champion override"
+                        set_champion=set_champion,
                     )
             except Exception as e:
                 # No default exists yet, register it

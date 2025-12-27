@@ -21,6 +21,17 @@ agents:
       You are a product expert. Answer questions about inventory and pricing.
 ```
 
+### 🎨 Visual Configuration Studio
+
+Prefer a visual interface? Check out **[DAO AI Builder](https://github.com/natefleming/dao-ai-builder)** — a React-based web application that provides a graphical interface for creating and editing DAO configurations. Perfect for:
+
+- **Exploring** DAO's capabilities through an intuitive UI
+- **Learning** the configuration structure with guided forms
+- **Building** agents visually without writing YAML manually
+- **Importing** and editing existing configurations
+
+DAO AI Builder generates valid YAML configurations that work seamlessly with this framework. Use whichever workflow suits you best — visual builder or direct YAML editing.
+
 ---
 
 ## Why DAO?
@@ -28,63 +39,122 @@ agents:
 ### For Newcomers to AI Agents
 
 **What is an AI Agent?**
-An AI agent is more than a chatbot. While a chatbot just responds to messages, an *agent* can:
-- **Reason** about what steps to take
-- **Use tools** (databases, APIs, search) to gather information
-- **Make decisions** about which actions to perform
-- **Coordinate** with other agents on complex tasks
+Think of an AI agent as an intelligent assistant that can actually *do things*, not just chat. Here's the difference:
+
+- **Chatbot**: "The temperature in San Francisco is 65°F" (just talks)
+- **AI Agent**: Checks weather APIs, searches your calendar, books a restaurant, and sends you a reminder (takes action)
+
+An AI agent can:
+- **Reason** about what steps are needed to accomplish a goal
+- **Use tools** like databases, APIs, and search engines to gather information
+- **Make decisions** about which actions to take next
+- **Coordinate** with other specialized agents to handle complex requests
+
+**Real-world example:** 
+*"Find products that are low on stock and email the warehouse manager"*
+
+- A chatbot would say: *"You should check inventory and contact the warehouse manager"*
+- An AI agent would: Query the database, identify low-stock items, compose an email with the list, and send it
 
 **What is Databricks?**
-Databricks is a unified data and AI platform that provides:
-- **Unity Catalog**: Governed data access and permissions
-- **Model Serving**: Deploy ML models as APIs
-- **Vector Search**: Semantic similarity search for RAG
-- **Genie**: Natural language to SQL for business users
-- **MLflow**: Model tracking, versioning, and deployment
+Databricks is a cloud platform where companies store and analyze their data. Think of it as a combination of:
+- **Data warehouse** (where your business data lives)
+- **AI/ML platform** (where you train and deploy models)
+- **Governance layer** (controlling who can access what data)
 
-DAO brings these capabilities together into a cohesive agent framework.
+Databricks provides several tools that DAO integrates with:
+- **Unity Catalog**: Your organization's data catalog with security and permissions
+- **Model Serving**: Turns AI models into APIs that applications can call
+- **Vector Search**: Finds relevant information using semantic similarity (understanding meaning, not just keywords)
+- **Genie**: Lets people ask questions in plain English and automatically generates SQL queries
+- **MLflow**: Tracks experiments, versions models, and manages deployments
+
+**Why DAO?**
+DAO brings all these Databricks capabilities together into a unified framework for building AI agent systems. Instead of writing hundreds of lines of Python code to connect everything, you describe what you want in a YAML configuration file, and DAO handles the wiring for you.
+
+**Think of it as:**
+- **Traditional approach**: Building with LEGO bricks one by one (writing Python code)
+- **DAO approach**: Using a blueprint that tells you exactly how to assemble the pieces (YAML configuration)
 
 ---
 
 ## DAO vs. Databricks Agent Bricks
 
-Databricks offers two approaches to building AI agents. Understanding when to use each is crucial:
+Databricks provides **complementary approaches** to building AI agents. Both are powerful — the best choice depends on your use case, team, and workflow preferences.
 
 | Aspect | **DAO** (This Framework) | **Databricks Agent Bricks** |
 |--------|--------------------------|----------------------------|
-| **Configuration** | YAML files (infrastructure-as-code) | GUI-based AI Playground |
-| **Target Users** | ML Engineers, Platform Teams | Citizen Developers, Analysts |
-| **Customization** | Full control over every component | Guided templates and wizards |
-| **Version Control** | Git-native, full CI/CD support | Limited versioning |
-| **Orchestration** | Multiple patterns (Supervisor, Swarm) | Single-agent or simple routing |
-| **Tool Types** | Python, Factory, UC, MCP, Custom | Unity Catalog functions |
-| **Caching** | LRU + Semantic (pg_vector) | None built-in |
-| **Memory** | PostgreSQL, In-Memory, Custom | Basic checkpointing |
-| **Deployment** | Databricks Asset Bundles, MLflow | One-click deployment |
-| **Best For** | Production multi-agent systems | Rapid prototyping, POCs |
+| **Interface** | YAML configuration files | Visual GUI (AI Playground) |
+| **Workflow** | Code-first, Git-native | UI-driven, wizard-based |
+| **Target Users** | ML Engineers, Platform Teams, DevOps | Data Analysts, Citizen Developers, Business Users |
+| **Learning Curve** | Moderate (requires YAML/config knowledge) | Low (guided wizards and templates) |
+| **Orchestration** | Multi-agent patterns (Supervisor, Swarm) | Multi-agent Supervisor |
+| **Tool Support** | Python, Factory, UC Functions, MCP, Agent Endpoints, Genie | UC Functions, MCP, Genie, Agent Endpoints |
+| **Advanced Caching** | LRU + Semantic caching (Genie SQL caching) | Standard platform caching |
+| **Memory/State** | PostgreSQL, In-Memory, Custom backends | Built-in ephemeral state per conversation |
+| **Middleware/Hooks** | Assert/Suggest/Refine, Custom lifecycle hooks | None (optimization via automated tuning) |
+| **Deployment** | Databricks Asset Bundles, MLflow, CI/CD pipelines | One-click deployment to Model Serving |
+| **Version Control** | Full Git integration, code review, branches | Workspace-based (not Git-native) |
+| **Customization** | Unlimited (Python code, custom tools) | Template-based workflows |
+| **Configuration** | Declarative YAML, infrastructure-as-code | Visual configuration in UI |
+| **Evaluation** | Custom evaluation frameworks | Automated benchmarking and optimization |
 
 ### When to Use DAO
 
-✅ You need **multiple specialized agents** working together  
-✅ You want **version-controlled, reviewable** agent configurations  
-✅ You require **custom tools** beyond Unity Catalog functions  
-✅ You need **advanced caching** for cost optimization  
-✅ You're building a **production system** with CI/CD  
-✅ You need **human-in-the-loop** approval workflows  
+✅ **Code-first workflow** — You prefer infrastructure-as-code with full Git integration, code reviews, and CI/CD pipelines  
+✅ **Advanced caching** — You need LRU + semantic caching for Genie queries to optimize costs at scale  
+✅ **Custom middleware** — You require assertion/validation logic, custom lifecycle hooks, or human-in-the-loop workflows  
+✅ **Custom tools** — You're building proprietary Python tools or integrating with internal systems beyond standard integrations  
+✅ **Swarm orchestration** — You need peer-to-peer agent handoffs (not just top-down supervisor routing)  
+✅ **Stateful memory** — You require persistent conversation state in PostgreSQL or custom backends  
+✅ **Configuration reuse** — You want to maintain YAML templates, share them across teams, and version them in Git  
+✅ **Regulated environments** — You need deterministic, auditable, and reproducible configurations for compliance  
 
 ### When to Use Agent Bricks
 
-✅ You're **prototyping** a new agent idea quickly  
-✅ You prefer a **no-code/low-code** approach  
-✅ Your use case fits **standard templates** (extraction, Q&A)  
-✅ You want **automated optimization** without manual tuning  
-✅ You have a **single agent** with simple tool needs  
+✅ **Rapid prototyping** — You want to build and test an agent in minutes using guided wizards  
+✅ **Visual workflow** — You prefer a no-code/low-code GUI over writing configuration files  
+✅ **Automated optimization** — You want the platform to automatically tune prompts, models, and benchmarks for you  
+✅ **Business user access** — Non-technical stakeholders (analysts, product managers) need to build or modify agents  
+✅ **Getting started** — You're new to AI agents and want pre-built templates (Information Extraction, Knowledge Assistant, Custom LLM)  
+✅ **Standard use cases** — Your needs are met by UC Functions, MCP servers, Genie, and agent endpoints  
+✅ **Multi-agent supervisor** — You need top-down orchestration with a supervisor routing to specialists (without needing Swarm patterns)  
+
+### Using Both Together
+
+Many teams use **both approaches** in their workflow:
+
+1. **Prototype in Agent Bricks** → Quickly validate ideas with business users using the visual UI and automated optimization
+2. **Productionize in DAO** → For agents that need advanced features (custom caching, middleware, Git workflows), rebuild in DAO
+3. **Hybrid systems** → Use Agent Bricks agents as tools within DAO multi-agent systems via endpoint integration
+4. **Different audiences** → Data analysts build in Agent Bricks, ML engineers build in DAO, both systems interoperate
+
+**Example hybrid architecture:**
+- **Agent Bricks**: Creates a Knowledge Assistant for HR policies (optimized automatically)
+- **DAO**: Orchestrates a complex employee support system that calls the HR agent alongside custom tools for payroll integration and approval workflows
+
+Agent Bricks agents deployed to Model Serving can be called from DAO using the `agent_endpoint` tool type, enabling seamless composition across platforms.  
 
 ---
 
 ## Architecture
 
-### High-Level Overview
+### How It Works (Simple Explanation)
+
+Think of DAO as a three-layer cake:
+
+**1. Your Configuration (Top Layer)** 🎂  
+You write a YAML file describing what you want: which AI models, what data to access, what tools agents can use.
+
+**2. DAO Framework (Middle Layer)** 🔧  
+DAO reads your YAML and automatically wires everything together using LangGraph (a workflow engine for AI agents).
+
+**3. Databricks Platform (Bottom Layer)** ☁️  
+Your deployed agent runs on Databricks, accessing Unity Catalog data, calling AI models, and using other Databricks services.
+
+### Technical Architecture Diagram
+
+For developers and architects, here's the detailed view:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -127,17 +197,33 @@ Databricks offers two approaches to building AI agents. Understanding when to us
 
 ### Orchestration Patterns
 
-DAO supports two orchestration patterns for multi-agent coordination:
+When you have multiple specialized agents, you need to decide how they work together. DAO supports two patterns:
+
+**Think of it like a company:**
+- **Supervisor Pattern** = Traditional hierarchy (manager assigns tasks to specialists)
+- **Swarm Pattern** = Collaborative team (specialists hand off work to each other)
+
+DAO supports both approaches for multi-agent coordination:
 
 #### 1. Supervisor Pattern
-A central supervisor agent routes queries to specialized agents based on the request content.
+
+**Best for:** Clear separation of responsibilities with centralized control
+
+A central "supervisor" agent reads each user request and decides which specialist agent should handle it. Think of it like a call center manager routing calls to different departments.
+
+**Example use case:** Hardware store assistant
+- User asks about product availability → Routes to **Product Agent**
+- User asks about order status → Routes to **Orders Agent**  
+- User asks for DIY advice → Routes to **DIY Agent**
+
+**Configuration:**
 
 ```yaml
 orchestration:
   supervisor:
     model: *router_llm
     prompt: |
-      Route queries to the appropriate specialist agent.
+      Route queries to the appropriate specialist agent based on the content.
 ```
 
 ```
@@ -153,16 +239,28 @@ orchestration:
 ```
 
 #### 2. Swarm Pattern
-Agents can hand off to each other directly, enabling more fluid multi-step workflows.
+
+**Best for:** Complex, multi-step workflows where agents need to collaborate
+
+Agents work more autonomously and can directly hand off tasks to each other. Think of it like a team of specialists who know when to involve their colleagues.
+
+**Example use case:** Complex customer inquiry
+1. User: *"I need a drill for a home project, do we have any in stock, and can you suggest how to use it?"*
+2. **Product Agent** checks inventory → Finds drill in stock → Hands off to **DIY Agent**
+3. **DIY Agent** provides usage instructions → Done
+
+No central supervisor needed — agents decide collaboratively.
+
+**Configuration:**
 
 ```yaml
 orchestration:
   swarm:
     model: *default_llm
-    default_agent: *general_agent
+    default_agent: *general_agent    # Where to start
     handoffs:
-      product_agent: [orders_agent, diy_agent]
-      orders_agent: [product_agent]
+      product_agent: [orders_agent, diy_agent]  # Product agent can hand off to these
+      orders_agent: [product_agent]             # Orders agent can hand off to Product
 ```
 
 ```
@@ -183,7 +281,11 @@ orchestration:
 
 ## Key Capabilities
 
+These are the powerful features that make DAO production-ready. Don't worry if some seem complex — you can start simple and add these capabilities as you need them.
+
 ### 1. Multi-Tool Support
+
+**What are tools?** Tools are actions an agent can perform — like querying a database, calling an API, or running custom code.
 
 DAO supports five types of tools, each suited for different use cases:
 
@@ -228,7 +330,13 @@ tools:
 
 ### 2. Advanced Caching (Genie Queries)
 
-DAO provides **two-tier caching** for Genie natural language queries, dramatically reducing costs and latency. Unlike simple response caching, DAO caches the **generated SQL** and re-executes it against your warehouse—ensuring you always get **fresh data** while avoiding the cost of repeated Genie API calls.
+**Why caching matters:** When users ask similar questions repeatedly, you don't want to pay for the same AI processing over and over. Caching stores results so you can reuse them.
+
+**What makes DAO's caching special:** Instead of just storing old answers (which become stale), DAO stores the **SQL query** that Genie generated. When a similar question comes in, DAO re-runs the SQL to get **fresh data** without calling the expensive Genie API again.
+
+**💰 Cost savings:** If users frequently ask "What's our inventory?", the first query costs $X (Genie API call). Subsequent similar queries cost only pennies (just running SQL).
+
+DAO provides **two-tier caching** for Genie natural language queries, dramatically reducing costs and latency:
 
 ```yaml
 genie_tool:
@@ -335,6 +443,15 @@ The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions 
 
 ### 3. Vector Search Reranking
 
+**The problem:** Vector search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
+
+**The solution:** Reranking is like having an expert review those 50 books and pick the best 5 that *actually* answer your question.
+
+**Benefits:**
+- ✅ More accurate search results
+- ✅ Better user experience (relevant answers)
+- ✅ No external API calls (runs locally with FlashRank)
+
 DAO supports **two-stage retrieval** with FlashRank reranking to improve search relevance without external API calls:
 
 ```yaml
@@ -411,6 +528,14 @@ rerank:
 
 ### 4. Human-in-the-Loop Approvals
 
+**Why this matters:** Some actions are too important to automate completely. For example, you might want human approval before an agent:
+- Deletes data
+- Sends external communications
+- Places large orders
+- Modifies production systems
+
+**How it works:** Add a simple configuration to any tool, and the agent will pause and ask for human approval before executing it.
+
 Add approval gates to sensitive tool calls without changing tool code:
 
 ```yaml
@@ -424,6 +549,12 @@ tools:
 ```
 
 ### 5. Memory & State Persistence
+
+**What is memory?** Your agent needs to remember past conversations. When a user asks "What about size XL?" the agent should remember they were talking about shirts.
+
+**Two types of memory:**
+1. **In-Memory**: Fast but temporary (resets when agent restarts). Good for testing.
+2. **PostgreSQL**: Persistent (survives restarts). Good for production.
 
 Configure conversation memory with in-memory or PostgreSQL backends:
 
@@ -442,6 +573,14 @@ memory:
 ```
 
 ### 6. Hook System
+
+**What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting", "before each message", or "when shutting down".
+
+**Common use cases:**
+- Log every user request for analytics
+- Check permissions before processing
+- Warm up caches on startup
+- Clean up resources on shutdown
 
 Inject custom logic at key points in the agent lifecycle:
 
@@ -470,6 +609,17 @@ agents:
 
 ### 7. MLflow Prompt Registry Integration
 
+**The problem:** Prompts (instructions you give to AI models) need constant refinement. Hardcoding them in YAML means every change requires redeployment.
+
+**The solution:** Store prompts in MLflow's Prompt Registry. Now prompt engineers can:
+- Update prompts without touching code
+- Version prompts (v1, v2, v3...)
+- A/B test different prompts
+- Roll back to previous versions if needed
+
+**Real-world example:**  
+Your marketing team wants to make the agent's tone more friendly. With the prompt registry, they update it in MLflow, and the agent uses the new prompt immediately — no code deployment required.
+
 Store and version prompts externally, enabling prompt engineers to iterate without code changes:
 
 ```yaml
@@ -491,6 +641,16 @@ agents:
 
 ### 8. Automated Prompt Optimization
 
+**What is this?** Instead of manually tweaking prompts through trial and error, DAO can automatically test variations and find the best one.
+
+**How it works:** Using GEPA (Generative Evolution of Prompts and Agents):
+1. You provide a training dataset with example questions
+2. DAO generates multiple prompt variations
+3. Each variation is tested against your examples
+4. The best-performing prompt is selected
+
+**Think of it like:** A/B testing for AI prompts, but automated.
+
 Use GEPA (Generative Evolution of Prompts and Agents) to automatically improve prompts:
 
 ```yaml
@@ -505,6 +665,16 @@ optimizations:
 ```
 
 ### 9. DSPy-Style Assertion Middleware
+
+**What are assertions?** Quality checks for your agent's responses. You can ensure responses meet certain requirements before they're sent to users.
+
+**Why this matters:** AI models sometimes generate responses that are:
+- Too long or too short
+- Missing required information (like citations)
+- In the wrong format
+- Off-topic
+
+Middleware catches these issues and either fixes them automatically or asks the model to try again.
 
 DAO provides middleware inspired by DSPy's assertion mechanisms for validating and improving agent outputs:
 
@@ -564,6 +734,16 @@ refine_middleware = create_refine_middleware(
 
 ### 10. Conversation Summarization
 
+**The problem:** AI models have a maximum amount of text they can process (the "context window"). Long conversations eventually exceed this limit.
+
+**The solution:** When conversations get too long, DAO automatically:
+1. Summarizes the older parts of the conversation
+2. Keeps recent messages as-is (for accuracy)
+3. Continues the conversation with the condensed history
+
+**Example:**  
+After 20 messages about product recommendations, the agent summarizes: *"User is looking for power tools, prefers cordless, budget around $200."* This summary replaces the old messages, freeing up space for the conversation to continue.
+
 Automatically summarize long conversation histories to stay within context limits:
 
 ```yaml
@@ -580,6 +760,19 @@ INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~
 ```
 
 ### 11. Structured Input/Output Format
+
+**What is this?** A standardized way to send information to your agent and receive responses back.
+
+**Why it matters:** Consistency makes it easier to:
+- Track conversations across multiple interactions
+- Identify users and personalize responses
+- Maintain state (like Genie conversation IDs, cache hits)
+- Debug issues in production
+
+**Key concepts:**
+- `thread_id` or `conversation_id`: Identifies a specific conversation thread
+- `user_id`: Identifies who's asking questions
+- `session`: Runtime state that accumulates during the conversation
 
 DAO uses a structured format for passing configuration and session state:
 
@@ -628,43 +821,84 @@ custom_outputs = {
 
 ## Quick Start
 
+### Choose Your Path
+
+**Path 1: Visual Interface** → Use [DAO AI Builder](https://github.com/natefleming/dao-ai-builder) for a graphical, point-and-click experience
+
+**Path 2: Code/Config** → Follow the instructions below to work with YAML files directly
+
+Both paths produce the same result — choose what's comfortable for you!
+
+---
+
 ### Prerequisites
 
-- Python 3.12+
-- Databricks workspace with:
-  - Unity Catalog access
-  - Model Serving enabled
-  - (Optional) Vector Search, Genie
+Before you begin, you'll need:
+
+- **Python 3.11 or newer** installed on your computer ([download here](https://www.python.org/downloads/))
+- **A Databricks workspace** (ask your IT team or see [Databricks docs](https://docs.databricks.com/))
+  - Access to **Unity Catalog** (your organization's data catalog)
+  - **Model Serving** enabled (for deploying AI agents)
+  - *Optional*: Vector Search, Genie (for advanced features)
+
+**Not sure if you have access?** Your Databricks administrator can grant you permissions.
 
 ### Installation
 
+**Option 1: For developers familiar with Git**
+
 ```bash
-# Clone and setup
+# Clone this repository
 git clone <repo-url>
 cd dao-ai
 
-# Create virtual environment
+# Create an isolated Python environment
 uv venv
-source .venv/bin/activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install
+# Install DAO and its dependencies
 make install
 ```
 
+**Option 2: For those new to development**
+
+1. Download this project as a ZIP file (click the green "Code" button on GitHub → Download ZIP)
+2. Extract the ZIP file to a folder on your computer
+3. Open a terminal/command prompt and navigate to that folder
+4. Run these commands:
+
+```bash
+# On Mac/Linux:
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+# On Windows:
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+```
+
+**Verification:** Run `dao-ai --version` to confirm the installation succeeded.
+
 ### Your First Agent
 
-1. **Create a minimal configuration** (`config/my_agent.yaml`):
+Let's build a simple AI assistant in 4 steps. This agent will use a language model from Databricks to answer questions.
+
+**Step 1: Create a configuration file**
+
+Create a new file called `config/my_agent.yaml` and paste this content:
 
 ```yaml
 schemas:
   my_schema: &my_schema
-    catalog_name: my_catalog
-    schema_name: my_schema
+    catalog_name: my_catalog        # Replace with your Unity Catalog name
+    schema_name: my_schema          # Replace with your schema name
 
 resources:
   llms:
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-meta-llama-3-3-70b-instruct  # The AI model to use
 
 agents:
   assistant: &assistant
@@ -685,48 +919,94 @@ app:
       model: *default_llm
 ```
 
-2. **Validate your configuration**:
+**💡 What's happening here?**
+- `schemas`: Points to your Unity Catalog location (where the agent will be registered)
+- `resources`: Defines the AI model (Llama 3.3 70B in this case)
+- `agents`: Describes your assistant agent and its behavior
+- `app`: Configures how the agent is deployed and orchestrated
+
+**Step 2: Validate your configuration**
+
+This checks for errors in your YAML file:
 
 ```bash
 dao-ai validate -c config/my_agent.yaml
 ```
 
-3. **Visualize the agent graph**:
+You should see: ✅ `Configuration is valid!`
+
+**Step 3: Visualize the agent workflow** (optional)
+
+Generate a diagram showing how your agent works:
 
 ```bash
 dao-ai graph -c config/my_agent.yaml -o my_agent.png
 ```
 
-4. **Deploy to Databricks**:
+This creates `my_agent.png` — open it to see a visual representation of your agent.
+
+**Step 4: Deploy to Databricks**
+
+**Option A: Using Python** (programmatic deployment)
 
 ```python
 from dao_ai.config import AppConfig
 
+# Load your configuration
 config = AppConfig.from_file("config/my_agent.yaml")
-config.create_agent()   # Package as MLflow model
-config.deploy_agent()   # Deploy to serving endpoint
+
+# Package the agent as an MLflow model
+config.create_agent()
+
+# Deploy to Databricks Model Serving
+config.deploy_agent()
 ```
 
-Or via CLI:
+**Option B: Using the CLI** (one command)
+
 ```bash
 dao-ai bundle --deploy --run -c config/my_agent.yaml
 ```
 
-### Interact with Your Agent
+This single command:
+1. Validates your configuration
+2. Packages the agent
+3. Deploys it to Databricks
+4. Creates a serving endpoint
+
+**Step 5: Interact with your agent**
+
+Once deployed, you can chat with your agent using Python:
 
 ```python
 from mlflow.deployments import get_deploy_client
 
+# Connect to your Databricks workspace
 client = get_deploy_client("databricks")
+
+# Send a message to your agent
 response = client.predict(
     endpoint="my_first_agent",
     inputs={
-        "messages": [{"role": "user", "content": "Hello!"}],
-        "configurable": {"thread_id": "1", "user_id": "demo_user"}
+        "messages": [{"role": "user", "content": "Hello! What can you help me with?"}],
+        "configurable": {
+            "thread_id": "1",           # Conversation ID
+            "user_id": "demo_user"      # User identifier
+        }
     }
 )
+
+# Print the agent's response
 print(response["message"]["content"])
 ```
+
+**🎉 Congratulations!** You've built and deployed your first AI agent with DAO.
+
+**Next steps:**
+- Explore the [`config/examples/`](config/examples/) folder for more advanced configurations
+- Try the [DAO AI Builder](https://github.com/natefleming/dao-ai-builder) visual interface
+- Add tools to your agent (database access, APIs, Vector Search)
+- Set up multi-agent orchestration (Supervisor or Swarm patterns)
 
 ---
 
@@ -992,6 +1272,65 @@ dao-ai/
 ├── tests/                 # Test suite
 └── schemas/               # JSON schemas for validation
 ```
+
+---
+
+## Common Questions
+
+### How is this different from LangChain/LangGraph directly?
+
+DAO is **built on top of** LangChain and LangGraph. Instead of writing Python code to configure agents, you use YAML files. Think of it as:
+- **LangChain/LangGraph**: The engine
+- **DAO**: The blueprint system that configures the engine
+
+Benefits:
+- ✅ No Python coding required (just YAML)
+- ✅ Configurations are easier to review and version control
+- ✅ Databricks-specific integrations work out-of-the-box
+- ✅ Reusable patterns across your organization
+
+### Do I need to learn Python?
+
+**For basic usage:** No. You only need to write YAML configuration files.
+
+**For advanced usage:** Some Python knowledge helps if you want to:
+- Create custom tools
+- Write middleware hooks
+- Build complex business logic
+
+Most users stick to YAML and use pre-built tools.
+
+### Can I test locally before deploying?
+
+Yes! DAO includes a local testing mode:
+
+```python
+from dao_ai.config import AppConfig
+
+config = AppConfig.from_file("config/my_agent.yaml")
+agent = config.build_agent()
+
+# Test locally
+response = agent.invoke({
+    "messages": [{"role": "user", "content": "Test question"}]
+})
+print(response)
+```
+
+### What's the learning curve?
+
+**If you're new to AI agents:** 1-2 weeks to understand concepts and build your first agent
+
+**If you know LangChain:** 1-2 days to translate your knowledge to YAML configs
+
+**If you're a business user:** Consider starting with [DAO AI Builder](https://github.com/natefleming/dao-ai-builder) (visual interface)
+
+### How do I get help?
+
+1. Check the [`config/examples/`](config/examples/) directory for working examples
+2. Review this README for detailed explanations
+3. Read the [Configuration Reference](#configuration-reference) section
+4. Open an issue on GitHub
 
 ---
 
