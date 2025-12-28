@@ -1284,6 +1284,19 @@ class DatabricksProvider(ServiceProvider):
         except Exception as e:
             logger.debug(f"Latest alias not found for '{prompt_name}': {e}")
 
+        # 4. Final fallback: use default_template directly if available
+        if prompt_model.default_template:
+            logger.warning(
+                f"Could not load prompt '{prompt_name}' from registry. "
+                "Using default_template directly (likely in test environment)"
+            )
+            return PromptVersion(
+                name=prompt_name,
+                version=1,
+                template=prompt_model.default_template,
+                tags={"dao_ai": dao_ai_version()},
+            )
+
         raise ValueError(
             f"Prompt '{prompt_name}' not found in registry "
             "(tried champion, default, latest aliases) "

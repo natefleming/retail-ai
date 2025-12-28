@@ -227,6 +227,72 @@ def load_function(function_name: str) -> Callable[..., Any]:
         raise ImportError(f"Failed to import {function_name}: {e}")
 
 
+def type_from_fqn(type_name: str) -> type:
+    """
+    Load a type from a fully qualified name (FQN).
+
+    Dynamically imports and returns a type (class) from a module using its
+    fully qualified name. Useful for loading Pydantic models, dataclasses,
+    or any Python type specified as a string in configuration files.
+
+    Args:
+        type_name: Fully qualified type name in format "module.path.ClassName"
+
+    Returns:
+        The imported type/class
+
+    Raises:
+        ValueError: If the FQN format is invalid
+        ImportError: If the module cannot be imported
+        AttributeError: If the type doesn't exist in the module
+        TypeError: If the resolved object is not a type
+
+    Example:
+        >>> ProductModel = type_from_fqn("my_models.ProductInfo")
+        >>> instance = ProductModel(name="Widget", price=9.99)
+    """
+    logger.debug(f"Loading type: {type_name}")
+
+    try:
+        # Split the FQN into module path and class name
+        parts = type_name.rsplit(".", 1)
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid type name '{type_name}'. "
+                "Expected format: 'module.path.ClassName'"
+            )
+
+        module_path, class_name = parts
+
+        # Dynamically import the module
+        try:
+            module = importlib.import_module(module_path)
+        except ModuleNotFoundError as e:
+            raise ImportError(
+                f"Could not import module '{module_path}' for type '{type_name}': {e}"
+            ) from e
+
+        # Get the class from the module
+        if not hasattr(module, class_name):
+            raise AttributeError(
+                f"Module '{module_path}' does not have attribute '{class_name}'"
+            )
+
+        resolved_type = getattr(module, class_name)
+
+        # Verify it's actually a type
+        if not isinstance(resolved_type, type):
+            raise TypeError(
+                f"'{type_name}' resolved to {resolved_type}, which is not a type"
+            )
+
+        return resolved_type
+
+    except (ValueError, ImportError, AttributeError, TypeError) as e:
+        # Provide a detailed error message that includes the original exception
+        raise type(e)(f"Failed to load type '{type_name}': {e}") from e
+
+
 def is_in_model_serving() -> bool:
     """Check if running in Databricks Model Serving environment.
 

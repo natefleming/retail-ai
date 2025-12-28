@@ -161,6 +161,21 @@ def create_agent_node(
     if prompt_middleware is not None:
         middleware_list.insert(0, prompt_middleware)
 
+    # Configure structured output if response_format is specified
+    response_format: Any = None
+    if agent.response_format is not None:
+        try:
+            response_format = agent.response_format.as_strategy()
+            if response_format is not None:
+                logger.debug(
+                    f"Agent '{agent.name}' using structured output: {type(response_format).__name__}"
+                )
+        except ValueError as e:
+            logger.error(
+                f"Failed to configure structured output for agent {agent.name}: {e}"
+            )
+            raise
+
     # Use LangChain v1's create_agent with middleware
     # AgentState extends MessagesState with additional DAO AI fields
     # System prompt is provided via middleware (dynamic_prompt)
@@ -172,6 +187,7 @@ def create_agent_node(
         checkpointer=checkpointer,
         state_schema=AgentState,
         context_schema=Context,
+        response_format=response_format,  # Add structured output support
     )
 
     compiled_agent.name = agent.name

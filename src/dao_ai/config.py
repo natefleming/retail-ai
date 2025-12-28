@@ -32,6 +32,7 @@ from databricks_langchain import (
     DatabricksEmbeddings,
     DatabricksFunctionClient,
 )
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, messages_from_dict
@@ -1818,6 +1819,155 @@ class MemoryModel(BaseModel):
 FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
 
 
+class ResponseFormatModel(BaseModel):
+    """
+    Configuration for structured response formats.
+
+    The response_schema field accepts either a type or a string:
+    - Type (Pydantic model, dataclass, etc.): Used directly for structured output
+    - String: First attempts to load as a fully qualified type name, falls back to JSON schema string
+
+    This unified approach simplifies the API while maintaining flexibility.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    as_tool: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Strategy for structured output: "
+            "None (default) = auto-detect from model capabilities, "
+            "False = force ProviderStrategy (native), "
+            "True = force ToolStrategy (function calling)"
+        ),
+    )
+    as_custom_output: bool = Field(
+        default=False,
+        description=(
+            "Where to place structured output in ResponsesAgent response: "
+            "False (default) = include in message content directly, "
+            "True = include in custom_outputs field"
+        ),
+    )
+    response_schema: Optional[str | type] = Field(
+        default=None,
+        description="Type or string for response format. String attempts FQN import, falls back to JSON schema.",
+    )
+
+    def as_strategy(self) -> ProviderStrategy | ToolStrategy:
+        """
+        Convert response_schema to appropriate LangChain strategy.
+
+        Returns:
+            - None if no response_schema configured
+            - Raw schema/type for auto-detection (when as_tool=None)
+            - ToolStrategy wrapping the schema (when as_tool=True)
+            - ProviderStrategy wrapping the schema (when as_tool=False)
+
+        Raises:
+            ValueError: If response_schema is a JSON schema string that cannot be parsed
+        """
+
+        if self.response_schema is None:
+            return None
+
+        schema = self.response_schema
+
+        # Handle type schemas (Pydantic, dataclass, etc.)
+        if self.is_type_schema:
+            if self.as_tool is None:
+                # Auto-detect: Pass schema directly, let LangChain decide
+                return schema
+            elif self.as_tool is True:
+                # Force ToolStrategy (function calling)
+                return ToolStrategy(schema)
+            else:  # as_tool is False
+                # Force ProviderStrategy (native structured output)
+                return ProviderStrategy(schema)
+
+        # Handle JSON schema strings
+        elif self.is_json_schema:
+            import json
+
+            try:
+                schema_dict = json.loads(schema)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON schema string: {e}") from e
+
+            # Apply same as_tool logic as type schemas
+            if self.as_tool is None:
+                # Auto-detect
+                return schema_dict
+            elif self.as_tool is True:
+                # Force ToolStrategy
+                return ToolStrategy(schema_dict)
+            else:  # as_tool is False
+                # Force ProviderStrategy
+                return ProviderStrategy(schema_dict)
+
+        return None
+
+    @model_validator(mode="after")
+    def validate_response_schema(self) -> Self:
+        """
+        Validate and convert response_schema.
+
+        Processing logic:
+        1. If None: no response format specified
+        2. If type: use directly as structured output type
+        3. If str: try to load as FQN using type_from_fqn
+           - Success: response_schema becomes the loaded type
+           - Failure: keep as string (treated as JSON schema)
+
+        After validation, response_schema is one of:
+        - None (no schema)
+        - type (use for structured output)
+        - str (JSON schema)
+
+        Returns:
+            Self with validated response_schema
+        """
+        if self.response_schema is None:
+            return self
+
+        # If already a type, return
+        if isinstance(self.response_schema, type):
+            return self
+
+        # If it's a string, try to load as type, fallback to json_schema
+        if isinstance(self.response_schema, str):
+            from dao_ai.utils import type_from_fqn
+
+            try:
+                resolved_type = type_from_fqn(self.response_schema)
+                self.response_schema = resolved_type
+                logger.debug(
+                    f"Resolved response_schema string to type: {resolved_type}"
+                )
+                return self
+            except (ValueError, ImportError, AttributeError, TypeError) as e:
+                # Keep as string - it's a JSON schema
+                logger.debug(
+                    f"Could not resolve '{self.response_schema}' as type: {e}. "
+                    f"Treating as JSON schema string."
+                )
+                return self
+
+        # Invalid type
+        raise ValueError(
+            f"response_schema must be None, type, or str, got {type(self.response_schema)}"
+        )
+
+    @property
+    def is_type_schema(self) -> bool:
+        """Returns True if response_schema is a type (not JSON schema string)."""
+        return isinstance(self.response_schema, type)
+
+    @property
+    def is_json_schema(self) -> bool:
+        """Returns True if response_schema is a JSON schema string (not a type)."""
+        return isinstance(self.response_schema, str)
+
+
 class AgentModel(BaseModel):
     """
     Configuration model for an agent in the DAO AI framework.
@@ -1841,6 +1991,39 @@ class AgentModel(BaseModel):
         default_factory=list,
         description="List of middleware to apply to this agent",
     )
+    response_format: Optional[ResponseFormatModel | type | str] = None
+
+    @model_validator(mode="after")
+    def validate_response_format(self) -> Self:
+        """
+        Validate and normalize response_format.
+
+        Accepts:
+        - None (no response format)
+        - ResponseFormatModel (already validated)
+        - type (Pydantic model, dataclass, etc.) - converts to ResponseFormatModel
+        - str (FQN or json_schema) - converts to ResponseFormatModel (smart fallback)
+
+        ResponseFormatModel handles the logic of trying FQN import and falling back to JSON schema.
+        """
+        if self.response_format is None or isinstance(
+            self.response_format, ResponseFormatModel
+        ):
+            return self
+
+        # Convert type or str to ResponseFormatModel
+        # ResponseFormatModel's validator will handle the smart type loading and fallback
+        if isinstance(self.response_format, (type, str)):
+            self.response_format = ResponseFormatModel(
+                response_schema=self.response_format
+            )
+            return self
+
+        # Invalid type
+        raise ValueError(
+            f"response_format must be None, ResponseFormatModel, type, or str, "
+            f"got {type(self.response_format)}"
+        )
 
     def as_runnable(self) -> RunnableLike:
         from dao_ai.nodes import create_agent_node

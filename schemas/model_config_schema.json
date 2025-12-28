@@ -71,6 +71,21 @@
           },
           "title": "Middleware",
           "type": "array"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResponseFormatModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Format"
         }
       },
       "required": [
@@ -1208,6 +1223,180 @@
       ],
       "title": "DatabaseType",
       "type": "string"
+    },
+    "DatabricksAppModel": {
+      "additionalProperties": false,
+      "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "On Behalf Of User"
+        },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pat"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "url"
+      ],
+      "title": "DatabricksAppModel",
+      "type": "object"
     },
     "DatasetFormat": {
       "enum": [
@@ -3349,9 +3538,56 @@
           },
           "title": "Connections",
           "type": "object"
+        },
+        "apps": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DatabricksAppModel"
+          },
+          "title": "Apps",
+          "type": "object"
         }
       },
       "title": "ResourcesModel",
+      "type": "object"
+    },
+    "ResponseFormatModel": {
+      "additionalProperties": false,
+      "description": "Configuration for structured response formats.\n\nThe response_schema field accepts either a type or a string:\n- Type (Pydantic model, dataclass, etc.): Used directly for structured output\n- String: First attempts to load as a fully qualified type name, falls back to JSON schema string\n\nThis unified approach simplifies the API while maintaining flexibility.",
+      "properties": {
+        "as_tool": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Strategy for structured output: None (default) = auto-detect from model capabilities, False = force ProviderStrategy (native), True = force ToolStrategy (function calling)",
+          "title": "As Tool"
+        },
+        "as_custom_output": {
+          "default": false,
+          "description": "Where to place structured output in ResponsesAgent response: False (default) = include in message content directly, True = include in custom_outputs field",
+          "title": "As Custom Output",
+          "type": "boolean"
+        },
+        "response_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Type or string for response format. String attempts FQN import, falls back to JSON schema.",
+          "title": "Response Schema"
+        }
+      },
+      "title": "ResponseFormatModel",
       "type": "object"
     },
     "RetrieverModel": {

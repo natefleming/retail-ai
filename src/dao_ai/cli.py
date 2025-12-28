@@ -494,16 +494,53 @@ def handle_chat_command(options: Namespace) -> None:
                 print("\n🤖 Assistant: ", end="", flush=True)
 
                 response_content = ""
+                structured_response = None
                 try:
+                    # Debug: Log what's in the result
+                    logger.debug(f"Result keys: {result.keys() if result else 'None'}")
+                    if result:
+                        for key in result.keys():
+                            logger.debug(f"Result['{key}'] type: {type(result[key])}")
+
                     # Get the latest messages from the result
                     if result and "messages" in result:
                         latest_messages = result["messages"]
                         # Find the last AI message
                         for msg in reversed(latest_messages):
-                            if hasattr(msg, "content") and isinstance(msg, AIMessage):
-                                response_content = msg.content
-                                print(response_content, end="", flush=True)
-                                break
+                            if isinstance(msg, AIMessage):
+                                logger.debug(f"AI message content: {msg.content}")
+                                logger.debug(
+                                    f"AI message has tool_calls: {hasattr(msg, 'tool_calls')}"
+                                )
+                                if hasattr(msg, "tool_calls"):
+                                    logger.debug(f"Tool calls: {msg.tool_calls}")
+
+                                if hasattr(msg, "content") and msg.content:
+                                    response_content = msg.content
+                                    print(response_content, end="", flush=True)
+                                    break
+
+                    # Check for structured output and display it separately
+                    if result and "structured_response" in result:
+                        structured_response = result["structured_response"]
+                        import json
+
+                        structured_json = json.dumps(
+                            structured_response.model_dump()
+                            if hasattr(structured_response, "model_dump")
+                            else structured_response,
+                            indent=2,
+                        )
+
+                        # If there was message content, add separator
+                        if response_content.strip():
+                            print("\n\n📊 Structured Output:")
+                            print(structured_json)
+                        else:
+                            # No message content, just show structured output
+                            print(structured_json, end="", flush=True)
+
+                        response_content = response_content or structured_json
 
                     print()  # New line after response
 

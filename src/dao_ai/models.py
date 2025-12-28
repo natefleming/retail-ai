@@ -1,9 +1,12 @@
 import uuid
 from os import PathLike
 from pathlib import Path
-from typing import Any, Generator, Literal, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Generator, Literal, Optional, Sequence, Union
 
 from databricks_langchain import ChatDatabricks
+
+if TYPE_CHECKING:
+    pass
 
 # Import official LangChain HITL TypedDict definitions
 # Reference: https://docs.langchain.com/oss/python/langchain/human-in-the-loop
@@ -797,7 +800,10 @@ class LanggraphResponsesAgent(ResponsesAgent):
     support for streaming, tool calling, and async execution.
     """
 
-    def __init__(self, graph: CompiledStateGraph) -> None:
+    def __init__(
+        self,
+        graph: CompiledStateGraph,
+    ) -> None:
         self.graph = graph
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
@@ -874,56 +880,60 @@ class LanggraphResponsesAgent(ResponsesAgent):
                         config=custom_inputs,
                     )
 
-                # Check if graph is currently interrupted
-                snapshot: StateSnapshot = await self.graph.aget_state(
-                    config=custom_inputs
-                )
-                if is_interrupted(snapshot):
-                    logger.info(
-                        "HITL: Graph is interrupted, checking for user response"
+                # Check if graph is currently interrupted (only if checkpointer is configured)
+                # aget_state requires a checkpointer
+                if self.graph.checkpointer:
+                    snapshot: StateSnapshot = await self.graph.aget_state(
+                        config=custom_inputs
                     )
-
-                    # Convert message dicts to BaseMessage objects
-                    message_objects: list[BaseMessage] = convert_openai_messages(
-                        messages
-                    )
-
-                    # Parse user's message with LLM to extract decisions
-                    parsed_result: dict[str, Any] = handle_interrupt_response(
-                        snapshot=snapshot,
-                        messages=message_objects,
-                        model=None,  # Uses default model
-                    )
-
-                    # Check if the response was valid
-                    if not parsed_result.get("is_valid", False):
-                        validation_message: str = parsed_result.get(
-                            "validation_message",
-                            "Your response was unclear. Please provide a clear decision for each action.",
+                    if is_interrupted(snapshot):
+                        logger.info(
+                            "HITL: Graph is interrupted, checking for user response"
                         )
-                        logger.warning(f"HITL: Invalid response - {validation_message}")
 
-                        # Return error message to user instead of resuming
-                        # Don't resume the graph - stay interrupted so user can try again
-                        return {
-                            "messages": [
-                                AIMessage(
-                                    content=f"❌ **Invalid Response**\n\n{validation_message}"
-                                )
-                            ]
-                        }
+                        # Convert message dicts to BaseMessage objects
+                        message_objects: list[BaseMessage] = convert_openai_messages(
+                            messages
+                        )
 
-                    decisions: list[Decision] = parsed_result.get("decisions", [])
-                    logger.info(
-                        f"HITL: LLM parsed {len(decisions)} valid decision(s) from user message"
-                    )
+                        # Parse user's message with LLM to extract decisions
+                        parsed_result: dict[str, Any] = handle_interrupt_response(
+                            snapshot=snapshot,
+                            messages=message_objects,
+                            model=None,  # Uses default model
+                        )
 
-                    # Resume interrupted graph with parsed decisions
-                    return await self.graph.ainvoke(
-                        Command(resume={"decisions": decisions}),
-                        context=context,
-                        config=custom_inputs,
-                    )
+                        # Check if the response was valid
+                        if not parsed_result.get("is_valid", False):
+                            validation_message: str = parsed_result.get(
+                                "validation_message",
+                                "Your response was unclear. Please provide a clear decision for each action.",
+                            )
+                            logger.warning(
+                                f"HITL: Invalid response - {validation_message}"
+                            )
+
+                            # Return error message to user instead of resuming
+                            # Don't resume the graph - stay interrupted so user can try again
+                            return {
+                                "messages": [
+                                    AIMessage(
+                                        content=f"❌ **Invalid Response**\n\n{validation_message}"
+                                    )
+                                ]
+                            }
+
+                        decisions: list[Decision] = parsed_result.get("decisions", [])
+                        logger.info(
+                            f"HITL: LLM parsed {len(decisions)} valid decision(s) from user message"
+                        )
+
+                        # Resume interrupted graph with parsed decisions
+                        return await self.graph.ainvoke(
+                            Command(resume={"decisions": decisions}),
+                            context=context,
+                            config=custom_inputs,
+                        )
 
                 # Normal invocation - build the graph input state
                 graph_input: dict[str, Any] = {"messages": messages}
@@ -958,9 +968,6 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
         # Convert response to ResponsesAgent format
         last_message: BaseMessage = response["messages"][-1]
-        output_item = self.create_text_output_item(
-            text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
-        )
 
         # Build custom_outputs that can be copy-pasted as next request's custom_inputs
         custom_outputs: dict[str, Any] = self._build_custom_outputs(
@@ -968,6 +975,47 @@ class LanggraphResponsesAgent(ResponsesAgent):
             thread_id=context.thread_id,
             loop=loop,
         )
+
+        # Handle structured_response if present
+        if "structured_response" in response:
+            from dataclasses import asdict, is_dataclass
+
+            from pydantic import BaseModel
+
+            structured_response = response["structured_response"]
+            logger.debug(f"Processing structured_response: {type(structured_response)}")
+
+            # Serialize to dict for JSON compatibility using type hints
+            if isinstance(structured_response, BaseModel):
+                # Pydantic model
+                serialized: dict[str, Any] = structured_response.model_dump()
+            elif is_dataclass(structured_response):
+                # Dataclass
+                serialized = asdict(structured_response)
+            elif isinstance(structured_response, dict):
+                # Already a dict
+                serialized = structured_response
+            else:
+                # Unknown type, convert to dict if possible
+                serialized = (
+                    dict(structured_response)
+                    if hasattr(structured_response, "__dict__")
+                    else structured_response
+                )
+
+            # Place structured output in message content as JSON
+            import json
+
+            structured_text: str = json.dumps(serialized, indent=2)
+            output_item = self.create_text_output_item(
+                text=structured_text, id=f"msg_{uuid.uuid4().hex[:8]}"
+            )
+            logger.debug("Placed structured_response in message content")
+        else:
+            # No structured response, use text content
+            output_item = self.create_text_output_item(
+                text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
+            )
 
         # Include interrupt structure if HITL occurred (following LangChain pattern)
         if "__interrupt__" in response:
@@ -1034,6 +1082,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
             accumulated_content: str = ""
             interrupt_data: list[HITLRequest] = []
             seen_interrupt_ids: set[str] = set()  # Track processed interrupt IDs
+            structured_response: Any = None  # Track structured output from stream
 
             try:
                 # Check if this is a resume request (HITL)
@@ -1050,8 +1099,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     stream_input: Command | dict[str, Any] = Command(
                         resume={"decisions": decisions}
                     )
-                else:
-                    # Check if graph is currently interrupted
+                elif self.graph.checkpointer:
+                    # Check if graph is currently interrupted (only if checkpointer is configured)
+                    # aget_state requires a checkpointer
                     snapshot: StateSnapshot = await self.graph.aget_state(
                         config=custom_inputs
                     )
@@ -1121,6 +1171,14 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 "genie_conversation_ids"
                             ]
                         stream_input: Command | dict[str, Any] = graph_input
+                else:
+                    # No checkpointer, use normal invocation
+                    graph_input: dict[str, Any] = {"messages": messages}
+                    if "genie_conversation_ids" in session_input:
+                        graph_input["genie_conversation_ids"] = session_input[
+                            "genie_conversation_ids"
+                        ]
+                    stream_input: Command | dict[str, Any] = graph_input
 
                 # Stream the graph execution with both messages and updates modes to capture interrupts
                 async for nodes, stream_mode, data in self.graph.astream(
@@ -1159,11 +1217,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                     )
                                 )
 
-                    # Handle interrupts (HITL)
+                    # Handle interrupts (HITL) and state updates
                     elif stream_mode == "updates":
                         updates: dict[str, Any] = data
                         source: str
-                        update: list[Interrupt]
+                        update: Any
                         for source, update in updates.items():
                             if source == "__interrupt__":
                                 interrupts: list[Interrupt] = update
@@ -1183,6 +1241,27 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                         logger.debug(
                                             f"HITL: Added interrupt {interrupt.id} to response"
                                         )
+                            elif (
+                                isinstance(update, dict)
+                                and "structured_response" in update
+                            ):
+                                # Capture structured_response from stream updates
+                                structured_response = update["structured_response"]
+                                logger.debug(
+                                    f"Captured structured_response from stream: {type(structured_response)}"
+                                )
+
+                # Get final state to extract structured_response (only if checkpointer available)
+                if self.graph.checkpointer:
+                    final_state: StateSnapshot = await self.graph.aget_state(
+                        config=custom_inputs
+                    )
+                    # Extract structured_response from state if not already captured
+                    if (
+                        "structured_response" in final_state.values
+                        and not structured_response
+                    ):
+                        structured_response = final_state.values["structured_response"]
 
                 # Build custom_outputs
                 custom_outputs: dict[str, Any] = await self._build_custom_outputs_async(
@@ -1190,8 +1269,60 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     thread_id=context.thread_id,
                 )
 
-                # Include interrupt structure if HITL occurred
+                # Handle structured_response in streaming if present
                 output_text: str = accumulated_content
+                if structured_response:
+                    from dataclasses import asdict, is_dataclass
+
+                    from pydantic import BaseModel
+
+                    logger.debug(
+                        f"Processing structured_response in streaming: {type(structured_response)}"
+                    )
+
+                    # Serialize to dict for JSON compatibility using type hints
+                    if isinstance(structured_response, BaseModel):
+                        serialized: dict[str, Any] = structured_response.model_dump()
+                    elif is_dataclass(structured_response):
+                        serialized = asdict(structured_response)
+                    elif isinstance(structured_response, dict):
+                        serialized = structured_response
+                    else:
+                        serialized = (
+                            dict(structured_response)
+                            if hasattr(structured_response, "__dict__")
+                            else structured_response
+                        )
+
+                    # Place structured output in message content - stream as JSON
+                    import json
+
+                    structured_text: str = json.dumps(serialized, indent=2)
+
+                    # If we streamed text, append structured; if no text, use structured only
+                    if accumulated_content.strip():
+                        # Stream separator and structured output
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(delta="\n\n", item_id=item_id)
+                        )
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(
+                                delta=structured_text, item_id=item_id
+                            )
+                        )
+                        output_text = f"{accumulated_content}\n\n{structured_text}"
+                    else:
+                        # No text content, stream structured output
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(
+                                delta=structured_text, item_id=item_id
+                            )
+                        )
+                        output_text = structured_text
+
+                    logger.debug("Streamed structured_response in message content")
+
+                # Include interrupt structure if HITL occurred
                 if interrupt_data:
                     custom_outputs["interrupts"] = interrupt_data
                     logger.info(
@@ -1543,7 +1674,9 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
     return LanggraphChatModel(graph)
 
 
-def create_responses_agent(graph: CompiledStateGraph) -> ResponsesAgent:
+def create_responses_agent(
+    graph: CompiledStateGraph,
+) -> ResponsesAgent:
     """
     Create an MLflow-compatible ResponsesAgent from a LangGraph state machine.
 

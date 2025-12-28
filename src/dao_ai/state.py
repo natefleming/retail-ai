@@ -115,6 +115,7 @@ class AgentState(MessagesState, total=False):
         is_valid: Message validation status
         message_error: Error message if validation failed
         session: Accumulated session state (genie conversations, etc.)
+        structured_response: Structured output from response_format (populated by LangChain)
     """
 
     context: NotRequired[str]
@@ -122,6 +123,7 @@ class AgentState(MessagesState, total=False):
     is_valid: NotRequired[bool]
     message_error: NotRequired[str]
     session: NotRequired[SessionState]
+    structured_response: NotRequired[Any]
 
 
 class Context(BaseModel):
