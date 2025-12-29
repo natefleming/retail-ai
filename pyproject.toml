@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dao-ai"
-version = "0.1.0"
+version = "0.1.1"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 license = { text = "MIT" }
