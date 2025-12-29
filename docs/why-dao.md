@@ -131,22 +131,30 @@ Many teams use **multiple approaches** in their workflow, playing to each platfo
 
 #### Real-World Example: Customer Support System
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    DAO (Orchestration Layer)             │
-│  • Advanced caching for FAQ queries                     │
-│  • Custom middleware for compliance checking            │
-│  • Swarm pattern for complex issue routing              │
-└─────────────┬───────────────────────────┬───────────────┘
-              │                           │
-              ▼                           ▼
-┌──────────────────────────┐   ┌──────────────────────────┐
-│   Agent Bricks Agents    │   │    Kasal Workflows       │
-│  • Product Info Agent    │   │  • Escalation Process    │
-│    (auto-optimized)      │   │  • Order Tracking Flow   │
-│  • Returns Policy Agent  │   │    (visual monitoring)   │
-│    (benchmarked)         │   │                          │
-└──────────────────────────┘   └──────────────────────────┘
+```mermaid
+graph TB
+    subgraph dao["DAO (Orchestration Layer)"]
+        caching["Advanced caching for FAQ queries"]
+        middleware["Custom middleware for compliance checking"]
+        swarm["Swarm pattern for complex issue routing"]
+    end
+    
+    subgraph agent_bricks["Agent Bricks Agents"]
+        product_info["Product Info Agent<br/>(auto-optimized)"]
+        returns_policy["Returns Policy Agent<br/>(benchmarked)"]
+    end
+    
+    subgraph kasal["Kasal Workflows"]
+        escalation["Escalation Process"]
+        order_tracking["Order Tracking Flow<br/>(visual monitoring)"]
+    end
+    
+    dao --> agent_bricks
+    dao --> kasal
+    
+    style dao fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style agent_bricks fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style kasal fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
 ```
 
 #### Interoperability

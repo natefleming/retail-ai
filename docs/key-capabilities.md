@@ -129,41 +129,42 @@ genie_tool:
 
 ### Cache Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Two-Tier Cache Flow                                │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│   Question: "What products are low on stock?"                               │
-│                          │                                                   │
-│                          ▼                                                   │
-│   ┌──────────────────────────────────────┐                                  │
-│   │     L1: LRU Cache (In-Memory)        │  ◄── O(1) exact string match     │
-│   │     • Capacity: 1000 entries         │      Fastest lookup              │
-│   │     • Hash-based lookup              │                                  │
-│   └──────────────────────────────────────┘                                  │
-│              │ Miss                                                          │
-│              ▼                                                               │
-│   ┌──────────────────────────────────────┐                                  │
-│   │  L2: Semantic Cache (PostgreSQL)     │  ◄── Vector similarity search    │
-│   │     • pg_vector embeddings           │      Catches rephrased questions │
-│   │     • Conversation context aware     │      Handles pronouns/references │
-│   │     • L2 distance similarity         │                                  │
-│   │     • Partitioned by Genie space ID  │                                  │
-│   └──────────────────────────────────────┘                                  │
-│              │ Miss                                                          │
-│              ▼                                                               │
-│   ┌──────────────────────────────────────┐                                  │
-│   │       Genie API                       │  ◄── Natural language to SQL    │
-│   │       (Expensive call)                │                                  │
-│   └──────────────────────────────────────┘                                  │
-│              │                                                               │
-│              ▼                                                               │
-│   ┌──────────────────────────────────────┐                                  │
-│   │    Execute SQL via Warehouse         │  ◄── Always fresh data!         │
-│   └──────────────────────────────────────┘                                  │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    question[/"Question: 'What products are low on stock?'"/]
+    
+    l1_cache["L1: LRU Cache (In-Memory)<br/>• Capacity: 1000 entries<br/>• Hash-based lookup<br/>• O(1) exact string match"]
+    l1_hit{Hit?}
+    
+    l2_cache["L2: Semantic Cache (PostgreSQL)<br/>• pg_vector embeddings<br/>• Conversation context aware<br/>• L2 distance similarity<br/>• Partitioned by Genie space ID"]
+    l2_hit{Hit?}
+    
+    genie["Genie API<br/>(Expensive call)<br/>Natural language to SQL"]
+    
+    execute["Execute SQL via Warehouse<br/>Always fresh data!"]
+    
+    result[/"Return Result"/]
+    
+    question --> l1_cache
+    l1_cache --> l1_hit
+    l1_hit -->|Hit| execute
+    l1_hit -->|Miss| l2_cache
+    
+    l2_cache --> l2_hit
+    l2_hit -->|Hit| execute
+    l2_hit -->|Miss| genie
+    
+    genie --> execute
+    execute --> result
+    
+    style question fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style l1_cache fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
+    style l2_cache fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style genie fill:#FF5F46,stroke:#BD2B26,stroke-width:3px,color:#fff
+    style execute fill:#618794,stroke:#143D4A,stroke-width:3px,color:#fff
+    style result fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style l1_hit fill:#C4CCD6,stroke:#1B3139,stroke-width:2px,color:#1B3139
+    style l2_hit fill:#C4CCD6,stroke:#1B3139,stroke-width:2px,color:#1B3139
 ```
 
 ### LRU Cache (L1)
@@ -250,30 +251,28 @@ retrievers:
 
 ### How It Works
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Two-Stage Retrieval Flow                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│   Query: "heavy duty outdoor extension cord"                                │
-│                          │                                                   │
-│                          ▼                                                   │
-│   ┌──────────────────────────────────────┐                                  │
-│   │   Stage 1: Vector Similarity Search  │  ◄── Fast, approximate matching  │
-│   │   • Returns 50 candidates            │      Uses embedding similarity   │
-│   │   • Milliseconds latency             │                                  │
-│   └──────────────────────────────────────┘                                  │
-│              │                                                               │
-│              ▼ 50 documents                                                  │
-│   ┌──────────────────────────────────────┐                                  │
-│   │     Stage 2: Cross-Encoder Rerank    │  ◄── Precise relevance scoring   │
-│   │     • FlashRank (local, no API)      │      Query-document interaction  │
-│   │     • Returns top 5 most relevant    │                                  │
-│   └──────────────────────────────────────┘                                  │
-│              │                                                               │
-│              ▼ 5 documents (reordered by relevance)                         │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    query[/"Query: 'heavy duty outdoor extension cord'"/]
+    
+    stage1["Stage 1: Vector Similarity Search<br/>• Returns 50 candidates<br/>• Milliseconds latency<br/>• Fast, approximate matching<br/>• Uses embedding similarity"]
+    
+    docs50[("50 documents")]
+    
+    stage2["Stage 2: Cross-Encoder Rerank<br/>• FlashRank (local, no API)<br/>• Returns top 5 most relevant<br/>• Precise relevance scoring<br/>• Query-document interaction"]
+    
+    result[("5 documents<br/>(reordered by relevance)")]
+    
+    query --> stage1
+    stage1 --> docs50
+    docs50 --> stage2
+    stage2 --> result
+    
+    style query fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style stage1 fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
+    style docs50 fill:#42BA91,stroke:#00875C,stroke-width:3px,color:#1B3139
+    style stage2 fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style result fill:#FCBA33,stroke:#7D5319,stroke-width:3px,color:#1B3139
 ```
 
 ### Why Reranking?

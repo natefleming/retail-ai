@@ -17,111 +17,116 @@ Your deployed agent runs on Databricks, accessing Unity Catalog data, calling AI
 
 For developers and architects, here's the detailed view:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            YAML Configuration                               │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────┐   │
-│  │ Schemas │  │ Resources│  │  Tools  │  │ Agents  │  │  Orchestration  │   │
-│  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          DAO Framework (Python)                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐    │
-│  │   Config    │  │    Graph    │  │    Nodes    │  │   Tool Factory  │    │
-│  │  Loader     │  │   Builder   │  │   Factory   │  │                 │    │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         LangGraph Runtime                                   │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                     Compiled State Graph                             │   │
-│  │   ┌─────────┐    ┌─────────────┐    ┌─────────────────────────┐    │   │
-│  │   │ Message │───▶│ Supervisor/ │───▶│    Specialized Agents    │    │   │
-│  │   │  Hook   │    │   Swarm     │    │  (Product, Orders, DIY)  │    │   │
-│  │   └─────────┘    └─────────────┘    └─────────────────────────┘    │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Databricks Platform                                  │
-│  ┌─────────┐  ┌─────────────┐  ┌─────────────┐  ┌──────────┐  ┌─────────┐ │
-│  │  Model  │  │    Unity    │  │   Vector    │  │  Genie   │  │ MLflow  │ │
-│  │ Serving │  │   Catalog   │  │   Search    │  │  Spaces  │  │         │ │
-│  └─────────┘  └─────────────┘  └─────────────┘  └──────────┘  └─────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph yaml["YAML Configuration"]
+        direction LR
+        schemas[Schemas] ~~~ resources[Resources] ~~~ tools[Tools] ~~~ agents[Agents] ~~~ orchestration[Orchestration]
+    end
+    
+    subgraph dao["DAO Framework (Python)"]
+        direction LR
+        config[Config<br/>Loader] ~~~ graph_builder[Graph<br/>Builder] ~~~ nodes[Nodes<br/>Factory] ~~~ tool_factory[Tool<br/>Factory]
+    end
+    
+    subgraph langgraph["LangGraph Runtime"]
+        direction LR
+        msg_hook[Message<br/>Hook] --> supervisor[Supervisor/<br/>Swarm] --> specialized[Specialized<br/>Agents]
+    end
+    
+    subgraph databricks["Databricks Platform"]
+        direction LR
+        model_serving[Model<br/>Serving] ~~~ unity_catalog[Unity<br/>Catalog] ~~~ vector_search[Vector<br/>Search] ~~~ genie_spaces[Genie<br/>Spaces] ~~~ mlflow[MLflow]
+    end
+    
+    yaml ==> dao
+    dao ==> langgraph
+    langgraph ==> databricks
+    
+    style yaml fill:#1B5162,stroke:#618794,stroke-width:3px,color:#fff
+    style dao fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style langgraph fill:#618794,stroke:#143D4A,stroke-width:3px,color:#fff
+    style databricks fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
 ```
 
 ## System-Level Data Flow
 
 This diagram shows how a deployed DAO agent integrates with Databricks services and external systems:
 
-```
-                                    ┌──────────────────┐
-                                    │      User        │
-                                    └────────┬─────────┘
-                                             │ HTTP Request
-                                             ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       Databricks Model Serving                                  │
-│  ┌────────────────────────────────────────────────────────────────────────┐    │
-│  │                         DAO Agent Runtime                               │    │
-│  │  ┌──────────────────────────────────────────────────────────────────┐  │    │
-│  │  │                   Agent Orchestration Layer                       │  │    │
-│  │  │            (Supervisor / Swarm with multiple agents)              │  │    │
-│  │  └────┬──────────────────┬──────────────────┬────────────────┬──────┘  │    │
-│  │       │                  │                  │                │         │    │
-│  │       │ Tool Call        │ Tool Call        │ Tool Call      │ Store   │    │
-│  │       ▼                  ▼                  ▼                ▼         │    │
-│  │  ┌──────────┐   ┌─────────────┐   ┌──────────────┐   ┌──────────┐   │    │
-│  │  │  Genie   │   │   DBSQL     │   │    Agent     │   │   MCP    │   │    │
-│  │  │   Tool   │   │    Tool     │   │  Endpoint    │   │   Tool   │   │    │
-│  │  │          │   │             │   │     Tool     │   │          │   │    │
-│  │  └────┬─────┘   └──────┬──────┘   └──────┬───────┘   └────┬─────┘   │    │
-│  └───────┼────────────────┼─────────────────┼────────────────┼─────────┘    │
-└──────────┼────────────────┼─────────────────┼────────────────┼──────────────┘
-           │                │                 │                │
-           │                │                 │                │
-    ┌──────▼─────┐          │          ┌──────▼──────┐        │
-    │   Genie    │          │          │   Another   │        │
-    │  Service   │          │          │   Agent     │        │
-    │            │          │          │  Endpoint   │        │
-    └──────┬─────┘          │          └─────────────┘        │
-           │                │                                 │
-           │ NL → SQL       │ Direct SQL Query                │
-           ▼                ▼                                 ▼
-    ┌────────────────────────────────────┐           ┌───────────────┐
-    │    Databricks SQL / Warehouse      │           │  MCP Server   │
-    │  ┌──────────────────────────────┐  │           │  (GitHub,     │
-    │  │      Unity Catalog           │  │           │   Slack,      │
-    │  │  • Tables & Views            │  │           │   Custom)     │
-    │  │  • Functions                 │  │           └───────────────┘
-    │  │  • Permissions               │  │
-    │  └──────────────────────────────┘  │
-    └────────────────────────────────────┘
-
-
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           State Persistence Layer                               │
-│  ┌────────────────────────────────────────────────────────────────────────┐     │
-│  │                         Lakebase (Postgres )                           │     │
-│  │  ┌──────────────────────────┐     ┌──────────────────────────────┐     │     │
-│  │  │  Conversation Checkpoints│     │   User Preferences Store     │     │     │
-│  │  │  • Thread state          │     │   • User settings            │     │     │
-│  │  │  • Message history       │     │   • Semantic search          │     │     │
-│  │  │  • Agent context         │     │   • Key-value storage        │     │     │
-│  │  └──────────────────────────┘     └──────────────────────────────┘     │     │
-│  │                    ▲                            ▲                       │   │
-│  └────────────────────┼────────────────────────────┼────────────────────────┘   │
-│                       │                            │                            │
-│                       └────────────────────────────┘                            │
-│                              Persisted by Agent                                 │
-│                       (Unity Catalog governed storage)                          │
-└─────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    User([User])
+    
+    subgraph model_serving["Databricks Model Serving"]
+        subgraph agent_runtime["DAO Agent Runtime"]
+            orchestration[Agent Orchestration Layer<br/>Supervisor / Swarm with multiple agents]
+            
+            subgraph tools["Agent Tools"]
+                genie_tool[Genie Tool]
+                dbsql_tool[DBSQL Tool]
+                agent_endpoint_tool[Agent Endpoint Tool]
+                mcp_tool[MCP Tool]
+            end
+            
+            orchestration -->|Tool Call| genie_tool
+            orchestration -->|Tool Call| dbsql_tool
+            orchestration -->|Tool Call| agent_endpoint_tool
+            orchestration -->|Tool Call| mcp_tool
+        end
+    end
+    
+    subgraph external_services["External Services"]
+        genie_service[Genie Service]
+        another_agent[Another Agent Endpoint]
+        mcp_server[MCP Server<br/>GitHub, Slack, Custom]
+        
+        dbsql_warehouse[Databricks SQL / Warehouse]
+        unity_catalog[Unity Catalog<br/>• Tables & Views<br/>• Functions<br/>• Permissions]
+        
+        dbsql_warehouse --> unity_catalog
+    end
+    
+    subgraph persistence["State Persistence Layer"]
+        subgraph lakebase["Lakebase (Postgres)"]
+            checkpoints[Conversation Checkpoints<br/>• Thread state<br/>• Message history<br/>• Agent context]
+            preferences[User Preferences Store<br/>• User settings<br/>• Semantic search<br/>• Key-value storage]
+        end
+    end
+    
+    User -->|HTTP Request| orchestration
+    
+    genie_tool --> genie_service
+    genie_service -->|NL → SQL| dbsql_warehouse
+    
+    dbsql_tool -->|Direct SQL Query| dbsql_warehouse
+    
+    agent_endpoint_tool --> another_agent
+    another_agent --> dbsql_warehouse
+    
+    mcp_tool --> mcp_server
+    
+    orchestration -.->|Persists State| lakebase
+    lakebase -.->|Unity Catalog<br/>governed storage| orchestration
+    
+    style User fill:#618794,stroke:#1B5162,stroke-width:3px,color:#fff
+    style model_serving fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
+    style agent_runtime fill:#00A972,stroke:#095A35,stroke-width:3px,color:#fff
+    style orchestration fill:#42BA91,stroke:#00875C,stroke-width:2px,color:#1B3139
+    style tools fill:#70C4AB,stroke:#00A972,stroke-width:2px,color:#1B3139
+    style genie_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
+    style dbsql_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
+    style agent_endpoint_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
+    style mcp_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
+    style external_services fill:#BD2B26,stroke:#801C17,stroke-width:3px,color:#fff
+    style genie_service fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
+    style another_agent fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
+    style mcp_server fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
+    style dbsql_warehouse fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
+    style unity_catalog fill:#FFDB96,stroke:#BD802B,stroke-width:2px,color:#1B3139
+    style persistence fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style lakebase fill:#143D4A,stroke:#1B3139,stroke-width:2px,color:#fff
+    style checkpoints fill:#618794,stroke:#143D4A,stroke-width:2px,color:#fff
+    style preferences fill:#618794,stroke:#143D4A,stroke-width:2px,color:#fff
 ```
 
 ### Data Flow Explanation
@@ -205,16 +210,21 @@ orchestration:
       Route queries to the appropriate specialist agent based on the content.
 ```
 
-```
-                    ┌─────────────┐
-                    │  Supervisor │
-                    └──────┬──────┘
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-    │   Product   │ │   Orders    │ │     DIY     │
-    │    Agent    │ │    Agent    │ │    Agent    │
-    └─────────────┘ └─────────────┘ └─────────────┘
+```mermaid
+graph TB
+    supervisor[Supervisor]
+    product[Product<br/>Agent]
+    orders[Orders<br/>Agent]
+    diy[DIY<br/>Agent]
+    
+    supervisor --> product
+    supervisor --> orders
+    supervisor --> diy
+    
+    style supervisor fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style product fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style orders fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style diy fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
 ```
 
 ### 2. Swarm Pattern
@@ -242,18 +252,19 @@ orchestration:
       orders_agent: [product_agent]             # Orders agent can hand off to Product
 ```
 
-```
-    ┌─────────────┐     handoff     ┌─────────────┐
-    │   Product   │◄───────────────▶│   Orders    │
-    │    Agent    │                 │    Agent    │
-    └──────┬──────┘                 └──────┬──────┘
-           │          handoff              │
-           └──────────────┬────────────────┘
-                          ▼
-                   ┌─────────────┐
-                   │     DIY     │
-                   │    Agent    │
-                   └─────────────┘
+```mermaid
+graph TB
+    product[Product<br/>Agent]
+    orders[Orders<br/>Agent]
+    diy[DIY<br/>Agent]
+    
+    product <-->|handoff| orders
+    product -->|handoff| diy
+    orders -->|handoff| diy
+    
+    style product fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style orders fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style diy fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
 ```
 
 ---
