@@ -193,22 +193,36 @@ Many teams use **multiple approaches** in their workflow, playing to each platfo
 
 All three platforms can call each other via **agent endpoints**:
 - Deploy any agent to Databricks Model Serving
-- Reference it as a tool using the `agent_endpoint` tool type
+- Reference it as a tool using the `factory` tool type with `create_agent_endpoint_tool`
 - Compose complex systems across platform boundaries
 
 **Example:**
 ```yaml
 # In DAO configuration
+resources:
+  llms:
+    external_agent: &external_agent
+      name: agent-bricks-hr-assistant  # Agent Bricks endpoint name
+
 tools:
   hr_assistant:
     function:
-      type: agent_endpoint
-      endpoint_name: agent-bricks-hr-assistant  # Built in Agent Bricks
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *external_agent
+        name: hr_assistant
+        description: "HR assistant built in Agent Bricks"
   
   workflow_monitor:
     function:
-      type: agent_endpoint
-      endpoint_name: kasal-workflow-monitor     # Built in Kasal
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm:
+          name: kasal-workflow-monitor  # Kasal endpoint name
+        name: workflow_monitor
+        description: "Workflow monitor built in Kasal"
 ```  
 
 ---
@@ -363,15 +377,14 @@ These are the powerful features that make DAO production-ready. Don't worry if s
 
 **What are tools?** Tools are actions an agent can perform — like querying a database, calling an API, or running custom code.
 
-DAO supports five types of tools, each suited for different use cases:
+DAO supports four types of tools, each suited for different use cases:
 
 | Tool Type | Use Case | Example |
 |-----------|----------|---------|
 | **Python** | Custom business logic | `dao_ai.tools.current_time_tool` |
-| **Factory** | Complex initialization with config | `create_vector_search_tool(retriever=...)` |
+| **Factory** | Complex initialization with config | `create_vector_search_tool(retriever=...)`, `create_agent_endpoint_tool(llm=...)` |
 | **Unity Catalog** | Governed SQL functions | `catalog.schema.find_product_by_sku` |
 | **MCP** | External services via Model Context Protocol | GitHub, Slack, custom APIs |
-| **Agent Endpoint** | Call other deployed agents as tools | Chaining agent systems |
 
 ```yaml
 tools:
@@ -472,16 +485,17 @@ genie_tool:
       # L1: Fast O(1) exact match lookup
       lru_cache_parameters:
         warehouse: *warehouse
-        capacity: 100                    # Max cached queries
-        time_to_live_seconds: 86400      # 1 day (use -1 for never expire)
+        capacity: 1000                   # Max cached queries (default: 1000)
+        time_to_live_seconds: 86400      # 1 day (default), use -1 or None for never expire
 
       # L2: Semantic similarity search via pg_vector
       semantic_cache_parameters:
         database: *postgres_db
         warehouse: *warehouse
-        embedding_model: *embedding_model
-        similarity_threshold: 0.85       # 0.0-1.0, higher = stricter matching
-        time_to_live_seconds: 86400      # 1 day (use -1 for never expire)
+        embedding_model: *embedding_model  # Default: databricks-gte-large-en
+        similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85), higher = stricter
+        time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
+        table_name: genie_semantic_cache   # Optional, default: genie_semantic_cache
 ```
 
 #### Cache Architecture
@@ -496,7 +510,7 @@ genie_tool:
 │                          ▼                                                   │
 │   ┌──────────────────────────────────────┐                                  │
 │   │     L1: LRU Cache (In-Memory)        │  ◄── O(1) exact string match     │
-│   │     • Capacity: 100 entries          │      Fastest lookup              │
+│   │     • Capacity: 1000 entries         │      Fastest lookup              │
 │   │     • Hash-based lookup              │                                  │
 │   └──────────────────────────────────────┘                                  │
 │              │ Miss                                                          │
@@ -528,7 +542,7 @@ The **LRU (Least Recently Used) Cache** provides instant lookups for exact quest
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `capacity` | 100 | Maximum number of cached queries |
+| `capacity` | 1000 | Maximum number of cached queries |
 | `time_to_live_seconds` | 86400 | Cache entry lifetime (-1 = never expire) |
 | `warehouse` | Required | Databricks warehouse for SQL execution |
 
@@ -542,8 +556,9 @@ The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions 
 |-----------|---------|-------------|
 | `similarity_threshold` | 0.85 | Minimum similarity for cache hit (0.0-1.0) |
 | `time_to_live_seconds` | 86400 | Cache entry lifetime (-1 = never expire) |
-| `embedding_model` | Required | Model for generating question embeddings |
+| `embedding_model` | `databricks-gte-large-en` | Model for generating question embeddings |
 | `database` | Required | PostgreSQL with pg_vector extension |
+| `warehouse` | Required | Databricks warehouse for SQL execution |
 | `table_name` | `genie_semantic_cache` | Table name for cache storage |
 
 **Best for:** Catching rephrased questions like:
@@ -723,40 +738,7 @@ memory:
 - **PostgreSQL**: When you need external database features or already have PostgreSQL infrastructure
 - **Lakebase**: When you want Databricks-native persistence with Unity Catalog governance
 
-### 7. Hook System
-
-**What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting" or "when shutting down".
-
-**Common use cases:**
-- Warm up caches on startup
-- Initialize database connections
-- Clean up resources on shutdown
-- Load configuration or credentials
-
-**For per-message logic** (logging requests, checking permissions, etc.), use **middleware** instead. Middleware provides much more flexibility and control over the agent execution flow.
-
-Inject custom logic at key points in the agent lifecycle:
-
-```yaml
-app:
-  # Run on startup
-  initialization_hooks:
-    - my_package.hooks.setup_connections
-    - my_package.hooks.warmup_caches
-
-  # Run on shutdown
-  shutdown_hooks:
-    - my_package.hooks.cleanup_resources
-
-agents:
-  my_agent:
-    # For per-agent logic, use middleware
-    middleware:
-      - my_package.middleware.log_requests
-      - my_package.middleware.check_permissions
-```
-
-### 8. MLflow Prompt Registry Integration
+### 7. MLflow Prompt Registry Integration
 
 **The problem:** Prompts (instructions you give to AI models) need constant refinement. Hardcoding them in YAML means every change requires redeployment.
 
@@ -788,7 +770,7 @@ agents:
     prompt: *product_expert_prompt  # Loaded from MLflow registry
 ```
 
-### 9. Automated Prompt Optimization
+### 8. Automated Prompt Optimization
 
 **What is this?** Instead of manually tweaking prompts through trial and error, DAO can automatically test variations and find the best one.
 
@@ -813,7 +795,7 @@ optimizations:
       num_candidates: 5
 ```
 
-### 10. Guardrails & Response Quality Middleware
+### 9. Guardrails & Response Quality Middleware
 
 **What are guardrails?** Safety and quality controls that validate agent responses before they reach users. Think of them as quality assurance checkpoints.
 
@@ -1028,7 +1010,7 @@ agents:
         prompt: *professional_tone_prompt
 ```
 
-### 11. Conversation Summarization
+### 10. Conversation Summarization
 
 **The problem:** AI models have a maximum amount of text they can process (the "context window"). Long conversations eventually exceed this limit.
 
@@ -1055,7 +1037,7 @@ The `LoggingSummarizationMiddleware` provides detailed observability:
 INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~2100 tokens) | Reduced by ~10400 tokens
 ```
 
-### 12. Structured Output (Response Format)
+### 11. Structured Output (Response Format)
 
 **What is this?** A way to force your agent to return data in a specific JSON structure, making responses machine-readable and predictable.
 
@@ -1107,7 +1089,7 @@ See `config/examples/structured_output.yaml` for a complete example.
 
 ---
 
-### 13. Structured Input/Output Format
+### 12. Structured Input/Output Format
 
 **What is this?** A standardized way to send information to your agent and receive responses back.
 
@@ -1165,11 +1147,38 @@ custom_outputs = {
 - `user_id` is normalized (dots replaced with underscores for memory namespaces)
 - Backward compatible with legacy flat custom_inputs format
 
-**Key features:**
-- `conversation_id` and `thread_id` are interchangeable (conversation_id takes precedence)
-- If neither is provided, a UUID is auto-generated
-- `user_id` is normalized (dots replaced with underscores for memory namespaces)
-- Backward compatible with legacy flat custom_inputs format
+### 13. Hook System
+
+**What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting" or "when shutting down".
+
+**Common use cases:**
+- Warm up caches on startup
+- Initialize database connections
+- Clean up resources on shutdown
+- Load configuration or credentials
+
+**For per-message logic** (logging requests, checking permissions, etc.), use **middleware** instead. Middleware provides much more flexibility and control over the agent execution flow.
+
+Inject custom logic at key points in the agent lifecycle:
+
+```yaml
+app:
+  # Run on startup
+  initialization_hooks:
+    - my_package.hooks.setup_connections
+    - my_package.hooks.warmup_caches
+
+  # Run on shutdown
+  shutdown_hooks:
+    - my_package.hooks.cleanup_resources
+
+agents:
+  my_agent:
+    # For per-agent logic, use middleware
+    middleware:
+      - my_package.middleware.log_requests
+      - my_package.middleware.check_permissions
+```
 
 ---
 
