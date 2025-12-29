@@ -1089,22 +1089,24 @@ See `config/examples/structured_output.yaml` for a complete example.
 
 ---
 
-### 12. Structured Input/Output Format
+### 12. Custom Input & Custom Output Support
 
-**What is this?** A standardized way to send information to your agent and receive responses back.
+**What is this?** A flexible system for passing custom configuration values to your agents and receiving enriched output with runtime state.
 
-**Why it matters:** Consistency makes it easier to:
-- Track conversations across multiple interactions
-- Identify users and personalize responses
-- Maintain state (like Genie conversation IDs, cache hits)
-- Debug issues in production
+**Why it matters:**
+- **Pass context to prompts**: Any key in `configurable` becomes available as a template variable in your prompts
+- **Personalize responses**: Use `user_id`, `store_num`, or any custom field to tailor agent behavior
+- **Track conversations**: Maintain state across multiple interactions with `thread_id`/`conversation_id`
+- **Capture runtime state**: Output includes accumulated state like Genie conversation IDs, cache hits, and more
+- **Debug production issues**: Full context visibility for troubleshooting
 
 **Key concepts:**
-- `thread_id` or `conversation_id`: Identifies a specific conversation thread
+- `configurable`: Custom key-value pairs passed to your agent (available in prompt templates)
+- `thread_id` / `conversation_id`: Identifies a specific conversation thread
 - `user_id`: Identifies who's asking questions
-- `session`: Runtime state that accumulates during the conversation
+- `session`: Runtime state that accumulates during the conversation (returned in output)
 
-DAO uses a structured format for passing configuration and session state:
+DAO uses a structured format for passing custom inputs and returning enriched outputs:
 
 ```python
 # Input format
@@ -1141,10 +1143,30 @@ custom_outputs = {
 }
 ```
 
+**Using configurable values in prompts:**
+
+Any key in the `configurable` dictionary becomes available as a template variable in your agent prompts:
+
+```yaml
+agents:
+  personalized_agent:
+    prompt: |
+      You are a helpful assistant for {user_id}.
+      Store location: {store_num}
+      
+      Provide personalized recommendations based on the user's context.
+```
+
+When invoked with the `custom_inputs` above, the prompt automatically populates:
+- `{user_id}` → `"user@example.com"`
+- `{store_num}` → `"12345"`
+
 **Key features:**
 - `conversation_id` and `thread_id` are interchangeable (conversation_id takes precedence)
 - If neither is provided, a UUID is auto-generated
 - `user_id` is normalized (dots replaced with underscores for memory namespaces)
+- All `configurable` keys are available as prompt template variables
+- `session` state is automatically maintained and returned in `custom_outputs`
 - Backward compatible with legacy flat custom_inputs format
 
 ### 13. Hook System
