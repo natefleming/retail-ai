@@ -38,6 +38,46 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 
 ---
 
+## 📚 Table of Contents
+
+- [Why DAO?](#why-dao)
+  - [For Newcomers to AI Agents](#for-newcomers-to-ai-agents)
+- [Comparing Databricks AI Agent Platforms](#comparing-databricks-ai-agent-platforms)
+  - [When to Use DAO](#when-to-use-dao)
+  - [When to Use Agent Bricks](#when-to-use-agent-bricks)
+  - [When to Use Kasal](#when-to-use-kasal)
+  - [Using All Three Together](#using-all-three-together)
+- [Architecture](#architecture)
+  - [Orchestration Patterns](#orchestration-patterns)
+- [Key Capabilities](#key-capabilities)
+  - [1. Multi-Tool Support](#1-multi-tool-support)
+  - [2. On-Behalf-Of User Support](#2-on-behalf-of-user-support)
+  - [3. Advanced Caching (Genie Queries)](#3-advanced-caching-genie-queries)
+  - [4. Vector Search Reranking](#4-vector-search-reranking)
+  - [5. Human-in-the-Loop Approvals](#5-human-in-the-loop-approvals)
+  - [6. Memory & State Persistence](#6-memory--state-persistence)
+  - [7. MLflow Prompt Registry Integration](#7-mlflow-prompt-registry-integration)
+  - [8. Automated Prompt Optimization](#8-automated-prompt-optimization)
+  - [9. Guardrails & Response Quality Middleware](#9-guardrails--response-quality-middleware)
+  - [10. Conversation Summarization](#10-conversation-summarization)
+  - [11. Structured Output (Response Format)](#11-structured-output-response-format)
+  - [12. Custom Input & Custom Output Support](#12-custom-input--custom-output-support)
+  - [13. Hook System](#13-hook-system)
+- [Quick Start](#quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Your First Agent](#your-first-agent)
+- [Configuration Reference](#configuration-reference)
+- [Example Configurations](#example-configurations)
+- [CLI Reference](#cli-reference)
+- [Python API](#python-api)
+- [Project Structure](#project-structure)
+- [Common Questions](#common-questions)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Why DAO?
 
 ### For Newcomers to AI Agents
