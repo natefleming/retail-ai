@@ -558,6 +558,7 @@ genie_tool:
 │   ┌──────────────────────────────────────┐                                  │
 │   │  L2: Semantic Cache (PostgreSQL)     │  ◄── Vector similarity search    │
 │   │     • pg_vector embeddings           │      Catches rephrased questions │
+│   │     • Conversation context aware     │      Handles pronouns/references │
 │   │     • L2 distance similarity         │                                  │
 │   │     • Partitioned by Genie space ID  │                                  │
 │   └──────────────────────────────────────┘                                  │
@@ -590,7 +591,7 @@ The **LRU (Least Recently Used) Cache** provides instant lookups for exact quest
 
 #### Semantic Cache (L2)
 
-The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions even when worded differently:
+The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions even when worded differently. It includes **conversation context awareness** to improve matching in multi-turn conversations:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -600,24 +601,35 @@ The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions 
 | `database` | Required | PostgreSQL with pg_vector extension |
 | `warehouse` | Required | Databricks warehouse for SQL execution |
 | `table_name` | `genie_semantic_cache` | Table name for cache storage |
+| `context_window_size` | 3 | Number of previous conversation turns to include |
+| `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
 
 **Best for:** Catching rephrased questions like:
 - "What's our inventory status?" ≈ "Show me stock levels"
 - "Top selling products this month" ≈ "Best sellers in December"
 
+**Conversation Context Awareness:**  
+The semantic cache tracks conversation history to resolve ambiguous references:
+- **User:** "Show me products with low stock"
+- **User:** "What about *them* in the warehouse?" ← Uses context to understand "them" = low stock products
+
+This works by embedding both the current question *and* recent conversation turns, then computing a weighted similarity score. This dramatically improves cache hits in multi-turn conversations where users naturally use pronouns and references.
+
 #### Cache Behavior
 
 1. **SQL Caching, Not Results**: The cache stores the *generated SQL query*, not the query results. On a cache hit, the SQL is re-executed against your warehouse, ensuring **data freshness**.
 
-2. **Refresh on Hit**: When a semantic cache entry is found but expired:
+2. **Conversation-Aware Matching**: The semantic cache uses a rolling window of recent conversation turns to provide context for similarity matching. This helps resolve pronouns and references like "them", "that", or "the same products" by considering what was discussed previously.
+
+3. **Refresh on Hit**: When a semantic cache entry is found but expired:
    - The expired entry is deleted
    - A cache miss is returned
    - Genie generates fresh SQL
    - The new SQL is cached
 
-3. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The semantic cache is shared across all instances via PostgreSQL.
+4. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The semantic cache is shared across all instances via PostgreSQL.
 
-4. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
+5. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
 
 ### 4. Vector Search Reranking
 
