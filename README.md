@@ -86,7 +86,7 @@ DAO brings all these Databricks capabilities together into a unified framework f
 
 Databricks offers **three complementary approaches** to building AI agents. Each is powerful and purpose-built for different use cases, teams, and workflows.
 
-| Aspect | **DAO** (This Framework) | **Databricks Agent Bricks** | **Databricks Kasal** |
+| Aspect | **DAO** (This Framework) | **Databricks Agent Bricks** | **Kasal** |
 |--------|--------------------------|----------------------------|----------------------|
 | **Interface** | YAML configuration files | Visual GUI (AI Playground) | Visual workflow designer (drag-and-drop canvas) |
 | **Workflow** | Code-first, Git-native | UI-driven, wizard-based | Visual flowchart design with real-time monitoring |
