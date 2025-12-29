@@ -31,7 +31,7 @@ def test_direct_type_pydantic():
     assert isinstance(response_format.response_schema, type)
     assert response_format.is_type_schema is True
     assert response_format.is_json_schema is False
-    assert response_format.as_tool is None  # Default: auto-detect
+    assert response_format.use_tool is None  # Default: auto-detect
 
 
 # Test 2: Direct type (built-in)
@@ -154,7 +154,7 @@ def test_empty_response_format():
     """Test ResponseFormatModel with no fields set."""
     response_format = ResponseFormatModel()
     assert response_format.response_schema is None
-    assert response_format.as_tool is None  # Default: auto-detect
+    assert response_format.use_tool is None  # Default: auto-detect
     assert response_format.is_type_schema is False
     assert response_format.is_json_schema is False
 
@@ -162,9 +162,9 @@ def test_empty_response_format():
 # Test 14: response_schema with other fields
 def test_response_schema_with_other_fields():
     """Test response_schema works alongside other ResponseFormatModel fields."""
-    response_format = ResponseFormatModel(response_schema=SampleModel, as_tool=True)
+    response_format = ResponseFormatModel(response_schema=SampleModel, use_tool=True)
     assert response_format.response_schema == SampleModel
-    assert response_format.as_tool is True
+    assert response_format.use_tool is True
     assert response_format.is_type_schema is True
 
 
@@ -193,20 +193,20 @@ def test_invalid_type_dict():
         ResponseFormatModel(response_schema={"key": "value"})
 
 
-# Test as_tool attribute
-def test_as_tool_auto_detect():
-    """Test as_tool=None (auto-detect, default)."""
+# Test use_tool attribute
+def test_use_tool_auto_detect():
+    """Test use_tool=None (auto-detect, default)."""
     response_format = ResponseFormatModel(response_schema=SampleModel)
-    assert response_format.as_tool is None
+    assert response_format.use_tool is None
 
 
-def test_as_tool_force_provider():
-    """Test as_tool=False (force ProviderStrategy)."""
-    response_format = ResponseFormatModel(response_schema=SampleModel, as_tool=False)
-    assert response_format.as_tool is False
+def test_use_tool_force_provider():
+    """Test use_tool=False (force ProviderStrategy)."""
+    response_format = ResponseFormatModel(response_schema=SampleModel, use_tool=False)
+    assert response_format.use_tool is False
 
 
-def test_as_tool_force_tool():
-    """Test as_tool=True (force ToolStrategy)."""
-    response_format = ResponseFormatModel(response_schema=SampleModel, as_tool=True)
-    assert response_format.as_tool is True
+def test_use_tool_force_tool():
+    """Test use_tool=True (force ToolStrategy)."""
+    response_format = ResponseFormatModel(response_schema=SampleModel, use_tool=True)
+    assert response_format.use_tool is True

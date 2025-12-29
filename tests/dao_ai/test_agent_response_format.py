@@ -231,14 +231,14 @@ def test_response_format_fallback_behavior():
     assert agent.response_format.is_json_schema is True
 
 
-# Test 18: Test ResponseFormatModel with as_tool flag
-def test_response_format_with_as_tool():
+# Test 18: Test ResponseFormatModel with use_tool flag
+def test_response_format_with_use_tool():
     """Test that ResponseFormatModel's other fields work correctly."""
     response_format = ResponseFormatModel(
-        response_schema=SamplePydanticModel, as_tool=True
+        response_schema=SamplePydanticModel, use_tool=True
     )
     agent = create_minimal_agent(response_format=response_format)
 
     assert agent.response_format.response_schema == SamplePydanticModel
-    assert agent.response_format.as_tool is True
+    assert agent.response_format.use_tool is True
     assert agent.response_format.is_type_schema is True

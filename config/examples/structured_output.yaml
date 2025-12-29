@@ -33,8 +33,7 @@ agents:
           },
           "required": ["name", "email"]
         }
-      as_tool: true
-      # as_custom_output: false
+      use_tool: true
 
 app:
   name: contact_extraction

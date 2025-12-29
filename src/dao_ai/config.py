@@ -1831,21 +1831,13 @@ class ResponseFormatModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    as_tool: Optional[bool] = Field(
+    use_tool: Optional[bool] = Field(
         default=None,
         description=(
             "Strategy for structured output: "
             "None (default) = auto-detect from model capabilities, "
             "False = force ProviderStrategy (native), "
             "True = force ToolStrategy (function calling)"
-        ),
-    )
-    as_custom_output: bool = Field(
-        default=False,
-        description=(
-            "Where to place structured output in ResponsesAgent response: "
-            "False (default) = include in message content directly, "
-            "True = include in custom_outputs field"
         ),
     )
     response_schema: Optional[str | type] = Field(
@@ -1859,9 +1851,9 @@ class ResponseFormatModel(BaseModel):
 
         Returns:
             - None if no response_schema configured
-            - Raw schema/type for auto-detection (when as_tool=None)
-            - ToolStrategy wrapping the schema (when as_tool=True)
-            - ProviderStrategy wrapping the schema (when as_tool=False)
+            - Raw schema/type for auto-detection (when use_tool=None)
+            - ToolStrategy wrapping the schema (when use_tool=True)
+            - ProviderStrategy wrapping the schema (when use_tool=False)
 
         Raises:
             ValueError: If response_schema is a JSON schema string that cannot be parsed
@@ -1874,13 +1866,13 @@ class ResponseFormatModel(BaseModel):
 
         # Handle type schemas (Pydantic, dataclass, etc.)
         if self.is_type_schema:
-            if self.as_tool is None:
+            if self.use_tool is None:
                 # Auto-detect: Pass schema directly, let LangChain decide
                 return schema
-            elif self.as_tool is True:
+            elif self.use_tool is True:
                 # Force ToolStrategy (function calling)
                 return ToolStrategy(schema)
-            else:  # as_tool is False
+            else:  # use_tool is False
                 # Force ProviderStrategy (native structured output)
                 return ProviderStrategy(schema)
 
@@ -1893,14 +1885,14 @@ class ResponseFormatModel(BaseModel):
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON schema string: {e}") from e
 
-            # Apply same as_tool logic as type schemas
-            if self.as_tool is None:
+            # Apply same use_tool logic as type schemas
+            if self.use_tool is None:
                 # Auto-detect
                 return schema_dict
-            elif self.as_tool is True:
+            elif self.use_tool is True:
                 # Force ToolStrategy
                 return ToolStrategy(schema_dict)
-            else:  # as_tool is False
+            else:  # use_tool is False
                 # Force ProviderStrategy
                 return ProviderStrategy(schema_dict)
 

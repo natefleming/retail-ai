@@ -3554,7 +3554,7 @@
       "additionalProperties": false,
       "description": "Configuration for structured response formats.\n\nThe response_schema field accepts either a type or a string:\n- Type (Pydantic model, dataclass, etc.): Used directly for structured output\n- String: First attempts to load as a fully qualified type name, falls back to JSON schema string\n\nThis unified approach simplifies the API while maintaining flexibility.",
       "properties": {
-        "as_tool": {
+        "use_tool": {
           "anyOf": [
             {
               "type": "boolean"
@@ -3565,13 +3565,7 @@
           ],
           "default": null,
           "description": "Strategy for structured output: None (default) = auto-detect from model capabilities, False = force ProviderStrategy (native), True = force ToolStrategy (function calling)",
-          "title": "As Tool"
-        },
-        "as_custom_output": {
-          "default": false,
-          "description": "Where to place structured output in ResponsesAgent response: False (default) = include in message content directly, True = include in custom_outputs field",
-          "title": "As Custom Output",
-          "type": "boolean"
+          "title": "Use Tool"
         },
         "response_schema": {
           "anyOf": [

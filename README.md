@@ -373,24 +373,24 @@ DAO supports five types of tools, each suited for different use cases:
 tools:
   # Python function - direct import
   time_tool:
-       function:
-         type: python
+    function:
+      type: python
       name: dao_ai.tools.current_time_tool
 
   # Factory - initialized with config
   search_tool:
-       function:
-         type: factory
+    function:
+      type: factory
       name: dao_ai.tools.create_vector_search_tool
-         args:
-           retriever: *products_retriever
+      args:
+        retriever: *products_retriever
 
   # Unity Catalog - governed SQL function
   sku_lookup:
-       function:
-         type: unity_catalog
-         name: find_product_by_sku
-         schema: *retail_schema
+    function:
+      type: unity_catalog
+      name: find_product_by_sku
+      schema: *retail_schema
 
   # MCP - external service integration
   github_mcp:
@@ -1051,7 +1051,59 @@ The `LoggingSummarizationMiddleware` provides detailed observability:
 INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~2100 tokens) | Reduced by ~10400 tokens
 ```
 
-### 12. Structured Input/Output Format
+### 12. Structured Output (Response Format)
+
+**What is this?** A way to force your agent to return data in a specific JSON structure, making responses machine-readable and predictable.
+
+**Why it matters:** 
+- **Data extraction**: Extract structured information (product details, contact info) from text
+- **API integration**: Return data that other systems can consume directly
+- **Form filling**: Populate forms or databases automatically
+- **Consistent parsing**: No need to write brittle text parsing code
+
+**How it works:** Define a schema (Pydantic model, dataclass, or JSON schema) and the agent will return data matching that structure.
+
+```yaml
+agents:
+  contact_extractor:
+    name: contact_extractor
+    model: *default_llm
+    prompt: |
+      Extract contact information from the user's message.
+    response_format:
+      response_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "email": {"type": "string"},
+            "phone": {"type": ["string", "null"]}
+          },
+          "required": ["name", "email"]
+        }
+      use_tool: true  # Use function calling strategy (recommended for Databricks)
+```
+
+**Real-world example:**  
+User: *"John Doe, john.doe@example.com, (555) 123-4567"*  
+Agent returns:
+```json
+{
+  "name": "John Doe",
+  "email": "john.doe@example.com",
+  "phone": "(555) 123-4567"
+}
+```
+
+**Options:**
+- `response_schema`: Can be a JSON schema string, Pydantic model type, or fully qualified class name
+- `use_tool`: `true` (function calling), `false` (native), or `null` (auto-detect)
+
+See `config/examples/structured_output.yaml` for a complete example.
+
+---
+
+### 13. Structured Input/Output Format
 
 **What is this?** A standardized way to send information to your agent and receive responses back.
 
@@ -1102,6 +1154,12 @@ custom_outputs = {
     }
 }
 ```
+
+**Key features:**
+- `conversation_id` and `thread_id` are interchangeable (conversation_id takes precedence)
+- If neither is provided, a UUID is auto-generated
+- `user_id` is normalized (dots replaced with underscores for memory namespaces)
+- Backward compatible with legacy flat custom_inputs format
 
 **Key features:**
 - `conversation_id` and `thread_id` are interchangeable (conversation_id takes precedence)
@@ -1390,10 +1448,11 @@ agents:
     description: string
     model: *model_name
     tools: [*tool_name]
+    guardrails: [*guardrail_ref]
     prompt: string | *prompt_ref
     handoff_prompt: string      # For swarm routing
-    pre_agent_hook: string      # Python function path
-    post_agent_hook: string
+    middleware: [*middleware_ref]
+    response_format: *response_format_ref | string | null
 
 # Prompt definitions (MLflow registry)
 prompts:
@@ -1405,16 +1464,26 @@ prompts:
     default_template: string
     tags: {}
 
+# Response format (structured output)
+response_formats:
+  format_name: &format_name
+    response_schema: string | type   # JSON schema string or type reference
+    use_tool: bool | null             # null=auto, true=ToolStrategy, false=ProviderStrategy
+
 # Memory configuration
 memory: &memory
   checkpointer:
     name: string
-    type: memory | postgres
-    database: *postgres_db
+    type: memory | postgres | lakebase
+    database: *postgres_db      # For postgres
+    schema: *my_schema           # For lakebase
+    table_name: string           # For lakebase
   store:
     name: string
-    type: memory | postgres
-    database: *postgres_db
+    type: memory | postgres | lakebase
+    database: *postgres_db       # For postgres
+    schema: *my_schema            # For lakebase
+    table_name: string            # For lakebase
     embedding_model: *embedding_model
 
 # Application configuration
@@ -1465,7 +1534,8 @@ The `config/examples/` directory contains ready-to-use configurations:
 | `genie.yaml` | Natural language to SQL with Genie |
 | `genie_with_lru_cache.yaml` | Genie with LRU caching |
 | `genie_with_semantic_cache.yaml` | Genie with two-tier caching |
-| `conversation_summarization.yaml` | **NEW** Long conversation summarization with PostgreSQL persistence |
+| `conversation_summarization.yaml` | Long conversation summarization with PostgreSQL persistence |
+| `structured_output.yaml` | **NEW** Structured output / response format with JSON schema |
 | `human_in_the_loop.yaml` | Tool approval workflows |
 | `mcp.yaml` | External service integration via MCP |
 | `prompt_optimization.yaml` | Automated prompt tuning with GEPA |
@@ -1491,6 +1561,9 @@ dao-ai graph -c config/my_config.yaml -o workflow.png
 
 # Deploy with Databricks Asset Bundles
 dao-ai bundle --deploy --run -c config/my_config.yaml --profile DEFAULT
+
+# Interactive chat with agent
+dao-ai chat -c config/my_config.yaml
 
 # Verbose output (-v through -vvvv)
 dao-ai -vvvv validate -c config/my_config.yaml
@@ -1599,7 +1672,7 @@ Yes! DAO includes a local testing mode:
 from dao_ai.config import AppConfig
 
 config = AppConfig.from_file("config/my_agent.yaml")
-agent = config.build_agent()
+agent = config.as_runnable()
 
 # Test locally
 response = agent.invoke({
