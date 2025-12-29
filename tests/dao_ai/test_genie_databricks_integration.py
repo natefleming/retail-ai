@@ -14,9 +14,9 @@ ValidationError: 6 validation errors for my_genie_tool
   ...and 4 more similar errors for other state fields
 
 The fix involved:
-1. Making the genie_tool function async (required for LangGraph injected parameters)
+1. Using ToolRuntime[Context, AgentState] for unified access to state and context
 2. Using explicit args_schema=GenieToolInput to exclude injected parameters from validation
-3. Using func parameter instead of coroutine in StructuredTool.from_function
+3. LangGraph's dependency injection handles runtime parameter injection
 """
 
 from unittest.mock import Mock, patch
@@ -96,7 +96,7 @@ class TestGenieDatabricksIntegration:
     """
 
     def test_genie_tool_uses_injected_state_pattern(self, mock_genie_tool):
-        """Test that the tool uses the InjectedState pattern for accessing state."""
+        """Test that the tool uses ToolRuntime for accessing state and context."""
         tool = mock_genie_tool
 
         # Verify the function signature has injected parameters
@@ -105,13 +105,12 @@ class TestGenieDatabricksIntegration:
         sig = inspect.signature(tool.func)
         params = list(sig.parameters.keys())
 
-        # With @tool decorator and InjectedState/InjectedToolCallId, the function signature
-        # includes question, state, and tool_call_id
+        # With @tool decorator and ToolRuntime, the function signature
+        # includes question and runtime
         assert "question" in params
-        assert "state" in params
-        assert "tool_call_id" in params
+        assert "runtime" in params
 
-        # The InjectedState and InjectedToolCallId parameters will be injected by LangGraph
+        # The ToolRuntime parameter will be injected by LangGraph
         # at runtime and hidden from the model
 
     def test_genie_tool_input_validation_success(self):
@@ -160,14 +159,13 @@ class TestGenieDatabricksIntegration:
 
         This test reproduces and verifies the fix for the conditions where:
         1. Tool is invoked with only user inputs (question)
-        2. State and tool_call_id are injected by LangGraph using Annotated types
+        2. Runtime is injected by LangGraph using ToolRuntime type
         3. Tool works correctly with injected parameters
 
         THE FIX:
-        1. Used @tool decorator which properly handles Annotated injected parameters
-        2. Annotated[dict, InjectedState] and Annotated[str, InjectedToolCallId]
-           tell LangGraph to inject these parameters at runtime
-        3. The tool function signature includes all parameters, but LangGraph
+        1. Used @tool decorator which properly handles injected parameters
+        2. ToolRuntime[Context, AgentState] provides access to state and context
+        3. The tool function signature includes question and runtime, but LangGraph
            handles injection transparently
         """
         # Use the mocked tool
@@ -179,17 +177,16 @@ class TestGenieDatabricksIntegration:
         sig = inspect.signature(tool.func)
         params = list(sig.parameters.keys())
 
-        # Should have question, state, and tool_call_id parameters
+        # Should have question and runtime parameters
         assert "question" in params
-        assert "state" in params
-        assert "tool_call_id" in params
+        assert "runtime" in params
 
         # Verify the tool is properly configured
         assert isinstance(tool, StructuredTool)
         assert tool.name == "genie_tool"
 
-        # The key fix: @tool decorator with Annotated types handles injection properly
-        # LangGraph will inject state and tool_call_id at runtime
+        # The key fix: @tool decorator with ToolRuntime handles injection properly
+        # LangGraph will inject runtime at runtime
 
     def test_structured_tool_configuration(self, mock_genie_tool):
         """Test that StructuredTool is configured correctly with @tool decorator."""
@@ -214,16 +211,23 @@ class TestGenieDatabricksIntegration:
     @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
     def test_conversation_persistence_with_injected_state(self, mock_genie_tool):
         """
-        Test that conversation persistence works correctly with InjectedState pattern.
+        Test that conversation persistence works correctly with ToolRuntime pattern.
 
         This verifies that the fix doesn't break the core functionality of
         conversation mapping using space_id from the state.
         """
-        # Create a mock state dict
-        mock_state = {
-            "genie_conversation_ids": {"test-space-123": "existing-conversation-id"},
-            "messages": [],
-        }
+        from unittest.mock import Mock
+
+        from dao_ai.state import AgentState, Context
+
+        # Create a mock runtime
+        mock_runtime = Mock()
+        mock_runtime.state = AgentState(
+            messages=[],
+            genie_conversation_ids={"test-space-123": "existing-conversation-id"},
+        )
+        mock_runtime.context = Context(user_id="test-user", thread_id="test-thread")
+        mock_runtime.tool_call_id = "test-call-id"
 
         # Use the fixture genie tool
         tool = mock_genie_tool
@@ -231,23 +235,29 @@ class TestGenieDatabricksIntegration:
         # Call the tool - this should work without validation errors
         result = tool.func(
             question="Continue our previous conversation",
-            state=mock_state,
-            tool_call_id="test-call-id",
+            runtime=mock_runtime,
         )
 
         # Verify the result structure (basic validation that it executed)
         from langgraph.types import Command
 
+        from dao_ai.state import SessionState
+
         assert isinstance(result, Command)
         assert result.update is not None
-        assert "genie_conversation_ids" in result.update
+        # Conversation IDs are now stored in session.genie.spaces
+        assert "session" in result.update
+        session: SessionState = result.update["session"]
+        assert session.genie is not None
+        assert session.genie.spaces is not None
+        assert "test-space-123" in session.genie.spaces
 
     def test_injected_state_pattern(self, mock_genie_tool):
         """
-        Test that the tool uses the InjectedState pattern.
+        Test that the tool uses ToolRuntime for dependency injection.
 
-        The InjectedState and InjectedToolCallId annotations provide access
-        to state and tool_call_id through LangGraph's dependency injection.
+        ToolRuntime[Context, AgentState] provides access to state, context,
+        and tool_call_id through LangGraph's dependency injection.
         """
         tool = mock_genie_tool
 
@@ -261,13 +271,11 @@ class TestGenieDatabricksIntegration:
         sig = inspect.signature(tool.func)
         params = list(sig.parameters.keys())
 
-        # Should have question, state, and tool_call_id parameters
+        # Should have question and runtime parameters
         assert "question" in params
-        assert "state" in params
-        assert "tool_call_id" in params
+        assert "runtime" in params
 
-        # The InjectedState and InjectedToolCallId annotations tell LangGraph
-        # to inject these parameters at runtime
+        # ToolRuntime provides access to state, context, and tool_call_id at runtime
 
 
 if __name__ == "__main__":

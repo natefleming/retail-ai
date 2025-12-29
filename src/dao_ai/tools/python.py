@@ -7,7 +7,6 @@ from dao_ai.config import (
     FactoryFunctionModel,
     PythonFunctionModel,
 )
-from dao_ai.tools.human_in_the_loop import as_human_in_the_loop
 from dao_ai.utils import load_function
 
 
@@ -25,11 +24,8 @@ def create_factory_tool(
     logger.debug(f"create_factory_tool: {function}")
 
     factory: Callable[..., Any] = load_function(function_name=function.full_name)
-    tool: Callable[..., Any] = factory(**function.args)
-    tool = as_human_in_the_loop(
-        tool=tool,
-        function=function,
-    )
+    tool: RunnableLike = factory(**function.args)
+    # HITL is now handled at middleware level via HumanInTheLoopMiddleware
     return tool
 
 
@@ -51,10 +47,6 @@ def create_python_tool(
         function = function.full_name
 
     # Load the Python function dynamically
-    tool: Callable[..., Any] = load_function(function_name=function)
-
-    tool = as_human_in_the_loop(
-        tool=tool,
-        function=function,
-    )
+    tool: RunnableLike = load_function(function_name=function)
+    # HITL is now handled at middleware level via HumanInTheLoopMiddleware
     return tool

@@ -1,20 +1,14 @@
-from typing import Any, Callable, Sequence
+from typing import Any, Callable
 
-import mlflow
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import (
     StatementResponse,
     StatementState,
 )
-from databricks_langchain import (
-    DatabricksVectorSearch,
-)
-from langchain_core.documents import Document
 from langchain_core.tools import tool
-from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 
-from dao_ai.config import RetrieverModel, SchemaModel, VectorStoreModel, WarehouseModel
+from dao_ai.config import SchemaModel, WarehouseModel
 
 
 def create_reservation_tool() -> Callable[..., Any]:
@@ -45,72 +39,6 @@ def create_reservation_tool() -> Callable[..., Any]:
         return "Reservation made successfully!"
 
     return make_reservation
-
-
-def find_product_details_by_description_tool(
-    retriever: RetrieverModel | dict[str, Any],
-) -> Callable[[str, str], Sequence[Document]]:
-    """
-    Create a tool for finding product details using vector search with classification filtering.
-
-    This factory function generates a specialized search tool that combines semantic vector search
-    with categorical filtering to improve product discovery in retail applications. It enables
-    natural language product lookups with classification-based narrowing of results.
-
-    Args:
-        retriever: Configuration details for the vector search retriever, including:
-            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
-            - columns: List of columns to retrieve from the vector store
-            - search_parameters: Additional parameters for customizing the search behavior
-    Returns:
-        A callable tool function that performs vector search for product details
-        based on natural language descriptions and classification filters
-    """
-    if isinstance(retriever, dict):
-        retriever = RetrieverModel(**retriever)
-
-    logger.debug("find_product_details_by_description_tool")
-
-    @tool
-    @mlflow.trace(span_type="RETRIEVER", name="vector_search")
-    def find_product_details_by_description(content: str) -> Sequence[Document]:
-        """
-        Find products matching a description.
-
-        This tool performs semantic search over product data to find items that match
-        the given description text
-
-        Args:
-          content (str): Natural language description of the product(s) to find
-
-        Returns:
-          Sequence[Document]: A list of matching product documents with relevant metadata
-        """
-        logger.debug(f"find_product_details_by_description: content={content}")
-
-        vector_store: VectorStoreModel = retriever.vector_store
-
-        # Initialize the Vector Search client with endpoint and index configuration
-        vector_search: VectorStore = DatabricksVectorSearch(
-            endpoint=vector_store.endpoint.name,
-            index_name=vector_store.index.full_name,
-            columns=retriever.columns,
-            client_args={},
-            workspace_client=vector_store.workspace_client,
-        )
-
-        search_params: dict[str, Any] = retriever.search_parameters.model_dump()
-        if "num_results" in search_params:
-            search_params["k"] = search_params.pop("num_results")
-
-        documents: Sequence[Document] = vector_search.similarity_search(
-            query=content, **search_params
-        )
-
-        logger.debug(f"found {len(documents)} documents")
-        return documents
-
-    return find_product_details_by_description
 
 
 def create_find_product_by_sku_tool(

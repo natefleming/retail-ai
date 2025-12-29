@@ -197,14 +197,15 @@ tools:
 
 
   # Product details search by description
-  find_product_details_by_description_tool:
-    &find_product_details_by_description_tool
-    name: find_product_details_by_description
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
     function:
       type: factory
-      name: hardware_store.tools.find_product_details_by_description_tool
+      name: dao_ai.tools.create_vector_search_tool
       args:
-        retriever: *products_retriever              # Uses product retriever for search
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products by description"  # Tool description
 
   # ---------------------------------------------------------------------------
   # UNITY CATALOG TOOLS
@@ -704,8 +705,6 @@ agents:
     handoff_prompt: |                               # Conditions for routing to this agent
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
-    pre_agent_hook: "dao_ai.hooks.null_hook"
-    post_agent_hook: "dao_ai.hooks.null_hook"
 
   # ---------------------------------------------------------------------------
   # GENERAL AGENT ALTERNATIVE (Inline Prompt - Traditional Approach)
@@ -732,8 +731,6 @@ agents:
   #     Before answering ANY question, use your available search tools to find accurate information.
   #   handoff_prompt: |
   #     General questions about store information, policies, hours, services, or basic product inquiries
-  #   pre_agent_hook: "dao_ai.hooks.null_hook"
-  #   post_agent_hook: "dao_ai.hooks.null_hook"
 
   # ---------------------------------------------------------------------------
   # ORDERS AGENT  
@@ -863,18 +860,16 @@ app:
     #memory: *memory                                 # Reference to memory configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
-  message_hooks: 
-    - dao_ai.hooks.null_hook
-    - hardware_store.hooks.require_store_num_hook
   input_example:
       input:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
           store_num: 87887
+        session: {}
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
@@ -944,9 +939,10 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: nate.fleming
       store_num: 87887
+    session: {}
 
 # =============================================================================
 # DATASETS CONFIGURATION

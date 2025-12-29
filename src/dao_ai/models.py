@@ -1,11 +1,34 @@
 import uuid
 from os import PathLike
 from pathlib import Path
-from typing import Any, Generator, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Generator, Literal, Optional, Sequence, Union
 
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from databricks_langchain import ChatDatabricks
+
+if TYPE_CHECKING:
+    pass
+
+# Import official LangChain HITL TypedDict definitions
+# Reference: https://docs.langchain.com/oss/python/langchain/human-in-the-loop
+from langchain.agents.middleware.human_in_the_loop import (
+    ActionRequest,
+    Decision,
+    EditDecision,
+    HITLRequest,
+    RejectDecision,
+    ReviewConfig,
+)
+from langchain_community.adapters.openai import convert_openai_messages
+from langchain_core.language_models import LanguageModelLike
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StateSnapshot
+from langgraph.types import Interrupt, StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel, ResponsesAgent
@@ -28,11 +51,13 @@ from mlflow.types.responses_helpers import (
     Message,
     ResponseInputTextParam,
 )
+from pydantic import BaseModel, Field, create_model
 
 from dao_ai.messages import (
     has_langchain_messages,
     has_mlflow_messages,
     has_mlflow_responses_messages,
+    last_human_message,
 )
 from dao_ai.state import Context
 
@@ -54,10 +79,35 @@ def get_latest_model_version(model_name: str) -> int:
     mlflow_client: MlflowClient = MlflowClient()
     latest_version: int = 1
     for mv in mlflow_client.search_model_versions(f"name='{model_name}'"):
-        version_int = int(mv.version)
+        version_int: int = int(mv.version)
         if version_int > latest_version:
             latest_version = version_int
     return latest_version
+
+
+def is_interrupted(snapshot: StateSnapshot) -> bool:
+    """
+    Check if the graph state is currently interrupted (paused for human-in-the-loop).
+
+    Based on LangChain documentation:
+    - StateSnapshot has an `interrupts` attribute which is a tuple
+    - When interrupted, the tuple contains Interrupt objects
+    - When not interrupted, it's an empty tuple ()
+
+    Args:
+        snapshot: The StateSnapshot to check
+
+    Returns:
+        True if the graph is interrupted (has pending HITL actions), False otherwise
+
+    Example:
+        >>> snapshot = await graph.aget_state(config)
+        >>> if is_interrupted(snapshot):
+        ...     print("Graph is waiting for human input")
+    """
+    # Check if snapshot has any interrupts
+    # According to LangChain docs, interrupts is a tuple that's empty () when no interrupts
+    return bool(snapshot.interrupts)
 
 
 async def get_state_snapshot_async(
@@ -167,6 +217,111 @@ def get_genie_conversation_ids_from_state(
         return {}
 
 
+def _extract_interrupt_value(interrupt: Interrupt) -> HITLRequest:
+    """
+    Extract the HITL request from a LangGraph Interrupt object.
+
+    Following LangChain patterns, the Interrupt object has a .value attribute
+    containing the HITLRequest structure with action_requests and review_configs.
+
+    Args:
+        interrupt: Interrupt object from LangGraph with .value and .id attributes
+
+    Returns:
+        HITLRequest with action_requests and review_configs
+    """
+    # Interrupt.value is typed as Any, but for HITL it should be a HITLRequest dict
+    if isinstance(interrupt.value, dict):
+        # Return as HITLRequest TypedDict
+        return interrupt.value  # type: ignore[return-value]
+
+    # Fallback: return empty structure if value is not a dict
+    return {"action_requests": [], "review_configs": []}
+
+
+def _format_action_requests_message(interrupt_data: list[HITLRequest]) -> str:
+    """
+    Format action requests from interrupts into a simple, user-friendly message.
+
+    Since we now use LLM-based parsing, users can respond in natural language.
+    This function just shows WHAT actions are pending, not HOW to respond.
+
+    Args:
+        interrupt_data: List of HITLRequest structures containing action_requests and review_configs
+
+    Returns:
+        Simple formatted message describing the pending actions
+    """
+    if not interrupt_data:
+        return ""
+
+    # Collect all action requests and review configs from all interrupts
+    all_actions: list[ActionRequest] = []
+    review_configs_map: dict[str, ReviewConfig] = {}
+
+    for hitl_request in interrupt_data:
+        all_actions.extend(hitl_request.get("action_requests", []))
+        for review_config in hitl_request.get("review_configs", []):
+            action_name = review_config.get("action_name", "")
+            if action_name:
+                review_configs_map[action_name] = review_config
+
+    if not all_actions:
+        return ""
+
+    # Build simple, clean message
+    lines = ["⏸️ **Action Approval Required**", ""]
+    lines.append(
+        f"The assistant wants to perform {len(all_actions)} action(s) that require your approval:"
+    )
+    lines.append("")
+
+    for i, action in enumerate(all_actions, 1):
+        tool_name = action.get("name", "unknown")
+        args = action.get("args", {})
+        description = action.get("description")
+
+        lines.append(f"**{i}. {tool_name}**")
+
+        # Show review prompt/description if available
+        if description:
+            lines.append(f"   • **Review:** {description}")
+
+        if args:
+            # Format args nicely, truncating long values
+            for key, value in args.items():
+                value_str = str(value)
+                if len(value_str) > 100:
+                    value_str = value_str[:100] + "..."
+                lines.append(f"   • {key}: `{value_str}`")
+        else:
+            lines.append("   • (no arguments)")
+
+        # Show allowed decisions
+        review_config = review_configs_map.get(tool_name)
+        if review_config:
+            allowed_decisions = review_config.get("allowed_decisions", [])
+            if allowed_decisions:
+                decisions_str = ", ".join(allowed_decisions)
+                lines.append(f"   • **Options:** {decisions_str}")
+
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append(
+        "**You can respond in natural language** (e.g., 'approve both', 'reject the first one', "
+        "'change the email to new@example.com')"
+    )
+    lines.append("")
+    lines.append(
+        "Or provide structured decisions in `custom_inputs` with key `decisions`: "
+        '`[{"type": "approve"}, {"type": "reject", "message": "reason"}]`'
+    )
+
+    return "\n".join(lines)
+
+
 class LanggraphChatModel(ChatModel):
     """
     ChatModel that delegates requests to a LangGraph CompiledStateGraph.
@@ -216,22 +371,36 @@ class LanggraphChatModel(ChatModel):
 
         configurable: dict[str, Any] = {}
         if "configurable" in input_data:
-            configurable: dict[str, Any] = input_data.pop("configurable")
+            configurable = input_data.pop("configurable")
         if "custom_inputs" in input_data:
             custom_inputs: dict[str, Any] = input_data.pop("custom_inputs")
             if "configurable" in custom_inputs:
-                configurable: dict[str, Any] = custom_inputs.pop("configurable")
+                configurable = custom_inputs.pop("configurable")
 
-        if "user_id" in configurable:
-            configurable["user_id"] = configurable["user_id"].replace(".", "_")
+        # Extract known Context fields
+        user_id: str | None = configurable.pop("user_id", None)
+        if user_id:
+            user_id = user_id.replace(".", "_")
 
-        if "conversation_id" in configurable and "thread_id" not in configurable:
-            configurable["thread_id"] = configurable["conversation_id"]
+        # Accept either thread_id or conversation_id (interchangeable)
+        # conversation_id takes precedence (Databricks vocabulary)
+        thread_id: str | None = configurable.pop("thread_id", None)
+        conversation_id: str | None = configurable.pop("conversation_id", None)
 
-        if "thread_id" not in configurable:
-            configurable["thread_id"] = str(uuid.uuid4())
+        # conversation_id takes precedence if both provided
+        if conversation_id:
+            thread_id = conversation_id
+        if not thread_id:
+            thread_id = str(uuid.uuid4())
 
-        context: Context = Context(**configurable)
+        # All remaining configurable values go into custom dict
+        custom: dict[str, Any] = configurable
+
+        context: Context = Context(
+            user_id=user_id,
+            thread_id=thread_id,
+            custom=custom,
+        )
         return context
 
     def predict_stream(
@@ -307,6 +476,322 @@ class LanggraphChatModel(ChatModel):
         return [m.to_dict() for m in messages]
 
 
+def _create_decision_schema(interrupt_data: list[HITLRequest]) -> type[BaseModel]:
+    """
+    Dynamically create a Pydantic model for structured output based on interrupt actions.
+
+    This creates a schema that matches the expected decision format for the interrupted actions.
+    Each action gets a corresponding decision field that can be approve, edit, or reject.
+    Includes validation fields to ensure the response is complete and valid.
+
+    Args:
+        interrupt_data: List of HITL interrupt requests containing action_requests and review_configs
+
+    Returns:
+        A dynamically created Pydantic BaseModel class for structured output
+
+    Example:
+        For two actions (send_email, execute_sql), creates a model like:
+        class Decisions(BaseModel):
+            is_valid: bool
+            validation_message: Optional[str]
+            decision_1: Literal["approve", "edit", "reject"]
+            decision_1_message: Optional[str]  # For reject
+            decision_1_edited_args: Optional[dict]  # For edit
+            decision_2: Literal["approve", "edit", "reject"]
+            ...
+    """
+    # Collect all actions
+    all_actions: list[ActionRequest] = []
+    review_configs_map: dict[str, ReviewConfig] = {}
+
+    for hitl_request in interrupt_data:
+        all_actions.extend(hitl_request.get("action_requests", []))
+        review_config: ReviewConfig
+        for review_config in hitl_request.get("review_configs", []):
+            action_name: str = review_config.get("action_name", "")
+            if action_name:
+                review_configs_map[action_name] = review_config
+
+    # Build fields for the dynamic model
+    # Start with validation fields
+    fields: dict[str, Any] = {
+        "is_valid": (
+            bool,
+            Field(
+                description="Whether the user's response provides valid decisions for ALL actions. "
+                "Set to False if the user's message is unclear, ambiguous, or doesn't provide decisions for all actions."
+            ),
+        ),
+        "validation_message": (
+            Optional[str],
+            Field(
+                None,
+                description="If is_valid is False, explain what is missing or unclear. "
+                "Be specific about which action(s) need clarification.",
+            ),
+        ),
+    }
+
+    i: int
+    action: ActionRequest
+    for i, action in enumerate(all_actions, 1):
+        tool_name: str = action.get("name", "unknown")
+        review_config: Optional[ReviewConfig] = review_configs_map.get(tool_name)
+        allowed_decisions: list[str] = (
+            review_config.get("allowed_decisions", ["approve", "reject"])
+            if review_config
+            else ["approve", "reject"]
+        )
+
+        # Create a Literal type for allowed decisions
+        decision_literal: type = Literal[tuple(allowed_decisions)]  # type: ignore
+
+        # Add decision field
+        fields[f"decision_{i}"] = (
+            decision_literal,
+            Field(
+                description=f"Decision for action {i} ({tool_name}): {', '.join(allowed_decisions)}"
+            ),
+        )
+
+        # Add optional message field for reject
+        if "reject" in allowed_decisions:
+            fields[f"decision_{i}_message"] = (
+                Optional[str],
+                Field(
+                    None,
+                    description=f"Optional message if rejecting action {i}",
+                ),
+            )
+
+        # Add optional edited_args field for edit
+        if "edit" in allowed_decisions:
+            fields[f"decision_{i}_edited_args"] = (
+                Optional[dict[str, Any]],
+                Field(
+                    None,
+                    description=f"Modified arguments if editing action {i}. Only provide fields that need to change.",
+                ),
+            )
+
+    # Create the dynamic model
+    DecisionsModel = create_model(
+        "InterruptDecisions",
+        __doc__="Decisions for each interrupted action, in order.",
+        **fields,
+    )
+
+    return DecisionsModel
+
+
+def _convert_schema_to_decisions(
+    parsed_output: BaseModel,
+    interrupt_data: list[HITLRequest],
+) -> list[Decision]:
+    """
+    Convert the parsed structured output into LangChain Decision objects.
+
+    Args:
+        parsed_output: The Pydantic model instance from structured output
+        interrupt_data: Original interrupt data for context
+
+    Returns:
+        List of Decision dictionaries compatible with Command(resume={"decisions": ...})
+    """
+    # Collect all actions to know how many decisions we need
+    all_actions: list[ActionRequest] = []
+    hitl_request: HITLRequest
+    for hitl_request in interrupt_data:
+        all_actions.extend(hitl_request.get("action_requests", []))
+
+    decisions: list[Decision] = []
+
+    i: int
+    for i in range(1, len(all_actions) + 1):
+        decision_type: str = getattr(parsed_output, f"decision_{i}")
+
+        if decision_type == "approve":
+            decisions.append({"type": "approve"})  # type: ignore
+        elif decision_type == "reject":
+            message: Optional[str] = getattr(
+                parsed_output, f"decision_{i}_message", None
+            )
+            reject_decision: RejectDecision = {"type": "reject"}
+            if message:
+                reject_decision["message"] = message
+            decisions.append(reject_decision)  # type: ignore
+        elif decision_type == "edit":
+            edited_args: Optional[dict[str, Any]] = getattr(
+                parsed_output, f"decision_{i}_edited_args", None
+            )
+            action: ActionRequest = all_actions[i - 1]
+            tool_name: str = action.get("name", "")
+            original_args: dict[str, Any] = action.get("args", {})
+
+            # Merge original args with edited args
+            final_args: dict[str, Any] = {**original_args, **(edited_args or {})}
+
+            edit_decision: EditDecision = {
+                "type": "edit",
+                "edited_action": {
+                    "name": tool_name,
+                    "args": final_args,
+                },
+            }
+            decisions.append(edit_decision)  # type: ignore
+
+    return decisions
+
+
+def handle_interrupt_response(
+    snapshot: StateSnapshot,
+    messages: list[BaseMessage],
+    model: Optional[LanguageModelLike] = None,
+) -> dict[str, Any]:
+    """
+    Parse user's natural language response to interrupts using LLM with structured output.
+
+    This function uses an LLM to understand the user's intent and extract structured decisions
+    for each pending action. The schema is dynamically created based on the pending actions.
+    Includes validation to ensure the response is complete and valid.
+
+    Args:
+        snapshot: The current state snapshot containing interrupts
+        messages: List of messages, from which the last human message will be extracted
+        model: Optional LLM to use for parsing. Defaults to Llama 3.1 70B
+
+    Returns:
+        Dictionary with:
+        - "is_valid": bool indicating if the response is valid
+        - "validation_message": Optional message if invalid, explaining what's missing
+        - "decisions": list of Decision objects (empty if invalid)
+
+    Example:
+        Valid: {"is_valid": True, "validation_message": None, "decisions": [{"type": "approve"}]}
+        Invalid: {"is_valid": False, "validation_message": "Please specify...", "decisions": []}
+    """
+    # Extract the last human message
+    user_message_obj: Optional[HumanMessage] = last_human_message(messages)
+
+    if not user_message_obj:
+        logger.warning("handle_interrupt_response called but no human message found")
+        return {
+            "is_valid": False,
+            "validation_message": "No user message found. Please provide a response to the pending action(s).",
+            "decisions": [],
+        }
+
+    user_message: str = str(user_message_obj.content)
+    logger.info(f"HITL: Parsing user message with LLM: {user_message[:100]}")
+
+    if not model:
+        model = ChatDatabricks(
+            endpoint="databricks-claude-sonnet-4",
+            temperature=0,
+        )
+
+    # Extract interrupt data
+    if not snapshot.interrupts:
+        logger.warning("handle_interrupt_response called but no interrupts in snapshot")
+        return {"decisions": []}
+
+    interrupt_data: list[HITLRequest] = [
+        _extract_interrupt_value(interrupt) for interrupt in snapshot.interrupts
+    ]
+
+    # Collect all actions for context
+    all_actions: list[ActionRequest] = []
+    hitl_request: HITLRequest
+    for hitl_request in interrupt_data:
+        all_actions.extend(hitl_request.get("action_requests", []))
+
+    if not all_actions:
+        logger.warning("handle_interrupt_response called but no actions in interrupts")
+        return {"decisions": []}
+
+    # Create dynamic schema
+    DecisionsModel: type[BaseModel] = _create_decision_schema(interrupt_data)
+
+    # Create structured LLM
+    structured_llm: LanguageModelLike = model.with_structured_output(DecisionsModel)
+
+    # Format action context for the LLM
+    action_descriptions: list[str] = []
+    i: int
+    action: ActionRequest
+    for i, action in enumerate(all_actions, 1):
+        tool_name: str = action.get("name", "unknown")
+        args: dict[str, Any] = action.get("args", {})
+        args_str: str = (
+            ", ".join(f"{k}={v}" for k, v in args.items()) if args else "(no args)"
+        )
+        action_descriptions.append(f"Action {i}: {tool_name}({args_str})")
+
+    system_prompt: str = f"""You are parsing a user's response to interrupted agent actions.
+
+The following actions are pending approval:
+{chr(10).join(action_descriptions)}
+
+Your task is to extract the user's decision for EACH action in order. The user may:
+- Approve: Accept the action as-is
+- Reject: Cancel the action (optionally with a reason/message)
+- Edit: Modify the arguments before executing
+
+VALIDATION:
+- Set is_valid=True only if you can confidently extract decisions for ALL actions
+- Set is_valid=False if the user's message is:
+  * Unclear or ambiguous
+  * Missing decisions for some actions
+  * Asking a question instead of providing decisions
+  * Not addressing the actions at all
+- If is_valid=False, provide a clear validation_message explaining what is needed
+
+FLEXIBILITY:
+- Be flexible in parsing informal language like "yes", "no", "ok", "change X to Y"
+- If the user doesn't explicitly mention an action, assume they want to approve it
+- Only mark as invalid if the message is genuinely unclear or incomplete"""
+
+    try:
+        # Invoke LLM with structured output
+        parsed: BaseModel = structured_llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_message),
+            ]
+        )
+
+        # Check validation first
+        is_valid: bool = getattr(parsed, "is_valid", True)
+        validation_message: Optional[str] = getattr(parsed, "validation_message", None)
+
+        if not is_valid:
+            logger.warning(
+                f"HITL: Invalid user response. Reason: {validation_message or 'Unknown'}"
+            )
+            return {
+                "is_valid": False,
+                "validation_message": validation_message
+                or "Your response was unclear. Please provide a clear decision for each action.",
+                "decisions": [],
+            }
+
+        # Convert to Decision format
+        decisions: list[Decision] = _convert_schema_to_decisions(parsed, interrupt_data)
+
+        logger.info(f"Parsed {len(decisions)} decisions from user message")
+        return {"is_valid": True, "validation_message": None, "decisions": decisions}
+
+    except Exception as e:
+        logger.error(f"Failed to parse interrupt response: {e}")
+        # Return invalid response on parsing failure
+        return {
+            "is_valid": False,
+            "validation_message": f"Failed to parse your response: {str(e)}. Please provide a clear decision for each action.",
+            "decisions": [],
+        }
+
+
 class LanggraphResponsesAgent(ResponsesAgent):
     """
     ResponsesAgent that delegates requests to a LangGraph CompiledStateGraph.
@@ -315,37 +800,151 @@ class LanggraphResponsesAgent(ResponsesAgent):
     support for streaming, tool calling, and async execution.
     """
 
-    def __init__(self, graph: CompiledStateGraph) -> None:
+    def __init__(
+        self,
+        graph: CompiledStateGraph,
+    ) -> None:
         self.graph = graph
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """
         Process a ResponsesAgentRequest and return a ResponsesAgentResponse.
+
+        Input structure (custom_inputs):
+            configurable:
+                thread_id: "abc-123"        # Or conversation_id (aliases, conversation_id takes precedence)
+                user_id: "nate.fleming"
+                store_num: "87887"
+            session:  # Paste from previous output
+                conversation_id: "abc-123"  # Alias of thread_id
+                genie:
+                    spaces:
+                        space_123: {conversation_id: "conv_456", ...}
+            decisions:  # For resuming interrupted graphs (HITL)
+                - type: "approve"
+                - type: "reject"
+                  message: "Not authorized"
+
+        Output structure (custom_outputs):
+            configurable:
+                thread_id: "abc-123"        # Only thread_id in configurable
+                user_id: "nate.fleming"
+                store_num: "87887"
+            session:
+                conversation_id: "abc-123"  # conversation_id in session
+                genie:
+                    spaces:
+                        space_123: {conversation_id: "conv_456", ...}
+            pending_actions:  # If HITL interrupt occurred
+                - name: "send_email"
+                  arguments: {...}
+                  description: "..."
         """
         logger.debug(f"ResponsesAgent request: {request}")
 
         # Convert ResponsesAgent input to LangChain messages
-        messages = self._convert_request_to_langchain_messages(request)
+        messages: list[dict[str, Any]] = self._convert_request_to_langchain_messages(
+            request
+        )
 
-        # Prepare context
+        # Prepare context (conversation_id -> thread_id mapping happens here)
         context: Context = self._convert_request_to_context(request)
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
-        # Build the graph input state, including genie_conversation_ids if provided
-        graph_input: dict[str, Any] = {"messages": messages}
-        if request.custom_inputs and "genie_conversation_ids" in request.custom_inputs:
-            graph_input["genie_conversation_ids"] = request.custom_inputs[
-                "genie_conversation_ids"
-            ]
-            logger.debug(
-                f"Including genie_conversation_ids in graph input: {graph_input['genie_conversation_ids']}"
-            )
+        # Extract session state from request
+        session_input: dict[str, Any] = self._extract_session_from_request(request)
 
         # Use async ainvoke internally for parallel execution
         import asyncio
 
+        from langgraph.types import Command
+
         async def _async_invoke():
             try:
+                # Check if this is a resume request (HITL)
+                # Two ways to resume:
+                # 1. Explicit decisions in custom_inputs (structured)
+                # 2. Natural language message when graph is interrupted (LLM-parsed)
+
+                if request.custom_inputs and "decisions" in request.custom_inputs:
+                    # Explicit structured decisions
+                    decisions: list[Decision] = request.custom_inputs["decisions"]
+                    logger.info(
+                        f"HITL: Resuming with {len(decisions)} explicit decision(s)"
+                    )
+
+                    # Resume interrupted graph with decisions
+                    return await self.graph.ainvoke(
+                        Command(resume={"decisions": decisions}),
+                        context=context,
+                        config=custom_inputs,
+                    )
+
+                # Check if graph is currently interrupted (only if checkpointer is configured)
+                # aget_state requires a checkpointer
+                if self.graph.checkpointer:
+                    snapshot: StateSnapshot = await self.graph.aget_state(
+                        config=custom_inputs
+                    )
+                    if is_interrupted(snapshot):
+                        logger.info(
+                            "HITL: Graph is interrupted, checking for user response"
+                        )
+
+                        # Convert message dicts to BaseMessage objects
+                        message_objects: list[BaseMessage] = convert_openai_messages(
+                            messages
+                        )
+
+                        # Parse user's message with LLM to extract decisions
+                        parsed_result: dict[str, Any] = handle_interrupt_response(
+                            snapshot=snapshot,
+                            messages=message_objects,
+                            model=None,  # Uses default model
+                        )
+
+                        # Check if the response was valid
+                        if not parsed_result.get("is_valid", False):
+                            validation_message: str = parsed_result.get(
+                                "validation_message",
+                                "Your response was unclear. Please provide a clear decision for each action.",
+                            )
+                            logger.warning(
+                                f"HITL: Invalid response - {validation_message}"
+                            )
+
+                            # Return error message to user instead of resuming
+                            # Don't resume the graph - stay interrupted so user can try again
+                            return {
+                                "messages": [
+                                    AIMessage(
+                                        content=f"❌ **Invalid Response**\n\n{validation_message}"
+                                    )
+                                ]
+                            }
+
+                        decisions: list[Decision] = parsed_result.get("decisions", [])
+                        logger.info(
+                            f"HITL: LLM parsed {len(decisions)} valid decision(s) from user message"
+                        )
+
+                        # Resume interrupted graph with parsed decisions
+                        return await self.graph.ainvoke(
+                            Command(resume={"decisions": decisions}),
+                            context=context,
+                            config=custom_inputs,
+                        )
+
+                # Normal invocation - build the graph input state
+                graph_input: dict[str, Any] = {"messages": messages}
+                if "genie_conversation_ids" in session_input:
+                    graph_input["genie_conversation_ids"] = session_input[
+                        "genie_conversation_ids"
+                    ]
+                    logger.debug(
+                        f"Including genie_conversation_ids in graph input: {graph_input['genie_conversation_ids']}"
+                    )
+
                 return await self.graph.ainvoke(
                     graph_input, context=context, config=custom_inputs
                 )
@@ -356,7 +955,6 @@ class LanggraphResponsesAgent(ResponsesAgent):
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
-            # Handle case where no event loop exists (common in some deployment scenarios)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
@@ -371,22 +969,81 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # Convert response to ResponsesAgent format
         last_message: BaseMessage = response["messages"][-1]
 
-        output_item = self.create_text_output_item(
-            text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
+        # Build custom_outputs that can be copy-pasted as next request's custom_inputs
+        custom_outputs: dict[str, Any] = self._build_custom_outputs(
+            context=context,
+            thread_id=context.thread_id,
+            loop=loop,
         )
 
-        # Retrieve genie_conversation_ids from state if available
-        custom_outputs: dict[str, Any] = custom_inputs.copy()
-        thread_id: Optional[str] = context.thread_id
-        if thread_id:
-            state_snapshot: Optional[StateSnapshot] = loop.run_until_complete(
-                get_state_snapshot_async(self.graph, thread_id)
+        # Handle structured_response if present
+        if "structured_response" in response:
+            from dataclasses import asdict, is_dataclass
+
+            from pydantic import BaseModel
+
+            structured_response = response["structured_response"]
+            logger.debug(f"Processing structured_response: {type(structured_response)}")
+
+            # Serialize to dict for JSON compatibility using type hints
+            if isinstance(structured_response, BaseModel):
+                # Pydantic model
+                serialized: dict[str, Any] = structured_response.model_dump()
+            elif is_dataclass(structured_response):
+                # Dataclass
+                serialized = asdict(structured_response)
+            elif isinstance(structured_response, dict):
+                # Already a dict
+                serialized = structured_response
+            else:
+                # Unknown type, convert to dict if possible
+                serialized = (
+                    dict(structured_response)
+                    if hasattr(structured_response, "__dict__")
+                    else structured_response
+                )
+
+            # Place structured output in message content as JSON
+            import json
+
+            structured_text: str = json.dumps(serialized, indent=2)
+            output_item = self.create_text_output_item(
+                text=structured_text, id=f"msg_{uuid.uuid4().hex[:8]}"
             )
-            genie_conversation_ids: dict[str, str] = (
-                get_genie_conversation_ids_from_state(state_snapshot)
+            logger.debug("Placed structured_response in message content")
+        else:
+            # No structured response, use text content
+            output_item = self.create_text_output_item(
+                text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
             )
-            if genie_conversation_ids:
-                custom_outputs["genie_conversation_ids"] = genie_conversation_ids
+
+        # Include interrupt structure if HITL occurred (following LangChain pattern)
+        if "__interrupt__" in response:
+            interrupts: list[Interrupt] = response["__interrupt__"]
+            logger.info(f"HITL: {len(interrupts)} interrupt(s) detected")
+
+            # Extract HITLRequest structures from interrupts (deduplicate by ID)
+            seen_interrupt_ids: set[str] = set()
+            interrupt_data: list[HITLRequest] = []
+            interrupt: Interrupt
+            for interrupt in interrupts:
+                # Only process each unique interrupt once
+                if interrupt.id not in seen_interrupt_ids:
+                    seen_interrupt_ids.add(interrupt.id)
+                    interrupt_data.append(_extract_interrupt_value(interrupt))
+                    logger.debug(f"HITL: Added interrupt {interrupt.id} to response")
+
+            custom_outputs["interrupts"] = interrupt_data
+            logger.debug(
+                f"HITL: Included {len(interrupt_data)} interrupt(s) in response"
+            )
+
+            # Add user-facing message about the pending actions
+            action_message: str = _format_action_requests_message(interrupt_data)
+            if action_message:
+                output_item = self.create_text_output_item(
+                    text=action_message, id=f"msg_{uuid.uuid4().hex[:8]}"
+                )
 
         return ResponsesAgentResponse(
             output=[output_item], custom_outputs=custom_outputs
@@ -397,89 +1054,310 @@ class LanggraphResponsesAgent(ResponsesAgent):
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         """
         Process a ResponsesAgentRequest and yield ResponsesAgentStreamEvent objects.
+
+        Uses same input/output structure as predict() for consistency.
+        Supports Human-in-the-Loop (HITL) interrupts.
         """
         logger.debug(f"ResponsesAgent stream request: {request}")
 
         # Convert ResponsesAgent input to LangChain messages
-        messages: list[BaseMessage] = self._convert_request_to_langchain_messages(
+        messages: list[dict[str, Any]] = self._convert_request_to_langchain_messages(
             request
         )
 
-        # Prepare context
+        # Prepare context (conversation_id -> thread_id mapping happens here)
         context: Context = self._convert_request_to_context(request)
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
-        # Build the graph input state, including genie_conversation_ids if provided
-        graph_input: dict[str, Any] = {"messages": messages}
-        if request.custom_inputs and "genie_conversation_ids" in request.custom_inputs:
-            graph_input["genie_conversation_ids"] = request.custom_inputs[
-                "genie_conversation_ids"
-            ]
-            logger.debug(
-                f"Including genie_conversation_ids in graph input: {graph_input['genie_conversation_ids']}"
-            )
+        # Extract session state from request
+        session_input: dict[str, Any] = self._extract_session_from_request(request)
 
         # Use async astream internally for parallel execution
         import asyncio
 
+        from langgraph.types import Command
+
         async def _async_stream():
-            item_id = f"msg_{uuid.uuid4().hex[:8]}"
-            accumulated_content = ""
+            item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
+            accumulated_content: str = ""
+            interrupt_data: list[HITLRequest] = []
+            seen_interrupt_ids: set[str] = set()  # Track processed interrupt IDs
+            structured_response: Any = None  # Track structured output from stream
 
             try:
-                async for nodes, stream_mode, messages_batch in self.graph.astream(
-                    graph_input,
+                # Check if this is a resume request (HITL)
+                # Two ways to resume:
+                # 1. Explicit decisions in custom_inputs (structured)
+                # 2. Natural language message when graph is interrupted (LLM-parsed)
+
+                if request.custom_inputs and "decisions" in request.custom_inputs:
+                    # Explicit structured decisions
+                    decisions: list[Decision] = request.custom_inputs["decisions"]
+                    logger.info(
+                        f"HITL: Resuming with {len(decisions)} explicit decision(s)"
+                    )
+                    stream_input: Command | dict[str, Any] = Command(
+                        resume={"decisions": decisions}
+                    )
+                elif self.graph.checkpointer:
+                    # Check if graph is currently interrupted (only if checkpointer is configured)
+                    # aget_state requires a checkpointer
+                    snapshot: StateSnapshot = await self.graph.aget_state(
+                        config=custom_inputs
+                    )
+                    if is_interrupted(snapshot):
+                        logger.info(
+                            "HITL: Graph is interrupted, checking for user response"
+                        )
+
+                        # Convert message dicts to BaseMessage objects
+                        message_objects: list[BaseMessage] = convert_openai_messages(
+                            messages
+                        )
+
+                        # Parse user's message with LLM to extract decisions
+                        parsed_result: dict[str, Any] = handle_interrupt_response(
+                            snapshot=snapshot,
+                            messages=message_objects,
+                            model=None,  # Uses default model
+                        )
+
+                        # Check if the response was valid
+                        if not parsed_result.get("is_valid", False):
+                            validation_message: str = parsed_result.get(
+                                "validation_message",
+                                "Your response was unclear. Please provide a clear decision for each action.",
+                            )
+                            logger.warning(
+                                f"HITL: Invalid response - {validation_message}"
+                            )
+
+                            # Build custom_outputs before returning
+                            custom_outputs: dict[
+                                str, Any
+                            ] = await self._build_custom_outputs_async(
+                                context=context,
+                                thread_id=context.thread_id,
+                            )
+
+                            # Yield error message to user - don't resume graph
+                            error_message: str = (
+                                f"❌ **Invalid Response**\n\n{validation_message}"
+                            )
+                            accumulated_content = error_message
+                            yield ResponsesAgentStreamEvent(
+                                type="response.output_item.done",
+                                item=self.create_text_output_item(
+                                    text=error_message, id=item_id
+                                ),
+                                custom_outputs=custom_outputs,
+                            )
+                            return  # Don't resume - stay interrupted
+
+                        decisions: list[Decision] = parsed_result.get("decisions", [])
+                        logger.info(
+                            f"HITL: LLM parsed {len(decisions)} valid decision(s) from user message"
+                        )
+
+                        # Resume interrupted graph with parsed decisions
+                        stream_input: Command | dict[str, Any] = Command(
+                            resume={"decisions": decisions}
+                        )
+                    else:
+                        # Graph not interrupted, use normal invocation
+                        graph_input: dict[str, Any] = {"messages": messages}
+                        if "genie_conversation_ids" in session_input:
+                            graph_input["genie_conversation_ids"] = session_input[
+                                "genie_conversation_ids"
+                            ]
+                        stream_input: Command | dict[str, Any] = graph_input
+                else:
+                    # No checkpointer, use normal invocation
+                    graph_input: dict[str, Any] = {"messages": messages}
+                    if "genie_conversation_ids" in session_input:
+                        graph_input["genie_conversation_ids"] = session_input[
+                            "genie_conversation_ids"
+                        ]
+                    stream_input: Command | dict[str, Any] = graph_input
+
+                # Stream the graph execution with both messages and updates modes to capture interrupts
+                async for nodes, stream_mode, data in self.graph.astream(
+                    stream_input,
                     context=context,
                     config=custom_inputs,
-                    stream_mode=["messages", "custom"],
+                    stream_mode=["messages", "updates"],
                     subgraphs=True,
                 ):
                     nodes: tuple[str, ...]
                     stream_mode: str
-                    messages_batch: Sequence[BaseMessage]
 
-                    for message in messages_batch:
-                        if (
-                            isinstance(
-                                message,
-                                (
-                                    AIMessageChunk,
-                                    AIMessage,
-                                ),
-                            )
-                            and message.content
-                            and "summarization" not in nodes
-                        ):
-                            content = message.content
-                            accumulated_content += content
+                    # Handle message streaming
+                    if stream_mode == "messages":
+                        messages_batch: Sequence[BaseMessage] = data
+                        message: BaseMessage
+                        for message in messages_batch:
+                            if (
+                                isinstance(
+                                    message,
+                                    (
+                                        AIMessageChunk,
+                                        AIMessage,
+                                    ),
+                                )
+                                and message.content
+                                and "summarization" not in nodes
+                            ):
+                                content: str = message.content
+                                accumulated_content += content
 
-                            # Yield streaming delta
-                            yield ResponsesAgentStreamEvent(
-                                **self.create_text_delta(delta=content, item_id=item_id)
-                            )
+                                # Yield streaming delta
+                                yield ResponsesAgentStreamEvent(
+                                    **self.create_text_delta(
+                                        delta=content, item_id=item_id
+                                    )
+                                )
 
-                # Retrieve genie_conversation_ids from state if available
-                custom_outputs: dict[str, Any] = custom_inputs.copy()
-                thread_id: Optional[str] = context.thread_id
+                    # Handle interrupts (HITL) and state updates
+                    elif stream_mode == "updates":
+                        updates: dict[str, Any] = data
+                        source: str
+                        update: Any
+                        for source, update in updates.items():
+                            if source == "__interrupt__":
+                                interrupts: list[Interrupt] = update
+                                logger.info(
+                                    f"HITL: {len(interrupts)} interrupt(s) detected during streaming"
+                                )
 
-                if thread_id:
-                    state_snapshot: Optional[
-                        StateSnapshot
-                    ] = await get_state_snapshot_async(self.graph, thread_id)
-                    genie_conversation_ids: dict[str, str] = (
-                        get_genie_conversation_ids_from_state(state_snapshot)
+                                # Extract interrupt values (deduplicate by ID)
+                                interrupt: Interrupt
+                                for interrupt in interrupts:
+                                    # Only process each unique interrupt once
+                                    if interrupt.id not in seen_interrupt_ids:
+                                        seen_interrupt_ids.add(interrupt.id)
+                                        interrupt_data.append(
+                                            _extract_interrupt_value(interrupt)
+                                        )
+                                        logger.debug(
+                                            f"HITL: Added interrupt {interrupt.id} to response"
+                                        )
+                            elif (
+                                isinstance(update, dict)
+                                and "structured_response" in update
+                            ):
+                                # Capture structured_response from stream updates
+                                structured_response = update["structured_response"]
+                                logger.debug(
+                                    f"Captured structured_response from stream: {type(structured_response)}"
+                                )
+
+                # Get final state to extract structured_response (only if checkpointer available)
+                if self.graph.checkpointer:
+                    final_state: StateSnapshot = await self.graph.aget_state(
+                        config=custom_inputs
                     )
-                    if genie_conversation_ids:
-                        custom_outputs["genie_conversation_ids"] = (
-                            genie_conversation_ids
+                    # Extract structured_response from state if not already captured
+                    if (
+                        "structured_response" in final_state.values
+                        and not structured_response
+                    ):
+                        structured_response = final_state.values["structured_response"]
+
+                # Build custom_outputs
+                custom_outputs: dict[str, Any] = await self._build_custom_outputs_async(
+                    context=context,
+                    thread_id=context.thread_id,
+                )
+
+                # Handle structured_response in streaming if present
+                output_text: str = accumulated_content
+                if structured_response:
+                    from dataclasses import asdict, is_dataclass
+
+                    from pydantic import BaseModel
+
+                    logger.debug(
+                        f"Processing structured_response in streaming: {type(structured_response)}"
+                    )
+
+                    # Serialize to dict for JSON compatibility using type hints
+                    if isinstance(structured_response, BaseModel):
+                        serialized: dict[str, Any] = structured_response.model_dump()
+                    elif is_dataclass(structured_response):
+                        serialized = asdict(structured_response)
+                    elif isinstance(structured_response, dict):
+                        serialized = structured_response
+                    else:
+                        serialized = (
+                            dict(structured_response)
+                            if hasattr(structured_response, "__dict__")
+                            else structured_response
                         )
+
+                    # Place structured output in message content - stream as JSON
+                    import json
+
+                    structured_text: str = json.dumps(serialized, indent=2)
+
+                    # If we streamed text, append structured; if no text, use structured only
+                    if accumulated_content.strip():
+                        # Stream separator and structured output
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(delta="\n\n", item_id=item_id)
+                        )
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(
+                                delta=structured_text, item_id=item_id
+                            )
+                        )
+                        output_text = f"{accumulated_content}\n\n{structured_text}"
+                    else:
+                        # No text content, stream structured output
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(
+                                delta=structured_text, item_id=item_id
+                            )
+                        )
+                        output_text = structured_text
+
+                    logger.debug("Streamed structured_response in message content")
+
+                # Include interrupt structure if HITL occurred
+                if interrupt_data:
+                    custom_outputs["interrupts"] = interrupt_data
+                    logger.info(
+                        f"HITL: Included {len(interrupt_data)} interrupt(s) in streaming response"
+                    )
+
+                    # Add user-facing message about the pending actions
+                    action_message = _format_action_requests_message(interrupt_data)
+                    if action_message:
+                        # If we haven't streamed any content yet, stream the action message
+                        if not accumulated_content:
+                            output_text = action_message
+                            # Stream the action message
+                            yield ResponsesAgentStreamEvent(
+                                **self.create_text_delta(
+                                    delta=action_message, item_id=item_id
+                                )
+                            )
+                        else:
+                            # Append action message after accumulated content
+                            output_text = f"{accumulated_content}\n\n{action_message}"
+                            # Stream the separator and action message
+                            yield ResponsesAgentStreamEvent(
+                                **self.create_text_delta(delta="\n\n", item_id=item_id)
+                            )
+                            yield ResponsesAgentStreamEvent(
+                                **self.create_text_delta(
+                                    delta=action_message, item_id=item_id
+                                )
+                            )
 
                 # Yield final output item
                 yield ResponsesAgentStreamEvent(
                     type="response.output_item.done",
-                    item=self.create_text_output_item(
-                        text=accumulated_content, id=item_id
-                    ),
+                    item=self.create_text_output_item(text=output_text, id=item_id),
                     custom_outputs=custom_outputs,
                 )
             except Exception as e:
@@ -490,7 +1368,6 @@ class LanggraphResponsesAgent(ResponsesAgent):
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
-            # Handle case where no event loop exists (common in some deployment scenarios)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
@@ -575,15 +1452,24 @@ class LanggraphResponsesAgent(ResponsesAgent):
         return messages
 
     def _convert_request_to_context(self, request: ResponsesAgentRequest) -> Context:
-        """Convert ResponsesAgent context to internal Context."""
+        """Convert ResponsesAgent context to internal Context.
 
+        Handles the input structure:
+        - custom_inputs.configurable: Configuration (thread_id, user_id, store_num, etc.)
+        - custom_inputs.session: Accumulated state (conversation_id, genie conversations, etc.)
+
+        Maps conversation_id -> thread_id for LangGraph compatibility.
+        conversation_id can be provided in either configurable or session.
+        Normalizes user_id (replaces . with _) for memory namespace compatibility.
+        """
         logger.debug(f"request.context: {request.context}")
         logger.debug(f"request.custom_inputs: {request.custom_inputs}")
 
         configurable: dict[str, Any] = {}
+        session: dict[str, Any] = {}
 
         # Process context values first (lower priority)
-        # Use strong typing with forward-declared type hints instead of hasattr checks
+        # These come from Databricks ResponsesAgent ChatContext
         chat_context: Optional[ChatContext] = request.context
         if chat_context is not None:
             conversation_id: Optional[str] = chat_context.conversation_id
@@ -591,27 +1477,185 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
             if conversation_id is not None:
                 configurable["conversation_id"] = conversation_id
-                configurable["thread_id"] = conversation_id
 
             if user_id is not None:
                 configurable["user_id"] = user_id
 
         # Process custom_inputs after context so they can override context values (higher priority)
         if request.custom_inputs:
+            # Extract configurable section (user config)
             if "configurable" in request.custom_inputs:
-                configurable.update(request.custom_inputs.pop("configurable"))
+                configurable.update(request.custom_inputs["configurable"])
 
-            configurable.update(request.custom_inputs)
+            # Extract session section
+            if "session" in request.custom_inputs:
+                session_input = request.custom_inputs["session"]
+                if isinstance(session_input, dict):
+                    session = session_input
 
-        if "user_id" in configurable:
-            configurable["user_id"] = configurable["user_id"].replace(".", "_")
+            # Handle legacy flat structure (backwards compatibility)
+            # If user passes keys directly in custom_inputs, merge them
+            for key in list(request.custom_inputs.keys()):
+                if key not in ("configurable", "session"):
+                    configurable[key] = request.custom_inputs[key]
 
-        if "thread_id" not in configurable:
-            configurable["thread_id"] = str(uuid.uuid4())
+        # Extract known Context fields
+        user_id_value: str | None = configurable.pop("user_id", None)
+        if user_id_value:
+            # Normalize user_id for memory namespace (replace . with _)
+            user_id_value = user_id_value.replace(".", "_")
 
-        logger.debug(f"Creating context from: {configurable}")
+        # Accept thread_id from configurable, or conversation_id from configurable or session
+        # Priority: configurable.conversation_id > session.conversation_id > configurable.thread_id
+        thread_id: str | None = configurable.pop("thread_id", None)
+        conversation_id: str | None = configurable.pop("conversation_id", None)
 
-        return Context(**configurable)
+        # Also check session for conversation_id (output puts it there)
+        if conversation_id is None and "conversation_id" in session:
+            conversation_id = session.get("conversation_id")
+
+        # conversation_id takes precedence if provided
+        if conversation_id:
+            thread_id = conversation_id
+        if not thread_id:
+            # Generate new thread_id if neither provided
+            thread_id = str(uuid.uuid4())
+
+        # All remaining configurable values go into custom dict
+        custom: dict[str, Any] = configurable
+
+        logger.debug(
+            f"Creating context with user_id={user_id_value}, thread_id={thread_id}, custom={custom}"
+        )
+
+        return Context(
+            user_id=user_id_value,
+            thread_id=thread_id,
+            custom=custom,
+        )
+
+    def _extract_session_from_request(
+        self, request: ResponsesAgentRequest
+    ) -> dict[str, Any]:
+        """Extract session state from request for passing to graph.
+
+        Handles:
+        - New structure: custom_inputs.session.genie
+        - Legacy structure: custom_inputs.genie_conversation_ids
+        """
+        session: dict[str, Any] = {}
+
+        if not request.custom_inputs:
+            return session
+
+        # New structure: session.genie
+        if "session" in request.custom_inputs:
+            session_input = request.custom_inputs["session"]
+            if isinstance(session_input, dict) and "genie" in session_input:
+                genie_state = session_input["genie"]
+                # Extract conversation IDs from the new structure
+                if isinstance(genie_state, dict) and "spaces" in genie_state:
+                    genie_conversation_ids = {}
+                    for space_id, space_state in genie_state["spaces"].items():
+                        if (
+                            isinstance(space_state, dict)
+                            and "conversation_id" in space_state
+                        ):
+                            genie_conversation_ids[space_id] = space_state[
+                                "conversation_id"
+                            ]
+                    if genie_conversation_ids:
+                        session["genie_conversation_ids"] = genie_conversation_ids
+
+        # Legacy structure: genie_conversation_ids at top level
+        if "genie_conversation_ids" in request.custom_inputs:
+            session["genie_conversation_ids"] = request.custom_inputs[
+                "genie_conversation_ids"
+            ]
+
+        # Also check inside configurable for legacy support
+        if "configurable" in request.custom_inputs:
+            cfg = request.custom_inputs["configurable"]
+            if isinstance(cfg, dict) and "genie_conversation_ids" in cfg:
+                session["genie_conversation_ids"] = cfg["genie_conversation_ids"]
+
+        return session
+
+    def _build_custom_outputs(
+        self,
+        context: Context,
+        thread_id: Optional[str],
+        loop: Any,  # asyncio.AbstractEventLoop
+    ) -> dict[str, Any]:
+        """Build custom_outputs that can be copy-pasted as next request's custom_inputs.
+
+        Output structure:
+            configurable:
+                thread_id: "abc-123"        # Thread identifier (conversation_id is alias)
+                user_id: "nate.fleming"     # De-normalized (no underscore replacement)
+                store_num: "87887"          # Any custom fields
+            session:
+                conversation_id: "abc-123"  # Alias of thread_id for Databricks compatibility
+                genie:
+                    spaces:
+                        space_123: {conversation_id: "conv_456", cache_hit: false, ...}
+        """
+        return loop.run_until_complete(
+            self._build_custom_outputs_async(context=context, thread_id=thread_id)
+        )
+
+    async def _build_custom_outputs_async(
+        self,
+        context: Context,
+        thread_id: Optional[str],
+    ) -> dict[str, Any]:
+        """Async version of _build_custom_outputs."""
+        # Build configurable section
+        # Note: only thread_id is included here (conversation_id goes in session)
+        configurable: dict[str, Any] = {}
+
+        if thread_id:
+            configurable["thread_id"] = thread_id
+
+        # Include user_id (keep normalized form for consistency)
+        if context.user_id:
+            configurable["user_id"] = context.user_id
+
+        # Include all custom fields from context
+        configurable.update(context.custom)
+
+        # Build session section with accumulated state
+        # Note: conversation_id is included here as an alias of thread_id
+        session: dict[str, Any] = {}
+
+        if thread_id:
+            # Include conversation_id in session (alias of thread_id)
+            session["conversation_id"] = thread_id
+
+            state_snapshot: Optional[StateSnapshot] = await get_state_snapshot_async(
+                self.graph, thread_id
+            )
+            genie_conversation_ids: dict[str, str] = (
+                get_genie_conversation_ids_from_state(state_snapshot)
+            )
+            if genie_conversation_ids:
+                # Convert flat genie_conversation_ids to new session.genie.spaces structure
+                session["genie"] = {
+                    "spaces": {
+                        space_id: {
+                            "conversation_id": conv_id,
+                            # Note: cache_hit, follow_up_questions populated by Genie tool
+                            "cache_hit": False,
+                            "follow_up_questions": [],
+                        }
+                        for space_id, conv_id in genie_conversation_ids.items()
+                    }
+                }
+
+        return {
+            "configurable": configurable,
+            "session": session,
+        }
 
 
 def create_agent(graph: CompiledStateGraph) -> ChatAgent:
@@ -630,7 +1674,9 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
     return LanggraphChatModel(graph)
 
 
-def create_responses_agent(graph: CompiledStateGraph) -> ResponsesAgent:
+def create_responses_agent(
+    graph: CompiledStateGraph,
+) -> ResponsesAgent:
     """
     Create an MLflow-compatible ResponsesAgent from a LangGraph state machine.
 
@@ -665,6 +1711,29 @@ def _process_langchain_messages(
     return loop.run_until_complete(_async_invoke())
 
 
+def _configurable_to_context(configurable: dict[str, Any]) -> Context:
+    """Convert a configurable dict to a Context object."""
+    configurable = configurable.copy()
+
+    # Extract known Context fields
+    user_id: str | None = configurable.pop("user_id", None)
+    if user_id:
+        user_id = user_id.replace(".", "_")
+
+    thread_id: str | None = configurable.pop("thread_id", None)
+    if "conversation_id" in configurable and not thread_id:
+        thread_id = configurable.pop("conversation_id")
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+
+    # All remaining values go into custom dict
+    return Context(
+        user_id=user_id,
+        thread_id=thread_id,
+        custom=configurable,
+    )
+
+
 def _process_langchain_messages_stream(
     app: LanggraphChatModel | CompiledStateGraph,
     messages: Sequence[BaseMessage],
@@ -678,8 +1747,8 @@ def _process_langchain_messages_stream(
 
     logger.debug(f"Processing messages: {messages}, custom_inputs: {custom_inputs}")
 
-    custom_inputs = custom_inputs.get("configurable", custom_inputs or {})
-    context: Context = Context(**custom_inputs)
+    configurable = (custom_inputs or {}).get("configurable", custom_inputs or {})
+    context: Context = _configurable_to_context(configurable)
 
     # Use async astream internally for parallel execution
     async def _async_stream():

@@ -69,7 +69,26 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                        # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea          # Databricks Genie space ID
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# Configure in-memory storage for agent conversations and context
+
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier
+    type: memory                                    # Storage type (in-memory)
+
+  # Long-term memory store for agent context
+  store: 
+    name: default_store                             # Store identifier
+    type: memory                                    # Store type (in-memory)
 
 
 tools:
@@ -111,9 +130,17 @@ app:
       entitlements:
         - CAN_QUERY                                # Full management permissions
   agents:                                           # List of agents included in the system
-    - *genie                                        # Order management agent
+    - *genie                                        # Genie agent
   orchestration:                                    # Agent orchestration configuration
-    swarm:                                     # Supervisor orchestration pattern
+    memory: *memory                                 # Reference to memory configuration
+    swarm:                                          # Swarm orchestration pattern
       model: *default_llm                           # LLM for routing decisions
-
-
+  input_example:
+    messages:
+      - role: user
+        content: What are the top selling items this week?
+    custom_inputs:
+      configurable:
+        # conversation_id is auto-generated as UUID if not provided
+        user_id: my_user_id
+      session: {}

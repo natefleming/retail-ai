@@ -42,8 +42,8 @@ resources:
       name: databricks-claude-3-7-sonnet 
       temperature: 0.1
       max_tokens: 8192
-      fallbacks:                                     # Fallback models if primary fails
-        - databricks-meta-llama-3-3-70b-instruct
+#      fallbacks:                                     # Fallback models if primary fails
+#        - databricks-meta-llama-3-3-70b-instruct
 
     # LLM for complex reasoning tasks
     reasoning_llm: &reasoning_llm
@@ -100,7 +100,9 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                  # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea    # Databricks Genie space ID
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
 
   # ---------------------------------------------------------------------------
   # TABLES
@@ -235,7 +237,7 @@ tools:
     name: search
     function:
       type: factory
-      name: dao_ai.tools.search_tool             # Factory function for web search
+      name: dao_ai.tools.create_search_tool             # Factory function for web search
       args: {}                                      # No arguments needed
 
   # Vector search tool for product similarity
@@ -324,6 +326,43 @@ guardrails:
       {outputs}
 
 # =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Define reusable middleware that can be applied to agents or the supervisor.
+# Middleware is defined here at the AppConfig level and can be referenced
+# using YAML anchors (&name) in agent or supervisor configurations.
+#
+# Usage:
+#   middleware:
+#     my_middleware: &my_middleware       # Define with anchor
+#       name: path.to.middleware_factory  # Factory function path
+#       args:                             # Arguments passed to factory
+#         key: value
+#
+#   agents:
+#     my_agent:
+#       middleware:
+#         - *my_middleware                # Reference the middleware
+
+middleware:
+  # Input validation middleware - validates required fields in custom context
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        # Required field - must be provided (no 'required: false')
+        - name: store_num
+          description: "Your store number for inventory lookups"
+          example_value: "12345"
+        # Optional fields (required: false) - shown in error messages with example values
+        # Note: thread_id and user_id are handled by the middleware's error message format
+        #       so we don't need to list them here - they're automatically included
+        - name: user_id
+          description: "Your unique user identifier"
+          required: false
+          example_value: "my_user_id"
+
+# =============================================================================
 # AGENTS CONFIGURATION
 # =============================================================================
 # Define specialized agents for different aspects of customer service
@@ -383,8 +422,6 @@ agents:
     handoff_prompt: |                               # Conditions for routing to this agent
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
-    pre_agent_hook: "dao_ai.hooks.null_hook"
-    post_agent_hook: "dao_ai.hooks.null_hook"
 
   # ---------------------------------------------------------------------------
   # ORDERS AGENT  
@@ -791,18 +828,18 @@ app:
   orchestration:                                    # Agent orchestration configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm                      # LLM for routing decisions
-  message_hooks: 
-    - dao_ai.hooks.null_hook
-    - hardware_store.hooks.require_store_num_hook
+      middleware:                                   # Reference middleware defined above
+        - *store_validation                         # Validates store_num is provided
   input_example:
       input:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
           store_num: 87887
+        session: {}
     # swarm:
     #   model: *tool_calling_llm
     #   default_agent: *general
@@ -872,9 +909,10 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: nate.fleming
       store_num: 87887
+    session: {}
 
 # =============================================================================
 # DATASETS CONFIGURATION

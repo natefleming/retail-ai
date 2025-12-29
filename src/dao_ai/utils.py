@@ -7,6 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from langchain_core.tools import BaseTool
 from loguru import logger
 
 import dao_ai
@@ -19,7 +20,7 @@ def is_lib_provided(lib_name: str, pip_requirements: Sequence[str]) -> bool:
     )
 
 
-def is_installed():
+def is_installed() -> bool:
     current_file = os.path.abspath(dao_ai.__file__)
     site_packages = [os.path.abspath(path) for path in site.getsitepackages()]
     if site.getusersitepackages():
@@ -157,9 +158,6 @@ def get_installed_packages() -> dict[str, str]:
         f"langchain-tavily=={version('langchain-tavily')}",
         f"langgraph=={version('langgraph')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
-        f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
-        f"langgraph-supervisor=={version('langgraph-supervisor')}",
-        f"langgraph-swarm=={version('langgraph-swarm')}",
         f"langmem=={version('langmem')}",
         f"loguru=={version('loguru')}",
         f"mcp=={version('mcp')}",
@@ -212,13 +210,13 @@ def load_function(function_name: str) -> Callable[..., Any]:
         module = importlib.import_module(module_path)
 
         # Get the function from the module
-        func = getattr(module, func_name)
+        func: Any = getattr(module, func_name)
 
-        # Verify that the resolved object is callable or is a langchain tool
+        # Verify that the resolved object is callable or is a LangChain tool
         # In langchain 1.x, StructuredTool objects are not directly callable
         # but have an invoke() method
-        is_callable = callable(func)
-        is_langchain_tool = hasattr(func, "invoke") and hasattr(func, "name")
+        is_callable: bool = callable(func)
+        is_langchain_tool: bool = isinstance(func, BaseTool)
 
         if not is_callable and not is_langchain_tool:
             raise TypeError(f"Function {func_name} is not callable or invocable.")
@@ -227,6 +225,72 @@ def load_function(function_name: str) -> Callable[..., Any]:
     except (ImportError, AttributeError, TypeError) as e:
         # Provide a detailed error message that includes the original exception
         raise ImportError(f"Failed to import {function_name}: {e}")
+
+
+def type_from_fqn(type_name: str) -> type:
+    """
+    Load a type from a fully qualified name (FQN).
+
+    Dynamically imports and returns a type (class) from a module using its
+    fully qualified name. Useful for loading Pydantic models, dataclasses,
+    or any Python type specified as a string in configuration files.
+
+    Args:
+        type_name: Fully qualified type name in format "module.path.ClassName"
+
+    Returns:
+        The imported type/class
+
+    Raises:
+        ValueError: If the FQN format is invalid
+        ImportError: If the module cannot be imported
+        AttributeError: If the type doesn't exist in the module
+        TypeError: If the resolved object is not a type
+
+    Example:
+        >>> ProductModel = type_from_fqn("my_models.ProductInfo")
+        >>> instance = ProductModel(name="Widget", price=9.99)
+    """
+    logger.debug(f"Loading type: {type_name}")
+
+    try:
+        # Split the FQN into module path and class name
+        parts = type_name.rsplit(".", 1)
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid type name '{type_name}'. "
+                "Expected format: 'module.path.ClassName'"
+            )
+
+        module_path, class_name = parts
+
+        # Dynamically import the module
+        try:
+            module = importlib.import_module(module_path)
+        except ModuleNotFoundError as e:
+            raise ImportError(
+                f"Could not import module '{module_path}' for type '{type_name}': {e}"
+            ) from e
+
+        # Get the class from the module
+        if not hasattr(module, class_name):
+            raise AttributeError(
+                f"Module '{module_path}' does not have attribute '{class_name}'"
+            )
+
+        resolved_type = getattr(module, class_name)
+
+        # Verify it's actually a type
+        if not isinstance(resolved_type, type):
+            raise TypeError(
+                f"'{type_name}' resolved to {resolved_type}, which is not a type"
+            )
+
+        return resolved_type
+
+    except (ValueError, ImportError, AttributeError, TypeError) as e:
+        # Provide a detailed error message that includes the original exception
+        raise type(e)(f"Failed to load type '{type_name}': {e}") from e
 
 
 def is_in_model_serving() -> bool:

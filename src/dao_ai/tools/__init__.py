@@ -1,13 +1,13 @@
 from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
 from dao_ai.hooks.core import create_hooks
 from dao_ai.tools.agent import create_agent_endpoint_tool
-from dao_ai.tools.core import (
-    create_tools,
-    search_tool,
-)
+from dao_ai.tools.core import create_tools, say_hello_tool
+from dao_ai.tools.email import create_send_email_tool
 from dao_ai.tools.genie import create_genie_tool
 from dao_ai.tools.mcp import create_mcp_tools
+from dao_ai.tools.memory import create_search_memory_tool
 from dao_ai.tools.python import create_factory_tool, create_python_tool
+from dao_ai.tools.search import create_search_tool
 from dao_ai.tools.slack import create_send_slack_message_tool
 from dao_ai.tools.time import (
     add_time_tool,
@@ -29,6 +29,9 @@ __all__ = [
     "create_hooks",
     "create_mcp_tools",
     "create_python_tool",
+    "create_search_memory_tool",
+    "create_search_tool",
+    "create_send_email_tool",
     "create_send_slack_message_tool",
     "create_tools",
     "create_uc_tools",
@@ -37,7 +40,7 @@ __all__ = [
     "format_time_tool",
     "is_business_hours_tool",
     "LRUCacheService",
-    "search_tool",
+    "say_hello_tool",
     "SemanticCacheService",
     "time_difference_tool",
     "time_in_timezone_tool",

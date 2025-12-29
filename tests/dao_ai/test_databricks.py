@@ -612,17 +612,59 @@ def test_database_model_auth_validation_mixed_error():
             workspace_host="https://test.databricks.com",
         )
 
-    assert "Cannot use both OAuth and user authentication" in str(exc_info.value)
+    assert "Cannot mix authentication methods" in str(exc_info.value)
 
 
 @pytest.mark.unit
-def test_database_model_workspace_client_uses_ambient_auth():
-    """Test that DatabaseModel.workspace_client uses ambient/default authentication.
+def test_database_model_auth_validation_obo():
+    """Test DatabaseModel accepts on_behalf_of_user for passive auth in model serving."""
+    from unittest.mock import MagicMock, patch
+
+    # Mock the WorkspaceClient to avoid actual API calls
+    mock_ws_client_instance = MagicMock()
+
+    with patch("dao_ai.config.WorkspaceClient") as mock_ws_client:
+        mock_ws_client.return_value = mock_ws_client_instance
+
+        # Create database with on_behalf_of_user - no other credentials needed
+        database = DatabaseModel(
+            name="test_db",
+            instance_name="test_db",
+            host="localhost",  # Provide host to skip update_host validator
+            on_behalf_of_user=True,
+        )
+
+        # Validation should pass
+        assert database.on_behalf_of_user is True
+        assert database.client_id is None
+        assert database.user is None
+
+
+@pytest.mark.unit
+def test_database_model_auth_validation_obo_mixed_error():
+    """Test DatabaseModel rejects mixing OBO with other auth methods."""
+    import pytest
+
+    with pytest.raises(ValueError) as exc_info:
+        DatabaseModel(
+            name="test_db",
+            instance_name="test_db",
+            host="localhost",
+            on_behalf_of_user=True,
+            user="test_user",
+        )
+
+    assert "Cannot mix authentication methods" in str(exc_info.value)
+
+
+@pytest.mark.unit
+def test_database_model_workspace_client_uses_configured_auth():
+    """Test that DatabaseModel.workspace_client uses configured authentication.
 
     The workspace_client property is inherited from IsDatabricksResource and uses
-    ambient authentication (env vars, notebook context) for workspace API operations
-    like discovering database instances. The client_id/client_secret are NOT used
-    for workspace API calls - they're only for database connections.
+    the configured authentication (service principal, PAT, or ambient) for all
+    workspace API operations. If client_id/client_secret/workspace_host are provided,
+    they're used for workspace API calls as well as database connections.
     """
     from unittest.mock import MagicMock, patch
 
@@ -636,7 +678,7 @@ def test_database_model_workspace_client_uses_ambient_auth():
     with patch("dao_ai.config.WorkspaceClient") as mock_ws_client:
         mock_ws_client.return_value = mock_ws_client_instance
 
-        # Create database with OAuth credentials for DB connection
+        # Create database with OAuth credentials
         database = DatabaseModel(
             name="test_db",
             instance_name="test_db",
@@ -646,18 +688,18 @@ def test_database_model_workspace_client_uses_ambient_auth():
             workspace_host="https://test.databricks.com",
         )
 
-        # Access workspace_client property - should use DEFAULT auth, not OAuth
+        # Access workspace_client property - should use configured OAuth credentials
         _ = database.workspace_client
 
-        # Verify WorkspaceClient was called with default auth (no OAuth credentials)
-        # The OAuth credentials are for DB connection, not workspace API
+        # Verify WorkspaceClient was called with OAuth credentials
         mock_ws_client.assert_called()
         call_kwargs = (
             mock_ws_client.call_args.kwargs if mock_ws_client.call_args else {}
         )
-        # Should NOT have client_id/client_secret - those are for DB connection only
-        assert "client_id" not in call_kwargs
-        assert "client_secret" not in call_kwargs
+        # Should have client_id/client_secret for service principal auth
+        assert call_kwargs.get("client_id") == "test_client_id"
+        assert call_kwargs.get("client_secret") == "test_client_secret"
+        assert call_kwargs.get("auth_type") == "oauth-m2m"
 
 
 # ==================== create_lakebase Tests ====================

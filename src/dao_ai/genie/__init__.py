@@ -17,9 +17,6 @@ Example usage:
     from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
 """
 
-import mlflow
-from databricks_ai_bridge.genie import Genie, GenieResponse
-
 from dao_ai.genie.cache import (
     CacheResult,
     GenieServiceBase,
@@ -27,25 +24,7 @@ from dao_ai.genie.cache import (
     SemanticCacheService,
     SQLCacheEntry,
 )
-
-
-class GenieService(GenieServiceBase):
-    """Concrete implementation of GenieServiceBase using the Genie SDK."""
-
-    genie: Genie
-
-    def __init__(self, genie: Genie) -> None:
-        self.genie = genie
-
-    @mlflow.trace(name="genie_ask_question")
-    def ask_question(
-        self, question: str, conversation_id: str | None = None
-    ) -> GenieResponse:
-        response: GenieResponse = self.genie.ask_question(
-            question, conversation_id=conversation_id
-        )
-        return response
-
+from dao_ai.genie.core import GenieService
 
 __all__ = [
     # Service classes

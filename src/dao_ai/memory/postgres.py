@@ -409,7 +409,7 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
             raise
 
 
-def _shutdown_pools():
+def _shutdown_pools() -> None:
     try:
         PostgresPoolManager.close_all_pools()
         logger.debug("Successfully closed all synchronous PostgreSQL pools")
@@ -417,7 +417,7 @@ def _shutdown_pools():
         logger.error(f"Error closing synchronous PostgreSQL pools during shutdown: {e}")
 
 
-def _shutdown_async_pools():
+def _shutdown_async_pools() -> None:
     try:
         # Try to get the current event loop first
         try:

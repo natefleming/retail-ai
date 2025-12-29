@@ -56,16 +56,13 @@ def test_create_uc_tools_with_partial_args() -> None:
         patch(
             "dao_ai.tools.unity_catalog._grant_function_permissions"
         ) as mock_grant_perms,
-        patch("dao_ai.tools.unity_catalog.as_human_in_the_loop") as mock_human_loop,
     ):
         # Setup mocks
         mock_client = Mock()
         mock_client_class.return_value = mock_client
 
-        # Mock human-in-the-loop wrapper - returns the tool unchanged
-        mock_human_loop.side_effect = lambda tool, function: tool
-
         # Test the function
+        # Note: HITL is now handled at middleware level, not tool level
         result_tools = create_uc_tools(uc_function)
 
         # Assertions
@@ -104,9 +101,6 @@ def test_create_uc_tools_with_partial_args() -> None:
 
         # Verify DatabricksFunctionClient was created
         mock_client_class.assert_called_once()
-
-        # Verify human-in-the-loop wrapper was applied to the created tool
-        mock_human_loop.assert_called_once()
 
         # Test that we can invoke the created tool (with mock execution)
         mock_execute_result = "Mock execution result"

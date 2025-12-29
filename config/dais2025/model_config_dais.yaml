@@ -239,7 +239,7 @@ tools:
     name: search
     function:
       type: factory
-      name: dao_ai.tools.search_tool
+      name: dao_ai.tools.create_search_tool
       args: {}
 
   vector_search_tool: &vector_search_tool
@@ -252,14 +252,15 @@ tools:
         name: product_vector_search_tool
         description: "Search for products using vector search"
 
-  find_product_details_by_description_tool:
-    &find_product_details_by_description_tool
-    name: find_product_details_by_description
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
     function:
       type: factory
-      name: hardware_store.tools.find_product_details_by_description_tool
+      name: dao_ai.tools.create_vector_search_tool
       args:
-        retriever: *products_retriever
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products by description"  # Tool description
 
   
   find_product_by_sku_tool: &find_product_by_sku_tool
@@ -1352,8 +1353,9 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: my_user_id
+    session: {}
 
 datasets:
   # Core product and inventory tables

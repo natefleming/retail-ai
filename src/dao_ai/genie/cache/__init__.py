@@ -15,7 +15,6 @@ Example usage:
     genie_service = SemanticCacheService(
         impl=GenieService(genie),
         parameters=semantic_params,
-        genie_space_id=space_id,
     )
     genie_service = LRUCacheService(
         impl=genie_service,
@@ -27,8 +26,8 @@ from dao_ai.genie.cache.base import (
     CacheResult,
     GenieServiceBase,
     SQLCacheEntry,
-    execute_sql_via_warehouse,
 )
+from dao_ai.genie.cache.core import execute_sql_via_warehouse
 from dao_ai.genie.cache.lru import LRUCacheService
 from dao_ai.genie.cache.semantic import SemanticCacheService
 

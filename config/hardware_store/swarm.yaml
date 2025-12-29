@@ -100,7 +100,9 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                  # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea    # Databricks Genie space ID
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
 
   # ---------------------------------------------------------------------------
   # TABLES
@@ -162,41 +164,12 @@ resources:
   # Define SQL warehouses for query execution
   warehouses:
     # Shared warehouse for general query execution
-    shared_endpoint_warehouse: &shared_endpoint_warehouse
+    shared_endpoint_warehouse: 
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
 
-  # ---------------------------------------------------------------------------
-  # DATABASES
-  # ---------------------------------------------------------------------------
-  # Configure external databases (e.g., PostgreSQL for checkpoints and memory)
-  databases:
-    # PostgreSQL database for agent memory and checkpoints
-    retail_database: &retail_database
-      name: "Retail Database"                                  
-      description: "Database for agent memory and checkpoints" 
-      
-      # Database connection parameters
-      # These can be set via environment variables or Databricks secrets
-      host:                                                 
-        default_value: localhost                                             
-        options:
-          - env: PGHOST                              # Environment variable
-          - scope: retail_ai                         # Databricks secret scope
-            secret: PGHOST                           # Secret name
-      port: 
-        default_value: 5432
-        options:
-        - env: PGPORT 
-        - scope: retail_ai
-          secret: PGPORT
-      database: 
-        default_value: databricks_postgres           # Default database name
-        options:
-        - env: PGDATABASE 
-        - scope: retail_ai
-          secret: PGDATABASE
+
 
 
       # Traditional PostgreSQL authentication (commented out)
@@ -306,12 +279,13 @@ tools:
     name: search
     function:
       type: factory
-      name: dao_ai.tools.search_tool             # Factory function for web search
+      name: dao_ai.tools.create_search_tool             # Factory function for web search
       args: {}                                      # No arguments needed
 
   # Vector search tool for product similarity
-  vector_search_tool: &vector_search_tool
-    name: vector_search
+  find_product_details_by_description_tool:
+    &find_product_details_by_description_tool
+    name: find_product_details_by_description
     function:
       type: factory
       name: dao_ai.tools.create_vector_search_tool
@@ -319,16 +293,6 @@ tools:
         retriever: *products_retriever              # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name
         description: "Search for products using vector search"  # Tool description
-
-  # Product details search by description
-  find_product_details_by_description_tool:
-    &find_product_details_by_description_tool
-    name: find_product_details_by_description
-    function:
-      type: factory
-      name: hardware_store.tools.find_product_details_by_description_tool
-      args:
-        retriever: *products_retriever              # Uses product retriever for search
 
   # ---------------------------------------------------------------------------
   # UNITY CATALOG TOOLS
@@ -443,8 +407,8 @@ agents:
     name: general                                   # Agent identifier
     description: "General retail store assistant for home improvement and hardware store inquiries"
     model: *tool_calling_llm                       # Reference to LLM configuration
-    tools:                                          # Tools available to this agent
-      - *find_product_details_by_description_tool
+    tools: []                                      # Tools available to this agent
+      
     guardrails:                                     # Quality checks (currently disabled)
       []
       #- *llm_judge_guardrail
@@ -896,7 +860,7 @@ agents:
 app:
   name: hardware_store_swarm                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
-  log_level: INFO                                   # Logging level for the application
+  log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: hardware_store_swarm                           # Model name in MLflow registry
@@ -916,18 +880,16 @@ app:
     - *comparison                                   # Product comparison agent
     - *recommendation                               # Product recommendation agent
     - *general                                      # General purpose agent
-  message_hooks: 
-    - dao_ai.hooks.null_hook
-    - hardware_store.hooks.require_store_num_hook
   input_example:
       messages:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
         configurable:
-          thread_id: "1"
+          # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
           store_num: 87887
+        session: {}
   orchestration:                                    # Agent orchestration configuration
     memory: *memory                     # Reference to memory configuration for state persistence
     # supervisor:                                     # Supervisor orchestration pattern
@@ -1055,9 +1017,10 @@ evaluation:
   num_evals: 25
   custom_inputs:
     configurable:
-      thread_id: "1"
+      # conversation_id is auto-generated as UUID if not provided
       user_id: nate.fleming
       store_num: 87887
+    session: {}
 
 # =============================================================================
 # DATASETS CONFIGURATION

@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
-from conftest import has_retail_ai_env
+from conftest import add_databricks_resource_attrs, has_retail_ai_env
 from databricks.sdk.service.sql import StatementState
 from databricks_ai_bridge.genie import Genie, GenieResponse
 from langchain_core.tools import StructuredTool
@@ -456,10 +456,10 @@ def test_genie_tool_usage_pattern_with_state() -> None:
     """
     Test showing how the Genie tool would be used in a real LangGraph application.
 
-    This demonstrates the proper usage pattern with SharedState for conversation
+    This demonstrates the proper usage pattern with AgentState for conversation
     persistence, which is how agents would actually use this tool.
     """
-    from dao_ai.state import SharedState
+    from dao_ai.state import AgentState
 
     real_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
 
@@ -514,7 +514,7 @@ def test_genie_tool_usage_pattern_with_state() -> None:
         mock_ask.side_effect = mock_responses
 
         # Simulate state management as LangGraph would do it
-        shared_state = SharedState()
+        shared_state = AgentState()
 
         # Simulate first tool call (no existing conversation)
         print("\n3. First question (new conversation)...")
@@ -1023,11 +1023,19 @@ class MockGenieService(GenieServiceBase):
 
     def ask_question(
         self, question: str, conversation_id: str | None = None
-    ) -> GenieResponse:
+    ) -> CacheResult:
         self.call_count += 1
         self.last_question = question
         self.last_conversation_id = conversation_id
-        return self.response_to_return
+        return CacheResult(
+            response=self.response_to_return,
+            cache_hit=False,
+            served_by=None,
+        )
+
+    @property
+    def space_id(self) -> str:
+        return "test-space-id"
 
 
 class MockColumn:
@@ -1281,11 +1289,11 @@ class TestLRUCacheServiceCacheOperations:
         mock_genie_service: MockGenieService,
     ) -> None:
         """Test that a cache miss delegates to the wrapped service."""
-        response = lru_cache_service.ask_question("What is the total sales?")
+        result = lru_cache_service.ask_question("What is the total sales?")
 
         assert mock_genie_service.call_count == 1
         assert mock_genie_service.last_question == "What is the total sales?"
-        assert response.query == "SELECT * FROM mock_table"
+        assert result.response.query == "SELECT * FROM mock_table"
         assert lru_cache_service.size == 1
 
     @pytest.mark.unit
@@ -1520,14 +1528,14 @@ class TestLRUCacheServiceSQLExecution:
         lru_cache_service.ask_question("test question")
 
         # Second call - cache hit, should execute SQL
-        response = lru_cache_service.ask_question("test question")
+        result = lru_cache_service.ask_question("test question")
 
         # Verify SQL was executed
         mock_warehouse_model.workspace_client.statement_execution.execute_statement.assert_called()
 
         # Verify response contains data from SQL execution
-        assert isinstance(response.result, pd.DataFrame)
-        assert list(response.result.columns) == ["col1", "col2"]
+        assert isinstance(result.response.result, pd.DataFrame)
+        assert list(result.response.result.columns) == ["col1", "col2"]
 
     @pytest.mark.unit
     def test_sql_execution_failure_returns_error(
@@ -1556,9 +1564,9 @@ class TestLRUCacheServiceSQLExecution:
         cache.ask_question("test question")
 
         # Second call - cache hit, SQL execution fails
-        response = cache.ask_question("test question")
+        result = cache.ask_question("test question")
 
-        assert "SQL execution failed" in str(response.result)
+        assert "SQL execution failed" in str(result.response.result)
 
 
 # =============================================================================
@@ -1677,12 +1685,12 @@ class TestLRUCacheServiceIntegration:
         cache = LRUCacheService(impl=mock_service, parameters=params)
 
         # First call - cache miss
-        response1 = cache.ask_question("test")
-        assert response1.conversation_id == "custom-conv-456"
+        result1 = cache.ask_question("test")
+        assert result1.response.conversation_id == "custom-conv-456"
 
         # Second call - cache hit
-        response2 = cache.ask_question("test")
-        assert response2.conversation_id == "custom-conv-456"
+        result2 = cache.ask_question("test")
+        assert result2.response.conversation_id == "custom-conv-456"
 
     @pytest.mark.integration
     def test_thread_safety_basic(
@@ -1756,10 +1764,11 @@ def test_create_genie_tool_with_cache_parameters() -> None:
             space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
         )
 
-        # Create mock warehouse
+        # Create mock warehouse with IsDatabricksResource attrs
         mock_warehouse = Mock(spec=WarehouseModel)
         mock_warehouse.warehouse_id = "test-warehouse"
         mock_warehouse.workspace_client = Mock()
+        add_databricks_resource_attrs(mock_warehouse)
 
         cache_params = GenieLRUCacheParametersModel(
             warehouse=mock_warehouse,
@@ -1914,17 +1923,18 @@ class TestSemanticCacheServiceInitialization:
             params.warehouse = mock_warehouse
             params.time_to_live_seconds = 86400
             params.similarity_threshold = 0.85
+            params.context_similarity_threshold = 0.80
+            params.question_weight = 0.6
+            params.context_weight = 0.4
             params.embedding_dims = 1024
             params.embedding_model = "databricks-gte-large-en"
             params.table_name = "test_cache"
 
-            cache = SemanticCacheService(
-                impl=mock_service, parameters=params, genie_space_id="test-space"
-            )
+            cache = SemanticCacheService(impl=mock_service, parameters=params)
 
             assert cache.impl is mock_service
             assert cache.name == "SemanticCacheService"
-            assert cache.genie_space_id == "test-space"
+            assert cache.space_id == "test-space-id"  # From MockGenieService
             assert cache._setup_complete is False
 
     def test_init_with_custom_name(self) -> None:
@@ -1935,7 +1945,6 @@ class TestSemanticCacheServiceInitialization:
         cache = SemanticCacheService(
             impl=mock_service,
             parameters=params,
-            genie_space_id="test-space",
             name="CustomSemanticCache",
         )
 
@@ -1954,7 +1963,8 @@ class TestSemanticCacheServiceProperties:
         params.database = mock_database
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         assert cache.database is mock_database
 
@@ -1967,7 +1977,8 @@ class TestSemanticCacheServiceProperties:
         params.warehouse = mock_warehouse
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         assert cache.warehouse is mock_warehouse
 
@@ -1979,7 +1990,8 @@ class TestSemanticCacheServiceProperties:
         params.time_to_live_seconds = 7200
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         assert cache.time_to_live == timedelta(seconds=7200)
 
@@ -1989,9 +2001,13 @@ class TestSemanticCacheServiceProperties:
 
         params = Mock(spec=GenieSemanticCacheParametersModel)
         params.similarity_threshold = 0.9
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         assert cache.similarity_threshold == 0.9
 
@@ -2003,7 +2019,8 @@ class TestSemanticCacheServiceProperties:
         params.table_name = "custom_cache_table"
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         assert cache.table_name == "custom_cache_table"
 
@@ -2037,12 +2054,18 @@ class TestSemanticCacheServiceCacheOperations:
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.context_window_size = 3
+        params.max_context_tokens = 2000
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         ).initialize()
         result = cache.ask_question_with_cache_info("What is the inventory?")
 
@@ -2100,9 +2123,14 @@ class TestSemanticCacheServiceCacheOperations:
         params.warehouse = mock_warehouse
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.context_window_size = 3
+        params.max_context_tokens = 2000
 
         # First query returns None (dimension check - table doesn't exist)
         # Second query returns 0 rows (for table row count check)
@@ -2113,18 +2141,23 @@ class TestSemanticCacheServiceCacheOperations:
                 {
                     "id": 1,
                     "question": "Similar question?",
+                    "context_string": "Similar question?",
                     "sql_query": "SELECT * FROM inventory",
                     "description": "Cached description",
                     "conversation_id": "cached-conv-123",
                     "created_at": cached_time,
-                    "similarity": 0.92,
+                    "similarity": 0.92,  # Combined similarity
+                    "question_similarity": 0.92,
+                    "context_similarity": 0.92,
+                    "combined_similarity": 0.92,
                     "is_valid": True,  # Within TTL
                 },
             ]
         )
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         ).initialize()
         result = cache.ask_question_with_cache_info("What is the inventory?")
 
@@ -2161,7 +2194,10 @@ class TestSemanticCacheServiceCacheOperations:
         params.warehouse.warehouse_id = "test-warehouse"
         params.warehouse.workspace_client = Mock()
         params.time_to_live_seconds = 86400
-        params.similarity_threshold = 0.85  # Threshold is 0.85
+        params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4  # Threshold is 0.85
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
@@ -2173,18 +2209,23 @@ class TestSemanticCacheServiceCacheOperations:
                 {
                     "id": 1,
                     "question": "Different question",
+                    "conversation_context": "",
+                    "context_string": "Different question",
                     "sql_query": "SELECT * FROM inventory",
                     "description": "Description",
                     "conversation_id": "conv-123",
                     "created_at": cached_time,
-                    "similarity": 0.75,  # Below threshold
+                    "question_similarity": 0.75,  # Below threshold
+                    "context_similarity": 0.85,
+                    "combined_similarity": 0.79,
                     "is_valid": True,
                 },
             ]
         )
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         ).initialize()
         result = cache.ask_question_with_cache_info("What is the inventory?")
 
@@ -2216,6 +2257,9 @@ class TestSemanticCacheServiceCacheOperations:
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400  # 1 day
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
@@ -2227,18 +2271,23 @@ class TestSemanticCacheServiceCacheOperations:
                 {
                     "id": 123,  # ID used for deletion
                     "question": "Similar question?",
+                    "conversation_context": "",
+                    "context_string": "Similar question?",
                     "sql_query": "SELECT * FROM inventory",
                     "description": "Description",
                     "conversation_id": "conv-123",
                     "created_at": old_time,
-                    "similarity": 0.95,  # High similarity
+                    "question_similarity": 0.95,  # High similarity
+                    "context_similarity": 0.95,
+                    "combined_similarity": 0.95,
                     "is_valid": False,  # EXPIRED - outside TTL window
                 },
             ]
         )
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         ).initialize()
         result = cache.ask_question_with_cache_info("What is the inventory?")
 
@@ -2275,15 +2324,21 @@ class TestSemanticCacheServiceManagement:
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.context_window_size = 3
+        params.max_context_tokens = 2000
 
         # First query for dimension check, second for table creation
         mock_pool.set_query_results([None])
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         cache.clear()
 
@@ -2311,6 +2366,9 @@ class TestSemanticCacheServiceManagement:
         params.warehouse = Mock()
         params.time_to_live_seconds = 3600  # 1 hour TTL
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
@@ -2319,7 +2377,8 @@ class TestSemanticCacheServiceManagement:
         mock_pool.set_query_results([None])
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         cache.invalidate_expired()
 
@@ -2330,8 +2389,11 @@ class TestSemanticCacheServiceManagement:
             if "DELETE" in q and "INTERVAL" in q
         ]
         assert len(delete_queries) >= 1
-        # Verify genie_space_id and TTL were passed as parameters
-        assert delete_queries[0][1] == ("test-space", 3600)
+        # Verify space_id (from impl) and TTL were passed as parameters
+        assert delete_queries[0][1] == (
+            "test-space-id",
+            3600,
+        )  # From MockGenieService.space_id
 
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
     @patch("databricks_langchain.DatabricksEmbeddings")
@@ -2353,15 +2415,21 @@ class TestSemanticCacheServiceManagement:
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.context_window_size = 3
+        params.max_context_tokens = 2000
 
         # First query for dimension check, second for table creation, third for count
         mock_pool.set_query_results([None, {"count": 42}])
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         assert cache.size == 42
 
@@ -2385,15 +2453,21 @@ class TestSemanticCacheServiceManagement:
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.context_window_size = 3
+        params.max_context_tokens = 2000
 
         # First query for dimension check, second for stats
         mock_pool.set_query_results([None, {"total": 100, "valid": 95, "expired": 5}])
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         )
         stats = cache.stats()
 
@@ -2427,6 +2501,9 @@ class TestSemanticCacheServiceTableCreation:
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "my_semantic_cache"
@@ -2435,7 +2512,8 @@ class TestSemanticCacheServiceTableCreation:
         mock_pool.set_query_results([None, None])
 
         cache = SemanticCacheService(
-            impl=mock_service, parameters=params, genie_space_id="test-space"
+            impl=mock_service,
+            parameters=params,
         ).initialize()
         cache.ask_question("Test question")
 
@@ -2477,9 +2555,14 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.warehouse = mock_warehouse
         semantic_params.time_to_live_seconds = 86400
         semantic_params.similarity_threshold = 0.85
+        semantic_params.context_similarity_threshold = 0.80
+        semantic_params.question_weight = 0.6
+        semantic_params.context_weight = 0.4
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
+        semantic_params.context_window_size = 3
+        semantic_params.max_context_tokens = 2000
 
         # Dimension check, table count returns 0, then no similar entry found
         mock_pool.set_query_results([None, None])
@@ -2488,7 +2571,6 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_cache = SemanticCacheService(
             impl=mock_genie_service,
             parameters=semantic_params,
-            genie_space_id="test-space",
             name="SemanticCache",
         ).initialize()
 
@@ -2556,16 +2638,21 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.warehouse = mock_warehouse
         semantic_params.time_to_live_seconds = 86400
         semantic_params.similarity_threshold = 0.85
+        semantic_params.context_similarity_threshold = 0.80
+        semantic_params.question_weight = 0.6
+        semantic_params.context_weight = 0.4
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
+        semantic_params.context_window_size = 3
+        semantic_params.max_context_tokens = 2000
 
         mock_pool.set_query_results([None, None])
 
         semantic_cache = SemanticCacheService(
             impl=mock_genie_service,
             parameters=semantic_params,
-            genie_space_id="test-space",
+            workspace_client=None,  # No context for this test
         ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
@@ -2639,9 +2726,14 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.warehouse = mock_warehouse
         semantic_params.time_to_live_seconds = 86400
         semantic_params.similarity_threshold = 0.85
+        semantic_params.context_similarity_threshold = 0.80
+        semantic_params.question_weight = 0.6
+        semantic_params.context_weight = 0.4
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
+        semantic_params.context_window_size = 3
+        semantic_params.max_context_tokens = 2000
 
         cached_time = datetime.now(timezone.utc)
 
@@ -2657,11 +2749,15 @@ class TestLRUPlusSemanticCacheIntegration:
                 {
                     "id": 1,
                     "question": "What is the inventory?",  # Similar cached question
+                    "conversation_context": "",
+                    "context_string": "What is the inventory?",  # Context string (same as question)
                     "sql_query": "SELECT COUNT(*) FROM inventory",  # Cached SQL
                     "description": "Inventory count",  # Description
                     "conversation_id": "conv-123",  # Conversation ID
                     "created_at": cached_time,  # Created at
-                    "similarity": 0.92,  # Similarity score (above 0.85 threshold)
+                    "question_similarity": 0.92,  # Similarity score (above 0.85 threshold)
+                    "context_similarity": 0.90,
+                    "combined_similarity": 0.91,
                     "is_valid": True,  # Within TTL
                 },
             ]
@@ -2670,7 +2766,7 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_cache = SemanticCacheService(
             impl=mock_genie_service,
             parameters=semantic_params,
-            genie_space_id="test-space",
+            workspace_client=None,  # No context for this test
         ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
@@ -2742,9 +2838,14 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.warehouse = mock_warehouse
         semantic_params.time_to_live_seconds = 86400
         semantic_params.similarity_threshold = 0.85
+        semantic_params.context_similarity_threshold = 0.80
+        semantic_params.question_weight = 0.6
+        semantic_params.context_weight = 0.4
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
+        semantic_params.context_window_size = 3
+        semantic_params.max_context_tokens = 2000
 
         cached_time = datetime.now(timezone.utc)
 
@@ -2755,11 +2856,15 @@ class TestLRUPlusSemanticCacheIntegration:
                 {
                     "id": 1,
                     "question": "Original question",
+                    "conversation_context": "",
+                    "context_string": "Original question",  # Context string
                     "sql_query": "SELECT * FROM data",
                     "description": "Description",
                     "conversation_id": "conv-id",
                     "created_at": cached_time,
-                    "similarity": 0.95,  # High similarity
+                    "question_similarity": 0.95,  # High similarity
+                    "context_similarity": 0.95,
+                    "combined_similarity": 0.95,
                     "is_valid": True,  # Within TTL
                 },
             ]
@@ -2768,7 +2873,7 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_cache = SemanticCacheService(
             impl=mock_genie_service,
             parameters=semantic_params,
-            genie_space_id="test-space",
+            workspace_client=None,  # No context for this test
         ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)
@@ -2823,10 +2928,15 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_warehouse.warehouse_id = "test-warehouse"
         semantic_params.warehouse = mock_warehouse
         semantic_params.time_to_live_seconds = 86400
-        semantic_params.similarity_threshold = 0.85  # Threshold is 0.85
+        semantic_params.similarity_threshold = 0.85
+        semantic_params.context_similarity_threshold = 0.80
+        semantic_params.question_weight = 0.6
+        semantic_params.context_weight = 0.4  # Threshold is 0.85
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
+        semantic_params.context_window_size = 3
+        semantic_params.max_context_tokens = 2000
 
         cached_time = datetime.now(timezone.utc)
 
@@ -2837,11 +2947,15 @@ class TestLRUPlusSemanticCacheIntegration:
                 {
                     "id": 1,
                     "question": "Unrelated question",
+                    "conversation_context": "",
+                    "context_string": "Unrelated question",
                     "sql_query": "SELECT * FROM other",
                     "description": "Description",
                     "conversation_id": "conv-id",
                     "created_at": cached_time,
-                    "similarity": 0.60,  # Below 0.85 threshold
+                    "question_similarity": 0.60,  # Below 0.85 threshold
+                    "context_similarity": 0.65,
+                    "combined_similarity": 0.62,
                     "is_valid": True,
                 },
             ]
@@ -2850,7 +2964,7 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_cache = SemanticCacheService(
             impl=mock_genie_service,
             parameters=semantic_params,
-            genie_space_id="test-space",
+            workspace_client=None,  # No context for this test
         ).initialize()
 
         lru_params = Mock(spec=GenieLRUCacheParametersModel)

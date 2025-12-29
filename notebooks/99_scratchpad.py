@@ -32,11 +32,13 @@ yaml.safe_dump(config.model_dump())
 # COMMAND ----------
 
 from dao_ai.tools import create_genie_tool
+import os
 from dao_ai.config import GenieRoomModel
 from langchain_core.tools import BaseTool, tool, StructuredTool
 from rich import print
 
-tool: StructuredTool = create_genie_tool(name="my_genie_room_tool", description="get inventory info", genie_room=GenieRoomModel(name="Genie Room", description="descirption of genie room", space_id="01f01c91f1f414d59daaefd2b7ec82ea"))
+GENIE_SPACE_ID = os.environ.get("RETAIL_AI_GENIE_SPACE_ID", "01f01c91f1f414d59daaefd2b7ec82ea")
+tool: StructuredTool = create_genie_tool(name="my_genie_room_tool", description="get inventory info", genie_room=GenieRoomModel(name="Genie Room", description="descirption of genie room", space_id=GENIE_SPACE_ID))
 
 print(tool.description)
 
@@ -189,7 +191,7 @@ vector_search_retriever_tool: BaseTool = (
 from langgraph.prebuilt import create_react_agent
 from databricks_langchain import ChatDatabricks
 from dao_ai.tools import create_vector_search_tool
-from dao_ai.state import SharedState, AgentConfig
+from dao_ai.state import AgentState, Context
 
 
 vs_tool = create_vector_search_tool(
@@ -204,8 +206,8 @@ vector_search_agent = create_react_agent(
     model=ChatDatabricks(model=model_name, temperature=0.1),
     tools=[vs_tool],
     prompt="You are an intelligent agent that can answer questions about summarizing product reviews. You have access to a vector search index that contains product reviews. Use the vector search index to answer the question. If the question is not related to product reviews, just say that you don't know.",
-    state_schema=SharedState,
-    config_schema=AgentConfig,
+    state_schema=AgentState,
+    context_schema=Context,
     checkpointer=None,
 )
 
@@ -380,7 +382,7 @@ from loguru import logger
 from mlflow.models import ModelConfig
 from langchain_core.prompts import PromptTemplate
 
-from dao_ai.state import AgentConfig, SharedState
+from dao_ai.state import AgentState, Context
 from dao_ai.tools import create_genie_tool, create_vector_search_tool
 
 from langchain_core.messages import HumanMessage
@@ -409,8 +411,8 @@ agent: CompiledStateGraph = create_react_agent(
     name="arma_agent",
     model=llm,
     prompt=formatted_prompt,
-    state_schema=SharedState,
-    config_schema=AgentConfig,
+    state_schema=AgentState,
+    context_schema=Context,
     tools=[],
 ) 
 

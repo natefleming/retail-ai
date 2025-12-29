@@ -71,7 +71,7 @@ def create_send_slack_message_tool(
     channel_name: Optional[str] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
-) -> Callable[[str], Any]:
+) -> Callable[[str], str]:
     """
     Create a tool that sends a message to a Slack channel.
 

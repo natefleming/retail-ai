@@ -271,18 +271,24 @@ Examples:
     chat_parser.add_argument(
         "--thread-id",
         type=str,
-        default="1",
+        default=None,
         metavar="ID",
-        help="Thread ID for the chat session (default: 1)",
+        help="Thread ID for the chat session (default: auto-generated UUID)",
     )
 
     options = parser.parse_args(args)
+
+    # Generate a new thread_id UUID if not provided (only for chat command)
+    if hasattr(options, "thread_id") and options.thread_id is None:
+        import uuid
+
+        options.thread_id = str(uuid.uuid4())
 
     return options
 
 
 def handle_chat_command(options: Namespace) -> None:
-    """Interactive chat REPL with the DAO AI system."""
+    """Interactive chat REPL with the DAO AI system with Human-in-the-Loop support."""
     logger.debug("Starting chat session with DAO AI system...")
 
     try:
@@ -305,9 +311,7 @@ def handle_chat_command(options: Namespace) -> None:
         print("-" * 50)
 
         # Import streaming function and interrupt handling
-        from langchain_core.messages import HumanMessage
-
-        from dao_ai.models import process_messages_stream
+        from langchain_core.messages import AIMessage, HumanMessage
 
         # Conversation history
         messages = []
@@ -353,44 +357,204 @@ def handle_chat_command(options: Namespace) -> None:
                 # Prepare custom inputs for the agent
                 custom_inputs = {"configurable": configurable}
 
+                # Invoke the graph and handle interrupts (HITL)
+                # Wrap in async function to maintain connection pool throughout
+                logger.debug(f"Invoking graph with {len(messages)} messages")
+
+                import asyncio
+
+                from langgraph.types import Command
+
+                async def _invoke_with_hitl():
+                    """Invoke graph and handle HITL interrupts in single async context."""
+                    result = await app.ainvoke(
+                        {"messages": messages},
+                        config=custom_inputs,
+                    )
+
+                    # Check for interrupts (Human-in-the-Loop) using __interrupt__
+                    # This is the modern LangChain pattern
+                    while "__interrupt__" in result:
+                        interrupts = result["__interrupt__"]
+                        logger.info(f"HITL: {len(interrupts)} interrupt(s) detected")
+
+                        # Collect decisions for all interrupts
+                        decisions = []
+
+                        for interrupt in interrupts:
+                            interrupt_value = interrupt.value
+                            action_requests = interrupt_value.get("action_requests", [])
+
+                            for action_request in action_requests:
+                                # Display interrupt information
+                                print("\n⚠️  Human in the Loop - Tool Approval Required")
+                                print(f"{'=' * 60}")
+
+                                tool_name = action_request.get("name", "unknown")
+                                tool_args = action_request.get("arguments", {})
+                                description = action_request.get("description", "")
+
+                                print(f"Tool: {tool_name}")
+                                if description:
+                                    print(f"\n{description}\n")
+
+                                print("Arguments:")
+                                for arg_name, arg_value in tool_args.items():
+                                    # Truncate long values
+                                    arg_str = str(arg_value)
+                                    if len(arg_str) > 100:
+                                        arg_str = arg_str[:97] + "..."
+                                    print(f"  - {arg_name}: {arg_str}")
+
+                                print(f"{'=' * 60}")
+
+                                # Prompt user for decision
+                                while True:
+                                    decision_input = (
+                                        input(
+                                            "\nAction? (a)pprove / (r)eject / (e)dit / (h)elp: "
+                                        )
+                                        .strip()
+                                        .lower()
+                                    )
+
+                                    if decision_input in ["a", "approve"]:
+                                        logger.info("User approved tool call")
+                                        print("✅ Approved - continuing execution...")
+                                        decisions.append({"type": "approve"})
+                                        break
+                                    elif decision_input in ["r", "reject"]:
+                                        logger.info("User rejected tool call")
+                                        feedback = input(
+                                            "   Feedback for agent (optional): "
+                                        ).strip()
+                                        if feedback:
+                                            decisions.append(
+                                                {"type": "reject", "message": feedback}
+                                            )
+                                        else:
+                                            decisions.append(
+                                                {
+                                                    "type": "reject",
+                                                    "message": "Tool call rejected by user",
+                                                }
+                                            )
+                                        print(
+                                            "❌ Rejected - agent will receive feedback..."
+                                        )
+                                        break
+                                    elif decision_input in ["e", "edit"]:
+                                        print(
+                                            "ℹ️  Edit functionality not yet implemented in CLI"
+                                        )
+                                        print("   Please approve or reject.")
+                                        continue
+                                    elif decision_input in ["h", "help"]:
+                                        print("\nAvailable actions:")
+                                        print(
+                                            "  (a)pprove - Execute the tool call as shown"
+                                        )
+                                        print(
+                                            "  (r)eject  - Cancel the tool call with optional feedback"
+                                        )
+                                        print(
+                                            "  (e)dit    - Modify arguments (not yet implemented)"
+                                        )
+                                        print("  (h)elp    - Show this help message")
+                                        continue
+                                    else:
+                                        print("Invalid option. Type 'h' for help.")
+                                        continue
+
+                        # Resume execution with decisions using Command
+                        # This is the modern LangChain pattern
+                        logger.debug(f"Resuming with {len(decisions)} decision(s)")
+                        result = await app.ainvoke(
+                            Command(resume={"decisions": decisions}),
+                            config=custom_inputs,
+                        )
+
+                    return result
+
+                try:
+                    # Use async invoke - keep connection pool alive throughout HITL
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                try:
+                    result = loop.run_until_complete(_invoke_with_hitl())
+                except Exception as e:
+                    logger.error(f"Error invoking graph: {e}")
+                    print(f"\n❌ Error: {e}")
+                    continue
+
+                # After all interrupts handled, display the final response
                 print("\n🤖 Assistant: ", end="", flush=True)
 
-                # Stream the response
                 response_content = ""
+                structured_response = None
                 try:
-                    for chunk in process_messages_stream(app, messages, custom_inputs):
-                        # Handle different chunk types
-                        if hasattr(chunk, "content") and chunk.content:
-                            content = chunk.content
-                            print(content, end="", flush=True)
-                            response_content += content
-                        elif hasattr(chunk, "choices") and chunk.choices:
-                            # Handle ChatCompletionChunk format
-                            for choice in chunk.choices:
-                                if (
-                                    hasattr(choice, "delta")
-                                    and choice.delta
-                                    and choice.delta.content
-                                ):
-                                    content = choice.delta.content
-                                    print(content, end="", flush=True)
-                                    response_content += content
+                    # Debug: Log what's in the result
+                    logger.debug(f"Result keys: {result.keys() if result else 'None'}")
+                    if result:
+                        for key in result.keys():
+                            logger.debug(f"Result['{key}'] type: {type(result[key])}")
 
-                    print()  # New line after streaming
+                    # Get the latest messages from the result
+                    if result and "messages" in result:
+                        latest_messages = result["messages"]
+                        # Find the last AI message
+                        for msg in reversed(latest_messages):
+                            if isinstance(msg, AIMessage):
+                                logger.debug(f"AI message content: {msg.content}")
+                                logger.debug(
+                                    f"AI message has tool_calls: {hasattr(msg, 'tool_calls')}"
+                                )
+                                if hasattr(msg, "tool_calls"):
+                                    logger.debug(f"Tool calls: {msg.tool_calls}")
+
+                                if hasattr(msg, "content") and msg.content:
+                                    response_content = msg.content
+                                    print(response_content, end="", flush=True)
+                                    break
+
+                    # Check for structured output and display it separately
+                    if result and "structured_response" in result:
+                        structured_response = result["structured_response"]
+                        import json
+
+                        structured_json = json.dumps(
+                            structured_response.model_dump()
+                            if hasattr(structured_response, "model_dump")
+                            else structured_response,
+                            indent=2,
+                        )
+
+                        # If there was message content, add separator
+                        if response_content.strip():
+                            print("\n\n📊 Structured Output:")
+                            print(structured_json)
+                        else:
+                            # No message content, just show structured output
+                            print(structured_json, end="", flush=True)
+
+                        response_content = response_content or structured_json
+
+                    print()  # New line after response
 
                     # Add assistant response to history if we got content
                     if response_content.strip():
-                        from langchain_core.messages import AIMessage
-
                         assistant_message = AIMessage(content=response_content)
                         messages.append(assistant_message)
                     else:
                         print("(No response content generated)")
 
                 except Exception as e:
-                    print(f"\n❌ Error during streaming: {e}")
+                    print(f"\n❌ Error processing response: {e}")
                     print(f"Stack trace:\n{traceback.format_exc()}")
-                    logger.error(f"Streaming error: {e}")
+                    logger.error(f"Response processing error: {e}")
                     logger.error(f"Stack trace: {traceback.format_exc()}")
 
             except EOFError:
@@ -404,6 +568,7 @@ def handle_chat_command(options: Namespace) -> None:
             except Exception as e:
                 print(f"\n❌ Error: {e}")
                 logger.error(f"Chat error: {e}")
+                traceback.print_exc()
 
     except Exception as e:
         logger.error(f"Failed to initialize chat session: {e}")

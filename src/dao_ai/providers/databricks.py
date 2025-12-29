@@ -1,5 +1,4 @@
 import base64
-import re
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Final, Sequence
@@ -32,14 +31,12 @@ from mlflow import MlflowClient
 from mlflow.entities import Experiment
 from mlflow.entities.model_registry import PromptVersion
 from mlflow.entities.model_registry.model_version import ModelVersion
-from mlflow.genai.datasets import EvaluationDataset, get_dataset
 from mlflow.genai.prompts import load_prompt
 from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
 from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
     DatabricksResource,
 )
-from mlflow.pyfunc import ResponsesAgent
 from pyspark.sql import SparkSession
 from unitycatalog.ai.core.base import FunctionExecutionResult
 from unitycatalog.ai.core.databricks import DatabricksFunctionClient
@@ -49,6 +46,7 @@ from dao_ai.config import (
     AppConfig,
     ConnectionModel,
     DatabaseModel,
+    DatabricksAppModel,
     DatasetModel,
     FunctionModel,
     GenieRoomModel,
@@ -57,7 +55,6 @@ from dao_ai.config import (
     IsDatabricksResource,
     LLMModel,
     PromptModel,
-    PromptOptimizationModel,
     SchemaModel,
     TableModel,
     UnityCatalogFunctionSqlModel,
@@ -250,6 +247,7 @@ class DatabricksProvider(ServiceProvider):
         )
         databases: Sequence[DatabaseModel] = list(config.resources.databases.values())
         volumes: Sequence[VolumeModel] = list(config.resources.volumes.values())
+        apps: Sequence[DatabricksAppModel] = list(config.resources.apps.values())
 
         resources: Sequence[IsDatabricksResource] = (
             llms
@@ -261,6 +259,7 @@ class DatabricksProvider(ServiceProvider):
             + connections
             + databases
             + volumes
+            + apps
         )
 
         # Flatten all resources from all models into a single list
@@ -1190,20 +1189,94 @@ class DatabricksProvider(ServiceProvider):
                 )
                 # Fall through to try other methods
 
-        # Try to load in priority order: champion → latest → default
+        # Try to load in priority order: champion → default (with sync check)
         logger.debug(
-            f"Trying fallback order for '{prompt_name}': champion → latest → default"
+            f"Trying fallback order for '{prompt_name}': champion → default (with auto-sync)"
         )
 
-        # 1. Try champion alias
+        # First, sync default alias if template has changed (even if champion exists)
+        if prompt_model.default_template:
+            try:
+                # Try to load existing default
+                existing_default = load_prompt(f"prompts:/{prompt_name}@default")
+
+                # Check if champion exists and if it matches default
+                champion_matches_default = False
+                try:
+                    existing_champion = load_prompt(f"prompts:/{prompt_name}@champion")
+                    champion_matches_default = (
+                        existing_champion.version == existing_default.version
+                    )
+                    logger.debug(
+                        f"Champion v{existing_champion.version} vs Default v{existing_default.version}: "
+                        f"{'tracking' if champion_matches_default else 'pinned separately'}"
+                    )
+                except Exception:
+                    # No champion exists
+                    logger.debug(f"No champion alias found for '{prompt_name}'")
+
+                # Check if default_template differs from existing default
+                if (
+                    existing_default.template.strip()
+                    != prompt_model.default_template.strip()
+                ):
+                    logger.info(
+                        f"Default template for '{prompt_name}' has changed, "
+                        "registering new version with default alias"
+                    )
+
+                    # Only update champion if it was pointing to the old default
+                    if champion_matches_default:
+                        logger.info(
+                            f"Champion was tracking default (v{existing_default.version}), "
+                            "will update champion to new default version"
+                        )
+                        set_champion = True
+                    else:
+                        logger.info("Champion is pinned separately, preserving it")
+                        set_champion = False
+
+                    self._register_default_template(
+                        prompt_name,
+                        prompt_model.default_template,
+                        prompt_model.description,
+                        set_champion=set_champion,
+                    )
+            except Exception as e:
+                # No default exists yet, register it
+                logger.debug(f"No default alias found for '{prompt_name}': {e}")
+                logger.info(
+                    f"Registering default_template for '{prompt_name}' as default alias"
+                )
+                # First registration - set both default and champion
+                self._register_default_template(
+                    prompt_name,
+                    prompt_model.default_template,
+                    prompt_model.description,
+                    set_champion=True,
+                )
+
+        # 1. Try champion alias (highest priority for execution)
         try:
             prompt_version = load_prompt(f"prompts:/{prompt_name}@champion")
-            logger.info(f"Loaded prompt '{prompt_name}' from champion alias")
+            logger.info(
+                f"Loaded prompt '{prompt_name}' from champion alias (default was synced separately)"
+            )
             return prompt_version
         except Exception as e:
             logger.debug(f"Champion alias not found for '{prompt_name}': {e}")
 
-        # 2. Try latest alias
+        # 2. Try default alias (already synced above)
+        if prompt_model.default_template:
+            try:
+                prompt_version = load_prompt(f"prompts:/{prompt_name}@default")
+                logger.info(f"Loaded prompt '{prompt_name}' from default alias")
+                return prompt_version
+            except Exception as e:
+                # Should not happen since we just registered it above, but handle anyway
+                logger.debug(f"Default alias not found for '{prompt_name}': {e}")
+
+        # 3. Try latest alias as final fallback
         try:
             prompt_version = load_prompt(f"prompts:/{prompt_name}@latest")
             logger.info(f"Loaded prompt '{prompt_name}' from latest alias")
@@ -1211,43 +1284,49 @@ class DatabricksProvider(ServiceProvider):
         except Exception as e:
             logger.debug(f"Latest alias not found for '{prompt_name}': {e}")
 
-        # 3. Try default alias
-        try:
-            prompt_version = load_prompt(f"prompts:/{prompt_name}@default")
-            logger.info(f"Loaded prompt '{prompt_name}' from default alias")
-            return prompt_version
-        except Exception as e:
-            logger.debug(f"Default alias not found for '{prompt_name}': {e}")
-
-        # 4. Try to register default_template if provided
+        # 4. Final fallback: use default_template directly if available
         if prompt_model.default_template:
-            logger.info(
-                f"No existing prompt found for '{prompt_name}', "
-                "attempting to register default_template"
+            logger.warning(
+                f"Could not load prompt '{prompt_name}' from registry. "
+                "Using default_template directly (likely in test environment)"
             )
-            return self._register_default_template(
-                prompt_name, prompt_model.default_template, prompt_model.description
+            return PromptVersion(
+                name=prompt_name,
+                version=1,
+                template=prompt_model.default_template,
+                tags={"dao_ai": dao_ai_version()},
             )
 
         raise ValueError(
             f"Prompt '{prompt_name}' not found in registry "
-            "(tried champion alias, latest version, default alias) "
+            "(tried champion, default, latest aliases) "
             "and no default_template provided"
         )
 
     def _register_default_template(
-        self, prompt_name: str, default_template: str, description: str | None = None
+        self,
+        prompt_name: str,
+        default_template: str,
+        description: str | None = None,
+        set_champion: bool = True,
     ) -> PromptVersion:
         """Register default_template as a new prompt version.
 
-        Called when no existing prompt version is found (champion, latest, default all failed).
-        Registers the template and sets both 'default' and 'champion' aliases.
+        Registers the template and sets the 'default' alias.
+        Optionally sets 'champion' alias if no champion exists.
+
+        Args:
+            prompt_name: Full name of the prompt
+            default_template: The template content
+            description: Optional description for commit message
+            set_champion: Whether to also set champion alias (default: True)
 
         If registration fails (e.g., in Model Serving with restricted permissions),
         logs the error and raises.
         """
         logger.info(
-            f"No existing prompt found for '{prompt_name}', attempting to register default_template"
+            f"Registering default_template for '{prompt_name}' "
+            f"(set_champion={set_champion})"
         )
 
         try:
@@ -1259,22 +1338,34 @@ class DatabricksProvider(ServiceProvider):
                 tags={"dao_ai": dao_ai_version()},
             )
 
-            # Try to set aliases (may fail in restricted environments)
+            # Always set default alias
             try:
                 mlflow.genai.set_prompt_alias(
                     name=prompt_name, alias="default", version=prompt_version.version
                 )
-                mlflow.genai.set_prompt_alias(
-                    name=prompt_name, alias="champion", version=prompt_version.version
-                )
                 logger.info(
-                    f"Registered prompt '{prompt_name}' v{prompt_version.version} with aliases"
+                    f"Set default alias for '{prompt_name}' v{prompt_version.version}"
                 )
             except Exception as alias_error:
                 logger.warning(
-                    f"Registered prompt '{prompt_name}' v{prompt_version.version} "
-                    f"but failed to set aliases: {alias_error}"
+                    f"Could not set default alias for '{prompt_name}': {alias_error}"
                 )
+
+            # Optionally set champion alias (only if no champion exists or explicitly requested)
+            if set_champion:
+                try:
+                    mlflow.genai.set_prompt_alias(
+                        name=prompt_name,
+                        alias="champion",
+                        version=prompt_version.version,
+                    )
+                    logger.info(
+                        f"Set champion alias for '{prompt_name}' v{prompt_version.version}"
+                    )
+                except Exception as alias_error:
+                    logger.warning(
+                        f"Could not set champion alias for '{prompt_name}': {alias_error}"
+                    )
 
             return prompt_version
 
@@ -1289,349 +1380,3 @@ class DatabricksProvider(ServiceProvider):
                 template=default_template,
                 tags={"dao_ai": dao_ai_version()},
             )
-
-    def optimize_prompt(self, optimization: PromptOptimizationModel) -> PromptModel:
-        """
-        Optimize a prompt using MLflow's prompt optimization (MLflow 3.5+).
-
-        This uses the MLflow GenAI optimize_prompts API with GepaPromptOptimizer as documented at:
-        https://mlflow.org/docs/latest/genai/prompt-registry/optimize-prompts/
-
-        Args:
-            optimization: PromptOptimizationModel containing configuration
-
-        Returns:
-            PromptModel: The optimized prompt with new URI
-        """
-        from mlflow.genai.optimize import GepaPromptOptimizer, optimize_prompts
-        from mlflow.genai.scorers import Correctness
-
-        from dao_ai.config import AgentModel, PromptModel
-
-        logger.info(f"Optimizing prompt: {optimization.name}")
-
-        # Get agent and prompt (prompt is guaranteed to be set by validator)
-        agent_model: AgentModel = optimization.agent
-        prompt: PromptModel = optimization.prompt  # type: ignore[assignment]
-        agent_model.prompt = prompt.uri
-
-        print(f"prompt={agent_model.prompt}")
-        # Log the prompt URI scheme being used
-        # Supports three schemes:
-        # 1. Specific version: "prompts:/qa/1" (when version is specified)
-        # 2. Alias: "prompts:/qa@champion" (when alias is specified)
-        # 3. Latest: "prompts:/qa@latest" (default when neither version nor alias specified)
-        prompt_uri: str = prompt.uri
-        logger.info(f"Using prompt URI for optimization: {prompt_uri}")
-
-        # Load the specific prompt version by URI for comparison
-        # Try to load the exact version specified, but if it doesn't exist,
-        # use get_prompt to create it from default_template
-        prompt_version: PromptVersion
-        try:
-            prompt_version = load_prompt(prompt_uri)
-            logger.info(f"Successfully loaded prompt from registry: {prompt_uri}")
-        except Exception as e:
-            logger.warning(
-                f"Could not load prompt '{prompt_uri}' directly: {e}. "
-                "Attempting to create from default_template..."
-            )
-            # Use get_prompt which will create from default_template if needed
-            prompt_version = self.get_prompt(prompt)
-            logger.info(
-                f"Created/loaded prompt '{prompt.full_name}' (will optimize against this version)"
-            )
-
-        # Load the evaluation dataset by name
-        logger.debug(f"Looking up dataset: {optimization.dataset}")
-        dataset: EvaluationDataset
-        if isinstance(optimization.dataset, str):
-            dataset = get_dataset(name=optimization.dataset)
-        else:
-            dataset = optimization.dataset.as_dataset()
-
-        # Set up reflection model for the optimizer
-        reflection_model_name: str
-        if optimization.reflection_model:
-            if isinstance(optimization.reflection_model, str):
-                reflection_model_name = optimization.reflection_model
-            else:
-                reflection_model_name = optimization.reflection_model.uri
-        else:
-            reflection_model_name = agent_model.model.uri
-        logger.debug(f"Using reflection model: {reflection_model_name}")
-
-        # Create the GepaPromptOptimizer
-        optimizer: GepaPromptOptimizer = GepaPromptOptimizer(
-            reflection_model=reflection_model_name,
-            max_metric_calls=optimization.num_candidates,
-            display_progress_bar=True,
-        )
-
-        # Set up scorer (judge model for evaluation)
-        scorer_model: str
-        if optimization.scorer_model:
-            if isinstance(optimization.scorer_model, str):
-                scorer_model = optimization.scorer_model
-            else:
-                scorer_model = optimization.scorer_model.uri
-        else:
-            scorer_model = agent_model.model.uri  # Use Databricks default
-        logger.debug(f"Using scorer with model: {scorer_model}")
-
-        scorers: list[Correctness] = [Correctness(model=scorer_model)]
-
-        # Use prompt_uri from line 1188 - already set to prompt.uri (configured URI)
-        # DO NOT overwrite with prompt_version.uri as that uses fallback logic
-        logger.debug(f"Optimizing prompt: {prompt_uri}")
-
-        agent: ResponsesAgent = agent_model.as_responses_agent()
-
-        # Create predict function that will be optimized
-        def predict_fn(**inputs: dict[str, Any]) -> str:
-            """Prediction function that uses the ResponsesAgent with ChatPayload.
-
-            The agent already has the prompt referenced/applied, so we just need to
-            convert the ChatPayload inputs to ResponsesAgentRequest format and call predict.
-
-            Args:
-                **inputs: Dictionary containing ChatPayload fields (messages/input, custom_inputs)
-
-            Returns:
-                str: The agent's response content
-            """
-            from mlflow.types.responses import (
-                ResponsesAgentRequest,
-                ResponsesAgentResponse,
-            )
-            from mlflow.types.responses_helpers import Message
-
-            from dao_ai.config import ChatPayload
-
-            # Verify agent is accessible (should be captured from outer scope)
-            if agent is None:
-                raise RuntimeError(
-                    "Agent object is not available in predict_fn. "
-                    "This may indicate a serialization issue with the ResponsesAgent."
-                )
-
-            # Convert inputs to ChatPayload
-            chat_payload: ChatPayload = ChatPayload(**inputs)
-
-            # Convert ChatPayload messages to MLflow Message format
-            mlflow_messages: list[Message] = [
-                Message(role=msg.role, content=msg.content)
-                for msg in chat_payload.messages
-            ]
-
-            # Create ResponsesAgentRequest
-            request: ResponsesAgentRequest = ResponsesAgentRequest(
-                input=mlflow_messages,
-                custom_inputs=chat_payload.custom_inputs,
-            )
-
-            # Call the ResponsesAgent's predict method
-            response: ResponsesAgentResponse = agent.predict(request)
-
-            if response.output and len(response.output) > 0:
-                content = response.output[0].content
-                logger.debug(f"Response content type: {type(content)}")
-                logger.debug(f"Response content: {content}")
-
-                # Extract text from content using same logic as LanggraphResponsesAgent._extract_text_from_content
-                # Content can be:
-                # - A string (return as is)
-                # - A list of items with 'text' keys (extract and join)
-                # - Other types (try to get 'text' attribute or convert to string)
-                if isinstance(content, str):
-                    return content
-                elif isinstance(content, list):
-                    text_parts = []
-                    for content_item in content:
-                        if isinstance(content_item, str):
-                            text_parts.append(content_item)
-                        elif isinstance(content_item, dict) and "text" in content_item:
-                            text_parts.append(content_item["text"])
-                        elif hasattr(content_item, "text"):
-                            text_parts.append(content_item.text)
-                    return "".join(text_parts) if text_parts else str(content)
-                else:
-                    # Fallback for unknown types - try to extract text attribute
-                    return getattr(content, "text", str(content))
-            else:
-                return ""
-
-        # Set registry URI for Databricks Unity Catalog
-        mlflow.set_registry_uri("databricks-uc")
-
-        # Run optimization with tracking disabled to prevent auto-registering all candidates
-        logger.info("Running prompt optimization with GepaPromptOptimizer...")
-        logger.info(
-            f"Generating {optimization.num_candidates} candidate prompts for evaluation"
-        )
-
-        from mlflow.genai.optimize.types import (
-            PromptOptimizationResult,
-        )
-
-        result: PromptOptimizationResult = optimize_prompts(
-            predict_fn=predict_fn,
-            train_data=dataset,
-            prompt_uris=[prompt_uri],  # Use the configured URI (version/alias/latest)
-            optimizer=optimizer,
-            scorers=scorers,
-            enable_tracking=False,  # Don't auto-register all candidates
-        )
-
-        # Log the optimization results
-        logger.info("Optimization complete!")
-        logger.info(f"Optimizer used: {result.optimizer_name}")
-
-        if result.optimized_prompts:
-            optimized_prompt_version: PromptVersion = result.optimized_prompts[0]
-
-            # Check if the optimized prompt is actually different from the original
-            original_template: str = prompt_version.to_single_brace_format().strip()
-            optimized_template: str = (
-                optimized_prompt_version.to_single_brace_format().strip()
-            )
-
-            # Normalize whitespace for more robust comparison
-            original_normalized: str = re.sub(r"\s+", " ", original_template).strip()
-            optimized_normalized: str = re.sub(r"\s+", " ", optimized_template).strip()
-
-            logger.debug(f"Original template length: {len(original_template)} chars")
-            logger.debug(f"Optimized template length: {len(optimized_template)} chars")
-            logger.debug(
-                f"Templates identical: {original_normalized == optimized_normalized}"
-            )
-
-            if original_normalized == optimized_normalized:
-                logger.info(
-                    f"Optimized prompt is identical to original for '{prompt.full_name}'. "
-                    "No new version will be registered."
-                )
-                return prompt
-
-            logger.info("Optimized prompt is DIFFERENT from original")
-            logger.info(
-                f"Original length: {len(original_template)}, Optimized length: {len(optimized_template)}"
-            )
-            logger.debug(
-                f"Original template (first 300 chars): {original_template[:300]}..."
-            )
-            logger.debug(
-                f"Optimized template (first 300 chars): {optimized_template[:300]}..."
-            )
-
-            # Check evaluation scores to determine if we should register the optimized prompt
-            should_register: bool = False
-            has_improvement: bool = False
-
-            if (
-                result.initial_eval_score is not None
-                and result.final_eval_score is not None
-            ):
-                logger.info("Evaluation scores:")
-                logger.info(f"  Initial score: {result.initial_eval_score}")
-                logger.info(f"  Final score: {result.final_eval_score}")
-
-                # Only register if there's improvement
-                if result.final_eval_score > result.initial_eval_score:
-                    improvement: float = (
-                        (result.final_eval_score - result.initial_eval_score)
-                        / result.initial_eval_score
-                    ) * 100
-                    logger.info(
-                        f"Optimized prompt improved by {improvement:.2f}% "
-                        f"(initial: {result.initial_eval_score}, final: {result.final_eval_score})"
-                    )
-                    should_register = True
-                    has_improvement = True
-                else:
-                    logger.info(
-                        f"Optimized prompt (score: {result.final_eval_score}) did NOT improve over baseline (score: {result.initial_eval_score}). "
-                        "No new version will be registered."
-                    )
-            else:
-                # No scores available - register anyway but warn
-                logger.warning(
-                    "No evaluation scores available to compare performance. "
-                    "Registering optimized prompt without performance validation."
-                )
-                should_register = True
-
-            if not should_register:
-                logger.info(
-                    f"Skipping registration for '{prompt.full_name}' (no improvement)"
-                )
-                return prompt
-
-            # Register the optimized prompt manually
-            try:
-                logger.info(f"Registering optimized prompt '{prompt.full_name}'")
-                registered_version: PromptVersion = mlflow.genai.register_prompt(
-                    name=prompt.full_name,
-                    template=optimized_template,
-                    commit_message=f"Optimized for {agent_model.model.uri} using GepaPromptOptimizer",
-                    tags={
-                        "dao_ai": dao_ai_version(),
-                        "target_model": agent_model.model.uri,
-                    },
-                )
-                logger.info(
-                    f"Registered optimized prompt as version {registered_version.version}"
-                )
-
-                # Always set "latest" alias (represents most recently registered prompt)
-                logger.info(
-                    f"Setting 'latest' alias for optimized prompt '{prompt.full_name}' version {registered_version.version}"
-                )
-                mlflow.genai.set_prompt_alias(
-                    name=prompt.full_name,
-                    alias="latest",
-                    version=registered_version.version,
-                )
-                logger.info(
-                    f"Successfully set 'latest' alias for '{prompt.full_name}' v{registered_version.version}"
-                )
-
-                # If there's confirmed improvement, also set the "champion" alias
-                # (represents the prompt that should be used by deployed agents)
-                if has_improvement:
-                    logger.info(
-                        f"Setting 'champion' alias for improved prompt '{prompt.full_name}' version {registered_version.version}"
-                    )
-                    mlflow.genai.set_prompt_alias(
-                        name=prompt.full_name,
-                        alias="champion",
-                        version=registered_version.version,
-                    )
-                    logger.info(
-                        f"Successfully set 'champion' alias for '{prompt.full_name}' v{registered_version.version}"
-                    )
-
-                # Add target_model and dao_ai tags
-                tags: dict[str, Any] = prompt.tags.copy() if prompt.tags else {}
-                tags["target_model"] = agent_model.model.uri
-                tags["dao_ai"] = dao_ai_version()
-
-                # Return the optimized prompt with the appropriate alias
-                # Use "champion" if there was improvement, otherwise "latest"
-                result_alias: str = "champion" if has_improvement else "latest"
-                return PromptModel(
-                    name=prompt.name,
-                    schema=prompt.schema_model,
-                    description=f"Optimized version of {prompt.name} for {agent_model.model.uri}",
-                    alias=result_alias,
-                    tags=tags,
-                )
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to register optimized prompt '{prompt.full_name}': {e}"
-                )
-                return prompt
-        else:
-            logger.warning("No optimized prompts returned from optimization")
-            return prompt
