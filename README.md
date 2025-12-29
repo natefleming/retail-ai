@@ -1,4 +1,4 @@
-# DAO: Declarative Agent Orchestration
+a# DAO: Declarative Agent Orchestration
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
@@ -834,7 +834,7 @@ agents:
 
 **Think of it like:** A/B testing for AI prompts, but automated.
 
-Use GEPA (Generative Evolution of Prompts and Agents) to automatically improve prompts:
+Use GEPA (Genetic-Pareto Prompt Optimization) to automatically improve prompts:
 
 ```yaml
 optimizations:
