@@ -32,6 +32,10 @@ Prefer a visual interface? Check out **[DAO AI Builder](https://github.com/natef
 
 DAO AI Builder generates valid YAML configurations that work seamlessly with this framework. Use whichever workflow suits you best — visual builder or direct YAML editing.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/natefleming/dao-ai-builder/6ca07d2b977d9509b75edfb2e0f45681c840a931/docs/images/dao-ai-builder-screenshot.png" width="700" alt="DAO AI Builder Screenshot">
+</p>
+
 ---
 
 ## Why DAO?
