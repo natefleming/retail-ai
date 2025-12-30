@@ -1728,7 +1728,7 @@ class PromptModel(BaseModel, HasFullName):
     version: Optional[int] = None
     tags: Optional[dict[str, Any]] = Field(default_factory=dict)
     auto_register: bool = Field(
-        default=True,
+        default=False,
         description="Whether to automatically register the default_template to the prompt registry. "
         "If False, the prompt will only be loaded from the registry (never created/updated). "
         "Defaults to True for backward compatibility.",
