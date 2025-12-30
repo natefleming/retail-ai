@@ -540,17 +540,6 @@
           "title": "Name",
           "type": "string"
         },
-        "type": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StorageType"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "memory"
-        },
         "database": {
           "anyOf": [
             {
@@ -784,7 +773,7 @@
     },
     "DatabaseModel": {
       "additionalProperties": false,
-      "description": "Configuration for a Databricks Lakebase (PostgreSQL) database instance.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nDatabase Type:\n- lakebase: Databricks-managed Lakebase instance (authentication optional, supports ambient auth)\n- postgres: Standard PostgreSQL database (authentication required)\n\nExample Service Principal Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    type: lakebase\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample User Configuration:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    type: lakebase\n    user: my-user@databricks.com\n```\n\nExample Ambient Authentication (Lakebase only):\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    type: lakebase\n    on_behalf_of_user: true\n```",
+      "description": "Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nNote: `instance_name` and `host` are mutually exclusive. Provide one or the other.\n\nExample Databricks Lakebase with Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    instance_name: my-lakebase-instance\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Databricks Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    instance_name: my-lakebase-instance\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -944,17 +933,6 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
-        "type": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DatabaseType"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "lakebase"
         },
         "instance_name": {
           "anyOf": [
@@ -1215,14 +1193,6 @@
       ],
       "title": "DatabaseModel",
       "type": "object"
-    },
-    "DatabaseType": {
-      "enum": [
-        "postgres",
-        "lakebase"
-      ],
-      "title": "DatabaseType",
-      "type": "string"
     },
     "DatabricksAppModel": {
       "additionalProperties": false,
@@ -3293,6 +3263,12 @@
             }
           ],
           "title": "Tags"
+        },
+        "auto_register": {
+          "default": true,
+          "description": "Whether to automatically register the default_template to the prompt registry. If False, the prompt will only be loaded from the registry (never created/updated). Defaults to True for backward compatibility.",
+          "title": "Auto Register",
+          "type": "boolean"
         }
       },
       "required": [
@@ -3450,8 +3426,8 @@
               "type": "null"
             }
           ],
-          "default": "/tmp/flashrank_cache",
-          "description": "Directory to cache downloaded model weights.",
+          "default": "~/.dao_ai/cache/flashrank",
+          "description": "Directory to cache downloaded model weights. Supports tilde expansion (e.g., ~/.dao_ai).",
           "title": "Cache Dir"
         },
         "columns": {
@@ -3802,15 +3778,6 @@
       "title": "ServicePrincipalModel",
       "type": "object"
     },
-    "StorageType": {
-      "enum": [
-        "postgres",
-        "memory",
-        "lakebase"
-      ],
-      "title": "StorageType",
-      "type": "string"
-    },
     "StoreModel": {
       "additionalProperties": false,
       "properties": {
@@ -3828,17 +3795,6 @@
             }
           ],
           "default": null
-        },
-        "type": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StorageType"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "memory"
         },
         "dims": {
           "anyOf": [

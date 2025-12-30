@@ -36,7 +36,7 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
     Each tool is created according to its type and parameters defined in the configuration.
 
     Args:
-        tool_configs: A sequence of dictionaries containing tool configurations
+        tool_models: A sequence of ToolModel configurations
 
     Returns:
         A sequence of BaseTool objects created from the provided configurations
@@ -47,24 +47,24 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
     for tool_config in tool_models:
         name: str = tool_config.name
         if name in tools:
-            logger.warning(f"Tools already registered for: {name}, skipping creation.")
+            logger.warning("Tools already registered, skipping", tool_name=name)
             continue
         registered_tools: Sequence[RunnableLike] | None = tool_registry.get(name)
         if registered_tools is None:
-            logger.debug(f"Creating tools for: {name}...")
+            logger.trace("Creating tools", tool_name=name)
             function: AnyTool = tool_config.function
             registered_tools = create_hooks(function)
-            logger.debug(f"Registering tools for: {tool_config}")
+            logger.trace("Registering tools", tool_name=name)
             tool_registry[name] = registered_tools
         else:
-            logger.debug(f"Tools already registered for: {name}")
+            logger.trace("Tools already registered", tool_name=name)
 
         tools[name] = registered_tools
 
     all_tools: Sequence[RunnableLike] = [
         t for tool_list in tools.values() for t in tool_list
     ]
-    logger.debug(f"Created tools: {all_tools}")
+    logger.debug("Tools created", tools_count=len(all_tools))
     return all_tools
 
 
@@ -101,7 +101,7 @@ def say_hello_tool(
     # Use provided name, or fall back to user_id from context
     if name is None:
         if runtime and runtime.context:
-            user_id = runtime.context.user_id
+            user_id: str | None = runtime.context.user_id
             if user_id:
                 name = user_id
             else:

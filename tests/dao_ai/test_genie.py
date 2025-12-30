@@ -628,12 +628,16 @@ def test_genie_tool_usage_pattern_with_state() -> None:
 @pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
+@pytest.mark.flaky(reruns=2, reruns_delay=1)
 def test_genie_conversation_lifecycle_example() -> None:
     """
     Complete example showing the full lifecycle of Genie conversations.
 
     This demonstrates how conversations are created, maintained, and isolated
     in a realistic usage scenario.
+
+    Note: This test is marked as flaky due to intermittent StopIteration errors
+    from the external databricks_ai_bridge library's poll_result method.
     """
     real_space_id = os.environ.get("RETAIL_AI_GENIE_SPACE_ID")
 
@@ -785,7 +789,7 @@ def test_genie_with_app_config_and_responses_agent() -> None:
 
     try:
         # Step 1: Load configuration from YAML file
-        config_path = "/Users/nate.fleming/development/databricks/dao-ai/config/examples/genie.yaml"
+        config_path = "config/examples/01_getting_started/genie_basic.yaml"
         print(f"\n1. Loading configuration from: {config_path}")
 
         app_config = AppConfig.from_file(config_path)
@@ -910,7 +914,7 @@ def test_genie_config_validation_and_tool_creation() -> None:
 
     try:
         # Load the genie configuration
-        config_path = "/Users/nate.fleming/development/databricks/dao-ai/config/examples/genie.yaml"
+        config_path = "config/examples/01_getting_started/genie_basic.yaml"
         print("\n1. Loading and validating genie configuration...")
 
         app_config = AppConfig.from_file(config_path)

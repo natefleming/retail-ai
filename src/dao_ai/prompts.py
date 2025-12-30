@@ -36,7 +36,7 @@ def make_prompt(
     Returns:
         An AgentMiddleware created by @dynamic_prompt, or None if no prompt
     """
-    logger.debug(f"make_prompt: {base_system_prompt}")
+    logger.trace("Creating prompt middleware", has_prompt=bool(base_system_prompt))
 
     if not base_system_prompt:
         return None
@@ -52,11 +52,11 @@ def make_prompt(
     prompt_template: PromptTemplate = PromptTemplate.from_template(template)
 
     if prompt_template.input_variables:
-        logger.debug(
-            f"Dynamic prompt with variables: {prompt_template.input_variables}"
+        logger.trace(
+            "Dynamic prompt with variables", variables=prompt_template.input_variables
         )
     else:
-        logger.debug("Static prompt (no variables, using middleware for consistency)")
+        logger.trace("Static prompt (no variables, using middleware for consistency)")
 
     @dynamic_prompt
     def dynamic_system_prompt(request: ModelRequest) -> str:
@@ -73,15 +73,18 @@ def make_prompt(
                 params["user_id"] = context.user_id
             if context.thread_id and "thread_id" in params:
                 params["thread_id"] = context.thread_id
-            # Apply all custom context values as template parameters
-            for key, value in context.custom.items():
-                if key in params:
+            # Apply all context fields as template parameters
+            context_dict = context.model_dump()
+            for key, value in context_dict.items():
+                if key in params and value is not None:
                     params[key] = value
 
         # Format the prompt
         formatted_prompt: str = prompt_template.format(**params)
-        logger.debug("Formatted dynamic prompt with context")
-        logger.trace(f"Prompt: {formatted_prompt[:200]}...")
+        logger.trace(
+            "Formatted dynamic prompt with context",
+            prompt_prefix=formatted_prompt[:200],
+        )
 
         return formatted_prompt
 
@@ -126,18 +129,15 @@ def create_prompt_middleware(
         # Access context from runtime
         context: Context = request.runtime.context
         if context:
-            if context.user_id and "user_id" in params:
-                params["user_id"] = context.user_id
-            if context.thread_id and "thread_id" in params:
-                params["thread_id"] = context.thread_id
-            # Apply all custom context values as template parameters
-            for key, value in context.custom.items():
-                if key in params:
+            # Apply all context fields as template parameters
+            context_dict = context.model_dump()
+            for key, value in context_dict.items():
+                if key in params and value is not None:
                     params[key] = value
 
         # Format the prompt
         formatted_prompt: str = prompt_template.format(**params)
-        logger.debug("Formatted dynamic prompt with context")
+        logger.trace("Formatted dynamic prompt with context")
 
         return formatted_prompt
 

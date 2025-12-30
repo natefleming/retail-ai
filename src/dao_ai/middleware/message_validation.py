@@ -50,7 +50,7 @@ class MessageValidationMiddleware(AgentMiddleware[AgentState, Context]):
         try:
             return self.validate(state, runtime)
         except ValueError as e:
-            logger.error(f"Message validation failed: {e}")
+            logger.error("Message validation failed", error=str(e))
             return {
                 "is_valid": False,
                 "message_error": str(e),
@@ -93,20 +93,27 @@ class UserIdValidationMiddleware(MessageValidationMiddleware):
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
         """Validate user_id is present and properly formatted."""
-        logger.debug("Executing user_id validation")
+        logger.trace("Executing user_id validation")
 
         context: Context = runtime.context or Context()
         user_id: str | None = context.user_id
 
         if not user_id:
-            logger.error("User ID is required but not provided in the configuration.")
+            logger.error("User ID is required but not provided in configuration")
 
             thread_val = context.thread_id or "<your_thread_id>"
+            # Get extra fields from context (excluding user_id and thread_id)
+            context_dict = context.model_dump()
+            extra_fields = {
+                k: v for k, v in context_dict.items()
+                if k not in {"user_id", "thread_id"} and v is not None
+            }
+            
             corrected_config: dict[str, Any] = {
                 "configurable": {
                     "thread_id": thread_val,
                     "user_id": "<your_user_id>",
-                    **context.custom,
+                    **extra_fields,
                 },
                 "session": {
                     "conversation_id": thread_val,
@@ -138,15 +145,22 @@ Please update your configuration and try again.
             raise ValueError(error_message)
 
         if "." in user_id:
-            logger.error(f"User ID '{user_id}' contains invalid character '.'")
+            logger.error("User ID contains invalid character '.'", user_id=user_id)
 
             corrected_user_id = user_id.replace(".", "_")
             thread_val = context.thread_id or "<your_thread_id>"
+            # Get extra fields from context (excluding user_id and thread_id)
+            context_dict = context.model_dump()
+            extra_fields = {
+                k: v for k, v in context_dict.items()
+                if k not in {"user_id", "thread_id"} and v is not None
+            }
+            
             corrected_config: dict[str, Any] = {
                 "configurable": {
                     "thread_id": thread_val,
                     "user_id": corrected_user_id,
-                    **context.custom,
+                    **extra_fields,
                 },
                 "session": {
                     "conversation_id": thread_val,
@@ -183,19 +197,26 @@ class ThreadIdValidationMiddleware(MessageValidationMiddleware):
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
         """Validate thread_id/conversation_id is present."""
-        logger.debug("Executing thread_id/conversation_id validation")
+        logger.trace("Executing thread_id/conversation_id validation")
 
         context: Context = runtime.context or Context()
         thread_id: str | None = context.thread_id
 
         if not thread_id:
-            logger.error("Thread ID / Conversation ID is required but not provided.")
+            logger.error("Thread ID / Conversation ID is required but not provided")
 
+            # Get extra fields from context (excluding user_id and thread_id)
+            context_dict = context.model_dump()
+            extra_fields = {
+                k: v for k, v in context_dict.items()
+                if k not in {"user_id", "thread_id"} and v is not None
+            }
+            
             corrected_config: dict[str, Any] = {
                 "configurable": {
                     "thread_id": "<your_thread_id>",
                     "user_id": context.user_id or "<your_user_id>",
-                    **context.custom,
+                    **extra_fields,
                 },
                 "session": {
                     "conversation_id": "<your_thread_id>",
@@ -269,7 +290,7 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
     Middleware that validates the presence of required custom fields.
 
     This is a generic validation middleware that can check for multiple
-    required fields in context.custom.
+    required fields in the context object.
 
     Fields are defined in the `fields` list. Each field can have:
     - name: The field name (required)
@@ -312,7 +333,7 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
                 <field_name>: <example_value>
             session: {}
         """
-        logger.debug("Executing custom field validation")
+        logger.trace("Executing custom field validation")
 
         context: Context = runtime.context or Context()
 
@@ -320,7 +341,7 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
         missing_fields: list[RequiredField] = []
         for field in self.fields:
             if field.is_required:
-                field_value: Any = context.custom.get(field.name)
+                field_value: Any = getattr(context, field.name, None)
                 if field_value is None:
                     missing_fields.append(field)
 
@@ -329,7 +350,7 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
 
         # Log the missing fields
         missing_names = [f.name for f in missing_fields]
-        logger.error(f"Required fields missing: {', '.join(missing_names)}")
+        logger.error("Required fields missing", fields=missing_names)
 
         # Build the configurable dict preserving provided values
         # and using example_value for missing required fields
@@ -344,9 +365,11 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
         else:
             configurable["user_id"] = "<your_user_id>"
 
-        # Add all values the user already provided in custom
-        for k, v in context.custom.items():
-            configurable[k] = v
+        # Add all extra values the user already provided
+        context_dict = context.model_dump()
+        for k, v in context_dict.items():
+            if k not in {"user_id", "thread_id"} and v is not None:
+                configurable[k] = v
 
         # Then add our defined fields (provided values take precedence)
         for field in self.fields:
@@ -380,8 +403,14 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
         field_descriptions: list[str] = [
             "- **thread_id**: Thread identifier (required in configurable)",
             "- **conversation_id**: Alias of thread_id (in session)",
-            "- **user_id**: Your unique user identifier (required)",
         ]
+        
+        # Add user_id if not in custom fields
+        has_user_id_field = any(f.name == "user_id" for f in self.fields)
+        if not has_user_id_field:
+            field_descriptions.append("- **user_id**: Your unique user identifier (required)")
+        
+        # Add custom field descriptions
         for field in self.fields:
             required_text = "(required)" if field.is_required else "(optional)"
             field_descriptions.append(
@@ -427,22 +456,22 @@ class FilterLastHumanMessageMiddleware(AgentMiddleware[AgentState, Context]):
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
         """Filter messages to keep only the last human message."""
-        logger.debug("Executing filter_last_human_message middleware")
+        logger.trace("Executing filter_last_human_message middleware")
 
         messages: list[BaseMessage] = state.get("messages", [])
 
         if not messages:
-            logger.debug("No messages found in state")
+            logger.trace("No messages found in state")
             return None
 
         last_message: HumanMessage | None = last_human_message(messages)
 
         if last_message is None:
-            logger.debug("No human messages found in state")
+            logger.trace("No human messages found in state")
             return {"messages": []}
 
-        logger.debug(
-            f"Filtered {len(messages)} messages down to 1 (last human message)"
+        logger.trace(
+            "Filtered messages to last human message", original_count=len(messages)
         )
 
         removed_messages = [
@@ -472,7 +501,7 @@ def create_user_id_validation_middleware() -> UserIdValidationMiddleware:
     Example:
         middleware = create_user_id_validation_middleware()
     """
-    logger.debug("Creating user_id validation middleware")
+    logger.trace("Creating user_id validation middleware")
     return UserIdValidationMiddleware()
 
 
@@ -489,7 +518,7 @@ def create_thread_id_validation_middleware() -> ThreadIdValidationMiddleware:
     Example:
         middleware = create_thread_id_validation_middleware()
     """
-    logger.debug("Creating thread_id validation middleware")
+    logger.trace("Creating thread_id validation middleware")
     return ThreadIdValidationMiddleware()
 
 
@@ -500,7 +529,7 @@ def create_custom_field_validation_middleware(
     Create a CustomFieldValidationMiddleware instance.
 
     Factory function for creating middleware that validates the presence
-    of required custom fields in context.custom.
+    of required custom fields in the context object.
 
     Each field in the list should have:
     - name: The field name (required)
@@ -530,9 +559,7 @@ def create_custom_field_validation_middleware(
         )
     """
     field_names = [f.get("name", "unknown") for f in fields]
-    logger.debug(
-        f"Creating custom field validation middleware for fields: {field_names}"
-    )
+    logger.trace("Creating custom field validation middleware", fields=field_names)
     return CustomFieldValidationMiddleware(fields=fields)
 
 
@@ -550,5 +577,5 @@ def create_filter_last_human_message_middleware() -> FilterLastHumanMessageMiddl
     Example:
         middleware = create_filter_last_human_message_middleware()
     """
-    logger.debug("Creating filter_last_human_message middleware")
+    logger.trace("Creating filter_last_human_message middleware")
     return FilterLastHumanMessageMiddleware()

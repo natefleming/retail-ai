@@ -367,20 +367,27 @@ class AssertMiddleware(AgentMiddleware[AgentState, Context]):
             "runtime": runtime,
         }
 
-        logger.debug(f"Evaluating Assert constraint '{self.constraint.name}'")
+        logger.trace(
+            "Evaluating Assert constraint", constraint_name=self.constraint.name
+        )
 
         result = self.constraint.evaluate(response, context)
 
         if result.passed:
-            logger.debug(f"Assert constraint '{self.constraint.name}' passed")
+            logger.trace(
+                "Assert constraint passed", constraint_name=self.constraint.name
+            )
             self._retry_count = 0
             return None
 
         # Constraint failed
         self._retry_count += 1
         logger.warning(
-            f"Assert constraint '{self.constraint.name}' failed "
-            f"(attempt {self._retry_count}/{self.max_retries}): {result.feedback}"
+            "Assert constraint failed",
+            constraint_name=self.constraint.name,
+            attempt=self._retry_count,
+            max_retries=self.max_retries,
+            feedback=result.feedback,
         )
 
         if self._retry_count >= self.max_retries:
@@ -396,7 +403,8 @@ class AssertMiddleware(AgentMiddleware[AgentState, Context]):
                 return None
             else:  # "pass"
                 logger.warning(
-                    f"Assert constraint '{self.constraint.name}' failed but passing through"
+                    "Assert constraint failed but passing through",
+                    constraint_name=self.constraint.name,
                 )
                 return None
 
@@ -475,25 +483,38 @@ class SuggestMiddleware(AgentMiddleware[AgentState, Context]):
             "runtime": runtime,
         }
 
-        logger.debug(f"Evaluating Suggest constraint '{self.constraint.name}'")
+        logger.trace(
+            "Evaluating Suggest constraint", constraint_name=self.constraint.name
+        )
 
         result = self.constraint.evaluate(response, context)
 
         if result.passed:
-            logger.debug(f"Suggest constraint '{self.constraint.name}' passed")
+            logger.trace(
+                "Suggest constraint passed", constraint_name=self.constraint.name
+            )
             self._has_retried = False
             return None
 
         # Log feedback based on configured level
-        log_msg = (
-            f"Suggest constraint '{self.constraint.name}' feedback: {result.feedback}"
-        )
         if self.log_level == "warning":
-            logger.warning(log_msg)
+            logger.warning(
+                "Suggest constraint feedback",
+                constraint_name=self.constraint.name,
+                feedback=result.feedback,
+            )
         elif self.log_level == "info":
-            logger.info(log_msg)
+            logger.info(
+                "Suggest constraint feedback",
+                constraint_name=self.constraint.name,
+                feedback=result.feedback,
+            )
         else:
-            logger.debug(log_msg)
+            logger.debug(
+                "Suggest constraint feedback",
+                constraint_name=self.constraint.name,
+                feedback=result.feedback,
+            )
 
         # Optionally request one improvement
         if self.allow_one_retry and not self._has_retried:
@@ -593,8 +614,11 @@ class RefineMiddleware(AgentMiddleware[AgentState, Context]):
         self._iteration += 1
 
         logger.debug(
-            f"Refine iteration {self._iteration}/{self.max_iterations}: "
-            f"score={score:.3f}, threshold={self.threshold}"
+            "Refine iteration",
+            iteration=self._iteration,
+            max_iterations=self.max_iterations,
+            score=f"{score:.3f}",
+            threshold=self.threshold,
         )
 
         # Track best response
@@ -604,13 +628,17 @@ class RefineMiddleware(AgentMiddleware[AgentState, Context]):
 
         # Check if we should stop
         if score >= self.threshold:
-            logger.debug(f"Refine threshold reached: {score:.3f} >= {self.threshold}")
+            logger.debug(
+                "Refine threshold reached",
+                score=f"{score:.3f}",
+                threshold=self.threshold,
+            )
             self._reset()
             return None
 
         if self._iteration >= self.max_iterations:
             logger.debug(
-                f"Refine max iterations reached. Best score: {self._best_score:.3f}"
+                "Refine max iterations reached", best_score=f"{self._best_score:.3f}"
             )
             # Use best response if tracking
             if self.select_best and self._best_response:

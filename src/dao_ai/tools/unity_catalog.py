@@ -34,9 +34,6 @@ def create_uc_tools(
     Returns:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
-
-    logger.debug(f"create_uc_tools: {function}")
-
     original_function_model = None
     if isinstance(function, UnityCatalogFunctionModel):
         original_function_model = function
@@ -44,9 +41,13 @@ def create_uc_tools(
     else:
         function_name = function
 
+    logger.trace("Creating UC tools", function_name=function_name)
+
     # Determine which tools to create
     if original_function_model and original_function_model.partial_args:
-        logger.debug("Found partial_args, creating custom tool with partial arguments")
+        logger.debug(
+            "Creating custom tool with partial arguments", function_name=function_name
+        )
         # Create a ToolModel wrapper for the with_partial_args function
         tool_model = ToolModel(
             name=original_function_model.name, function=original_function_model
@@ -63,7 +64,7 @@ def create_uc_tools(
         )
 
         tools = toolkit.tools or []
-        logger.debug(f"Retrieved tools: {tools}")
+        logger.trace("Retrieved tools", tools_count=len(tools))
 
     # HITL is now handled at middleware level via HumanInTheLoopMiddleware
     return list(tools)
@@ -84,7 +85,9 @@ def _execute_uc_function(
     all_params.update(kwargs)
 
     logger.debug(
-        f"Calling UC function {function_name} with parameters: {list(all_params.keys())}"
+        "Calling UC function",
+        function_name=function_name,
+        parameters=list(all_params.keys()),
     )
 
     result: FunctionExecutionResult = client.execute_function(
@@ -93,11 +96,19 @@ def _execute_uc_function(
 
     # Handle errors and extract result
     if result.error:
-        logger.error(f"Unity Catalog function error: {result.error}")
+        logger.error(
+            "Unity Catalog function error",
+            function_name=function_name,
+            error=result.error,
+        )
         raise RuntimeError(f"Function execution failed: {result.error}")
 
     result_value: str = result.value if result.value is not None else str(result)
-    logger.debug(f"UC function result: {result_value}")
+    logger.trace(
+        "UC function result",
+        function_name=function_name,
+        result_length=len(str(result_value)),
+    )
     return result_value
 
 
@@ -122,7 +133,8 @@ def _grant_function_permissions(
         parts = function_name.split(".")
         if len(parts) != 3:
             logger.warning(
-                f"Invalid function name format: {function_name}. Expected catalog.schema.function"
+                "Invalid function name format, expected catalog.schema.function",
+                function_name=function_name,
             )
             return
 
@@ -130,7 +142,9 @@ def _grant_function_permissions(
         schema_full_name = f"{catalog_name}.{schema_name}"
 
         logger.debug(
-            f"Granting comprehensive permissions on function {function_name} to principal {client_id}"
+            "Granting comprehensive permissions",
+            function_name=function_name,
+            principal=client_id,
         )
 
         # 1. Grant EXECUTE permission on the function
@@ -142,9 +156,13 @@ def _grant_function_permissions(
                     PermissionsChange(principal=client_id, add=[Privilege.EXECUTE])
                 ],
             )
-            logger.debug(f"Granted EXECUTE on function {function_name}")
+            logger.trace("Granted EXECUTE permission", function_name=function_name)
         except Exception as e:
-            logger.warning(f"Failed to grant EXECUTE on function {function_name}: {e}")
+            logger.warning(
+                "Failed to grant EXECUTE permission",
+                function_name=function_name,
+                error=str(e),
+            )
 
         # 2. Grant USE_SCHEMA permission on the schema
         try:
@@ -158,10 +176,12 @@ def _grant_function_permissions(
                     )
                 ],
             )
-            logger.debug(f"Granted USE_SCHEMA on schema {schema_full_name}")
+            logger.trace("Granted USE_SCHEMA permission", schema=schema_full_name)
         except Exception as e:
             logger.warning(
-                f"Failed to grant USE_SCHEMA on schema {schema_full_name}: {e}"
+                "Failed to grant USE_SCHEMA permission",
+                schema=schema_full_name,
+                error=str(e),
             )
 
         # 3. Grant USE_CATALOG and BROWSE permissions on the catalog
@@ -176,19 +196,28 @@ def _grant_function_permissions(
                     )
                 ],
             )
-            logger.debug(f"Granted USE_CATALOG and BROWSE on catalog {catalog_name}")
+            logger.trace(
+                "Granted USE_CATALOG and BROWSE permissions", catalog=catalog_name
+            )
         except Exception as e:
             logger.warning(
-                f"Failed to grant catalog permissions on {catalog_name}: {e}"
+                "Failed to grant catalog permissions",
+                catalog=catalog_name,
+                error=str(e),
             )
 
         logger.debug(
-            f"Successfully granted comprehensive permissions on {function_name} to {client_id}"
+            "Successfully granted comprehensive permissions",
+            function_name=function_name,
+            principal=client_id,
         )
 
     except Exception as e:
         logger.warning(
-            f"Failed to grant permissions on function {function_name} to {client_id}: {e}"
+            "Failed to grant permissions",
+            function_name=function_name,
+            principal=client_id,
+            error=str(e),
         )
         # Don't fail the tool creation if permission granting fails
         pass
@@ -245,7 +274,7 @@ def _create_filtered_schema(original_schema: type, exclude_fields: set[str]) -> 
         return filtered_model
 
     except Exception as e:
-        logger.warning(f"Failed to create filtered schema: {e}")
+        logger.warning("Failed to create filtered schema", error=str(e))
 
         # Fallback to generic schema
         class GenericFilteredSchema(BaseModel):
@@ -281,8 +310,6 @@ def with_partial_args(
 
     from dao_ai.config import ServicePrincipalModel
 
-    logger.debug(f"with_partial_args: {tool}")
-
     # Convert dict-based variables to CompositeVariableModel and resolve their values
     resolved_args: dict[str, Any] = {}
     for k, v in partial_args.items():
@@ -316,8 +343,6 @@ def with_partial_args(
         if host:
             resolved_args["host"] = host
 
-    logger.debug(f"Resolved partial args: {resolved_args.keys()}")
-
     if isinstance(tool, dict):
         tool = ToolModel(**tool)
 
@@ -326,7 +351,11 @@ def with_partial_args(
         unity_catalog_function = UnityCatalogFunctionModel(**unity_catalog_function)
 
     function_name: str = unity_catalog_function.full_name
-    logger.debug(f"Creating UC tool with partial args for: {function_name}")
+    logger.debug(
+        "Creating UC tool with partial args",
+        function_name=function_name,
+        partial_args=list(resolved_args.keys()),
+    )
 
     # Grant permissions if we have credentials
     if "client_id" in resolved_args:
@@ -335,7 +364,9 @@ def with_partial_args(
         try:
             _grant_function_permissions(function_name, client_id, host)
         except Exception as e:
-            logger.warning(f"Failed to grant permissions: {e}")
+            logger.warning(
+                "Failed to grant permissions", function_name=function_name, error=str(e)
+            )
 
     # Create the client for function execution
     client: DatabricksFunctionClient = DatabricksFunctionClient()
@@ -348,20 +379,25 @@ def with_partial_args(
             function_info.comment or f"Unity Catalog function: {function_name}"
         )
 
-        logger.debug(
-            f"Generated schema for function {function_name}: {schema_info.pydantic_model}"
+        logger.trace(
+            "Generated function schema",
+            function_name=function_name,
+            schema=schema_info.pydantic_model.__name__,
         )
-        logger.debug(f"Tool description: {tool_description}")
 
         # Create a modified schema that excludes partial args
         original_schema = schema_info.pydantic_model
         schema_model = _create_filtered_schema(original_schema, resolved_args.keys())
-        logger.debug(
-            f"Filtered schema excludes partial args: {list(resolved_args.keys())}"
+        logger.trace(
+            "Filtered schema to exclude partial args",
+            function_name=function_name,
+            excluded_args=list(resolved_args.keys()),
         )
 
     except Exception as e:
-        logger.warning(f"Could not introspect function {function_name}: {e}")
+        logger.warning(
+            "Could not introspect function", function_name=function_name, error=str(e)
+        )
         # Fallback to a generic schema
         from pydantic import BaseModel
 

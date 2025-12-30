@@ -82,7 +82,9 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 log_level: str = config.app.log_level
 
-logger.add(sys.stderr, level=log_level)
+from dao_ai.logging import configure_logging
+
+configure_logging(level=log_level)
 
 graph: CompiledStateGraph = create_dao_ai_graph(config=config)
 

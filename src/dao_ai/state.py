@@ -15,8 +15,8 @@ from datetime import datetime
 from typing import Any, Optional
 
 from langgraph.graph import MessagesState
-from pydantic import BaseModel, Field
-from typing_extensions import NotRequired
+from pydantic import BaseModel, Field, model_validator
+from typing_extensions import NotRequired, Self
 
 
 class GenieSpaceState(BaseModel):
@@ -133,15 +133,18 @@ class Context(BaseModel):
     This is passed to tools and middleware via the runtime parameter.
     Access via ToolRuntime[Context] in tools or Runtime[Context] in middleware.
 
-    The `custom` dict allows application-specific context values that can be:
-    - Used as template parameters in prompts (all keys are applied)
-    - Validated by middleware (check for specific keys like "store_num")
+    Additional fields beyond user_id and thread_id can be added dynamically
+    and will be available as top-level attributes on the context object.
+    These fields are:
+    - Used as template parameters in prompts (all fields are applied)
+    - Validated by middleware (check for specific fields like "store_num")
+    - Accessible as direct attributes (e.g., context.store_num)
 
     Example:
         @tool
         def my_tool(runtime: ToolRuntime[Context]) -> str:
             user_id = runtime.context.user_id
-            store_num = runtime.context.custom.get("store_num")
+            store_num = runtime.context.store_num  # Direct attribute access
             return f"Hello, {user_id} at store {store_num}!"
 
         class MyMiddleware(AgentMiddleware[AgentState, Context]):
@@ -151,9 +154,22 @@ class Context(BaseModel):
                 runtime: Runtime[Context]
             ) -> dict[str, Any] | None:
                 user_id = runtime.context.user_id
+                store_num = getattr(runtime.context, "store_num", None)
                 return None
     """
 
+    model_config = {"extra": "allow"}  # Allow extra fields as top-level attributes
+
     user_id: str | None = None
     thread_id: str | None = None
-    custom: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_runnable_config(cls, config: dict[str, Any]) -> "Context":
+        """
+        Create Context from LangChain RunnableConfig.
+        
+        This method is called by LangChain when context_schema is provided to create_agent.
+        It extracts the 'configurable' dict from the config and uses it to instantiate Context.
+        """
+        configurable = config.get("configurable", {})
+        return cls(**configurable)

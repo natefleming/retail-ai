@@ -1,0 +1,188 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# SWARM PATTERN - Peer-to-Peer Multi-Agent Orchestration
+# =============================================================================
+# This example demonstrates the swarm orchestration pattern where agents can
+# dynamically hand off conversations to each other based on context and needs.
+#
+# Pattern: Agent ↔ Agent (peer-to-peer handoffs)
+# Use case: When agents need to collaborate and hand off fluidly
+
+# =============================================================================
+# VARIABLES
+# =============================================================================
+variables:
+  genie_space_id: &genie_space_id
+    env: GENIE_SPACE_ID
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+# Define tools including handoff tools for agent-to-agent routing
+tools:
+  search_products: &search_products
+    name: search_products
+    function:
+      type: factory
+      name: dao_ai.tools.genie.create_genie_tool
+      args:
+        genie_room:
+          name: product_genie
+          space_id: *genie_space_id
+
+  check_inventory: &check_inventory
+    name: check_inventory
+    function:
+      type: factory
+      name: dao_ai.tools.genie.create_genie_tool
+      args:
+        genie_room:
+          name: inventory_genie
+          space_id: *genie_space_id
+
+  # Handoff tools for agent-to-agent routing
+  transfer_to_inventory: &transfer_to_inventory
+    name: transfer_to_inventory
+    function:
+      type: factory
+      name: dao_ai.tools.agent.create_handoff_tool
+      args:
+        agent_name: inventory_agent
+
+  transfer_to_comparison: &transfer_to_comparison
+    name: transfer_to_comparison
+    function:
+      type: factory
+      name: dao_ai.tools.agent.create_handoff_tool
+      args:
+        agent_name: comparison_agent
+
+  transfer_to_product: &transfer_to_product
+    name: transfer_to_product
+    function:
+      type: factory
+      name: dao_ai.tools.agent.create_handoff_tool
+      args:
+        agent_name: product_agent
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+# Define agents that can hand off to each other
+agents:
+  # Product Information Agent - Can hand off to inventory or comparison
+  product_agent: &product_agent
+    name: product_agent
+    description: "Product information specialist"
+    model: *default_llm
+    tools:
+      - *search_products
+      - *transfer_to_inventory
+      - *transfer_to_comparison
+    prompt: |
+      You are a product information specialist providing details about products.
+      
+      Your expertise:
+      - Product specifications and features
+      - Pricing and product details
+      - General product information
+      
+      When to hand off:
+      - If customer asks about STOCK or AVAILABILITY → use transfer_to_inventory
+      - If customer wants to COMPARE multiple products → use transfer_to_comparison
+      
+      Use your search tool to find accurate product information, and hand off when
+      the conversation moves beyond product details into other specialties.
+    handoff_prompt: |
+      Questions about specific product details, features, specifications, or pricing
+      of a SINGLE product. Example: "Tell me about the Craftsman drill"
+
+  # Inventory Agent - Can hand off to product or comparison
+  inventory_agent: &inventory_agent
+    name: inventory_agent
+    description: "Inventory and availability specialist"
+    model: *default_llm
+    tools:
+      - *check_inventory
+      - *search_products
+      - *transfer_to_product
+      - *transfer_to_comparison
+    prompt: |
+      You are an inventory management specialist checking stock and availability.
+      
+      Your expertise:
+      - Stock levels and availability
+      - Store inventory information
+      - Product location in store
+      
+      When to hand off:
+      - If customer asks for DETAILED product specs → use transfer_to_product
+      - If customer wants to COMPARE options → use transfer_to_comparison
+      
+      Check inventory first, provide alternatives if out of stock, and hand off
+      when the conversation needs different expertise.
+    handoff_prompt: |
+      Questions about stock levels, availability, or inventory.
+      Example: "Do you have the Dewalt drill in stock?"
+
+  # Comparison Agent - Can hand off to product or inventory
+  comparison_agent: &comparison_agent
+    name: comparison_agent
+    description: "Product comparison specialist"
+    model: *default_llm
+    tools:
+      - *search_products
+      - *transfer_to_product
+      - *transfer_to_inventory
+    prompt: |
+      You are a product comparison specialist helping customers compare options.
+      
+      Your expertise:
+      - Side-by-side product comparisons
+      - Feature and price analysis
+      - Pros and cons evaluation
+      
+      When to hand off:
+      - If customer wants DETAILED specs on one product → use transfer_to_product
+      - If customer asks about STOCK of compared items → use transfer_to_inventory
+      
+      Compare products objectively, highlight key differences, and hand off when
+      the conversation focuses on a single product or availability.
+    handoff_prompt: |
+      Questions comparing TWO OR MORE products.
+      Example: "Compare the Milwaukee and Ryobi drills"
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: swarm_pattern_dao
+  description: "Swarm orchestration pattern with peer-to-peer agent handoffs"
+  log_level: INFO
+  
+  registered_model:
+    name: swarm_pattern_dao
+  
+  # List all agents in the swarm (no hierarchy - they're peers)
+  agents:
+    - *product_agent
+    - *inventory_agent
+    - *comparison_agent
+
+  # Example input demonstrating the pattern
+  input_example:
+    messages:
+      - role: user
+        content: "Tell me about the Dewalt cordless drill and check if you have it in stock"
+

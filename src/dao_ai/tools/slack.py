@@ -26,7 +26,7 @@ def _find_channel_id_by_name(
     # Remove '#' prefix if present
     clean_name = channel_name.lstrip("#")
 
-    logger.debug(f"Looking up Slack channel ID for channel name: {clean_name}")
+    logger.trace("Looking up Slack channel ID", channel_name=clean_name)
 
     try:
         # Call Slack API to list conversations
@@ -37,14 +37,18 @@ def _find_channel_id_by_name(
         )
 
         if response.status_code != 200:
-            logger.error(f"Failed to list Slack channels: {response.text}")
+            logger.error(
+                "Failed to list Slack channels",
+                status_code=response.status_code,
+                response=response.text,
+            )
             return None
 
         # Parse response
         data = response.json()
 
         if not data.get("ok"):
-            logger.error(f"Slack API returned error: {data.get('error')}")
+            logger.error("Slack API returned error", error=data.get("error"))
             return None
 
         # Search for channel by name
@@ -53,15 +57,19 @@ def _find_channel_id_by_name(
             if channel.get("name") == clean_name:
                 channel_id = channel.get("id")
                 logger.debug(
-                    f"Found channel ID '{channel_id}' for channel name '{clean_name}'"
+                    "Found Slack channel ID",
+                    channel_id=channel_id,
+                    channel_name=clean_name,
                 )
                 return channel_id
 
-        logger.warning(f"Channel '{clean_name}' not found in Slack workspace")
+        logger.warning("Slack channel not found", channel_name=clean_name)
         return None
 
     except Exception as e:
-        logger.error(f"Error looking up Slack channel: {e}")
+        logger.error(
+            "Error looking up Slack channel", channel_name=clean_name, error=str(e)
+        )
         return None
 
 
@@ -87,7 +95,7 @@ def create_send_slack_message_tool(
 
     Based on: https://docs.databricks.com/aws/en/generative-ai/agent-framework/slack-agent
     """
-    logger.debug("create_send_slack_message_tool")
+    logger.trace("Creating send Slack message tool")
 
     # Validate inputs
     if channel_id is None and channel_name is None:
@@ -99,12 +107,16 @@ def create_send_slack_message_tool(
 
     # Look up channel_id from channel_name if needed
     if channel_id is None and channel_name is not None:
-        logger.debug(f"Looking up channel_id for channel_name: {channel_name}")
+        logger.trace(
+            "Looking up channel ID for channel name", channel_name=channel_name
+        )
         channel_id = _find_channel_id_by_name(connection, channel_name)
         if channel_id is None:
             raise ValueError(f"Could not find Slack channel with name '{channel_name}'")
         logger.debug(
-            f"Resolved channel_name '{channel_name}' to channel_id '{channel_id}'"
+            "Resolved channel name to ID",
+            channel_name=channel_name,
+            channel_id=channel_id,
         )
 
     if name is None:

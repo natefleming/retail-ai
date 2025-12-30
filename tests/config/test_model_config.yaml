@@ -467,19 +467,15 @@ guardrails:
 memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
-    name: default_checkpointer                      # Checkpointer identifier
-    #type: postgres                                    # Store type (memory or postgres)
-    type: memory
-    database: *retail_database                     # Reference to database configuration
+    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
+    #database: *retail_database                     # Reference to database configuration (if uncommented, type inferred as postgres)
 
   # Long-term memory store for agent context
   store: 
-    name: default_store                             # Store identifier
-    #type: postgres                                    # Store type (memory or postgres)
-    type: memory
+    name: default_store                             # Store identifier (type inferred as memory - no database)
     embedding_model: *embedding_model               # Model for semantic memory
     dims: 1536                                      # Embedding dimensions
-    database: *retail_database                      # Database for persistence (if needed)
+    #database: *retail_database                      # Database for persistence (if uncommented, type inferred as postgres)
     namespace: "{user_id}"
 
 # =============================================================================

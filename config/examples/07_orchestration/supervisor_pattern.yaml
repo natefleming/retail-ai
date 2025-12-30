@@ -1,0 +1,146 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# SUPERVISOR PATTERN - Hierarchical Multi-Agent Orchestration
+# =============================================================================
+# This example demonstrates the supervisor orchestration pattern where a central
+# coordinator agent delegates tasks to specialized worker agents based on the
+# nature of the incoming request.
+#
+# Pattern: Supervisor → Worker Agents
+# Use case: When you need centralized routing with specialized agents
+
+# =============================================================================
+# VARIABLES
+# =============================================================================
+variables:
+  genie_space_id: &genie_space_id
+    env: GENIE_SPACE_ID
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+# Define tools that agents can use
+tools:
+  search_products: &search_products
+    name: search_products
+    function:
+      type: factory
+      name: dao_ai.tools.genie.create_genie_tool
+      args:
+        genie_room:
+          name: product_genie
+          space_id: *genie_space_id
+
+  check_inventory: &check_inventory
+    name: check_inventory
+    function:
+      type: factory
+      name: dao_ai.tools.genie.create_genie_tool
+      args:
+        genie_room:
+          name: inventory_genie
+          space_id: *genie_space_id
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+# Define specialized worker agents that handle specific types of requests
+agents:
+  # Product Information Specialist
+  product_agent: &product_agent
+    name: product_agent
+    description: "Specialist for product details, specifications, and features"
+    model: *default_llm
+    tools:
+      - *search_products
+    prompt: |
+      You are a product information specialist. Your role is to provide detailed,
+      accurate information about products including:
+      - Product specifications and features
+      - Pricing information
+      - Product comparisons
+      - Use cases and applications
+      
+      Always use your search tools to find current, accurate product information.
+      Be thorough and provide helpful details to customers.
+
+  # Inventory Management Specialist
+  inventory_agent: &inventory_agent
+    name: inventory_agent
+    description: "Specialist for stock levels, availability, and inventory information"
+    model: *default_llm
+    tools:
+      - *check_inventory
+      - *search_products
+    prompt: |
+      You are an inventory management specialist. Your role is to provide:
+      - Current stock levels and availability
+      - Store location information
+      - Restocking timelines
+      - Alternative product suggestions if items are out of stock
+      
+      Use your inventory tools first, then search for alternatives if needed.
+      Always provide accurate, real-time inventory information.
+
+  # General Customer Service
+  general_agent: &general_agent
+    name: general_agent
+    description: "General customer service for questions that don't require specialized tools"
+    model: *default_llm
+    prompt: |
+      You are a friendly customer service representative. Handle general inquiries
+      about store policies, hours, services, and other non-product-specific questions.
+      Be helpful, courteous, and direct customers to specialized agents when needed.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: supervisor_pattern_dao
+  description: "Supervisor orchestration pattern example with specialized agents"
+  log_level: INFO
+  
+  registered_model:
+    name: supervisor_pattern_dao
+  
+  # List all worker agents that the supervisor can route to
+  agents:
+    - *product_agent
+    - *inventory_agent
+    - *general_agent
+  
+  # Supervisor configuration
+  orchestration:
+    supervisor:
+      model: *default_llm
+      prompt: |
+        You are a routing coordinator for a customer service system. Analyze incoming
+        customer requests and route them to the most appropriate specialist agent:
+        
+        - product_agent: For questions about product details, features, specifications,
+          pricing, or comparisons
+        - inventory_agent: For questions about stock availability, inventory levels,
+          or product location in store
+        - general_agent: For general questions about store policies, hours, services,
+          or other non-product inquiries
+        
+        Route the request to the single most appropriate agent based on the primary
+        intent of the customer's question.
+
+  # Example input demonstrating the pattern
+  input_example:
+    messages:
+      - role: user
+        content: "Do you have the Dewalt cordless drill in stock?"
+

@@ -10,16 +10,17 @@ from typing import Any, Callable, List, Optional, Sequence
 
 import mlflow
 from databricks.vector_search.reranker import DatabricksReranker
-from databricks_ai_bridge.vector_search_retriever_tool import (
-    FilterItem,
-    VectorSearchRetrieverToolInput,
-)
 from databricks_langchain.vectorstores import DatabricksVectorSearch
 from flashrank import Ranker, RerankRequest
 from langchain.tools import ToolRuntime, tool
 from langchain_core.documents import Document
 from loguru import logger
 from mlflow.entities import SpanType
+
+from databricks_ai_bridge.vector_search_retriever_tool import (
+    FilterItem,
+    VectorSearchRetrieverToolInput,
+)
 
 from dao_ai.config import (
     RerankParametersModel,
@@ -31,37 +32,65 @@ from dao_ai.utils import normalize_host
 
 
 def create_vector_search_tool(
-    retriever: RetrieverModel | dict[str, Any],
+    retriever: RetrieverModel | dict[str, Any] | None = None,
+    vector_store: VectorStoreModel | dict[str, Any] | None = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> Callable[..., list[dict[str, Any]]]:
     """
-    Create a Vector Search tool for retrieving documents from a Databricks Vector Search index.
+    Create a Vector Search tool for retrieving documents from a Databricks Vector
+    Search index.
 
-    This function creates a tool that enables semantic search over product information,
-    documentation, or other content using the @tool decorator pattern. It supports optional
-    reranking of results using FlashRank for improved relevance.
+    This function creates a tool that enables semantic search over product
+    information, documentation, or other content using the @tool decorator pattern.
+    It supports optional reranking of results using FlashRank for improved relevance.
 
     Args:
-        retriever: Configuration details for the vector search retriever, including:
-            - name: Name of the tool
-            - description: Description of the tool's purpose
-            - primary_key: Primary key column for the vector store
-            - text_column: Text column used for vector search
-            - doc_uri: URI for documentation or additional context
-            - vector_store: Dictionary with 'endpoint_name' and 'index' for vector search
-            - columns: List of columns to retrieve from the vector store
-            - search_parameters: Additional parameters for customizing the search behavior
-            - rerank: Optional rerank configuration for result reranking
+        retriever: Full retriever configuration with search parameters and
+            optional reranking. Can be a RetrieverModel instance or dict.
+            Mutually exclusive with vector_store.
+        vector_store: Direct vector store reference (uses default search
+            parameters). Can be a VectorStoreModel instance or dict.
+            Mutually exclusive with retriever.
         name: Optional custom name for the tool
         description: Optional custom description for the tool
 
     Returns:
         A LangChain tool that performs vector search with optional reranking
+
+    Raises:
+        ValueError: If both retriever and vector_store are provided, or if
+            neither is provided
     """
 
-    if isinstance(retriever, dict):
-        retriever = RetrieverModel(**retriever)
+    # Validate mutually exclusive parameters
+    if retriever is None and vector_store is None:
+        raise ValueError(
+            "Must provide either 'retriever' or 'vector_store' parameter"
+        )
+    if retriever is not None and vector_store is not None:
+        raise ValueError(
+            "Cannot provide both 'retriever' and 'vector_store' parameters. "
+            "Use 'retriever' for full control or 'vector_store' for default "
+            "search parameters."
+        )
+
+    # Handle vector_store parameter
+    if vector_store is not None:
+        # Convert dict to VectorStoreModel if needed
+        if isinstance(vector_store, dict):
+            vector_store = VectorStoreModel(**vector_store)
+
+        logger.debug(
+            "VectorStoreModel provided, using default search parameters "
+            "and no reranking"
+        )
+        # Wrap in RetrieverModel with defaults
+        retriever = RetrieverModel(vector_store=vector_store)
+    else:
+        # Handle retriever parameter
+        if isinstance(retriever, dict):
+            retriever = RetrieverModel(**retriever)
 
     vector_store_config: VectorStoreModel = retriever.vector_store
 
@@ -80,31 +109,32 @@ def create_vector_search_tool(
     reranker_config: Optional[RerankParametersModel] = retriever.rerank
 
     # Initialize FlashRank ranker once if reranking is enabled
-    # This is expensive (loads model weights), so we do it once and reuse across invocations
+    # This is expensive (loads model weights), so we do it once and reuse
+    # across invocations
     ranker: Optional[Ranker] = None
     if reranker_config:
         logger.debug(
-            f"Creating vector search tool with reranking: '{name}' "
-            f"(model: {reranker_config.model}, top_n: {reranker_config.top_n or 'auto'})"
+            "Creating vector search tool with reranking",
+            name=name,
+            reranker_model=reranker_config.model,
+            top_n=reranker_config.top_n or "auto",
         )
         try:
+            # Expand tilde in cache_dir path
+            cache_dir = os.path.expanduser(reranker_config.cache_dir)
             ranker = Ranker(
-                model_name=reranker_config.model, cache_dir=reranker_config.cache_dir
+                model_name=reranker_config.model, cache_dir=cache_dir
             )
-            logger.info(
-                f"FlashRank ranker initialized successfully (model: {reranker_config.model})"
-            )
+            logger.success("FlashRank ranker initialized", model=reranker_config.model)
         except Exception as e:
             logger.warning(
-                f"Failed to initialize FlashRank ranker during tool creation: {e}. "
-                "Reranking will be disabled for this tool."
+                "Failed to initialize FlashRank ranker, reranking disabled",
+                error=str(e),
             )
             # Set reranker_config to None so we don't attempt reranking
             reranker_config = None
     else:
-        logger.debug(
-            f"Creating vector search tool without reranking: '{name}' (standard similarity search only)"
-        )
+        logger.debug("Creating vector search tool without reranking", name=name)
 
     # Initialize the vector store
     # Note: text_column is only required for self-managed embeddings
@@ -130,11 +160,12 @@ def create_vector_search_tool(
             "DATABRICKS_CLIENT_SECRET"
         )
 
-    logger.debug(
-        f"Creating DatabricksVectorSearch with client_args keys: {list(client_args.keys())}"
+    logger.trace(
+        "Creating DatabricksVectorSearch", client_args_keys=list(client_args.keys())
     )
 
-    # Pass both workspace_client (for model serving detection) and client_args (for credentials)
+    # Pass both workspace_client (for model serving detection) and client_args
+    # (for credentials)
     vector_store: DatabricksVectorSearch = DatabricksVectorSearch(
         index_name=index_name,
         text_column=None,  # Let DatabricksVectorSearch determine this from the index
@@ -156,15 +187,15 @@ def create_vector_search_tool(
     # Helper function to perform vector similarity search
     @mlflow.trace(name="find_documents", span_type=SpanType.RETRIEVER)
     def _find_documents(
-        query: str, filters: Optional[List[FilterItem]] = None
+        query: str, filters: Optional[List[dict[str, Any]]] = None
     ) -> List[Document]:
         """Perform vector similarity search."""
         # Convert filters to dict format
         filters_dict: dict[str, Any] = {}
         if filters:
             for item in filters:
-                item_dict = dict(item)
-                filters_dict[item_dict["key"]] = item_dict["value"]
+                # item is already a dict from Pydantic validation
+                filters_dict[item["key"]] = item["value"]
 
         # Merge with any configured filters
         combined_filters: dict[str, Any] = {
@@ -176,8 +207,11 @@ def create_vector_search_tool(
         num_results: int = search_parameters.get("num_results", 10)
         query_type: str = search_parameters.get("query_type", "ANN")
 
-        logger.debug(
-            f"Performing vector search: query='{query[:50]}...', k={num_results}, filters={combined_filters}"
+        logger.trace(
+            "Performing vector search",
+            query_preview=query[:50],
+            k=num_results,
+            filters=combined_filters,
         )
 
         # Build similarity search kwargs
@@ -196,7 +230,9 @@ def create_vector_search_tool(
 
         documents: List[Document] = vector_store.similarity_search(**search_kwargs)
 
-        logger.debug(f"Retrieved {len(documents)} documents from vector search")
+        logger.debug(
+            "Retrieved documents from vector search", documents_count=len(documents)
+        )
         return documents
 
     # Helper function to rerank documents
@@ -204,14 +240,16 @@ def create_vector_search_tool(
     def _rerank_documents(query: str, documents: List[Document]) -> List[Document]:
         """Rerank documents using FlashRank.
 
-        Uses the ranker instance initialized at tool creation time (captured in closure).
-        This avoids expensive model loading on every invocation.
+        Uses the ranker instance initialized at tool creation time (captured
+        in closure). This avoids expensive model loading on every invocation.
         """
         if not reranker_config or ranker is None:
             return documents
 
-        logger.debug(
-            f"Starting reranking for {len(documents)} documents using model '{reranker_config.model}'"
+        logger.trace(
+            "Starting reranking",
+            documents_count=len(documents),
+            model=reranker_config.model,
         )
 
         # Prepare passages for reranking
@@ -223,15 +261,15 @@ def create_vector_search_tool(
         rerank_request: RerankRequest = RerankRequest(query=query, passages=passages)
 
         # Perform reranking
-        logger.debug(f"Reranking {len(passages)} passages for query: '{query[:50]}...'")
+        logger.trace(
+            "Reranking passages", passages_count=len(passages), query_preview=query[:50]
+        )
         results: List[dict[str, Any]] = ranker.rerank(rerank_request)
 
         # Apply top_n filtering
         top_n: int = reranker_config.top_n or len(documents)
         results = results[:top_n]
-        logger.debug(
-            f"Reranking complete. Filtered to top {top_n} results from {len(documents)} candidates"
-        )
+        logger.debug("Reranking complete", top_n=top_n, candidates_count=len(documents))
 
         # Convert back to Document objects with reranking scores
         reranked_docs: List[Document] = []
@@ -251,11 +289,17 @@ def create_vector_search_tool(
                 )
                 reranked_docs.append(reranked_doc)
 
-        logger.debug(
-            f"Reranked {len(documents)} documents → {len(reranked_docs)} results "
-            f"(model: {reranker_config.model}, top score: {reranked_docs[0].metadata.get('reranker_score', 0):.4f})"
+        top_score = (
+            reranked_docs[0].metadata.get("reranker_score", 0)
             if reranked_docs
-            else f"Reranking completed with {len(reranked_docs)} results"
+            else None
+        )
+        logger.debug(
+            "Documents reranked",
+            input_count=len(documents),
+            output_count=len(reranked_docs),
+            model=reranker_config.model,
+            top_score=top_score,
         )
 
         return reranked_docs
@@ -265,11 +309,10 @@ def create_vector_search_tool(
     @tool(
         name_or_callable=name or index_name,
         description=description or "Search for documents using vector similarity",
-        args_schema=VectorSearchRetrieverToolInput,
     )
     def vector_search_tool(
         query: str,
-        filters: Optional[List[FilterItem]] = None,
+        filters: Optional[List[dict[str, Any]]] = None,  # Will be validated by Pydantic
         runtime: ToolRuntime[Context, AgentState] = None,
     ) -> list[dict[str, Any]]:
         """
@@ -286,8 +329,11 @@ def create_vector_search_tool(
         Returns:
             List of serialized documents with page_content and metadata
         """
-        logger.debug(
-            f"Vector search tool called: query='{query[:50]}...', reranking={reranker_config is not None}"
+        logger.trace(
+            "Vector search tool called",
+            query_preview=query[:50],
+            filters=filters,
+            reranking_enabled=reranker_config is not None,
         )
 
         # Step 1: Perform vector similarity search
@@ -295,13 +341,15 @@ def create_vector_search_tool(
 
         # Step 2: If reranking is enabled, rerank the documents
         if reranker_config:
-            logger.debug(
-                f"Reranking enabled (model: '{reranker_config.model}', top_n: {reranker_config.top_n or 'all'})"
+            logger.trace(
+                "Reranking enabled",
+                model=reranker_config.model,
+                top_n=reranker_config.top_n or "all",
             )
             documents = _rerank_documents(query, documents)
-            logger.debug(f"Returning {len(documents)} reranked documents")
+            logger.debug("Returning reranked documents", documents_count=len(documents))
         else:
-            logger.debug("Reranking disabled, returning original vector search results")
+            logger.trace("Reranking disabled, returning original results")
 
         # Return Command with ToolMessage containing the documents
         # Serialize documents to dicts for proper ToolMessage handling

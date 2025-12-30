@@ -46,7 +46,7 @@ def create_store(orchestration: OrchestrationModel) -> BaseStore | None:
     """
     if orchestration.memory and orchestration.memory.store:
         store = orchestration.memory.store.as_store()
-        logger.debug(f"Using memory store: {store}")
+        logger.debug("Memory store configured", store_type=type(store).__name__)
         return store
     return None
 
@@ -65,7 +65,9 @@ def create_checkpointer(
     """
     if orchestration.memory and orchestration.memory.checkpointer:
         checkpointer = orchestration.memory.checkpointer.as_checkpointer()
-        logger.debug(f"Using checkpointer: {checkpointer}")
+        logger.debug(
+            "Checkpointer configured", checkpointer_type=type(checkpointer).__name__
+        )
         return checkpointer
     return None
 
@@ -164,9 +166,11 @@ def create_agent_node_handler(
         original_messages = state.get("messages", [])
         filtered_messages = filter_messages_for_agent(original_messages)
 
-        logger.debug(
-            f"Agent '{agent_name}' receiving {len(filtered_messages)} filtered "
-            f"messages (from {len(original_messages)} total)"
+        logger.trace(
+            "Agent receiving filtered messages",
+            agent=agent_name,
+            filtered_count=len(filtered_messages),
+            original_count=len(original_messages),
         )
 
         # Create state with filtered messages for the agent
@@ -183,8 +187,11 @@ def create_agent_node_handler(
         response_messages = extract_agent_response(result_messages, output_mode)
 
         logger.debug(
-            f"Agent '{agent_name}' completed. Returning {len(response_messages)} "
-            f"messages (from {len(result_messages)} total, mode={output_mode})"
+            "Agent completed",
+            agent=agent_name,
+            response_count=len(response_messages),
+            total_messages=len(result_messages),
+            output_mode=output_mode,
         )
 
         # Return state update with extracted response
@@ -218,7 +225,7 @@ def create_handoff_tool(
     def handoff_tool(runtime: ToolRuntime[Context, AgentState]) -> Command:
         """Transfer control to another agent."""
         tool_call_id: str = runtime.tool_call_id
-        logger.debug(f"Handoff to agent '{target_agent_name}'")
+        logger.debug("Handoff to agent", target_agent=target_agent_name)
 
         return Command(
             update={

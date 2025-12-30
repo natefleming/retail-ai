@@ -314,15 +314,15 @@ graph TB
 
 ## Example Configurations
 
-The `config/examples/` directory contains ready-to-use configurations for common patterns:
+The `config/examples/` directory contains ready-to-use configurations organized in a **progressive learning path**:
 
-- `minimal.yaml` - Simplest possible agent
-- `genie_with_semantic_cache.yaml` - NL-to-SQL with two-tier caching
-- `vector_search_with_reranking.yaml` - RAG with improved accuracy
-- `human_in_the_loop.yaml` - Approval workflows
-- `conversation_summarization.yaml` - Long conversation handling
+- `01_getting_started/minimal.yaml` - Simplest possible agent
+- `02_tools/vector_search_with_reranking.yaml` - RAG with improved accuracy
+- `03_caching/genie_semantic_cache.yaml` - NL-to-SQL with two-tier caching
+- `04_memory/conversation_summarization.yaml` - Long conversation handling
+- `05_quality_control/human_in_the_loop.yaml` - Approval workflows
 
-And many more! See the full list in [Examples Documentation](docs/examples.md).
+And many more! Follow the numbered path or jump to what you need. See the full guide in [Examples Documentation](docs/examples.md).
 
 ---
 

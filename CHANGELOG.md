@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `LoggingSummarizationMiddleware`: Extends LangChain's `SummarizationMiddleware` with detailed logging
   - Configurable via `chat_history` in YAML with `max_tokens`, `max_tokens_before_summary`, `max_messages_before_summary`
   - Logs original and summarized message/token counts for observability
-  - New example config: `config/examples/conversation_summarization.yaml`
+  - New example config: `config/examples/04_memory/conversation_summarization.yaml`
 
 - **GEPA-Based Prompt Optimization**: Replaced MLflow optimizer with GEPA (Generative Evolution of Prompts and Agents)
   - `optimize_prompt()` function using DSPy's evolutionary optimization

@@ -7,15 +7,17 @@ from fully qualified function names.
 
 from typing import Any, Callable
 
+from langchain.agents.middleware import AgentMiddleware
 from loguru import logger
 
+from dao_ai.state import AgentState, Context
 from dao_ai.utils import load_function
 
 
 def create_factory_middleware(
     function_name: str,
     args: dict[str, Any] | None = None,
-) -> Any:
+) -> AgentMiddleware[AgentState, Context]:
     """
     Create middleware from a factory function.
 
@@ -33,14 +35,14 @@ def create_factory_middleware(
         args: Arguments to pass to the factory function
 
     Returns:
-        A middleware instance returned by the factory function
+        An AgentMiddleware instance returned by the factory function
 
     Raises:
         ImportError: If the function cannot be loaded
 
     Example:
         # Factory function in my_module.py:
-        def create_custom_middleware(threshold: float = 0.5) -> AgentMiddleware:
+        def create_custom_middleware(threshold: float = 0.5) -> AgentMiddleware[AgentState, Context]:
             return MyCustomMiddleware(threshold=threshold)
 
         # Usage:
@@ -52,10 +54,14 @@ def create_factory_middleware(
     if args is None:
         args = {}
 
-    logger.debug(f"Creating factory middleware: {function_name} with args: {args}")
+    logger.trace("Creating factory middleware", function_name=function_name, args=args)
 
-    factory: Callable[..., Any] = load_function(function_name=function_name)
-    middleware: Any = factory(**args)
+    factory: Callable[..., AgentMiddleware[AgentState, Context]] = load_function(
+        function_name=function_name
+    )
+    middleware: AgentMiddleware[AgentState, Context] = factory(**args)
 
-    logger.debug(f"Created middleware from factory: {type(middleware).__name__}")
+    logger.trace(
+        "Created middleware from factory", middleware_type=type(middleware).__name__
+    )
     return middleware

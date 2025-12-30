@@ -69,14 +69,14 @@ def _handoffs_for_agent(
             )
 
         if handoff_to_agent is None:
-            logger.warning(
-                f"Handoff agent not found in configuration for agent {agent.name}"
-            )
+            logger.warning("Handoff agent not found in configuration", agent=agent.name)
             continue
         if agent.name == handoff_to_agent.name:
             continue
         logger.debug(
-            f"Creating handoff tool from agent {agent.name} to {handoff_to_agent.name}"
+            "Creating handoff tool",
+            from_agent=agent.name,
+            to_agent=handoff_to_agent.name,
         )
 
         handoff_description: str = get_handoff_description(handoff_to_agent)
@@ -116,19 +116,22 @@ def _create_swarm_router(
 
         # If no active agent set, use default
         if not active_agent:
-            logger.debug(
-                f"No active_agent in state, routing to default: {default_agent}"
+            logger.trace(
+                "No active agent in state, routing to default",
+                default_agent=default_agent,
             )
             return default_agent
 
         # Validate active_agent exists
         if active_agent in agent_names:
-            logger.debug(f"Routing to active_agent: {active_agent}")
+            logger.trace("Routing to active agent", active_agent=active_agent)
             return active_agent
 
         # Fallback to default if active_agent is invalid
         logger.warning(
-            f"Invalid active_agent '{active_agent}', routing to default: {default_agent}"
+            "Invalid active agent, routing to default",
+            active_agent=active_agent,
+            default_agent=default_agent,
         )
         return default_agent
 
@@ -157,8 +160,6 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     See: https://github.com/langchain-ai/langgraph-swarm-py
     """
-    logger.debug("Creating swarm graph (handoff pattern)")
-
     orchestration: OrchestrationModel = config.app.orchestration
     swarm: SwarmModel = orchestration.swarm
 
@@ -168,6 +169,13 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         default_agent = swarm.default_agent.name
     else:
         default_agent = swarm.default_agent
+
+    logger.info(
+        "Creating swarm graph",
+        pattern="handoff",
+        default_agent=default_agent,
+        agents_count=len(config.app.agents),
+    )
 
     # Create agent subgraphs with their specific handoff tools
     # Each agent gets handoff tools only for agents they're allowed to hand off to
@@ -187,7 +195,11 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             additional_tools=handoff_tools,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
-        logger.debug(f"Created swarm agent subgraph: {registered_agent.name}")
+        logger.debug(
+            "Created swarm agent subgraph",
+            agent=registered_agent.name,
+            handoffs_count=len(handoff_tools),
+        )
 
     # Set up memory store and checkpointer
     store: BaseStore | None = create_store(orchestration)

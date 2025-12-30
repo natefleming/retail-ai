@@ -557,12 +557,10 @@ guardrails:
 
 memory: &memory
   checkpointer: 
-    name: default_checkpointer
-    type: memory
+    name: default_checkpointer  # Type inferred as memory (no database)
 
   store: 
-    name: default_store
-    type: memory
+    name: default_store  # Type inferred as memory (no database)
     embedding_model: *embedding_model
     dims: 1536
 

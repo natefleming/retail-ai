@@ -27,8 +27,8 @@ def is_installed() -> bool:
         site_packages.append(os.path.abspath(site.getusersitepackages()))
 
     found: bool = any(current_file.startswith(pkg_path) for pkg_path in site_packages)
-    logger.debug(
-        f"Checking if dao_ai is installed: {found} (current file: {current_file}"
+    logger.trace(
+        "Checking if dao_ai is installed", is_installed=found, current_file=current_file
     )
     return found
 
@@ -85,7 +85,7 @@ def get_default_databricks_host() -> str | None:
         w: WorkspaceClient = WorkspaceClient()
         return normalize_host(w.config.host)
     except Exception:
-        logger.debug("Could not get default Databricks host from WorkspaceClient")
+        logger.trace("Could not get default Databricks host from WorkspaceClient")
         return None
 
 
@@ -105,7 +105,7 @@ def dao_ai_version() -> str:
         return version("dao-ai")
     except PackageNotFoundError:
         # Package not installed, try reading from pyproject.toml
-        logger.debug(
+        logger.trace(
             "dao-ai package not installed, attempting to read version from pyproject.toml"
         )
         try:
@@ -126,19 +126,24 @@ def dao_ai_version() -> str:
 
             if not pyproject_path.exists():
                 logger.warning(
-                    f"Cannot determine dao-ai version: pyproject.toml not found at {pyproject_path}"
+                    "Cannot determine dao-ai version: pyproject.toml not found",
+                    path=str(pyproject_path),
                 )
                 return "dev"
 
             with open(pyproject_path, "rb") as f:
                 pyproject_data = tomllib.load(f)
                 pkg_version = pyproject_data.get("project", {}).get("version", "dev")
-                logger.debug(
-                    f"Read version {pkg_version} from pyproject.toml at {pyproject_path}"
+                logger.trace(
+                    "Read version from pyproject.toml",
+                    version=pkg_version,
+                    path=str(pyproject_path),
                 )
                 return pkg_version
         except Exception as e:
-            logger.warning(f"Cannot determine dao-ai version from pyproject.toml: {e}")
+            logger.warning(
+                "Cannot determine dao-ai version from pyproject.toml", error=str(e)
+            )
             return "dev"
 
 
@@ -200,7 +205,7 @@ def load_function(function_name: str) -> Callable[..., Any]:
         >>> func = callable_from_fqn("dao_ai.models.get_latest_model_version")
         >>> version = func("my_model")
     """
-    logger.debug(f"Loading function: {function_name}")
+    logger.trace("Loading function", function_name=function_name)
 
     try:
         # Split the FQN into module path and function name
@@ -251,7 +256,7 @@ def type_from_fqn(type_name: str) -> type:
         >>> ProductModel = type_from_fqn("my_models.ProductInfo")
         >>> instance = ProductModel(name="Widget", price=9.99)
     """
-    logger.debug(f"Loading type: {type_name}")
+    logger.trace("Loading type", type_name=type_name)
 
     try:
         # Split the FQN into module path and class name

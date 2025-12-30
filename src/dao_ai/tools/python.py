@@ -21,7 +21,7 @@ def create_factory_tool(
     Returns:
         A callable tool function that wraps the specified factory function
     """
-    logger.debug(f"create_factory_tool: {function}")
+    logger.trace("Creating factory tool", function=function.full_name)
 
     factory: Callable[..., Any] = load_function(function_name=function.full_name)
     tool: RunnableLike = factory(**function.args)
@@ -41,7 +41,10 @@ def create_python_tool(
     Returns:
         A callable tool function that wraps the specified Python function
     """
-    logger.debug(f"create_python_tool: {function}")
+    function_name = (
+        function.full_name if isinstance(function, PythonFunctionModel) else function
+    )
+    logger.trace("Creating Python tool", function=function_name)
 
     if isinstance(function, PythonFunctionModel):
         function = function.full_name

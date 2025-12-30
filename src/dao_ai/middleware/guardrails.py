@@ -117,29 +117,29 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
 
         # Skip evaluation if the AI message has tool calls (not the final response yet)
         if ai_message.tool_calls:
-            logger.debug(
-                f"Guardrail '{self.guardrail_name}' skipping evaluation - "
-                "AI message contains tool calls, waiting for final response"
+            logger.trace(
+                "Guardrail skipping evaluation - AI message contains tool calls",
+                guardrail_name=self.guardrail_name,
             )
             return None
 
         # Skip evaluation if the AI message has no content to evaluate
         if not ai_message.content:
-            logger.debug(
-                f"Guardrail '{self.guardrail_name}' skipping evaluation - "
-                "AI message has no content"
+            logger.trace(
+                "Guardrail skipping evaluation - AI message has no content",
+                guardrail_name=self.guardrail_name,
             )
             return None
-
-        logger.debug(f"Evaluating response with guardrail '{self.guardrail_name}'")
 
         # Extract text content from messages (handles both string and structured content)
         human_content = _extract_text_content(human_message)
         ai_content = _extract_text_content(ai_message)
 
         logger.debug(
-            f"Guardrail '{self.guardrail_name}' evaluating: "
-            f"input_length={len(human_content)}, output_length={len(ai_content)}"
+            "Evaluating response with guardrail",
+            guardrail_name=self.guardrail_name,
+            input_length=len(human_content),
+            output_length=len(ai_content),
         )
 
         evaluator = create_llm_as_judge(
@@ -150,8 +150,11 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         eval_result = evaluator(inputs=human_content, outputs=ai_content)
 
         if eval_result["score"]:
-            logger.debug(f"Response approved by guardrail '{self.guardrail_name}'")
-            logger.debug(f"Judge's comment: {eval_result['comment']}")
+            logger.debug(
+                "Response approved by guardrail",
+                guardrail_name=self.guardrail_name,
+                comment=eval_result["comment"],
+            )
             self._retry_count = 0
             return None
         else:
@@ -160,10 +163,12 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
 
             if self._retry_count >= self.num_retries:
                 logger.warning(
-                    f"Guardrail '{self.guardrail_name}' failed - max retries reached "
-                    f"({self._retry_count}/{self.num_retries})"
+                    "Guardrail failed - max retries reached",
+                    guardrail_name=self.guardrail_name,
+                    retry_count=self._retry_count,
+                    max_retries=self.num_retries,
+                    critique=comment,
                 )
-                logger.warning(f"Final judge's critique: {comment}")
                 self._retry_count = 0
 
                 # Add system message to inform user of guardrail failure
@@ -177,10 +182,12 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                 return {"messages": [AIMessage(content=failure_message)]}
 
             logger.warning(
-                f"Guardrail '{self.guardrail_name}' requested improvements "
-                f"(retry {self._retry_count}/{self.num_retries})"
+                "Guardrail requested improvements",
+                guardrail_name=self.guardrail_name,
+                retry=self._retry_count,
+                max_retries=self.num_retries,
+                critique=comment,
             )
-            logger.warning(f"Judge's critique: {comment}")
 
             content: str = "\n".join([str(human_message.content), comment])
             return {"messages": [HumanMessage(content=content)]}
@@ -250,9 +257,7 @@ class ContentFilterMiddleware(AgentMiddleware[AgentState, Context]):
 
         for keyword in self.banned_keywords:
             if keyword in content:
-                logger.warning(
-                    f"Content filter blocked response containing '{keyword}'"
-                )
+                logger.warning("Content filter blocked response", keyword=keyword)
                 # Modify the last message content
                 last_message.content = self.block_message
                 return None
@@ -347,7 +352,7 @@ def create_guardrail_middleware(
             num_retries=2,
         )
     """
-    logger.debug(f"Creating guardrail middleware: {name}")
+    logger.trace("Creating guardrail middleware", guardrail_name=name)
     return GuardrailMiddleware(
         name=name,
         model=model,
@@ -379,8 +384,8 @@ def create_content_filter_middleware(
             block_message="I cannot discuss sensitive credentials.",
         )
     """
-    logger.debug(
-        f"Creating content filter middleware with {len(banned_keywords)} keywords"
+    logger.trace(
+        "Creating content filter middleware", keywords_count=len(banned_keywords)
     )
     return ContentFilterMiddleware(
         banned_keywords=banned_keywords,
@@ -411,5 +416,5 @@ def create_safety_guardrail_middleware(
             safety_model=ChatDatabricks(endpoint="databricks-meta-llama-3-3-70b-instruct"),
         )
     """
-    logger.debug("Creating safety guardrail middleware")
+    logger.trace("Creating safety guardrail middleware")
     return SafetyGuardrailMiddleware(safety_model=safety_model)

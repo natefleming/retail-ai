@@ -38,7 +38,7 @@ def execute_sql_via_warehouse(
     w: WorkspaceClient = warehouse.workspace_client
     warehouse_id: str = str(warehouse.warehouse_id)
 
-    logger.debug(f"[{layer_name}] Executing cached SQL: {sql[:100]}...")
+    logger.trace("Executing cached SQL", layer=layer_name, sql_prefix=sql[:100])
 
     statement_response: StatementResponse = w.statement_execution.execute_statement(
         statement=sql,
@@ -57,7 +57,11 @@ def execute_sql_via_warehouse(
 
     if statement_response.status.state != StatementState.SUCCEEDED:
         error_msg: str = f"SQL execution failed: {statement_response.status}"
-        logger.error(f"[{layer_name}] {error_msg}")
+        logger.error(
+            "SQL execution failed",
+            layer=layer_name,
+            status=str(statement_response.status),
+        )
         return error_msg
 
     # Convert to DataFrame

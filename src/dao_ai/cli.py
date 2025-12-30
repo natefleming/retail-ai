@@ -1,4 +1,5 @@
 import argparse
+import getpass
 import json
 import os
 import subprocess
@@ -13,11 +14,37 @@ from loguru import logger
 
 from dao_ai.config import AppConfig
 from dao_ai.graph import create_dao_ai_graph
+from dao_ai.logging import configure_logging
 from dao_ai.models import save_image
 from dao_ai.utils import normalize_name
 
-logger.remove()
-logger.add(sys.stderr, level="ERROR")
+configure_logging(level="ERROR")
+
+
+def get_default_user_id() -> str:
+    """
+    Get the default user ID for the CLI session.
+    
+    Tries to get the current user from Databricks, falls back to local user.
+    
+    Returns:
+        User ID string (Databricks username or local username)
+    """
+    try:
+        # Try to get current user from Databricks SDK
+        from databricks.sdk import WorkspaceClient
+        
+        w = WorkspaceClient()
+        current_user = w.current_user.me()
+        user_id = current_user.user_name
+        logger.debug(f"Using Databricks user: {user_id}")
+        return user_id
+    except Exception as e:
+        # Fall back to local system user
+        logger.debug(f"Could not get Databricks user, using local user: {e}")
+        local_user = getpass.getuser()
+        logger.debug(f"Using local user: {local_user}")
+        return local_user
 
 
 env_path: str = find_dotenv()
@@ -240,9 +267,9 @@ Use Ctrl-C to interrupt and exit immediately.
         """,
         epilog="""
 Examples:
-  dao-ai chat -c config/model_config.yaml                              # Start chat with default settings
+  dao-ai chat -c config/model_config.yaml                              # Start chat (auto-detects user)
   dao-ai chat -c config/retail.yaml --custom-input store_num=87887     # Chat with custom store number
-  dao-ai chat -c config/prod.yaml --user-id john123                    # Chat with specific user ID
+  dao-ai chat -c config/prod.yaml --user-id john.doe@company.com       # Chat with specific user ID
   dao-ai chat -c config/retail.yaml --custom-input store_num=123 --custom-input region=west  # Multiple custom inputs
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -264,9 +291,9 @@ Examples:
     chat_parser.add_argument(
         "--user-id",
         type=str,
-        default="my_user_id",
+        default=None,  # Will be set to actual user in handle_chat_command
         metavar="ID",
-        help="User ID for the chat session (default: my_user_id)",
+        help="User ID for the chat session (default: current Databricks user or local username)",
     )
     chat_parser.add_argument(
         "--thread-id",
@@ -292,6 +319,10 @@ def handle_chat_command(options: Namespace) -> None:
     logger.debug("Starting chat session with DAO AI system...")
 
     try:
+        # Set default user_id if not provided
+        if options.user_id is None:
+            options.user_id = get_default_user_id()
+        
         config: AppConfig = AppConfig.from_file(options.config)
         app = create_dao_ai_graph(config)
 
@@ -354,12 +385,20 @@ def handle_chat_command(options: Namespace) -> None:
                             )
                             continue
 
-                # Prepare custom inputs for the agent
-                custom_inputs = {"configurable": configurable}
+                # Create Context object from configurable dict
+                from dao_ai.state import Context
+                
+                context = Context(**configurable)
+                
+                # Prepare config with thread_id for checkpointer
+                # Note: thread_id is needed in config for checkpointer/memory
+                config = {"configurable": {"thread_id": options.thread_id}}
 
                 # Invoke the graph and handle interrupts (HITL)
                 # Wrap in async function to maintain connection pool throughout
                 logger.debug(f"Invoking graph with {len(messages)} messages")
+                logger.debug(f"Context: {context}")
+                logger.debug(f"Config: {config}")
 
                 import asyncio
 
@@ -369,7 +408,8 @@ def handle_chat_command(options: Namespace) -> None:
                     """Invoke graph and handle HITL interrupts in single async context."""
                     result = await app.ainvoke(
                         {"messages": messages},
-                        config=custom_inputs,
+                        config=config,
+                        context=context,  # Pass context as separate parameter
                     )
 
                     # Check for interrupts (Human-in-the-Loop) using __interrupt__
@@ -471,7 +511,8 @@ def handle_chat_command(options: Namespace) -> None:
                         logger.debug(f"Resuming with {len(decisions)} decision(s)")
                         result = await app.ainvoke(
                             Command(resume={"decisions": decisions}),
-                            config=custom_inputs,
+                            config=config,
+                            context=context,
                         )
 
                     return result
@@ -613,7 +654,6 @@ def handle_validate_command(options: Namespace) -> None:
 
 
 def setup_logging(verbosity: int) -> None:
-    logger.remove()
     levels: dict[int, str] = {
         0: "ERROR",
         1: "WARNING",
@@ -622,7 +662,7 @@ def setup_logging(verbosity: int) -> None:
         4: "TRACE",
     }
     level: str = levels.get(verbosity, "TRACE")
-    logger.add(sys.stderr, level=level)
+    configure_logging(level=level)
 
 
 def generate_bundle_from_template(config_path: Path, app_name: str) -> Path:

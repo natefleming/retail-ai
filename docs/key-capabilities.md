@@ -335,13 +335,13 @@ tools:
 **Memory backend options:**
 1. **In-Memory**: Fast but temporary (resets when agent restarts). Good for testing and development.
 2. **PostgreSQL**: Persistent relational storage (survives restarts). Good for production systems requiring conversation history and user preferences.
-3. **Lakebase**: Databricks-native persistence layer built on Delta Lake. Good for production deployments that want to stay within the Databricks ecosystem.
+3. **Lakebase**: Databricks-managed PostgreSQL instance with Unity Catalog integration. Good for production deployments that want to stay within the Databricks ecosystem.
 
 **Why Lakebase?**
 - **Native Databricks integration** - No external database required
-- **Built on Delta Lake** - ACID transactions, time travel, scalability
+- **Managed PostgreSQL** - ACID transactions, full relational database capabilities
 - **Unified governance** - Same Unity Catalog permissions as your data
-- **Cost-effective** - Uses existing Databricks storage and compute
+- **Cost-effective** - Uses existing Databricks infrastructure
 
 Configure conversation memory with in-memory, PostgreSQL, or Lakebase backends:
 
@@ -365,13 +365,13 @@ memory:
     name: conversation_checkpointer
     type: lakebase
     schema: *my_schema              # Unity Catalog schema
-    table_name: agent_checkpoints   # Delta table for conversation state
+    table_name: agent_checkpoints   # PostgreSQL table for conversation state
   
   store:
     name: user_preferences_store
     type: lakebase
     schema: *my_schema
-    table_name: agent_store         # Delta table for key-value storage
+    table_name: agent_store         # PostgreSQL table for key-value storage
     embedding_model: *embedding_model
 ```
 
@@ -727,7 +727,7 @@ Agent returns:
 - `response_schema`: Can be a JSON schema string, Pydantic model type, or fully qualified class name
 - `use_tool`: `true` (function calling), `false` (native), or `null` (auto-detect)
 
-See `config/examples/structured_output.yaml` for a complete example.
+See `config/examples/05_quality_control/structured_output.yaml` for a complete example.
 
 ---
 

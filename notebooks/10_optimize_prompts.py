@@ -76,8 +76,9 @@ _ = load_dotenv(find_dotenv())
 
 from loguru import logger
 
-logger.remove()
-logger.add(sys.stderr, level="DEBUG")
+from dao_ai.logging import configure_logging
+
+configure_logging(level="DEBUG")
 
 # COMMAND ----------
 

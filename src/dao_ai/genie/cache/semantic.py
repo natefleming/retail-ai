@@ -78,7 +78,9 @@ def get_conversation_history(
         return []
     except Exception as e:
         logger.warning(
-            f"Failed to retrieve conversation history for conversation_id={conversation_id}: {e}"
+            "Failed to retrieve conversation history",
+            conversation_id=conversation_id,
+            error=str(e),
         )
         return []
 
@@ -137,10 +139,13 @@ def build_context_string(
     if estimated_tokens > max_tokens:
         # Truncate to fit max_tokens
         target_chars = max_tokens * 4
+        original_length = len(context_string)
         context_string = context_string[:target_chars] + "..."
-        logger.debug(
-            f"Truncated context string from {len(context_string)} to {target_chars} chars "
-            f"(estimated {max_tokens} tokens)"
+        logger.trace(
+            "Truncated context string",
+            original_chars=original_length,
+            target_chars=target_chars,
+            max_tokens=max_tokens,
         )
 
     return context_string
@@ -251,7 +256,9 @@ class SemanticCacheService(GenieServiceBase):
             sample_embedding: list[float] = self._embeddings.embed_query("test")
             self._embedding_dims = len(sample_embedding)
             logger.debug(
-                f"[{self.name}] Auto-detected embedding dimensions: {self._embedding_dims}"
+                "Auto-detected embedding dimensions",
+                layer=self.name,
+                dims=self._embedding_dims,
             )
         else:
             self._embedding_dims = self.parameters.embedding_dims
@@ -264,8 +271,11 @@ class SemanticCacheService(GenieServiceBase):
 
         self._setup_complete = True
         logger.debug(
-            f"[{self.name}] Semantic cache initialized for space '{self.space_id}' "
-            f"with table '{self.table_name}' (dims={self._embedding_dims})"
+            "Semantic cache initialized",
+            layer=self.name,
+            space_id=self.space_id,
+            table_name=self.table_name,
+            dims=self._embedding_dims,
         )
 
     @property
@@ -369,9 +379,11 @@ class SemanticCacheService(GenieServiceBase):
                         current_dims = row.get("atttypmod", 0)
                         if current_dims != self.embedding_dims:
                             logger.warning(
-                                f"[{self.name}] Embedding dimension mismatch: "
-                                f"table has {current_dims}, expected {self.embedding_dims}. "
-                                f"Dropping and recreating table '{self.table_name}'."
+                                "Embedding dimension mismatch, dropping and recreating table",
+                                layer=self.name,
+                                table_dims=current_dims,
+                                expected_dims=self.embedding_dims,
+                                table_name=self.table_name,
                             )
                             cur.execute(f"DROP TABLE {self.table_name}")
                 except Exception:
@@ -448,13 +460,17 @@ class SemanticCacheService(GenieServiceBase):
                             conversation_context[:target_chars] + "..."
                         )
 
-                logger.debug(
-                    f"[{self.name}] Using conversation context: {len(conversation_messages)} messages "
-                    f"(window_size={self.parameters.context_window_size})"
+                logger.trace(
+                    "Using conversation context",
+                    layer=self.name,
+                    messages_count=len(conversation_messages),
+                    window_size=self.parameters.context_window_size,
                 )
             except Exception as e:
                 logger.warning(
-                    f"[{self.name}] Failed to build conversation context, using question only: {e}"
+                    "Failed to build conversation context, using question only",
+                    layer=self.name,
+                    error=str(e),
                 )
                 conversation_context = ""
 
@@ -558,8 +574,10 @@ class SemanticCacheService(GenieServiceBase):
 
                 if row is None:
                     logger.info(
-                        f"[{self.name}] MISS (no entries): "
-                        f"question='{question[:50]}...' space='{self.space_id}'"
+                        "Cache MISS (no entries)",
+                        layer=self.name,
+                        question_prefix=question[:50],
+                        space=self.space_id,
                     )
                     return None
 
@@ -577,25 +595,33 @@ class SemanticCacheService(GenieServiceBase):
                 is_valid: bool = row.get("is_valid", False)
 
                 # Log best match info
-                logger.info(
-                    f"[{self.name}] Best match: "
-                    f"question_sim={question_similarity:.4f}, context_sim={context_similarity:.4f}, "
-                    f"combined_sim={combined_similarity:.4f}, is_valid={is_valid}, "
-                    f"question='{cached_question[:50]}...', context='{cached_context[:80]}...'"
+                logger.debug(
+                    "Best match found",
+                    layer=self.name,
+                    question_sim=f"{question_similarity:.4f}",
+                    context_sim=f"{context_similarity:.4f}",
+                    combined_sim=f"{combined_similarity:.4f}",
+                    is_valid=is_valid,
+                    cached_question_prefix=cached_question[:50],
+                    cached_context_prefix=cached_context[:80],
                 )
 
                 # Check BOTH similarity thresholds (dual embedding precision check)
                 if question_similarity < self.parameters.similarity_threshold:
                     logger.info(
-                        f"[{self.name}] MISS (question similarity too low): "
-                        f"question_sim={question_similarity:.4f} < threshold={self.parameters.similarity_threshold}"
+                        "Cache MISS (question similarity too low)",
+                        layer=self.name,
+                        question_sim=f"{question_similarity:.4f}",
+                        threshold=self.parameters.similarity_threshold,
                     )
                     return None
 
                 if context_similarity < self.parameters.context_similarity_threshold:
                     logger.info(
-                        f"[{self.name}] MISS (context similarity too low): "
-                        f"context_sim={context_similarity:.4f} < threshold={self.parameters.context_similarity_threshold}"
+                        "Cache MISS (context similarity too low)",
+                        layer=self.name,
+                        context_sim=f"{context_similarity:.4f}",
+                        threshold=self.parameters.context_similarity_threshold,
                     )
                     return None
 
@@ -605,14 +631,21 @@ class SemanticCacheService(GenieServiceBase):
                     delete_sql = f"DELETE FROM {self.table_name} WHERE id = %s"
                     cur.execute(delete_sql, (entry_id,))
                     logger.info(
-                        f"[{self.name}] MISS (expired, deleted for refresh): "
-                        f"combined_sim={combined_similarity:.4f}, ttl={ttl_seconds}s, question='{cached_question[:50]}...'"
+                        "Cache MISS (expired, deleted for refresh)",
+                        layer=self.name,
+                        combined_sim=f"{combined_similarity:.4f}",
+                        ttl_seconds=ttl_seconds,
+                        cached_question_prefix=cached_question[:50],
                     )
                     return None
 
                 logger.info(
-                    f"[{self.name}] HIT: question_sim={question_similarity:.4f}, context_sim={context_similarity:.4f}, "
-                    f"combined_sim={combined_similarity:.4f} (cached_question='{cached_question[:50]}...')"
+                    "Cache HIT",
+                    layer=self.name,
+                    question_sim=f"{question_similarity:.4f}",
+                    context_sim=f"{context_similarity:.4f}",
+                    combined_sim=f"{combined_similarity:.4f}",
+                    cached_question_prefix=cached_question[:50],
                 )
 
                 entry = SQLCacheEntry(
@@ -664,9 +697,13 @@ class SemanticCacheService(GenieServiceBase):
                     ),
                 )
                 logger.info(
-                    f"[{self.name}] Stored cache entry: question='{question[:50]}...' "
-                    f"context='{conversation_context[:80]}...' "
-                    f"sql='{response.query[:50]}...' (space={self.space_id}, table={self.table_name})"
+                    "Stored cache entry",
+                    layer=self.name,
+                    question_prefix=question[:50],
+                    context_prefix=conversation_context[:80],
+                    sql_prefix=response.query[:50] if response.query else None,
+                    space=self.space_id,
+                    table=self.table_name,
                 )
 
     @mlflow.trace(name="execute_cached_sql_semantic")
@@ -692,7 +729,7 @@ class SemanticCacheService(GenieServiceBase):
                 if statement_response.status.error is not None
                 else f"SQL execution failed with state: {statement_response.status.state}"
             )
-            logger.error(f"[{self.name}] {error_msg}")
+            logger.error("SQL execution failed", layer=self.name, error=error_msg)
             return error_msg
 
         if statement_response.result and statement_response.result.data_array:
@@ -765,7 +802,10 @@ class SemanticCacheService(GenieServiceBase):
         if cache_result is not None:
             cached, combined_similarity = cache_result
             logger.debug(
-                f"[{self.name}] Semantic cache hit (combined_similarity={combined_similarity:.3f}): {question[:50]}..."
+                "Semantic cache hit",
+                layer=self.name,
+                combined_similarity=f"{combined_similarity:.3f}",
+                question_prefix=question[:50],
             )
 
             # Re-execute the cached SQL to get fresh data
@@ -785,15 +825,17 @@ class SemanticCacheService(GenieServiceBase):
             return CacheResult(response=response, cache_hit=True, served_by=self.name)
 
         # Cache miss - delegate to wrapped service
-        logger.debug(f"[{self.name}] Miss: {question[:50]}...")
+        logger.trace("Cache miss", layer=self.name, question_prefix=question[:50])
 
         result: CacheResult = self.impl.ask_question(question, conversation_id)
 
         # Store in cache if we got a SQL query
         if result.response.query:
             logger.info(
-                f"[{self.name}] Storing new cache entry for question: '{question[:50]}...' "
-                f"(space={self.space_id})"
+                "Storing new cache entry",
+                layer=self.name,
+                question_prefix=question[:50],
+                space=self.space_id,
             )
             self._store_entry(
                 question,
@@ -804,8 +846,9 @@ class SemanticCacheService(GenieServiceBase):
             )
         elif not result.response.query:
             logger.warning(
-                f"[{self.name}] Not caching: response has no SQL query "
-                f"(question='{question[:50]}...')"
+                "Not caching: response has no SQL query",
+                layer=self.name,
+                question_prefix=question[:50],
             )
 
         return CacheResult(response=result.response, cache_hit=False, served_by=None)
@@ -824,8 +867,10 @@ class SemanticCacheService(GenieServiceBase):
 
         # If TTL is disabled, nothing can expire
         if ttl_seconds is None or ttl_seconds < 0:
-            logger.debug(
-                f"[{self.name}] TTL disabled, no entries to expire for space {self.space_id}"
+            logger.trace(
+                "TTL disabled, no entries to expire",
+                layer=self.name,
+                space=self.space_id,
             )
             return 0
 
@@ -839,8 +884,11 @@ class SemanticCacheService(GenieServiceBase):
             with conn.cursor() as cur:
                 cur.execute(delete_sql, (self.space_id, ttl_seconds))
                 deleted: int = cur.rowcount
-                logger.debug(
-                    f"[{self.name}] Deleted {deleted} expired entries for space {self.space_id}"
+                logger.trace(
+                    "Deleted expired entries",
+                    layer=self.name,
+                    deleted_count=deleted,
+                    space=self.space_id,
                 )
                 return deleted
 
@@ -854,7 +902,10 @@ class SemanticCacheService(GenieServiceBase):
                 cur.execute(delete_sql, (self.space_id,))
                 deleted: int = cur.rowcount
                 logger.debug(
-                    f"[{self.name}] Cleared {deleted} entries for space {self.space_id}"
+                    "Cleared cache entries",
+                    layer=self.name,
+                    deleted_count=deleted,
+                    space=self.space_id,
                 )
                 return deleted
 

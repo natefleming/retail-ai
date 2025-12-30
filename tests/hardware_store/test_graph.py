@@ -1,16 +1,13 @@
-import sys
-
 import pytest
 from conftest import has_databricks_env
 from langgraph.graph.state import CompiledStateGraph
-from loguru import logger
 from mlflow.models import ModelConfig
 
 from dao_ai.config import AppConfig
 from dao_ai.graph import create_dao_ai_graph
+from dao_ai.logging import configure_logging
 
-logger.remove()
-logger.add(sys.stderr, level="INFO")
+configure_logging(level="INFO")
 
 
 @pytest.mark.unit

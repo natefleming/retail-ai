@@ -1,0 +1,176 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# PostgreSQL Persistence Example
+# =============================================================================
+# This configuration demonstrates persistent conversation state using an
+# external PostgreSQL database.
+#
+# Features:
+# - Use your own PostgreSQL instance (self-hosted or cloud)
+# - Full control over database configuration
+# - Standard PostgreSQL connection parameters
+# - Conversation state persists across sessions
+#
+# Use cases:
+# - Integration with existing PostgreSQL infrastructure
+# - Multi-region deployments with replicated databases
+# - Custom database configurations and tuning
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  demo_schema: &demo_schema
+    catalog_name: main
+    schema_name: default
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.7
+      max_tokens: 4096
+    
+    summary_llm: &summary_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 512
+
+  # ---------------------------------------------------------------------------
+  # POSTGRESQL DATABASE CONFIGURATION
+  # ---------------------------------------------------------------------------
+  databases:
+    postgres_db: &postgres_db
+      name: "conversations_db"
+      description: "PostgreSQL database for conversation persistence"
+      
+      # Option 1: Connection via environment variables (recommended)
+      # Set these in your environment:
+      #   export PGHOST=localhost
+      #   export PGPORT=5432
+      #   export PGDATABASE=conversations
+      #   export PGUSER=your_username
+      #   export PGPASSWORD=your_password
+      
+      host:
+        env: PGHOST
+        default_value: localhost
+      port:
+        env: PGPORT
+        default_value: 5432
+      database:
+        env: PGDATABASE
+        default_value: conversations
+      user:
+        env: PGUSER
+        default_value: postgres
+      password:
+        env: PGPASSWORD
+      
+      # Option 2: Direct connection string (less secure, not recommended for production)
+      # Uncomment to use a connection string instead:
+      # connection_string:
+      #   env: DATABASE_URL
+      #   default_value: "postgresql://user:password@localhost:5432/conversations"
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+memory:
+  checkpointer:
+    name: postgres_checkpointer
+    database: *postgres_db
+
+# =============================================================================
+# CHAT HISTORY (OPTIONAL)
+# =============================================================================
+# Uncomment to enable conversation summarization
+# Note: chat_history is configured per-agent in the agent's middleware, not at app level
+# This is documented here for reference only
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  postgres_agent: &postgres_agent
+    name: postgres_agent
+    description: "Chat agent with PostgreSQL persistence"
+    model: *default_llm
+    prompt: |
+      You are a helpful assistant with persistent memory backed by PostgreSQL.
+      
+      Your capabilities:
+      - Remember conversations across sessions
+      - Maintain context across multiple sessions
+      - Reference previous conversations naturally
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: postgres_persistence_dao
+  description: "Chat agent with PostgreSQL persistence"
+  log_level: INFO
+  
+  registered_model:
+    name: postgres_persistence_dao
+  
+  agents:
+    - *postgres_agent
+  
+  input_example:
+    messages:
+      - role: user
+        content: "Let's start a long conversation about machine learning best practices"
+    custom_inputs:
+      configurable:
+        # Thread ID groups related messages - use same ID to resume conversation
+        thread_id: "ml_discussion_001"
+        # User ID for multi-user applications
+        user_id: "user_123"
+
+# =============================================================================
+# SETUP INSTRUCTIONS
+# =============================================================================
+#
+# 1. Set up PostgreSQL:
+#    # Using Docker for local testing:
+#    docker run --name dao-ai-postgres \
+#      -e POSTGRES_PASSWORD=your_password \
+#      -e POSTGRES_DB=conversations \
+#      -p 5432:5432 \
+#      -d postgres:16
+#
+# 2. Set environment variables:
+#    export PGHOST=localhost
+#    export PGPORT=5432
+#    export PGDATABASE=conversations
+#    export PGUSER=postgres
+#    export PGPASSWORD=your_password
+#
+# 3. Tables are created automatically on first run
+#
+# 4. Run the agent:
+#    dao-ai chat -c config/examples/04_memory/postgres_persistence.yaml
+#
+# 5. Resume conversations:
+#    - Use the same thread_id to continue an existing conversation
+#    - Each thread_id creates an independent conversation thread
+#
+# =============================================================================
+# PRODUCTION RECOMMENDATIONS
+# =============================================================================
+#
+# For production deployments:
+# - Use connection pooling (PgBouncer)
+# - Enable SSL/TLS connections
+# - Configure regular backups
+# - Monitor database performance
+# - Use Databricks secrets instead of environment variables
+# - Set up database replicas for high availability
+# - Consider read replicas for analytics queries
+

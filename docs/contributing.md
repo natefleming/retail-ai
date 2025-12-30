@@ -238,7 +238,7 @@ pytest --cov=dao_ai --cov-report=html tests/
 2. Implement tool following LangChain patterns
 3. Add factory function if needed
 4. Add tests in `tests/dao_ai/tools/`
-5. Add example configuration in `config/examples/`
+5. Add example configuration in appropriate `config/examples/` category
 6. Update documentation
 
 ### Adding New Middleware
@@ -270,10 +270,31 @@ pytest --cov=dao_ai --cov-report=html tests/
 
 ### Adding Examples
 
-1. Create example config in `config/examples/`
-2. Add entry to `docs/examples.md`
-3. Test the example to ensure it works
-4. Add comments explaining key concepts
+1. Choose the appropriate category in `config/examples/` based on **primary feature** demonstrated:
+   - `01_getting_started/` - Foundation concepts for beginners
+   - `02_tools/` - Tool integrations (Genie, Vector Search, Slack, MCP, etc.)
+   - `03_caching/` - Performance optimization strategies
+   - `04_memory/` - State management and persistence
+   - `05_quality_control/` - Safety, validation, approval workflows
+   - `06_prompt_engineering/` - Prompt management and optimization
+   - `07_orchestration/` - Multi-agent coordination patterns
+   - `08_complete_applications/` - Full-featured, production-ready applications
+
+2. **Use descriptive file names**: `tool_name_variant.yaml` (e.g., `slack_with_threads.yaml`)
+
+3. Create your example config in the chosen category directory
+
+4. Add entry to `docs/examples.md` in the appropriate category table
+
+5. Test the example thoroughly:
+   ```bash
+   dao-ai validate -c config/examples/0X_category/your_example.yaml
+   dao-ai chat -c config/examples/0X_category/your_example.yaml
+   ```
+
+6. Add inline comments explaining key concepts and design decisions
+
+7. Update the category README.md with prerequisites and usage notes
 
 ## Release Process
 

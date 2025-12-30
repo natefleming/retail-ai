@@ -245,7 +245,7 @@ class DAOAgentAdapter(GEPAAdapter[_TrainingExample, _Trajectory, str]):
                         )
 
                 except Exception as e:
-                    logger.warning(f"Error evaluating example: {e}")
+                    logger.warning("Error evaluating example", error=str(e))
                     outputs.append("")
                     scores.append(0.0)
 
@@ -362,7 +362,9 @@ def _convert_dataset(
         )
         examples.append(example)
 
-    logger.debug(f"Converted {len(examples)} dataset entries to training examples")
+    logger.debug(
+        "Converted dataset entries to training examples", examples_count=len(examples)
+    )
     return examples
 
 
@@ -400,7 +402,7 @@ def _register_optimized_prompt(
     prompt_name: str = prompt.full_name
     optimization_timestamp: str = datetime.now(timezone.utc).isoformat()
 
-    logger.info(f"Registering optimized prompt: {prompt_name}")
+    logger.info("Registering optimized prompt", prompt_name=prompt_name)
 
     # Build comprehensive tags for the prompt registry
     tags: dict[str, str] = {
@@ -442,7 +444,11 @@ def _register_optimized_prompt(
         tags=tags,
     )
 
-    logger.info(f"Registered as version {version.version}")
+    logger.success(
+        "Registered optimized prompt version",
+        prompt_name=prompt_name,
+        version=version.version,
+    )
 
     # Set 'latest' alias for most recently optimized version
     mlflow.genai.set_prompt_alias(
@@ -450,7 +456,7 @@ def _register_optimized_prompt(
         alias="latest",
         version=version.version,
     )
-    logger.info(f"Set 'latest' alias for version {version.version}")
+    logger.info("Set 'latest' alias", prompt_name=prompt_name, version=version.version)
 
     # Set 'champion' alias if there was actual improvement
     if improvement > 0:
@@ -459,7 +465,9 @@ def _register_optimized_prompt(
             alias="champion",
             version=version.version,
         )
-        logger.info(f"Set 'champion' alias for version {version.version}")
+        logger.success(
+            "Set 'champion' alias", prompt_name=prompt_name, version=version.version
+        )
 
     return version
 
@@ -518,7 +526,7 @@ def optimize_prompt(
         if result.improved:
             print(f"Improved by {result.improvement:.1%}")
     """
-    logger.info(f"Starting GEPA optimization for prompt: {prompt.name}")
+    logger.info("Starting GEPA optimization", prompt_name=prompt.name)
 
     # Get the original template
     original_template = prompt.template
@@ -535,11 +543,11 @@ def optimize_prompt(
     trainset = examples[:split_idx]
     valset = examples[split_idx:] if split_idx < len(examples) else examples
 
-    logger.info(f"Using {len(trainset)} train, {len(valset)} val examples")
+    logger.info("Dataset split", train_size=len(trainset), val_size=len(valset))
 
     # Get reflection model
     reflection_model_name = reflection_model or agent.model.uri
-    logger.info(f"Using reflection model: {reflection_model_name}")
+    logger.info("Using reflection model", model=reflection_model_name)
 
     # Create adapter
     adapter = DAOAgentAdapter(agent_model=agent, metric_fn=metric)
@@ -548,7 +556,7 @@ def optimize_prompt(
     seed_candidate = {"prompt": original_template}
 
     # Run GEPA optimization
-    logger.info(f"Running GEPA optimization (max {num_candidates} evaluations)...")
+    logger.info("Running GEPA optimization", max_evaluations=num_candidates)
 
     try:
         result: GEPAResult = optimize(
@@ -562,7 +570,7 @@ def optimize_prompt(
             skip_perfect_score=True,
         )
     except Exception as e:
-        logger.error(f"GEPA optimization failed: {e}")
+        logger.error("GEPA optimization failed", error=str(e))
         return OptimizationResult(
             optimized_prompt=prompt,
             optimized_template=original_template,
@@ -596,10 +604,12 @@ def optimize_prompt(
         else 0.0
     )
 
-    logger.info("Optimization complete!")
-    logger.info(f"Original score: {original_score:.3f}")
-    logger.info(f"Optimized score: {optimized_score:.3f}")
-    logger.info(f"Improvement: {improvement:.1%}")
+    logger.success(
+        "Optimization complete",
+        original_score=f"{original_score:.3f}",
+        optimized_score=f"{optimized_score:.3f}",
+        improvement=f"{improvement:.1%}",
+    )
 
     # Register if improved
     registered_version: Optional[PromptVersion] = None
@@ -623,7 +633,7 @@ def optimize_prompt(
                 val_size=len(valset),
             )
         except Exception as e:
-            logger.error(f"Failed to register optimized prompt: {e}")
+            logger.error("Failed to register optimized prompt", error=str(e))
 
     # Build optimized prompt model with comprehensive tags
     optimized_tags: dict[str, str] = {

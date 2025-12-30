@@ -961,7 +961,7 @@ class TestPromptOptimizationSystem:
         from dao_ai.config import AppConfig
 
         # Load the example config
-        config_path = "config/examples/prompt_optimization.yaml"
+        config_path = "config/examples/06_prompt_engineering/prompt_optimization.yaml"
         config = AppConfig.from_file(config_path)
 
         assert config.optimizations is not None
@@ -1154,7 +1154,9 @@ class TestPromptOptimizationWithDatabricks:
         from dao_ai.config import AppConfig
 
         # Load the prompt optimization configuration
-        config_path = Path("config/examples/prompt_optimization.yaml")
+        config_path = Path(
+            "config/examples/06_prompt_engineering/prompt_optimization.yaml"
+        )
         assert config_path.exists(), f"Config file not found: {config_path}"
 
         config = AppConfig.from_file(str(config_path))
@@ -1301,7 +1303,9 @@ class TestPromptOptimizationWithDatabricks:
 
         from dao_ai.config import AppConfig
 
-        config_path = Path("config/examples/prompt_optimization.yaml")
+        config_path = Path(
+            "config/examples/06_prompt_engineering/prompt_optimization.yaml"
+        )
         config = AppConfig.from_file(str(config_path))
 
         optimization = config.optimizations.prompt_optimizations["optimize_diy_prompt"]

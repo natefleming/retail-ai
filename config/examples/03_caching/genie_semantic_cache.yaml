@@ -1,0 +1,173 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example configuration for Genie with two-tier caching:
+#   1. LRU Cache (L1): Fast O(1) exact match lookup for repeated questions
+#   2. Semantic Cache (L2): Similarity search for questions with similar intent
+#
+# Cache flow: Question → LRU (exact match) → Semantic (similarity) → Genie API
+# On cache hit, the cached SQL is re-executed against the warehouse for fresh data.
+
+
+# =============================================================================
+# VARIABLES
+# =============================================================================
+# Reusable credential variables for OAuth2 authentication with Databricks
+# These can be referenced throughout the configuration using YAML anchors
+
+variables:
+  # OAuth2 client credentials for Databricks Lakebase authentication
+  databricks_client_id: &databricks_client_id
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID           # Service principal client ID
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  databricks_client_secret: &databricks_client_secret
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET       # Service principal secret
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+  databricks_workspace_host: &databricks_workspace_host
+    options:
+      - env: RETAIL_AI_DATABRICKS_HOST                # Databricks workspace URL
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_HOST
+
+
+schemas:
+
+  quick_serve_restaurant_schema: &quick_serve_restaurant_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: quick_serve_restaurant                    # Schema within the catalog
+
+resources:
+  llms:
+    # Primary LLM for general tasks
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+      on_behalf_of_user: False
+
+    # Embedding model for semantic similarity search
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en                 # Text embedding model
+      on_behalf_of_user: False
+
+  warehouses:
+    # Warehouse for executing SQL queries (used by semantic cache)
+    shared_endpoint_warehouse: &shared_endpoint_warehouse
+      name: "Shared Endpoint Warehouse"             # Human-readable name
+      description: "A warehouse for shared endpoints"  # Description
+      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
+      on_behalf_of_user: False
+
+  tables:
+    all:
+      schema: *quick_serve_restaurant_schema                        # Reference to schema defined above
+
+  functions:
+    all: 
+      schema: *quick_serve_restaurant_schema
+
+  databases:
+    # Lakebase (PostgreSQL) database for semantic cache storage
+    # Uses OAuth2 client credentials for Databricks authentication
+    semantic_cache_db: &semantic_cache_db
+      name: "Retail and Consumer Goods Database"
+      instance_name: "retail-consumer-goods"        # Databricks Lakebase instance name
+      description: "PostgreSQL database for semantic cache"
+      client_id: *databricks_client_id              # Reference to variable
+      client_secret: *databricks_client_secret      # Reference to variable
+      workspace_host: *databricks_workspace_host    # Reference to variable
+
+  genie_rooms:
+    # Genie space for retail data queries
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"                        # Human-readable name
+      description: "A room for Genie agents to interact"  # Description
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# Configure in-memory storage for agent conversations and state persistence
+
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
+
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_genie_tool          # Factory function path
+      args:                                         # Arguments passed to factory
+        name: my_genie_tool
+        description: Answers questions about retail products and inventory
+        genie_room: *retail_genie_room              # Reference to Genie room config
+
+        # L1 Cache: LRU (Least Recently Used) - Fast exact match
+        lru_cache_parameters:
+          warehouse: *shared_endpoint_warehouse     # Warehouse to re-execute cached SQL
+          capacity: 100                             # Maximum number of cached entries
+          time_to_live_seconds: 3600                # Cache entries expire after 1 hour
+
+        # L2 Cache: Semantic - Similarity-based lookup
+        semantic_cache_parameters:
+          database: *semantic_cache_db              # PostgreSQL database for cache storage
+          warehouse: *shared_endpoint_warehouse     # Warehouse used to re-execute cached SQL
+          embedding_model: *embedding_model         # Reference to embedding model
+          # embedding_dims: 1024                    # Auto-detected if omitted (recommended)
+          similarity_threshold: 0.85                # Minimum similarity (L2 distance converted to 0-1)
+          time_to_live_seconds: 86400               # Cache entries expire after 1 day
+          # Note: Cache is automatically partitioned by genie space_id
+          # Note: Expired entries are cleaned up via "refresh on hit" strategy
+
+        persist_conversation: true
+
+
+agents:
+  genie: &genie
+    name: genie                                     # Agent identifier
+    description: "Genie Agent"
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *genie_tool
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about retail products and inventory
+
+
+app:
+  name: genie_semantic_cache_dao                    # Application name  
+  description: "Multi-agent system that talks to genie with semantic caching"
+  log_level: DEBUG                                  # Logging level for the application
+  environment_vars:                                 # Secrets to inject at runtime
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_HOST}}"
+  registered_model:                                 # MLflow registered model configuration
+    schema: *quick_serve_restaurant_schema          # Schema where model will be registered
+    name: dao_genie_semantic_cache                  # Model name in MLflow registry
+  endpoint_name: dao_genie_semantic_cache           # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_QUERY                                 # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *genie                                        # Order management agent
+  orchestration:                                    # Agent orchestration configuration
+    memory: *memory                                 # In-memory conversation persistence
+    swarm:                                          # Swarm orchestration pattern
+      model: *default_llm                           # LLM for routing decisions
+

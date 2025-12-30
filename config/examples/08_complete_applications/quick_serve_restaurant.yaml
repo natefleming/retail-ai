@@ -1,0 +1,521 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Multi-Agent AI Orchestration Framework Configuration
+# =============================================================================
+# This configuration file defines the complete setup for the multi-agent system
+# including schemas, resources, tools, agents, and orchestration patterns.
+
+variables:
+  database_host_var: &database_host_var                                              
+    default_value: localhost                                             
+    options:
+      - env: PGHOST                              # Environment variable
+      - scope: retail_consumer_goods                         # Databricks secret scope
+        secret: PGHOST                           # Secret name
+  port_var: &port_var
+    default_value: 5432
+    options:
+    - env: PGPORT 
+    - scope: retail_consumer_goods
+      secret: PGPORT
+  database_var: &database_var
+    default_value: databricks_postgres           # Default database name
+    options:
+    - env: PGDATABASE 
+    - scope: retail_consumer_goods
+      secret: PGDATABASE
+  client_id_var: &client_id_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret_var: &client_secret_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+  workspace_host_var: &workspace_host_var
+    options:
+      - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_HOST
+
+
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+# Define Unity Catalog schemas where data and functions will be stored
+schemas:
+  qsr_schema: &qsr_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: quick_serve_restaurant                    # Schema within the catalog
+    # permissions:                              # Access permissions for the schema
+    #   - principals: [users]                   # Grant access to all users
+    #     privileges:
+    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
+
+# =============================================================================
+# RESOURCES CONFIGURATION
+# =============================================================================
+# Define all resources needed by the multi-agent system including LLMs,
+# vector stores, databases, tables, and other Databricks resources
+
+resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS (LLMs)
+  # ---------------------------------------------------------------------------
+  # Configure different LLMs for various purposes in the agent system
+  llms:
+
+    # LLM optimized for tool calling and function execution
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192
+      fallbacks:                                     # Fallback models if primary fails
+        - databricks-meta-llama-3-3-70b-instruct
+
+    # LLM for complex reasoning tasks
+    reasoning_llm: &reasoning_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192
+
+    # LLM for evaluating and judging responses (guardrails)
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.5                              # Higher temperature for diverse judgments
+      max_tokens: 8192
+
+    # Embedding model for vector search and semantic similarity
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en                 # Text embedding model
+
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES
+  # ---------------------------------------------------------------------------
+  # Configure vector databases for semantic search and retrieval
+  vector_stores:
+    # Product information vector store for similarity search
+    items_description_vector_store: &items_description_vector_store
+      embedding_model: *embedding_model             # Reference to embedding model above
+      endpoint:                                     # Vector search endpoint configuration
+        name: dbdemos_vs_endpoint            # Databricks vector search endpoint
+        type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
+      index:                                        # Vector search index configuration
+        schema: *qsr_schema                      # Unity Catalog schema for the index
+        name: items_description_vs_index                        # Index name
+      source_table:                                 # Table containing source data
+        schema: *qsr_schema
+        name: items_description
+      primary_key: item_name                       # Primary key column
+      doc_uri: ~                                    # Optional document URI column (null in this case)
+      embedding_source_column: item_review          # Column to create embeddings from
+      columns:                                      # Columns to include in vector store
+        - item_name
+        - item_review
+
+
+
+  # ---------------------------------------------------------------------------
+  # TABLES
+  # ---------------------------------------------------------------------------
+  # Define Unity Catalog tables used by the system
+  tables:
+    # Product catalog table
+    fulfil_item_orders: &fulfil_item_orders
+      schema: *qsr_schema                        # Reference to schema defined above
+      name: fulfil_item_orders                                # Table name
+    items_description_table: &items_description_table
+      schema: *qsr_schema                        # Reference to schema defined above
+      name: items_description                                 # Table name
+    items_raw_table: &items_raw_table
+      schema: *qsr_schema                        # Reference to schema defined above
+      name: items_raw                                 # Table name    
+    orders_raw_table: &orders_raw_table
+      schema: *qsr_schema                        # Reference to schema defined above
+      name: orders_raw                                 # Table name    
+
+  # ---------------------------------------------------------------------------
+  # FUNCTIONS
+  # ---------------------------------------------------------------------------
+  # Define Unity Catalog functions for data operations
+  functions:
+    insert_coffee_order: &insert_coffee_order
+      schema: *qsr_schema
+      name: insert_coffee_order             
+    match_item_by_description_and_price: &match_item_by_description_and_price
+      schema: *qsr_schema
+      name: match_item_by_description_and_price                  
+    match_historical_item_order_by_date: &match_historical_item_order_by_date
+      schema: *qsr_schema
+      name: match_historical_item_order_by_date                    
+    lookup_items_by_descriptions: &lookup_items_by_descriptions
+      schema: *qsr_schema
+      name: lookup_items_by_descriptions                   
+
+
+  # ---------------------------------------------------------------------------
+  # WAREHOUSES
+  # ---------------------------------------------------------------------------
+  # Define SQL warehouses for query execution
+  warehouses:
+    # Shared warehouse for general query execution
+    shared_endpoint_warehouse: &shared_endpoint_warehouse
+      name: "Shared Endpoint Warehouse"             # Human-readable name
+      description: "A warehouse for shared endpoints"  # Description
+      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
+
+  # ---------------------------------------------------------------------------
+  # DATABASES
+  # ---------------------------------------------------------------------------
+  # Configure external databases (e.g., PostgreSQL for checkpoints and memory)
+  # Supports both traditional user/password auth and OAuth2 client credentials
+  databases:
+    # PostgreSQL database for agent memory and checkpoints
+    qsr_database: &qsr_database
+      name: "retail-consumer-goods"
+      description: "Database for agent memory and checkpoints" 
+      
+      # Database connection parameters
+      # These can be set via environment variables or Databricks secrets
+      host: *database_host_var
+      port: *port_var
+      database: *database_var
+      client_id: *client_id_var
+      client_secret: *client_secret_var
+      workspace_host: *workspace_host_var
+
+          
+      # Optional: Additional PostgreSQL connection parameters
+      # Uncomment and modify as needed for your specific setup
+      # connection_kwargs:                            # Additional connection parameters
+      #   autocommit: True                            # Enable autocommit mode
+      #   prepare_threshold: 0                        # Disable prepared statements
+      #   sslmode: require                            # Require SSL connection
+      #   connect_timeout: 10                         # Connection timeout in seconds
+      
+      # Optional: Connection pool configuration
+      # max_pool_size: 20                             # Maximum connections in pool
+      # timeout: 5                                    # Connection timeout in seconds
+
+# =============================================================================
+# RETRIEVERS CONFIGURATION
+# =============================================================================
+# Configure retrieval systems for semantic search and information retrieval
+
+retrievers:
+  # Product information retriever using vector search
+  items_description_retriever: &items_description_retriever
+    vector_store: *items_description_vector_store            # Reference to vector store defined above
+    columns:                                        # Columns to return in search results
+      - item_name
+      - item_review
+    search_parameters:                              # Search configuration
+      num_results: 10                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# Define tools that agents can use to perform various tasks
+# Tools can be of different types: python, factory, unity_catalog, or mcp
+
+tools:
+
+  insert_coffee_order_uc_tool: &insert_coffee_order_tool
+    name: insert_coffee_order_tool_uc
+    function:
+      type: unity_catalog
+      <<: *insert_coffee_order
+      partial_args:
+        host: *workspace_host_var
+        client_id: *client_id_var
+        client_secret: *client_secret_var
+
+  match_item_by_description_and_price_tool: &match_item_by_description_and_price_tool
+    name: match_item_by_description_and_price_uc
+    function:
+      type: unity_catalog
+      <<: *match_item_by_description_and_price
+
+  match_historical_item_order_by_date_tool: &match_historical_item_order_by_date_tool
+    name: match_historical_item_order_by_date_uc
+    function:
+      type: unity_catalog
+      <<: *match_historical_item_order_by_date
+
+  lookup_items_by_descriptions_tool: &lookup_items_by_descriptions_tool
+    name: lookup_items_by_descriptions_uc
+    function:
+      type: unity_catalog
+      <<: *lookup_items_by_descriptions
+
+
+  current_time_tool: &current_time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+
+# ==============================================================================
+# PROMPTS CONFIGURATION
+# ==============================================================================
+# Define reusable prompts that can be stored in MLflow Prompt Registry
+# 
+# Prompts support:
+# - default_template: Fallback template when registry is unavailable
+# - description: Used as commit message when syncing to registry
+# - alias: Reference specific versions (e.g., "production", "staging")
+# - version: Pin to specific version number
+# - tags: Metadata and organization
+#
+# Priority: Registry > default_template (registry is source of truth)
+# ==============================================================================
+
+prompts:
+  # ---------------------------------------------------------------------------
+  # Barista Agent Prompt
+  # ---------------------------------------------------------------------------
+  barista_prompt: &barista_prompt
+    schema: *qsr_schema
+    name: barista_prompt
+    description: "Expert coffee shop barista prompt for menu recommendations, ordering, and order history"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Session ID**: {thread_id}
+      
+      You are an expert barista at a specialty coffee shop with comprehensive knowledge of our menu, prices, and customer preferences. Your primary role is to help customers discover menu items, make recommendations, process orders, and provide information about past orders.
+
+      ## Your Capabilities & When to Use Tools:
+
+      ### **Menu Discovery & Recommendations** 
+      Use `match_item_by_description_and_price_tool` when customers:
+      - Ask for recommendations ("What cold drinks do you have?", "Suggest something sweet")
+      - Want items in a specific price range ("What costs under $5?")
+      - Ask about specific sizes or categories
+      - Need help choosing between options
+
+      ### **Detailed Item Information**
+      Use `lookup_items_by_descriptions_tool` when customers:
+      - Want to know more about a specific item's taste or ingredients
+      - Ask for reviews or descriptions ("What does the mocha taste like?")
+      - Need detailed information before ordering
+
+      ### **Order Processing**
+      Use `insert_coffee_order_tool` when customers:
+      - Express clear ordering intent ("I'll take a...", "Can I get...", "I'd like to order...")
+      - Confirm their selection after browsing
+      - Are ready to complete their purchase
+
+      ### **Order History & Analytics**
+      Use `match_historical_item_order_by_date_tool` when customers:
+      - Ask about past orders ("What did I order last week?")
+      - Want to know popular items or trends
+      - Inquire about order history within specific dates
+
+      ## Interaction Guidelines:
+
+      **Be Proactive**: Always offer relevant suggestions and ask clarifying questions to better serve customers.
+
+      **Price Sensitivity**: When customers ask about prices, use the price range filters effectively (low_price, high_price parameters).
+
+      **Size Matters**: Always confirm sizes (Small, Medium, Large) when processing orders, as pricing varies by size.
+
+      **Follow Up**: After providing information, ask if they'd like to place an order or need more details.
+
+      **Handle Ambiguity**: If a customer's request is unclear, use your tools to show options and let them choose.
+
+      You are friendly, knowledgeable, and always ready to help customers find exactly what they're looking for!
+    tags:
+      environment: production
+      agent_name: barista
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# Configure persistent storage for agent conversations and context
+
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
+    #database: *qsr_database                     # Reference to database configuration (if uncommented, type inferred as postgres)
+
+  # Long-term memory store for agent context
+  store: 
+    name: default_store                             # Store identifier (type inferred as memory - no database)
+    embedding_model: *embedding_model               # Model for semantic memory
+    dims: 1536                                      # Embedding dimensions
+    #database: *qsr_database                      # Database for persistence (if uncommented, type inferred as postgres)
+    namespace: "{user_id}"
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+# Define specialized agents for different aspects of customer service
+# Each agent has specific tools, capabilities, and responsibilities
+
+agents:
+  # ---------------------------------------------------------------------------
+  # BARISTA AGENT (Using Prompt Reference - Recommended)
+  # ---------------------------------------------------------------------------
+  # Expert coffee shop agent specialized in menu inquiries, recommendations, ordering, and order history
+  # This example shows how to use a prompt reference from the prompts section
+  barista: &barista
+    name: barista                                   # Agent identifier
+    description: "Expert coffee shop barista specializing in menu recommendations, coffee ordering, price inquiries, item descriptions, and order history. Can find products by description, match items within price ranges, process coffee orders, and retrieve historical order data."
+    model: *tool_calling_llm                       # Reference to LLM configuration
+    tools: 
+      - *insert_coffee_order_tool
+      - *match_item_by_description_and_price_tool
+      - *match_historical_item_order_by_date_tool
+      - *lookup_items_by_descriptions_tool
+      - *current_time_tool
+    prompt: *barista_prompt                        # Reference to prompt (instead of inline)
+    handoff_prompt: |                              
+      Coffee shop inquiries including menu questions, item recommendations, price checks, coffee ordering, taste descriptions, and order history.
+      Examples: "What coffee drinks do you have?", "I'd like a medium latte", "What's good for under $4?", "What did I order yesterday?", "Tell me about your cold brew", "Can you recommend something sweet?"
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+# Define the main application settings, registered model, endpoint configuration,
+# and agent orchestration patterns for the multi-agent system
+
+app:
+  name: quick_serve_restaurant_dao                      # Application name  
+  description: "Multi-agent system for coffee shop order management and customer service"
+  log_level: DEBUG                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *qsr_schema                          # Schema where model will be registered
+    name: quick_serve_restaurant_dao
+  endpoint_name: coffee_shop_agent                    # Model serving endpoint name
+  environment_vars: 
+    # PGHOST: "{{secrets/retail_consumer_goods/PGHOST}}"  # Databricks host URL
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_HOST}}"
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_QUERY                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *barista  
+  orchestration:                                    # Agent orchestration configuration
+    swarm:                                     # Supervisor orchestration pattern
+      model: *tool_calling_llm                      # LLM for routing decisions
+    memory: *memory                            # Memory store for conversation context
+  input_example:
+      messages:
+        - role: user
+          content: How much is a green tea?
+      custom_inputs:
+        configurable:
+          # conversation_id is auto-generated as UUID if not provided
+          user_id: my_user_id
+        session: {}
+    # swarm:
+    #   model: *tool_calling_llm
+    #   default_agent: *general
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS DEPLOYMENT
+# =============================================================================
+# Define Unity Catalog functions to be deployed from SQL DDL files
+# These functions provide data access capabilities for the agent tools
+
+unity_catalog_functions:
+  - function:
+      schema: *qsr_schema
+      name: lookup_items_by_descriptions
+    ddl: ../functions/quick_serve_restaurant/lookup_items_by_descriptions.sql
+    # test:
+    #   parameters:
+    #     sku: ["00176279"] 
+  - function:
+      schema: *qsr_schema
+      name: match_historical_item_order_by_date
+    ddl: ../functions/quick_serve_restaurant/match_historical_item_order_by_date.sql
+  - function:
+      schema: *qsr_schema
+      name: match_item_by_description_and_price
+    ddl: ../functions/quick_serve_restaurant/match_item_by_description_and_price.sql
+  - function:
+      schema: *qsr_schema
+      name: insert_coffee_order
+    ddl: ../functions/quick_serve_restaurant/insert_coffee_order.sql
+
+# =============================================================================
+# EVALUATION CONFIGURATION
+# =============================================================================
+# Configure automated evaluation settings for agent performance assessment
+
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *qsr_schema
+    name: evaluation
+  num_evals: 25
+  custom_inputs:
+    configurable:
+      # conversation_id is auto-generated as UUID if not provided
+      user_id: my_user_id
+    session: {}
+
+# =============================================================================
+# DATASETS CONFIGURATION
+# =============================================================================
+# Define source datasets for the system including table schemas, DDL files,
+# and data files for initial population of Unity Catalog tables
+
+datasets:
+  - table: 
+      schema: *qsr_schema
+      name: orders_raw
+    ddl: ../data/quick_serve_restaurant/orders_raw.sql
+    data: ../data/quick_serve_restaurant/orders_raw.csv
+    format: csv
+    read_options:
+      header: True
+  - table: 
+      schema: *qsr_schema
+      name: items_raw
+    ddl: ../data/quick_serve_restaurant/items_raw.sql
+    data: ../data/quick_serve_restaurant/items_raw.csv
+    format: csv
+    read_options:
+      header: True
+    table_schema: |
+      item_id STRING
+      ,sku STRING
+      ,item_name STRING
+      ,item_cat STRING
+      ,item_size STRING
+      ,item_price DECIMAL(10,2)
+  - table: 
+      schema: *qsr_schema
+      name: items_description
+    ddl: ../data/quick_serve_restaurant/items_description.sql
+    data: ../data/quick_serve_restaurant/items_description.csv
+    read_options:
+      header: True
+      escape: "\""
+      multiLine: True
+    format: csv
+  - table: 
+      schema: *qsr_schema
+      name: fulfil_item_orders
+    ddl: ../data/quick_serve_restaurant/fulfil_item_orders.sql
+
+
+
+
+    

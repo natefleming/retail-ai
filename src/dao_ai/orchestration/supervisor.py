@@ -73,7 +73,7 @@ def _create_handoff_back_to_supervisor_tool() -> BaseTool:
             summary: A brief summary of what was accomplished
         """
         tool_call_id: str = runtime.tool_call_id
-        logger.debug(f"Handoff back to supervisor with summary: {summary[:100]}...")
+        logger.debug("Agent handing back to supervisor", summary_preview=summary[:100])
 
         return Command(
             update={
@@ -163,10 +163,14 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
 
     Based on: https://github.com/langchain-ai/langgraph-supervisor-py
     """
-    logger.debug("Creating supervisor graph (handoff pattern)")
-
     orchestration: OrchestrationModel = config.app.orchestration
     supervisor_config: SupervisorModel = orchestration.supervisor
+
+    logger.info(
+        "Creating supervisor graph",
+        pattern="handoff",
+        agents_count=len(config.app.agents),
+    )
 
     # Create handoff tools for supervisor to route to agents
     handoff_tools: list[BaseTool] = []
@@ -177,21 +181,31 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             description=description,
         )
         handoff_tools.append(handoff_tool)
-        logger.debug(f"Created handoff tool for supervisor: {registered_agent.name}")
+        logger.debug("Created handoff tool for supervisor", agent=registered_agent.name)
 
     # Create supervisor's own tools (e.g., memory tools)
+    logger.debug(
+        "Creating tools for supervisor", tools_count=len(supervisor_config.tools)
+    )
     supervisor_tools: list[BaseTool] = list(create_tools(supervisor_config.tools))
 
     # Create middleware from configuration
     middlewares: list[AgentMiddleware] = []
+
     for middleware_config in supervisor_config.middleware:
-        middleware = create_factory_middleware(
+        logger.trace(
+            "Creating middleware for supervisor",
+            middleware_name=middleware_config.name,
+        )
+        middleware: LangchainAgentMiddleware = create_factory_middleware(
             function_name=middleware_config.name,
             args=middleware_config.args,
         )
         if middleware is not None:
             middlewares.append(middleware)
-            logger.debug(f"Created supervisor middleware: {middleware_config.name}")
+            logger.debug(
+                "Created supervisor middleware", middleware=middleware_config.name
+            )
 
     # Set up memory store and checkpointer
     store: BaseStore | None = create_store(orchestration)
@@ -204,7 +218,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         and orchestration.memory.store.namespace
     ):
         namespace: tuple[str, ...] = ("memory", orchestration.memory.store.namespace)
-        logger.debug(f"Memory store namespace: {namespace}")
+        logger.debug("Memory store namespace configured", namespace=namespace)
         # Use Databricks-compatible search_memory tool (omits problematic filter field)
         supervisor_tools += [
             create_manage_memory_tool(namespace=namespace),
@@ -235,7 +249,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             additional_tools=[supervisor_handoff],
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
-        logger.debug(f"Created worker agent subgraph: {registered_agent.name}")
+        logger.debug("Created worker agent subgraph", agent=registered_agent.name)
 
     # Build the workflow graph
     # All agents are nodes, handoffs route between them via Command

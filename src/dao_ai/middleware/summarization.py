@@ -76,15 +76,19 @@ class LoggingSummarizationMiddleware(SummarizationMiddleware):
         summarized_count = original_message_count - preserved_count
 
         logger.info(
-            f"Conversation summarized: "
-            f"BEFORE: {original_message_count} messages (~{original_token_count:,} tokens) → "
-            f"AFTER: {new_message_count} messages (~{new_token_count:,} tokens) | "
-            f"{summarized_count} messages condensed into 1 summary"
+            "Conversation summarized",
+            before_messages=original_message_count,
+            before_tokens=original_token_count,
+            after_messages=new_message_count,
+            after_tokens=new_token_count,
+            summarized_messages=summarized_count,
         )
         logger.debug(
-            f"Summarization details: trigger={self.trigger}, keep={self.keep}, "
-            f"preserved_messages={preserved_count}, "
-            f"token_reduction={original_token_count - new_token_count:,}"
+            "Summarization details",
+            trigger=self.trigger,
+            keep=self.keep,
+            preserved_messages=preserved_count,
+            token_reduction=original_token_count - new_token_count,
         )
 
     def _is_remove_message(self, msg: Any) -> bool:
@@ -160,9 +164,10 @@ def create_summarization_middleware(
         middleware = create_summarization_middleware(chat_history)
     """
     logger.debug(
-        f"Creating summarization middleware with max_tokens: {chat_history.max_tokens}, "
-        f"max_tokens_before_summary: {chat_history.max_tokens_before_summary}, "
-        f"max_messages_before_summary: {chat_history.max_messages_before_summary}"
+        "Creating summarization middleware",
+        max_tokens=chat_history.max_tokens,
+        max_tokens_before_summary=chat_history.max_tokens_before_summary,
+        max_messages_before_summary=chat_history.max_messages_before_summary,
     )
 
     # Get the LLM model
@@ -183,7 +188,7 @@ def create_summarization_middleware(
     # Default to keeping enough for context
     keep: Tuple[str, int] = ("tokens", chat_history.max_tokens)
 
-    logger.info(f"Summarization middleware configured: trigger={trigger}, keep={keep}")
+    logger.info("Summarization middleware configured", trigger=trigger, keep=keep)
 
     return LoggingSummarizationMiddleware(
         model=model,
