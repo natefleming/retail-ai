@@ -680,6 +680,7 @@ class DatabricksProvider(ServiceProvider):
 
                     if pipeline_status in [
                         "COMPLETED",
+                        "ONLINE",
                         "FAILED",
                         "CANCELED",
                         "ONLINE_PIPELINE_FAILED",
@@ -691,7 +692,6 @@ class DatabricksProvider(ServiceProvider):
                         "PROVISIONING",
                         "INITIALIZING",
                         "INDEXING",
-                        "ONLINE",
                     ]:
                         logger.trace(
                             "Index not ready, waiting",
@@ -1520,6 +1520,11 @@ class DatabricksProvider(ServiceProvider):
 
             # Always set default alias
             try:
+                logger.debug(
+                    "Setting default alias",
+                    prompt_name=prompt_name,
+                    version=prompt_version.version,
+                )
                 mlflow.genai.set_prompt_alias(
                     name=prompt_name, alias="default", version=prompt_version.version
                 )

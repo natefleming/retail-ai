@@ -17,11 +17,6 @@ from langchain_core.documents import Document
 from loguru import logger
 from mlflow.entities import SpanType
 
-from databricks_ai_bridge.vector_search_retriever_tool import (
-    FilterItem,
-    VectorSearchRetrieverToolInput,
-)
-
 from dao_ai.config import (
     RerankParametersModel,
     RetrieverModel,
@@ -65,9 +60,7 @@ def create_vector_search_tool(
 
     # Validate mutually exclusive parameters
     if retriever is None and vector_store is None:
-        raise ValueError(
-            "Must provide either 'retriever' or 'vector_store' parameter"
-        )
+        raise ValueError("Must provide either 'retriever' or 'vector_store' parameter")
     if retriever is not None and vector_store is not None:
         raise ValueError(
             "Cannot provide both 'retriever' and 'vector_store' parameters. "
@@ -101,9 +94,6 @@ def create_vector_search_tool(
     index_name: str = vector_store_config.index.full_name
     columns: Sequence[str] = retriever.columns or []
     search_parameters: dict[str, Any] = retriever.search_parameters.model_dump()
-    primary_key: str = vector_store_config.primary_key or ""
-    doc_uri: str = vector_store_config.doc_uri or ""
-    text_column: str = vector_store_config.embedding_source_column
 
     # Extract reranker configuration
     reranker_config: Optional[RerankParametersModel] = retriever.rerank
@@ -122,9 +112,7 @@ def create_vector_search_tool(
         try:
             # Expand tilde in cache_dir path
             cache_dir = os.path.expanduser(reranker_config.cache_dir)
-            ranker = Ranker(
-                model_name=reranker_config.model, cache_dir=cache_dir
-            )
+            ranker = Ranker(model_name=reranker_config.model, cache_dir=cache_dir)
             logger.success("FlashRank ranker initialized", model=reranker_config.model)
         except Exception as e:
             logger.warning(
@@ -173,15 +161,6 @@ def create_vector_search_tool(
         include_score=True,
         workspace_client=vector_store_config.workspace_client,
         client_args=client_args if client_args else None,
-    )
-
-    # Register the retriever schema with MLflow for model serving integration
-    mlflow.models.set_retriever_schema(
-        name=name or "retriever",
-        primary_key=primary_key,
-        text_column=text_column,
-        doc_uri=doc_uri,
-        other_columns=list(columns),
     )
 
     # Helper function to perform vector similarity search

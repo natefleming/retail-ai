@@ -15,18 +15,25 @@ from dao_ai.models import ResponsesAgent
 
 @pytest.fixture
 def supervisor_config_path() -> Path:
-    """Fixture that returns path to supervisor.yaml configuration."""
-    return Path(__file__).parents[2] / "config" / "hardware_store" / "supervisor.yaml"
+    """Fixture that returns path to hardware store configuration."""
+    return (
+        Path(__file__).parents[2]
+        / "config"
+        / "examples"
+        / "08_complete_applications"
+        / "hardware_store_lakebase.yaml"
+    )
 
 
 @pytest.fixture
 def supervisor_postgres_config_path() -> Path:
-    """Fixture that returns path to supervisor_postgres.yaml configuration."""
+    """Fixture that returns path to hardware store postgres configuration."""
     return (
         Path(__file__).parents[2]
         / "config"
-        / "hardware_store"
-        / "supervisor_postgres.yaml"
+        / "examples"
+        / "08_complete_applications"
+        / "hardware_store.yaml"
     )
 
 
@@ -378,7 +385,11 @@ def test_inference_with_postgres_memory(app_config_postgres: AppConfig) -> None:
 def test_config_has_required_components_for_inference() -> None:
     """Unit test to verify config has required components for inference without actual inference."""
     config_path = (
-        Path(__file__).parents[2] / "config" / "hardware_store" / "supervisor.yaml"
+        Path(__file__).parents[2]
+        / "config"
+        / "examples"
+        / "08_complete_applications"
+        / "hardware_store_lakebase.yaml"
     )
 
     # Load config using Databricks Connect setup

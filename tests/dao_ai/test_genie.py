@@ -924,8 +924,8 @@ def test_genie_config_validation_and_tool_creation() -> None:
         # Validate basic app configuration
         print("\n2. Validating app configuration...")
         assert app_config.app is not None, "App configuration should exist"
-        assert app_config.app.name == "dao_genie", (
-            f"Expected app name 'dao_genie', got '{app_config.app.name}'"
+        assert app_config.app.name == "genie_basic_dao", (
+            f"Expected app name 'genie_basic_dao', got '{app_config.app.name}'"
         )
         assert "genie" in app_config.app.description.lower(), (
             "App description should mention genie"

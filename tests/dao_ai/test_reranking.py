@@ -6,7 +6,6 @@ import pytest
 from conftest import add_databricks_resource_attrs
 
 from dao_ai.config import (
-    IndexModel,
     RerankParametersModel,
     RetrieverModel,
     SchemaModel,
@@ -107,10 +106,7 @@ class TestVectorSearchToolCreation:
     """Unit tests for vector search tool creation using @tool decorator pattern."""
 
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
-    @patch("mlflow.models.set_retriever_schema")
-    def test_creates_tool_without_reranker(
-        self, mock_set_schema: MagicMock, mock_vector_search: MagicMock
-    ) -> None:
+    def test_creates_tool_without_reranker(self, mock_vector_search: MagicMock) -> None:
         """Test that tool is created without reranker when not configured."""
         # Create mock retriever config without reranking
         retriever_config = Mock(spec=RetrieverModel)
@@ -140,14 +136,11 @@ class TestVectorSearchToolCreation:
         assert hasattr(tool, "invoke")
         assert tool.name == "test_tool"
         assert tool.description == "Test description"
-        assert mock_set_schema.called
 
     @patch("dao_ai.providers.databricks.DatabricksProvider")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
-    @patch("mlflow.models.set_retriever_schema")
     def test_creates_tool_from_vector_store_directly(
         self,
-        mock_set_schema: MagicMock,
         mock_vector_search: MagicMock,
         mock_provider_class: MagicMock,
     ) -> None:
@@ -179,7 +172,6 @@ class TestVectorSearchToolCreation:
         assert hasattr(tool, "invoke")
         assert tool.name == "test_tool"
         assert tool.description == "Test description"
-        assert mock_set_schema.called
 
         # Verify DatabricksVectorSearch was called with expected columns
         mock_vector_search.assert_called_once()
@@ -189,7 +181,9 @@ class TestVectorSearchToolCreation:
 
     def test_validation_requires_one_parameter(self) -> None:
         """Test that validation fails when neither retriever nor vector_store is provided."""
-        with pytest.raises(ValueError, match="Must provide either 'retriever' or 'vector_store'"):
+        with pytest.raises(
+            ValueError, match="Must provide either 'retriever' or 'vector_store'"
+        ):
             create_vector_search_tool()
 
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
@@ -210,10 +204,7 @@ class TestVectorSearchToolCreation:
             )
 
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
-    @patch("mlflow.models.set_retriever_schema")
-    def test_creates_tool_with_reranker(
-        self, mock_set_schema: MagicMock, mock_vector_search: MagicMock
-    ) -> None:
+    def test_creates_tool_with_reranker(self, mock_vector_search: MagicMock) -> None:
         """Test that tool is created with reranker when configured."""
         # Create mock retriever config with reranking
         reranker_config = RerankParametersModel(
@@ -247,7 +238,6 @@ class TestVectorSearchToolCreation:
         assert hasattr(tool, "invoke")
         assert tool.name == "reranking_tool"
         assert tool.description == "Reranking test"
-        assert mock_set_schema.called
 
 
 @pytest.mark.integration

@@ -1624,7 +1624,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
         return Context(
             user_id=user_id_value,
             thread_id=thread_id,
-            custom=custom,
+            **configurable,  # Pass remaining configurable values as context attributes
         )
 
     def _extract_session_from_request(

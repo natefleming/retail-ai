@@ -105,10 +105,11 @@ class UserIdValidationMiddleware(MessageValidationMiddleware):
             # Get extra fields from context (excluding user_id and thread_id)
             context_dict = context.model_dump()
             extra_fields = {
-                k: v for k, v in context_dict.items()
+                k: v
+                for k, v in context_dict.items()
                 if k not in {"user_id", "thread_id"} and v is not None
             }
-            
+
             corrected_config: dict[str, Any] = {
                 "configurable": {
                     "thread_id": thread_val,
@@ -152,10 +153,11 @@ Please update your configuration and try again.
             # Get extra fields from context (excluding user_id and thread_id)
             context_dict = context.model_dump()
             extra_fields = {
-                k: v for k, v in context_dict.items()
+                k: v
+                for k, v in context_dict.items()
                 if k not in {"user_id", "thread_id"} and v is not None
             }
-            
+
             corrected_config: dict[str, Any] = {
                 "configurable": {
                     "thread_id": thread_val,
@@ -208,10 +210,11 @@ class ThreadIdValidationMiddleware(MessageValidationMiddleware):
             # Get extra fields from context (excluding user_id and thread_id)
             context_dict = context.model_dump()
             extra_fields = {
-                k: v for k, v in context_dict.items()
+                k: v
+                for k, v in context_dict.items()
                 if k not in {"user_id", "thread_id"} and v is not None
             }
-            
+
             corrected_config: dict[str, Any] = {
                 "configurable": {
                     "thread_id": "<your_thread_id>",
@@ -404,12 +407,14 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
             "- **thread_id**: Thread identifier (required in configurable)",
             "- **conversation_id**: Alias of thread_id (in session)",
         ]
-        
+
         # Add user_id if not in custom fields
         has_user_id_field = any(f.name == "user_id" for f in self.fields)
         if not has_user_id_field:
-            field_descriptions.append("- **user_id**: Your unique user identifier (required)")
-        
+            field_descriptions.append(
+                "- **user_id**: Your unique user identifier (required)"
+            )
+
         # Add custom field descriptions
         for field in self.fields:
             required_text = "(required)" if field.is_required else "(optional)"

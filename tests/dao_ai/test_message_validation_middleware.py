@@ -152,7 +152,7 @@ class TestCustomFieldValidationMiddleware:
         context = Context(
             user_id="test_user",
             thread_id="conv_1",
-            custom={"store_num": "87887"},
+            store_num="87887",
         )
         runtime = create_mock_runtime(context)
 
@@ -175,7 +175,7 @@ class TestCustomFieldValidationMiddleware:
         context = Context(
             user_id="test_user",
             thread_id="conv_1",
-            custom={},  # Missing store_num
+            # Missing store_num
         )
         runtime = create_mock_runtime(context)
 
@@ -218,7 +218,7 @@ class TestCustomFieldValidationMiddleware:
         context = Context(
             user_id="test_user",
             thread_id="conv_1",
-            custom={"field_a": "my_value_a"},  # Provided field_a, missing field_b
+            field_a="my_value_a",  # Provided field_a, missing field_b
         )
         runtime = create_mock_runtime(context)
 
@@ -252,7 +252,7 @@ class TestCustomFieldValidationMiddleware:
         context = Context(
             user_id="test_user",
             thread_id="conv_1",
-            custom={"required_field": "value"},  # Only required field provided
+            required_field="value",  # Only required field provided
         )
         runtime = create_mock_runtime(context)
 

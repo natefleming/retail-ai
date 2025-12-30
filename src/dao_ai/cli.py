@@ -24,16 +24,16 @@ configure_logging(level="ERROR")
 def get_default_user_id() -> str:
     """
     Get the default user ID for the CLI session.
-    
+
     Tries to get the current user from Databricks, falls back to local user.
-    
+
     Returns:
         User ID string (Databricks username or local username)
     """
     try:
         # Try to get current user from Databricks SDK
         from databricks.sdk import WorkspaceClient
-        
+
         w = WorkspaceClient()
         current_user = w.current_user.me()
         user_id = current_user.user_name
@@ -322,7 +322,7 @@ def handle_chat_command(options: Namespace) -> None:
         # Set default user_id if not provided
         if options.user_id is None:
             options.user_id = get_default_user_id()
-        
+
         config: AppConfig = AppConfig.from_file(options.config)
         app = create_dao_ai_graph(config)
 
@@ -387,9 +387,9 @@ def handle_chat_command(options: Namespace) -> None:
 
                 # Create Context object from configurable dict
                 from dao_ai.state import Context
-                
+
                 context = Context(**configurable)
-                
+
                 # Prepare config with thread_id for checkpointer
                 # Note: thread_id is needed in config for checkpointer/memory
                 config = {"configurable": {"thread_id": options.thread_id}}

@@ -15,8 +15,8 @@ from datetime import datetime
 from typing import Any, Optional
 
 from langgraph.graph import MessagesState
-from pydantic import BaseModel, Field, model_validator
-from typing_extensions import NotRequired, Self
+from pydantic import BaseModel, ConfigDict, Field
+from typing_extensions import NotRequired
 
 
 class GenieSpaceState(BaseModel):
@@ -158,7 +158,7 @@ class Context(BaseModel):
                 return None
     """
 
-    model_config = {"extra": "allow"}  # Allow extra fields as top-level attributes
+    model_config = ConfigDict(extra="allow")  # Allow extra fields as top-level attributes
 
     user_id: str | None = None
     thread_id: str | None = None
@@ -167,7 +167,7 @@ class Context(BaseModel):
     def from_runnable_config(cls, config: dict[str, Any]) -> "Context":
         """
         Create Context from LangChain RunnableConfig.
-        
+
         This method is called by LangChain when context_schema is provided to create_agent.
         It extracts the 'configurable' dict from the config and uses it to instantiate Context.
         """
