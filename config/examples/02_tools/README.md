@@ -12,7 +12,6 @@ This category demonstrates how to connect your agents to various tools and servi
 | `jira_integration.yaml` | JIRA issue tracking | JIRA instance, API token |
 | `mcp_basic.yaml` | Model Context Protocol integration | MCP server |
 | `mcp_with_uc_connection.yaml` | MCP with Unity Catalog connections | Unity Catalog, MCP connection |
-| `vector_search_with_reranking.yaml` | RAG with FlashRank reranking | Vector Search index, FlashRank |
 | `genie_with_conversation_id.yaml` | Genie with conversation tracking | Genie space |
 
 ## What You'll Learn
@@ -36,10 +35,6 @@ dao-ai chat -c config/examples/02_tools/slack_integration.yaml
 
 Example: *"Send a message to #general saying 'Hello from DAO AI!'"*
 
-### Try vector search with reranking
-```bash
-dao-ai chat -c config/examples/02_tools/vector_search_with_reranking.yaml
-```
 
 Example: *"Find documentation about configuring agents"*
 
@@ -76,7 +71,6 @@ Example: *"Find documentation about configuring agents"*
 - MCP server running and accessible
 - For UC connections: Unity Catalog connection configured
 
-### For Vector Search (`vector_search_with_reranking.yaml`)
 - Databricks Vector Search index configured
 - Embedding model endpoint
 - FlashRank installed (for reranking)
@@ -109,9 +103,9 @@ variables:
 
 After mastering tool integrations:
 
-👉 **03_caching/** - Optimize tool calls with caching  
-👉 **04_memory/** - Add conversation persistence  
-👉 **05_quality_control/** - Add approval workflows for sensitive operations
+👉 **04_genie/** - Optimize tool calls with caching  
+👉 **05_memory/** - Add conversation persistence  
+👉 **06_human_in_the_loop/** - Add approval workflows for sensitive operations
 
 ## Troubleshooting
 

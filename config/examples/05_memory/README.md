@@ -38,7 +38,7 @@ Add conversation memory to enable stateful, context-aware agents that remember p
 export DATABASE_HOST="your-db-host"
 export DATABASE_PASSWORD="your-password"
 
-dao-ai chat -c config/examples/04_memory/conversation_summarization.yaml
+dao-ai chat -c config/examples/05_memory/conversation_summarization.yaml
 ```
 
 Have a long conversation - notice older messages are summarized to stay within token limits.
@@ -106,8 +106,8 @@ chat_history:
 
 ## Next Steps
 
-👉 **05_quality_control/** - Add safety and validation  
-👉 **06_prompt_engineering/** - Optimize prompts for summarization
+👉 **06_human_in_the_loop/** - Add safety and validation  
+👉 **09_prompt_engineering/** - Optimize prompts for summarization
 
 ## Troubleshooting
 

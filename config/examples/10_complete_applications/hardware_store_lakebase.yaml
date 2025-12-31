@@ -14,10 +14,13 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: hardware_store                    # Schema within the catalog
-    # permissions:                              # Access permissions for the schema
-    #   - principals: [users]                   # Grant access to all users
-    #     privileges:
-    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
+    permissions:                              # Access permissions for the schema
+       - principals: [users]                   # Grant access to all users
+         privileges:
+           - USE_CATALOG                    # Full permissions for demo purposes
+           - USE_SCHEMA                    # Full permissions for demo purposes
+           - SELECT                    # Full permissions for demo purposes
+           - EXECUTE                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -33,7 +36,12 @@ resources:
   llms:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-3-7-sonnet  # Databricks serving endpoint name
+      name: databricks-claude-3-7-sonnet # Databricks serving endpoint name
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+
+    fast_llm: &fast_llm
+      name: databricks-meta-llama-3-1-8b-instruct  # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
@@ -43,13 +51,20 @@ resources:
       temperature: 0.1
       max_tokens: 8192
       fallbacks:                                     # Fallback models if primary fails
-        - databricks-claude-3-7-sonnet
+        - databricks-meta-llama-3-3-70b-instruct
 
     # LLM for complex reasoning tasks
     reasoning_llm: &reasoning_llm
       name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 8192
+
+    deep_reasoning_llm: &deep_reasoning_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 8192
+      fallbacks: 
+        - databricks-claude-3-7-sonnet
 
     # LLM for evaluating and judging responses (guardrails)
     judge_llm: &judge_llm
@@ -60,6 +75,7 @@ resources:
     # Embedding model for vector search and semantic similarity
     embedding_model: &embedding_model
       name: databricks-gte-large-en                 # Text embedding model
+      on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
@@ -104,6 +120,7 @@ resources:
       space_id:
         env: RETAIL_AI_GENIE_SPACE_ID
         default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+      on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
   # TABLES
@@ -165,12 +182,44 @@ resources:
   # Define SQL warehouses for query execution
   warehouses:
     # Shared warehouse for general query execution
-    shared_endpoint_warehouse: 
+    shared_endpoint_warehouse: &shared_endpoint_warehouse
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
+      on_behalf_of_user: False
 
-
+  # ---------------------------------------------------------------------------
+  # DATABASES
+  # ---------------------------------------------------------------------------
+  # Configure external databases (e.g., PostgreSQL for checkpoints and memory)
+  # Supports both traditional user/password auth and OAuth2 client credentials
+  databases:
+    # Lakebase database for agent memory and checkpoints
+    retail_database: &retail_database
+      name: "Retail and Consumer Goods Database"
+      instance_name: "retail-consumer-goods"  # Use instance_name for Databricks Lakebase
+      description: "Database for agent memory and checkpoints" 
+      
+      # Database connection parameters
+      # These can be set via environment variables or Databricks secrets
+#      host:                                                 
+#        default_value: localhost                                             
+#        options:
+#          - env: PGHOST                              # Environment variable
+#          - scope: retail_consumer_goods                         # Databricks secret scope
+#            secret: PGHOST                           # Secret name
+#      port: 
+#        default_value: 5432
+#        options:
+#        - env: PGPORT 
+#        - scope: retail_consumer_goods
+#          secret: PGPORT
+#      database: 
+#        default_value: databricks_postgres           # Default database name
+#        options:
+#        - env: PGDATABASE 
+#        - scope: retail_consumer_goods
+#          secret: PGDATABASE
 
 
       # Traditional PostgreSQL authentication (commented out)
@@ -179,33 +228,37 @@ resources:
       #   default_value: postgres
       #   options:
       #   - env: PGUSER 
-      #   - scope: retail_ai
+      #   - scope: retail_consumer_goods
       #     secret: PGUSER
       # password: 
       #   default_value: postgres
       #   options:
       #   - env: PGPASSWORD 
-      #   - scope: retail_ai
+      #   - scope: retail_consumer_goods
       #     secret: PGPASSWORD
 
-      # OAuth2 client credentials for Databricks authentication
-      # Used to generate access tokens for database connections
-      # This approach is recommended for Databricks environments
-      client_id:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      client_secret:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      workspace_host:
-        options:
-          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_HOST
+      # Passive authentication (On-Behalf-Of User)
+      # Uses the calling user's identity via Model Serving's built-in auth
+      # No service principal or client credentials needed
+      on_behalf_of_user: false
+
+      # OAuth2 client credentials for Databricks authentication (DISABLED)
+      # Uncomment below and comment out on_behalf_of_user to use service principal auth
+      # client_id:
+      #   options:
+      #     - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+      #     - scope: retail_consumer_goods
+      #       secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      # client_secret:
+      #   options:
+      #     - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+      #     - scope: retail_consumer_goods
+      #       secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      # workspace_host:
+      #   options:
+      #     - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
+      #     - scope: retail_consumer_goods
+      #       secret: RETAIL_AI_DATABRICKS_HOST
           
       # Optional: Additional PostgreSQL connection parameters
       # Uncomment and modify as needed for your specific setup
@@ -284,16 +337,25 @@ tools:
       args: {}                                      # No arguments needed
 
   # Vector search tool for product similarity
-  find_product_details_by_description_tool:
-    &find_product_details_by_description_tool
-    name: find_product_details_by_description
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
     function:
       type: factory
       name: dao_ai.tools.create_vector_search_tool
       args:
         retriever: *products_retriever              # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name
-        description: "Search for products using vector search"  # Tool description
+        description: "Search for products by description"  # Tool description
+
+  # Product details search by description
+  # find_product_details_by_description_tool:
+  #   &find_product_details_by_description_tool
+  #   name: find_product_details_by_description
+  #   function:
+  #     type: factory
+  #     name: hardware_store.tools.find_product_details_by_description_tool
+  #     args:
+  #       retriever: *products_retriever              # Uses product retriever for search
 
   # ---------------------------------------------------------------------------
   # UNITY CATALOG TOOLS
@@ -326,7 +388,18 @@ tools:
       type: unity_catalog
       <<: *find_inventory_by_upc
 
+  # Store-specific inventory tools using Unity Catalog functions
+  find_store_inventory_by_sku_uc_tool: &find_store_inventory_by_sku_uc_tool
+    name: find_store_inventory_by_sku_uc
+    function:
+      type: unity_catalog
+      <<: *find_store_inventory_by_sku
 
+  find_store_inventory_by_upc_uc_tool: &find_store_inventory_by_upc_uc_tool
+    name: find_store_inventory_by_upc_uc
+    function:
+      type: unity_catalog
+      <<: *find_store_inventory_by_upc
       
 
 # =============================================================================
@@ -344,10 +417,8 @@ guardrails:
 
       Evaluate the response based on these criteria:
       1. Accuracy - Is the information correct and factual?
-      2. Completeness - Does it fully address the user's query?
-      3. Clarity - Is the explanation clear and well-structured?
-      4. Helpfulness - Does it provide actionable and useful information?
-      5. Safety - Does it avoid harmful or inappropriate content?
+      2. Helpfulness - Does it provide actionable and useful information?
+      3. Safety - Does it avoid harmful or inappropriate content?
 
       If the response meets ALL criteria satisfactorily, set pass to True.
 
@@ -369,15 +440,15 @@ guardrails:
 memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
-    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
-    #database: *retail_database                     # Reference to database configuration
+    name: default_checkpointer                      # Checkpointer identifier
+    database: *retail_database                      # Reference to database configuration (type inferred from presence)
 
-  # Long-term memory store for agent context
+  #Long-term memory store for agent context
   store: 
-    name: default_store                             # Store identifier (type inferred as memory - no database)
-    embedding_model: *embedding_model               # Model for semantic memory
-    dims: 1536                                      # Embedding dimensions
-    #database: *retail_database                     # Database for persistence (if provided, type inferred as postgres)
+    name: default_store                             # Store identifier
+    #embedding_model: *embedding_model               # Model for semantic memory
+    #dims: 1536                                      # Embedding dimensions
+    database: *retail_database                      # Database for persistence (type inferred from presence)
     namespace: "{user_id}"
 
 # =============================================================================
@@ -395,11 +466,10 @@ agents:
     name: general                                   # Agent identifier
     description: "General retail store assistant for home improvement and hardware store inquiries"
     model: *tool_calling_llm                       # Reference to LLM configuration
-    tools: []                                      # Tools available to this agent
-      
-    guardrails:                                     # Quality checks (currently disabled)
-      []
-      #- *llm_judge_guardrail
+    tools:                                          # Tools available to this agent
+      - *find_product_details_by_description_tool
+    guardrails: []                                    # Quality checks (currently disabled)
+     # - *llm_judge_guardrail
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
@@ -840,22 +910,50 @@ agents:
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
 
 # =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Define middleware components for input validation and processing
+
+middleware:
+  # Input validation middleware - validates required fields in custom context
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        # Required field - must be provided (no 'required: false')
+        - name: store_num
+          description: "Your store number for inventory lookups"
+          example_value: "12345"
+        # Optional fields (required: false) - shown in error messages with example values
+        # Note: thread_id and user_id are handled by the middleware's error message format
+        #       so we don't need to list them here - they're automatically included
+        - name: user_id
+          description: "Your unique user identifier"
+          required: false
+          example_value: "my_user_id"
+
+# =============================================================================
 # APPLICATION CONFIGURATION
 # =============================================================================
 # Define the main application settings, registered model, endpoint configuration,
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: hardware_store_swarm_dao                      # Application name  
+  name: hardware_store_lakebase_dao                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
   log_level: TRACE                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
-    name: hardware_store_swarm_dao
-  endpoint_name: hardware_store_swarm                    # Model serving endpoint name
+    name: hardware_store_lakebase_dao
+  endpoint_name: hardware_store_postgres_beta           # Model serving endpoint name
+  environment_vars: 
+    PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
-    streaming: true                                 # Indicates streaming capabilities
+    streaming: True                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
     - principals: [users]                           # Grant access to all users
       entitlements:
@@ -868,6 +966,17 @@ app:
     - *comparison                                   # Product comparison agent
     - *recommendation                               # Product recommendation agent
     - *general                                      # General purpose agent
+
+  orchestration:                                    # Agent orchestration configuration
+    memory: *memory                            # Memory store for conversation context
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *fast_llm                      # LLM for routing decisions
+      middleware:                                       # Middleware for input validation
+        - *store_validation                             # Validate required custom fields
+    # swarm:
+    #   model: *tool_calling_llm
+    #   default_agent: *general
+
   input_example:
       messages:
         - role: user
@@ -878,67 +987,11 @@ app:
           user_id: my_user_id
           store_num: 87887
         session: {}
-  orchestration:                                    # Agent orchestration configuration
-    memory: *memory                     # Reference to memory configuration for state persistence
-    # supervisor:                                     # Supervisor orchestration pattern
-    #   model: *tool_calling_llm                      # LLM for routing decisions
-    #   default_agent: *general                       # Default agent when no specific match
-    # SWARM ORCHESTRATION PATTERN
-    # ========================================================================
-    # Swarm orchestration enables agents to collaborate directly through 
-    # handoff tools, creating a more flexible agent-to-agent communication
-    # pattern compared to the supervisor model.
-    #
-    # Key Differences from Supervisor Pattern:
-    # - No central supervisor making routing decisions
-    # - Agents can directly hand off conversations to other agents
-    # - Each agent gets handoff tools based on the handoffs configuration
-    # - More autonomous agent behavior and peer-to-peer collaboration
-    #
-    # Implementation Details (see retail_ai/graph.py):
-    # - Uses LangGraph's create_swarm() function for orchestration
-    # - Each agent receives handoff tools via _handoffs_for_agent()
-    # - Handoff tools use each target agent's handoff_prompt as description
-    # - If no specific handoffs defined, agent can hand off to any agent
-    # ========================================================================
-    swarm:
-      # LLM used for swarm coordination and agent decision-making
-      # This model powers the underlying swarm orchestration logic
-      model: *tool_calling_llm
-      
-      # Starting agent for new conversations - acts as the entry point
-      # Users initially interact with this agent before potential handoffs
-      default_agent: *general
-      
-      # Handoff configuration: defines which agents can transfer to which other agents
-      # Structure: {agent_name: [list_of_target_agents_or_null]}
-      # 
-      # Special Values:
-      # - ~ (null): Agent can hand off to ANY agent in the system
-      # - []: Empty list means agent has no specific handoff capabilities  
-      # - ["agent1", "agent2"]: Agent can only hand off to specified agents
-      #
-      # How Handoffs Work:
-      # 1. Each agent gets handoff tools created based on this configuration
-      # 2. Handoff tools use the target agent's handoff_prompt to describe when to transfer
-      # 3. Agents can invoke handoff tools to transfer conversations seamlessly
-      # 4. The receiving agent continues the conversation with full context
-      handoffs:
-        # General agent can hand off to any agent (~ means null/any)
-        # This makes general agent the universal router for initial triage
-        general: ~ 
-        
-        # DIY agent can hand off to specific product and recommendation agents
-        # This creates a focused workflow: DIY -> Product Info -> Inventory -> Recommendations
-        diy: 
-          - "product"      # String reference to product agent
-          - *inventory     # YAML anchor reference to inventory agent  
-          - *recommendation # YAML anchor reference to recommendation agent
-        
-        # Inventory agent has no outbound handoffs (empty list)
-        # This makes inventory a "terminal" agent that completes conversations
-        # Users would need to start new conversations or other agents hand off elsewhere
-        inventory: []
+  #chat_history: 
+  #  #max_tokens: 256
+  #  max_messages_before_summary: 5
+  #  model: *fast_llm                          # Model for summarization tasks
+
 
 # =============================================================================
 # UNITY CATALOG FUNCTIONS DEPLOYMENT
@@ -1006,9 +1059,15 @@ evaluation:
   custom_inputs:
     configurable:
       # conversation_id is auto-generated as UUID if not provided
-      user_id: nate.fleming
+      user_id: nate_fleming
       store_num: 87887
     session: {}
+  guidelines:
+    - name: MyRelevanceGuideline
+      guidelines:
+        - Ensure responses are relevant to the user's query
+        - Prioritize information from the user's context
+        - Avoid unnecessary jargon or technical details
 
 # =============================================================================
 # DATASETS CONFIGURATION

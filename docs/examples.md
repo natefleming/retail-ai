@@ -7,9 +7,9 @@ The `config/examples/` directory contains ready-to-use configurations organized 
 The examples follow a natural progression:
 
 ```
-01_getting_started → 02_tools → 03_caching → 04_memory 
-    → 05_quality_control → 06_prompt_engineering 
-    → 07_orchestration → 08_complete_applications
+01_getting_started → 02_tools → 04_genie → 05_memory 
+    → 06_human_in_the_loop → 09_prompt_engineering 
+    → 10_orchestration → 11_complete_applications
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -19,7 +19,7 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 ### 🆕 New to DAO AI?
 **Start here:**
 - [`01_getting_started/minimal.yaml`](../config/examples/01_getting_started/minimal.yaml) - Simplest possible agent
-- [`01_getting_started/genie_basic.yaml`](../config/examples/01_getting_started/genie_basic.yaml) - Natural language to SQL
+- [`04_genie/genie_basic.yaml`](../config/examples/04_genie/genie_basic.yaml) - Natural language to SQL
 
 ### 🔧 Need Specific Tools?
 **Explore:**
@@ -27,20 +27,20 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 
 ### ⚡ Optimizing Performance?
 **Check out:**
-- [`03_caching/`](../config/examples/03_caching/) - LRU and semantic caching strategies
+- [`04_genie/`](../config/examples/04_genie/) - LRU and semantic caching strategies
 
 ### 💾 Managing State?
 **See:**
-- [`04_memory/`](../config/examples/04_memory/) - Conversation history and persistence
+- [`05_memory/`](../config/examples/05_memory/) - Conversation history and persistence
 
 ### 🛡️ Production Ready?
 **Essential patterns:**
-- [`05_quality_control/`](../config/examples/05_quality_control/) - Guardrails, HITL, structured output
-- [`06_prompt_engineering/`](../config/examples/06_prompt_engineering/) - Prompt management and optimization
+- [`06_human_in_the_loop/`](../config/examples/06_human_in_the_loop/) - Guardrails, HITL, structured output
+- [`09_prompt_engineering/`](../config/examples/09_prompt_engineering/) - Prompt management and optimization
 
 ### 🏗️ Complete Solutions?
 **Full applications:**
-- [`08_complete_applications/`](../config/examples/08_complete_applications/) - Executive assistant, research agent, reservation system
+- [`11_complete_applications/`](../config/examples/11_complete_applications/) - Executive assistant, research agent, reservation system
 
 ---
 
@@ -53,7 +53,7 @@ dao-ai validate -c config/examples/01_getting_started/minimal.yaml
 
 ### Visualize the Workflow
 ```bash
-dao-ai graph -c config/examples/01_getting_started/genie_basic.yaml -o genie.png
+dao-ai graph -c config/examples/04_genie/genie_basic.yaml -o genie.png
 ```
 
 ### Chat with an Agent
@@ -63,7 +63,7 @@ dao-ai chat -c config/examples/02_tools/slack_integration.yaml
 
 ### Deploy to Databricks
 ```bash
-dao-ai bundle --deploy --run -c config/examples/05_quality_control/human_in_the_loop.yaml
+dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 ---
@@ -98,11 +98,11 @@ Integrate with external services and Databricks capabilities.
 | `genie_with_conversation_id.yaml` | Genie with conversation tracking |
 
 **Prerequisites:** Credentials for external services, Unity Catalog access  
-**Next:** Optimize with caching in `03_caching/`
+**Next:** Optimize with caching in `04_genie/`
 
 ---
 
-### 03. Caching [📖 README](../config/examples/03_caching/README.md)
+### 03. Caching [📖 README](../config/examples/04_genie/README.md)
 
 Improve performance and reduce costs through intelligent caching.
 
@@ -112,11 +112,11 @@ Improve performance and reduce costs through intelligent caching.
 | `genie_semantic_cache.yaml` | Two-tier semantic caching with embeddings |
 
 **Prerequisites:** PostgreSQL or Lakebase for semantic cache  
-**Next:** Add persistence in `04_memory/`
+**Next:** Add persistence in `05_memory/`
 
 ---
 
-### 04. Memory [📖 README](../config/examples/04_memory/README.md)
+### 04. Memory [📖 README](../config/examples/05_memory/README.md)
 
 Persistent state management for multi-turn conversations.
 
@@ -125,11 +125,11 @@ Persistent state management for multi-turn conversations.
 | `conversation_summarization.yaml` | Long conversation summarization with PostgreSQL |
 
 **Prerequisites:** PostgreSQL or Lakebase database  
-**Next:** Add safety with `05_quality_control/`
+**Next:** Add safety with `06_human_in_the_loop/`
 
 ---
 
-### 05. Quality Control [📖 README](../config/examples/05_quality_control/README.md)
+### 05. Quality Control [📖 README](../config/examples/06_human_in_the_loop/README.md)
 
 Production-grade safety, validation, and approval workflows.
 
@@ -140,11 +140,11 @@ Production-grade safety, validation, and approval workflows.
 | `structured_output.yaml` | Enforce response format with JSON schema |
 
 **Prerequisites:** MLflow for HITL, guardrail services (optional)  
-**Next:** Optimize prompts in `06_prompt_engineering/`
+**Next:** Optimize prompts in `09_prompt_engineering/`
 
 ---
 
-### 06. Prompt Engineering [📖 README](../config/examples/06_prompt_engineering/README.md)
+### 06. Prompt Engineering [📖 README](../config/examples/09_prompt_engineering/README.md)
 
 Prompt versioning, management, and automated optimization.
 
@@ -154,11 +154,11 @@ Prompt versioning, management, and automated optimization.
 | `prompt_optimization.yaml` | Automated prompt tuning with GEPA |
 
 **Prerequisites:** MLflow prompt registry, training dataset for optimization  
-**Next:** Scale with orchestration in `07_orchestration/`
+**Next:** Scale with orchestration in `10_orchestration/`
 
 ---
 
-### 07. Orchestration [📖 README](../config/examples/07_orchestration/README.md)
+### 07. Orchestration [📖 README](../config/examples/10_orchestration/README.md)
 
 Multi-agent coordination patterns.
 
@@ -167,11 +167,11 @@ Multi-agent coordination patterns.
 | *(Coming soon)* | Supervisor and swarm orchestration patterns |
 
 **Prerequisites:** Understanding of multi-agent systems  
-**Next:** See complete applications in `08_complete_applications/`
+**Next:** See complete applications in `11_complete_applications/`
 
 ---
 
-### 08. Complete Applications [📖 README](../config/examples/08_complete_applications/README.md)
+### 08. Complete Applications [📖 README](../config/examples/11_complete_applications/README.md)
 
 Full-featured, production-ready agent applications.
 
@@ -208,7 +208,7 @@ Adding a new example? Follow this guide:
 
 1. **Choose the right category** based on the primary feature demonstrated
 2. **Use descriptive names**: `tool_name_variant.yaml` (e.g., `slack_with_approval.yaml`)
-3. **Add to the appropriate category** (`01_getting_started` through `08_complete_applications`)
+3. **Add to the appropriate category** (`01_getting_started` through `11_complete_applications`)
 4. **Update this file** with a table entry
 5. **Test thoroughly** before submitting
 

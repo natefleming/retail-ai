@@ -727,7 +727,7 @@ Agent returns:
 - `response_schema`: Can be a JSON schema string, Pydantic model type, or fully qualified class name
 - `use_tool`: `true` (function calling), `false` (native), or `null` (auto-detect)
 
-See `config/examples/05_quality_control/structured_output.yaml` for a complete example.
+See `config/examples/08_structured_output/structured_output.yaml` for a complete example.
 
 ---
 

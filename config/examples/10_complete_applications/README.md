@@ -109,21 +109,21 @@ export SMTP_PASSWORD="your-password"
 export SLACK_BOT_TOKEN="xoxb-token"
 export CALENDAR_API_KEY="your-key"
 
-dao-ai chat -c config/examples/08_complete_applications/executive_assistant.yaml
+dao-ai chat -c config/examples/11_complete_applications/executive_assistant.yaml
 ```
 
 Example: *"Check my calendar for tomorrow and send a Slack message to #team with my availability"*
 
 ### Deep Research
 ```bash
-dao-ai chat -c config/examples/08_complete_applications/deep_research.yaml
+dao-ai chat -c config/examples/11_complete_applications/deep_research.yaml
 ```
 
 Example: *"Research the latest developments in quantum computing and create a summary report"*
 
 ### Reservations
 ```bash
-dao-ai chat -c config/examples/08_complete_applications/reservations_system.yaml
+dao-ai chat -c config/examples/11_complete_applications/reservations_system.yaml
 ```
 
 Example: *"Make a reservation for 4 people tomorrow at 7pm"*
@@ -219,7 +219,7 @@ These applications are starting points. To adapt for your needs:
 
 ### Caching Strategy
 ```yaml
-# Add caching from 03_caching
+# Add caching from 04_genie
 tools:
   - genie:
       lru_cache: true
@@ -258,7 +258,7 @@ agents:
 ## Troubleshooting
 
 ### High Latency
-- Enable caching (03_caching)
+- Enable caching (04_genie)
 - Use parallel tool calls
 - Optimize prompts (reduce tokens)
 - Use faster models where appropriate

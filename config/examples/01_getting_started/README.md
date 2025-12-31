@@ -9,14 +9,12 @@ This is your starting point. These examples introduce the core concepts of DAO A
 | File | Description | Prerequisites |
 |------|-------------|---------------|
 | `minimal.yaml` | Simplest possible agent configuration | Databricks workspace, LLM endpoint |
-| `genie_basic.yaml` | Natural language to SQL with Databricks Genie | Genie space access |
 
 ## What You'll Learn
 
 - **Basic YAML structure** - How DAO AI configurations are organized
 - **Agent definition** - Defining an agent with a model and prompt
-- **Tool integration** - Connecting your first tool (Genie)
-- **Simple workflows** - Single-agent, single-tool patterns
+- **Simple workflows** - Single-agent patterns
 
 ## Quick Start
 
@@ -26,12 +24,6 @@ dao-ai validate -c config/examples/01_getting_started/minimal.yaml
 dao-ai chat -c config/examples/01_getting_started/minimal.yaml
 ```
 
-### Try Genie SQL queries
-```bash
-dao-ai chat -c config/examples/01_getting_started/genie_basic.yaml
-```
-
-Example query: *"What are the top 10 customers by revenue?"*
 
 ## Key Concepts
 
@@ -59,8 +51,8 @@ Before using these examples:
 Once you're comfortable with these basics:
 
 👉 **02_tools/** - Explore more tool integrations (Slack, JIRA, Vector Search, MCP)  
-👉 **03_caching/** - Learn to optimize performance with caching  
-👉 **05_quality_control/** - Add production safety features
+👉 **04_genie/** - Learn to optimize performance with caching  
+👉 **06_human_in_the_loop/** - Add production safety features
 
 ## Troubleshooting
 

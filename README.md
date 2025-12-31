@@ -318,9 +318,9 @@ The `config/examples/` directory contains ready-to-use configurations organized 
 
 - `01_getting_started/minimal.yaml` - Simplest possible agent
 - `02_tools/vector_search_with_reranking.yaml` - RAG with improved accuracy
-- `03_caching/genie_semantic_cache.yaml` - NL-to-SQL with two-tier caching
-- `04_memory/conversation_summarization.yaml` - Long conversation handling
-- `05_quality_control/human_in_the_loop.yaml` - Approval workflows
+- `04_genie/genie_semantic_cache.yaml` - NL-to-SQL with two-tier caching
+- `05_memory/conversation_summarization.yaml` - Long conversation handling
+- `06_human_in_the_loop/human_in_the_loop.yaml` - Approval workflows
 
 And many more! Follow the numbered path or jump to what you need. See the full guide in [Examples Documentation](docs/examples.md).
 

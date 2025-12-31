@@ -20,14 +20,14 @@ BUILD := $(UV) build
 PYTHON := $(UV) run python 
 EXPORT := $(UV) pip freeze --exclude-editable | grep -v -E "(databricks-vectorsearch|pyspark|databricks-connect)" 
 PUBLISH := $(UV) run twine upload
-PYTEST := $(UV) run pytest -v -s
+PYTEST := $(UV) run pytest -v -s -n auto
 RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 
 RUFF_FORMAT := $(UV) run ruff format 
 FIND := $(shell which find)
 RM := rm -rf
 CD := cd
 
-.PHONY: all clean distclean dist check format publish help 
+.PHONY: all clean distclean dist check format publish help test 
 
 all: dist
 

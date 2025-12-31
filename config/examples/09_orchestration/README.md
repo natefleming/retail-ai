@@ -56,7 +56,7 @@ Coordinate multiple specialized agents to solve complex problems. This category 
 - ✅ Understanding of single-agent patterns (`01_getting_started`)
 - ✅ Multiple specialized agents defined
 - ✅ Clear task decomposition strategy
-- ✅ Shared memory/state infrastructure (`04_memory`)
+- ✅ Shared memory/state infrastructure (`05_memory`)
 
 ## When to Use Orchestration
 
@@ -133,22 +133,22 @@ Log all agent interactions for debugging.
 
 ## Next Steps
 
-👉 **08_complete_applications/** - See orchestration in production systems
+👉 **11_complete_applications/** - See orchestration in production systems
 
 ## Try These Examples
 
 ```bash
 # Validate the supervisor pattern
-dao-ai validate -c config/examples/07_orchestration/supervisor_pattern.yaml
+dao-ai validate -c config/examples/10_orchestration/supervisor_pattern.yaml
 
 # Validate the swarm pattern  
-dao-ai validate -c config/examples/07_orchestration/swarm_pattern.yaml
+dao-ai validate -c config/examples/10_orchestration/swarm_pattern.yaml
 
 # Visualize the supervisor architecture
-dao-ai graph -c config/examples/07_orchestration/supervisor_pattern.yaml -o supervisor_graph.png
+dao-ai graph -c config/examples/10_orchestration/supervisor_pattern.yaml -o supervisor_graph.png
 
 # Visualize the swarm architecture
-dao-ai graph -c config/examples/07_orchestration/swarm_pattern.yaml -o swarm_graph.png
+dao-ai graph -c config/examples/10_orchestration/swarm_pattern.yaml -o swarm_graph.png
 ```
 
 ## Real-World Examples

@@ -273,12 +273,12 @@ pytest --cov=dao_ai --cov-report=html tests/
 1. Choose the appropriate category in `config/examples/` based on **primary feature** demonstrated:
    - `01_getting_started/` - Foundation concepts for beginners
    - `02_tools/` - Tool integrations (Genie, Vector Search, Slack, MCP, etc.)
-   - `03_caching/` - Performance optimization strategies
-   - `04_memory/` - State management and persistence
-   - `05_quality_control/` - Safety, validation, approval workflows
-   - `06_prompt_engineering/` - Prompt management and optimization
-   - `07_orchestration/` - Multi-agent coordination patterns
-   - `08_complete_applications/` - Full-featured, production-ready applications
+   - `04_genie/` - Performance optimization strategies
+   - `05_memory/` - State management and persistence
+   - `06_human_in_the_loop/ and 07_guardrails/` - Safety, validation, approval workflows
+   - `09_prompt_engineering/` - Prompt management and optimization
+   - `10_orchestration/` - Multi-agent coordination patterns
+   - `11_complete_applications/` - Full-featured, production-ready applications
 
 2. **Use descriptive file names**: `tool_name_variant.yaml` (e.g., `slack_with_threads.yaml`)
 

@@ -181,6 +181,16 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # Each agent gets handoff tools only for agents they're allowed to hand off to
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
     memory: MemoryModel | None = orchestration.memory
+    
+    # Get swarm-level middleware to apply to all agents
+    swarm_middleware: list = swarm.middleware if swarm.middleware else []
+    if swarm_middleware:
+        logger.info(
+            "Applying swarm-level middleware to all agents",
+            middleware_count=len(swarm_middleware),
+            middleware_names=[mw.name for mw in swarm_middleware],
+        )
+    
     for registered_agent in config.app.agents:
         # Get handoff tools for this agent
         handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
@@ -188,8 +198,29 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             config=config,
         )
 
+        # Merge swarm-level middleware with agent-specific middleware
+        # Swarm middleware is applied first, then agent middleware
+        if swarm_middleware:
+            from copy import deepcopy
+            
+            # Create a copy of the agent to avoid modifying the original
+            agent_with_middleware = deepcopy(registered_agent)
+            
+            # Combine swarm middleware (first) with agent middleware
+            agent_with_middleware.middleware = swarm_middleware + agent_with_middleware.middleware
+            
+            logger.debug(
+                "Merged middleware for agent",
+                agent=registered_agent.name,
+                swarm_middleware_count=len(swarm_middleware),
+                agent_middleware_count=len(registered_agent.middleware),
+                total_middleware_count=len(agent_with_middleware.middleware),
+            )
+        else:
+            agent_with_middleware = registered_agent
+
         agent_subgraph: CompiledStateGraph = create_agent_node(
-            agent=registered_agent,
+            agent=agent_with_middleware,
             memory=memory,
             chat_history=config.app.chat_history,
             additional_tools=handoff_tools,

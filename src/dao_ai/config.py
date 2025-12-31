@@ -2090,6 +2090,10 @@ class SwarmModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     default_agent: Optional[AgentModel | str] = None
+    middleware: list[MiddlewareModel] = Field(
+        default_factory=list,
+        description="List of middleware to apply to all agents in the swarm",
+    )
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
         default_factory=dict
     )

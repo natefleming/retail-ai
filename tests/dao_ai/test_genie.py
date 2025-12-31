@@ -789,7 +789,7 @@ def test_genie_with_app_config_and_responses_agent() -> None:
 
     try:
         # Step 1: Load configuration from YAML file
-        config_path = "config/examples/01_getting_started/genie_basic.yaml"
+        config_path = "config/examples/04_genie/genie_basic.yaml"
         print(f"\n1. Loading configuration from: {config_path}")
 
         app_config = AppConfig.from_file(config_path)
@@ -914,7 +914,7 @@ def test_genie_config_validation_and_tool_creation() -> None:
 
     try:
         # Load the genie configuration
-        config_path = "config/examples/01_getting_started/genie_basic.yaml"
+        config_path = "config/examples/04_genie/genie_basic.yaml"
         print("\n1. Loading and validating genie configuration...")
 
         app_config = AppConfig.from_file(config_path)
