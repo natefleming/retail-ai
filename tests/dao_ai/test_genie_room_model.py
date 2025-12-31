@@ -119,6 +119,45 @@ def mock_genie_space_no_serialized():
     return mock_space
 
 
+@pytest.fixture
+def mock_genie_space_with_sql_functions():
+    """Create a mock GenieSpace with SQL functions in instructions.sql_functions."""
+    mock_space = Mock()
+    mock_space.space_id = "test-space-sql-funcs"
+    mock_space.title = "Test Genie Space (SQL Functions)"
+    mock_space.description = "A test Genie space with SQL functions"
+    mock_space.warehouse_id = "test-warehouse"
+
+    # Real structure with instructions.sql_functions
+    serialized_data = {
+        "version": 1,
+        "data_sources": {
+            "tables": [
+                {"identifier": "catalog.schema.orders", "column_configs": []},
+                {"identifier": "catalog.schema.products", "column_configs": []},
+            ]
+        },
+        "instructions": {
+            "sql_functions": [
+                {
+                    "id": "01f05c14e85d11379c62e45a73f72adb",
+                    "identifier": "catalog.schema.lookup_items_by_descriptions",
+                },
+                {
+                    "id": "01f05c14fa561b879fbcbde149f3f015",
+                    "identifier": "catalog.schema.match_historical_item_order_by_date",
+                },
+                {
+                    "id": "01f05c1505c01037b3726f5a33bc0d5e",
+                    "identifier": "catalog.schema.match_item_by_description_and_price",
+                },
+            ]
+        },
+    }
+    mock_space.serialized_space = json.dumps(serialized_data)
+    return mock_space
+
+
 @pytest.mark.unit
 class TestGenieRoomModelSerialization:
     """Test suite for GenieRoomModel serialized_space parsing."""
@@ -262,6 +301,39 @@ class TestGenieRoomModelSerialization:
 
             functions = genie_room.functions
             assert len(functions) == 0
+
+    def test_parse_serialized_space_with_sql_functions(
+        self, mock_workspace_client, mock_genie_space_with_sql_functions
+    ):
+        """Test parsing serialized_space with SQL functions in instructions.sql_functions."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_sql_functions
+            )
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-sql-funcs"
+            )
+
+            # Test tables extraction
+            tables = genie_room.tables
+            assert len(tables) == 2
+            assert tables[0].name == "catalog.schema.orders"
+            assert tables[1].name == "catalog.schema.products"
+
+            # Test SQL functions extraction from instructions.sql_functions
+            functions = genie_room.functions
+            assert len(functions) == 3
+            assert all(isinstance(func, FunctionModel) for func in functions)
+            assert functions[0].name == "catalog.schema.lookup_items_by_descriptions"
+            assert (
+                functions[1].name
+                == "catalog.schema.match_historical_item_order_by_date"
+            )
+            assert (
+                functions[2].name
+                == "catalog.schema.match_item_by_description_and_price"
+            )
 
     def test_genie_space_details_caching(
         self, mock_workspace_client, mock_genie_space_with_serialized_data
@@ -424,6 +496,152 @@ class TestGenieRoomModelSerialization:
                 # Verify workspace client is shared
                 assert function._workspace_client == genie_room._workspace_client
 
+    def test_warehouse_extraction(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that warehouse is correctly extracted from GenieSpace."""
+        from dao_ai.config import WarehouseModel
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            # Get warehouse
+            warehouse = genie_room.warehouse
+
+            # Verify warehouse was extracted
+            assert warehouse is not None
+            assert isinstance(warehouse, WarehouseModel)
+            assert warehouse.name == "Test Warehouse"
+            assert warehouse.warehouse_id == "test-warehouse"
+
+            # Verify warehouse API was called with correct ID
+            mock_workspace_client.warehouses.get.assert_called_once_with(
+                "test-warehouse"
+            )
+
+    def test_warehouse_inherits_authentication(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that WarehouseModel inherits authentication from GenieRoomModel."""
+        from dao_ai.config import ServicePrincipalModel
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            # Create GenieRoomModel with specific authentication
+            service_principal = ServicePrincipalModel(
+                client_id="test-client-id", client_secret="test-client-secret"
+            )
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room",
+                space_id="test-space-123",
+                on_behalf_of_user=True,
+                service_principal=service_principal,
+                workspace_host="https://test.databricks.com",
+            )
+
+            # Get warehouse
+            warehouse = genie_room.warehouse
+
+            # Verify warehouse inherits authentication
+            assert warehouse is not None
+            assert warehouse.on_behalf_of_user
+            assert warehouse.service_principal == service_principal
+            assert warehouse.workspace_host == "https://test.databricks.com"
+            # Verify workspace client is shared
+            assert warehouse._workspace_client == genie_room._workspace_client
+
+    def test_warehouse_handles_missing_warehouse_id(self, mock_workspace_client):
+        """Test that warehouse property handles missing warehouse_id gracefully."""
+        mock_space = Mock()
+        mock_space.space_id = "test-space-123"
+        mock_space.title = "Test Space"
+        mock_space.description = "Test"
+        mock_space.warehouse_id = None
+        mock_space.serialized_space = json.dumps({"data_sources": {}})
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = mock_space
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            # Get warehouse - should return None
+            warehouse = genie_room.warehouse
+            assert warehouse is None
+
+            # Verify warehouses.get was not called
+            mock_workspace_client.warehouses.get.assert_not_called()
+
+    def test_warehouse_handles_api_error(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that warehouse property handles API errors gracefully."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Mock warehouse API to raise an error
+            mock_workspace_client.warehouses.get.side_effect = Exception(
+                "API Error: Warehouse not found"
+            )
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            # Get warehouse - should return None on error
+            warehouse = genie_room.warehouse
+            assert warehouse is None
+
+    def test_warehouse_uses_warehouse_id_as_fallback_name(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that warehouse uses warehouse_id as name if response.name is None."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Mock warehouse response with no name
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = None
+            mock_warehouse_response.description = "A test warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            # Get warehouse
+            warehouse = genie_room.warehouse
+
+            # Verify warehouse uses warehouse_id as name
+            assert warehouse is not None
+            assert warehouse.name == "test-warehouse"
+            assert warehouse.warehouse_id == "test-warehouse"
+
 
 @pytest.mark.skipif(
     not pytest.importorskip("conftest").has_databricks_env(),
@@ -539,6 +757,32 @@ class TestGenieRoomModelRealAPI:
         # Test api_scopes
         api_scopes = genie_room.api_scopes
         assert "dashboards.genie" in api_scopes
+
+    def test_real_genie_space_warehouse(self):
+        """Test that warehouse is correctly extracted from a real Genie space."""
+        from dao_ai.config import GenieRoomModel, WarehouseModel
+
+        genie_room = GenieRoomModel(
+            name="test-real-genie-room", space_id="01f01c91f1f414d59daaefd2b7ec82ea"
+        )
+
+        # Test warehouse extraction
+        warehouse = genie_room.warehouse
+
+        if warehouse is not None:
+            # If warehouse exists, verify it's a WarehouseModel
+            assert isinstance(warehouse, WarehouseModel)
+            assert warehouse.warehouse_id is not None
+            assert warehouse.name is not None
+            print(f"\nWarehouse ID: {warehouse.warehouse_id}")
+            print(f"Warehouse Name: {warehouse.name}")
+
+            # Verify warehouse has valid API scopes
+            assert "sql.warehouses" in warehouse.api_scopes
+            assert "sql.statement-execution" in warehouse.api_scopes
+        else:
+            # If no warehouse, that's okay - just log it
+            print("\nNo warehouse associated with this Genie space")
 
 
 if __name__ == "__main__":

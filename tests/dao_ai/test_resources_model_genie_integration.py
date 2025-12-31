@@ -88,6 +88,11 @@ class TestResourcesModelGenieIntegration:
                 mock_genie_space_with_resources
             )
 
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
             # Create ResourcesModel with a genie room
             resources = ResourcesModel(
                 genie_rooms={
@@ -141,6 +146,11 @@ class TestResourcesModelGenieIntegration:
                 mock_genie_space_with_resources
             )
 
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
             # Create ResourcesModel with existing tables and a genie room
             resources = ResourcesModel(
                 tables={"manual_table": TableModel(name="catalog.schema.manual_table")},
@@ -169,6 +179,11 @@ class TestResourcesModelGenieIntegration:
             mock_workspace_client.genie.get_space.return_value = (
                 mock_genie_space_with_resources
             )
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
             # Create ResourcesModel with a table that matches one from Genie
             resources = ResourcesModel(
@@ -218,6 +233,11 @@ class TestResourcesModelGenieIntegration:
                 return None
 
             mock_workspace_client.genie.get_space.side_effect = get_space_side_effect
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
             # Create ResourcesModel with multiple genie rooms
             resources = ResourcesModel(
@@ -350,6 +370,250 @@ class TestResourcesModelGenieIntegration:
             # Should have no tables or functions
             assert len(resources.tables) == 0
             assert len(resources.functions) == 0
+
+    def test_genie_warehouses_auto_populated(
+        self, mock_workspace_client, mock_genie_space_with_resources
+    ):
+        """Test that warehouses from Genie rooms are automatically added."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_resources
+            )
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            # Create ResourcesModel with a genie room
+            resources = ResourcesModel(
+                genie_rooms={
+                    "my_genie": GenieRoomModel(
+                        name="my-genie-room", space_id="test-space-123"
+                    )
+                }
+            )
+
+            # Verify warehouse was added
+            assert len(resources.warehouses) == 1
+            assert "my_genie_room_test_warehouse" in resources.warehouses
+
+            # Verify warehouse properties
+            warehouse = resources.warehouses["my_genie_room_test_warehouse"]
+            assert warehouse.name == "Test Warehouse"
+            assert warehouse.warehouse_id == "test-warehouse"
+
+    def test_genie_warehouses_with_existing_warehouses(
+        self, mock_workspace_client, mock_genie_space_with_resources
+    ):
+        """Test that existing manually-defined warehouses are preserved."""
+        from dao_ai.config import WarehouseModel
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_resources
+            )
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Genie Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            # Create ResourcesModel with existing warehouse and a genie room
+            resources = ResourcesModel(
+                warehouses={
+                    "manual_warehouse": WarehouseModel(
+                        name="manual-warehouse", warehouse_id="manual-wh-123"
+                    )
+                },
+                genie_rooms={
+                    "my_genie": GenieRoomModel(
+                        name="my-genie-room", space_id="test-space-123"
+                    )
+                },
+            )
+
+            # Verify manual warehouse is preserved
+            assert "manual_warehouse" in resources.warehouses
+            assert (
+                resources.warehouses["manual_warehouse"].warehouse_id == "manual-wh-123"
+            )
+
+            # Verify genie warehouse was added
+            assert len(resources.warehouses) == 2
+            assert "my_genie_room_test_warehouse" in resources.warehouses
+
+    def test_genie_warehouses_deduplication(
+        self, mock_workspace_client, mock_genie_space_with_resources
+    ):
+        """Test that duplicate warehouses are not added."""
+        from dao_ai.config import WarehouseModel
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_resources
+            )
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            # Create ResourcesModel with a warehouse that matches the Genie warehouse_id
+            resources = ResourcesModel(
+                warehouses={
+                    "existing_warehouse": WarehouseModel(
+                        name="existing-warehouse", warehouse_id="test-warehouse"
+                    )
+                },
+                genie_rooms={
+                    "my_genie": GenieRoomModel(
+                        name="my-genie-room", space_id="test-space-123"
+                    )
+                },
+            )
+
+            # Verify the manually-defined warehouse is kept
+            assert "existing_warehouse" in resources.warehouses
+
+            # Verify the duplicate from Genie was not added
+            assert len(resources.warehouses) == 1
+            assert (
+                resources.warehouses["existing_warehouse"].warehouse_id
+                == "test-warehouse"
+            )
+
+    def test_multiple_genie_rooms_with_warehouses(
+        self,
+        mock_workspace_client,
+        mock_genie_space_with_resources,
+        mock_genie_space_no_functions,
+    ):
+        """Test that warehouses from multiple Genie rooms are collected."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+
+            def get_space_side_effect(space_id, **kwargs):
+                if space_id == "test-space-123":
+                    return mock_genie_space_with_resources
+                elif space_id == "test-space-456":
+                    return mock_genie_space_no_functions
+                return None
+
+            mock_workspace_client.genie.get_space.side_effect = get_space_side_effect
+
+            # Mock warehouse responses for different warehouse IDs
+            def get_warehouse_side_effect(warehouse_id):
+                mock_response = Mock()
+                if warehouse_id == "test-warehouse":
+                    mock_response.name = "Warehouse 1"
+                    mock_response.description = "First warehouse"
+                return mock_response
+
+            mock_workspace_client.warehouses.get.side_effect = get_warehouse_side_effect
+
+            # Create ResourcesModel with multiple genie rooms
+            resources = ResourcesModel(
+                genie_rooms={
+                    "genie_room_1": GenieRoomModel(
+                        name="genie-room-1", space_id="test-space-123"
+                    ),
+                    "genie_room_2": GenieRoomModel(
+                        name="genie-room-2", space_id="test-space-456"
+                    ),
+                }
+            )
+
+            # Both rooms share the same warehouse, so only one should be added
+            assert len(resources.warehouses) == 1
+            assert "genie_room_1_test_warehouse" in resources.warehouses
+
+    def test_genie_warehouses_inherit_authentication(
+        self, mock_workspace_client, mock_genie_space_with_resources
+    ):
+        """Test that warehouses from Genie inherit authentication from the room."""
+        from dao_ai.config import ServicePrincipalModel
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_resources
+            )
+
+            # Mock warehouse response
+            mock_warehouse_response = Mock()
+            mock_warehouse_response.name = "Test Warehouse"
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            service_principal = ServicePrincipalModel(
+                client_id="test-client-id", client_secret="test-client-secret"
+            )
+
+            # Create ResourcesModel with authenticated genie room
+            resources = ResourcesModel(
+                genie_rooms={
+                    "my_genie": GenieRoomModel(
+                        name="my-genie-room",
+                        space_id="test-space-123",
+                        on_behalf_of_user=True,
+                        service_principal=service_principal,
+                        workspace_host="https://test.databricks.com",
+                    )
+                }
+            )
+
+            # Verify warehouses inherit authentication
+            for warehouse_key, warehouse in resources.warehouses.items():
+                assert warehouse.on_behalf_of_user
+                assert warehouse.service_principal == service_principal
+                assert warehouse.workspace_host == "https://test.databricks.com"
+
+    def test_genie_room_with_no_warehouse(self, mock_workspace_client):
+        """Test handling of Genie room with no warehouse_id."""
+        mock_space = Mock()
+        mock_space.space_id = "test-space-no-wh"
+        mock_space.title = "No Warehouse Space"
+        mock_space.description = None
+        mock_space.warehouse_id = None
+        mock_space.serialized_space = json.dumps({"data_sources": {}})
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = mock_space
+
+            resources = ResourcesModel(
+                genie_rooms={
+                    "no_warehouse_genie": GenieRoomModel(
+                        name="no-warehouse-room", space_id="test-space-no-wh"
+                    )
+                }
+            )
+
+            # Should have no warehouses
+            assert len(resources.warehouses) == 0
+
+    def test_genie_warehouse_api_error_handling(
+        self, mock_workspace_client, mock_genie_space_with_resources
+    ):
+        """Test that warehouse API errors are handled gracefully."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_resources
+            )
+
+            # Mock warehouse API to raise an error
+            mock_workspace_client.warehouses.get.side_effect = Exception(
+                "Warehouse API error"
+            )
+
+            # Should not raise an exception
+            resources = ResourcesModel(
+                genie_rooms={
+                    "my_genie": GenieRoomModel(
+                        name="my-genie-room", space_id="test-space-123"
+                    )
+                }
+            )
+
+            # No warehouses should be added due to API error
+            assert len(resources.warehouses) == 0
 
 
 if __name__ == "__main__":
