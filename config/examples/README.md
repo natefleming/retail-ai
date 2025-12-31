@@ -9,7 +9,8 @@ Follow the numbered directories from 01 to 11 for a structured learning experien
 ```
 01_getting_started → 02_tools → 03_reranking → 04_genie → 05_memory 
     → 06_human_in_the_loop → 07_guardrails → 08_structured_output 
-    → 09_prompt_engineering → 10_orchestration → 11_complete_applications
+    → 09_prompt_engineering → 10_middleware → 11_orchestration
+    → 12_complete_applications
 ```
 
 Or jump directly to the category that matches your current need.
@@ -107,7 +108,18 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [10. Orchestration](10_orchestration/)
+### [10. Middleware](10_middleware/)
+**Cross-cutting concerns for agents**
+- Custom input validation (store numbers, tenant IDs, API keys)
+- Request logging and audit trails
+- Performance monitoring and tracking
+- Combined middleware stacks
+
+👉 Add validation, logging, and monitoring to your agents
+
+---
+
+### [11. Orchestration](11_orchestration/)
 **Multi-agent coordination**
 - Supervisor pattern (coming soon)
 - Swarm pattern (coming soon)
@@ -117,7 +129,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [11. Complete Applications](11_complete_applications/)
+### [12. Complete Applications](12_complete_applications/)
 **Production-ready systems**
 - Executive assistant
 - Deep research agent
@@ -180,11 +192,14 @@ dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_th
 **...manage and optimize prompts**  
 → Learn from [`09_prompt_engineering/`](09_prompt_engineering/)
 
+**...add validation, logging, or monitoring**  
+→ Check [`10_middleware/`](10_middleware/)
+
 **...coordinate multiple agents**  
-→ Study [`10_orchestration/`](10_orchestration/)
+→ Study [`11_orchestration/`](11_orchestration/)
 
 **...see complete, production-ready examples**  
-→ Explore [`11_complete_applications/`](11_complete_applications/)
+→ Explore [`12_complete_applications/`](12_complete_applications/)
 
 ---
 
@@ -279,8 +294,9 @@ Use MLflow to track agent performance and costs.
 | 06_human_in_the_loop | ⭐⭐⭐ | 2 hrs | Checkpointer setup |
 | 07_guardrails | ⭐⭐⭐ | 2-3 hrs | Production mindset |
 | 09_prompt_engineering | ⭐⭐⭐⭐ | 3-4 hrs | MLflow setup |
-| 10_orchestration | ⭐⭐⭐⭐ | 4-6 hrs | Multi-agent concepts |
-| 11_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
+| 10_middleware | ⭐⭐ | 1-2 hrs | Category 01 |
+| 11_orchestration | ⭐⭐⭐⭐ | 4-6 hrs | Multi-agent concepts |
+| 12_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
 
 ---
 
@@ -325,8 +341,9 @@ Examples:
 
 ### Week 3: Advanced Patterns
 - Day 1-2: `09_prompt_engineering/` - Prompt management
-- Day 3-4: `10_orchestration/` - Multi-agent coordination
-- Day 5: `11_complete_applications/` - Full systems
+- Day 3: `10_middleware/` - Validation and monitoring
+- Day 4: `11_orchestration/` - Multi-agent coordination
+- Day 5: `12_complete_applications/` - Full systems
 
 ### Week 4: Build Your Own
 - Apply learned patterns to your use case

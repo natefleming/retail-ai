@@ -22,15 +22,6 @@ resources:
         - databricks-claude-sonnet-4
         - databricks-meta-llama-3-3-70b-instruct
 
-  tables:
-    all: 
-      schema: *quick_serve_retaurant_schema                        # Reference to schema defined above
-
-
-  functions:
-    all: 
-      schema: *quick_serve_retaurant_schema
-
   databases:
     # PostgreSQL database for agent memory and checkpoints
     retail_database: &retail_database

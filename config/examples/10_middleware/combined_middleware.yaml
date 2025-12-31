@@ -1,0 +1,231 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Combined Middleware Stack
+#
+# This example demonstrates how to combine multiple middleware components
+# in a single agent for comprehensive request processing.
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Middleware is executed in order - earlier middleware runs first
+# Use this to create processing pipelines
+
+middleware:
+  # Step 1: Validate inputs
+  input_validation: &input_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        - name: store_num
+          description: "Store number for context"
+          example_value: "12345"
+        - name: user_id
+          description: "User identifier"
+          required: false
+          example_value: "user_abc"
+
+  # Step 2: Log the request
+  request_logging: &request_logging
+    name: dao_ai.middleware.create_logging_middleware
+    args:
+      log_level: INFO
+      log_inputs: true
+      include_metadata: true
+      message_prefix: "[MIDDLEWARE]"
+
+  # Step 3: Check rate limits (custom implementation)
+  rate_limiting: &rate_limiting
+    name: dao_ai.middleware.create_rate_limit_middleware
+    args:
+      max_requests_per_minute: 60
+      max_requests_per_hour: 500
+      rate_limit_by: user_id                # Rate limit by user_id field
+      error_message: "Rate limit exceeded. Please try again later."
+
+  # Step 4: Monitor performance
+  performance_tracking: &performance_tracking
+    name: dao_ai.middleware.create_performance_middleware
+    args:
+      log_level: INFO
+      threshold_ms: 2000
+      include_tool_timing: true
+
+  # Step 5: Create audit trail
+  audit_logging: &audit_logging
+    name: dao_ai.middleware.create_audit_middleware
+    args:
+      log_level: INFO
+      log_user_info: true
+      log_tool_calls: true
+      mask_sensitive_fields: true
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail data
+        genie_room: *retail_genie
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Production-Ready Agent with Full Middleware Stack
+  # ---------------------------------------------------------------------------
+  # This agent has a complete middleware pipeline for production use:
+  # 1. Input validation → 2. Logging → 3. Rate limiting → 4. Performance → 5. Audit
+  production_agent: &production_agent
+    name: production_agent
+    description: "Production-ready agent with comprehensive middleware"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      # Middleware executes in order:
+      - *input_validation                   # 1. Validate required fields
+      - *request_logging                    # 2. Log incoming request
+      - *rate_limiting                      # 3. Check rate limits
+      - *performance_tracking               # 4. Monitor execution time
+      - *audit_logging                      # 5. Create audit trail
+    prompt: |
+      ### Store Context
+      - **Store Number**: {store_num}
+      - **User ID**: {user_id}
+      
+      You are a production-ready store assistant with comprehensive
+      middleware for validation, logging, rate limiting, and auditing.
+      
+      Your responses are monitored for quality and performance.
+    handoff_prompt: |
+      Store-related questions that require validated context and
+      comprehensive tracking.
+
+  # ---------------------------------------------------------------------------
+  # Development Agent with Minimal Middleware
+  # ---------------------------------------------------------------------------
+  # This agent has only essential middleware for development/testing
+  dev_agent: &dev_agent
+    name: dev_agent
+    description: "Development agent with minimal middleware"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *request_logging                    # Only logging for debugging
+    prompt: |
+      You are a development assistant with minimal middleware.
+      This configuration is suitable for testing and debugging.
+
+app:
+  name: combined_middleware_example
+  description: "Example demonstrating combined middleware stacks"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: combined_middleware_dao
+  endpoint_name: combined_middleware_demo
+  agents:
+    - *production_agent
+    - *dev_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    messages:
+      - role: user
+        content: What products are available in my store?
+    custom_inputs:
+      configurable:
+        store_num: "12345"
+        user_id: "user_abc123"
+      session: {}
+
+# =============================================================================
+# MIDDLEWARE EXECUTION FLOW
+# =============================================================================
+#
+# When a request comes in for production_agent, it goes through this pipeline:
+#
+# 1. INPUT VALIDATION (input_validation)
+#    ✓ Checks if store_num is provided
+#    ✓ Validates user_id (optional)
+#    ✗ Rejects request if validation fails
+#
+# 2. REQUEST LOGGING (request_logging)
+#    ✓ Logs request details
+#    ✓ Captures metadata
+#    ✓ Includes timestamp
+#
+# 3. RATE LIMITING (rate_limiting)
+#    ✓ Checks user's request count
+#    ✓ Enforces limits (60/min, 500/hour)
+#    ✗ Returns 429 error if exceeded
+#
+# 4. PERFORMANCE TRACKING (performance_tracking)
+#    ✓ Starts timing
+#    ✓ Monitors agent execution
+#    ✓ Warns if > 2000ms
+#
+# 5. AUDIT LOGGING (audit_logging)
+#    ✓ Creates audit record
+#    ✓ Logs tool calls
+#    ✓ Masks sensitive data
+#
+# 6. AGENT EXECUTION
+#    → Agent processes the request
+#    → Tools are called
+#    → Response is generated
+#
+# 7. MIDDLEWARE POST-PROCESSING (reverse order)
+#    ← Audit logging finalized
+#    ← Performance metrics logged
+#    ← Response returned
+#
+# =============================================================================
+# BEST PRACTICES
+# =============================================================================
+#
+# 1. Order Matters:
+#    - Put validation first (fail fast)
+#    - Put logging early (capture everything)
+#    - Put rate limiting before expensive operations
+#    - Put performance tracking around main execution
+#    - Put audit logging throughout
+#
+# 2. Environment-Specific Stacks:
+#    - Development: Logging only
+#    - Staging: Logging + Performance
+#    - Production: Full stack
+#
+# 3. Error Handling:
+#    - Each middleware should handle errors gracefully
+#    - Failed validation should return clear error messages
+#    - Logging failures shouldn't block requests
+#
+# 4. Performance:
+#    - Keep middleware lightweight
+#    - Avoid blocking operations
+#    - Use async where possible
+#    - Cache expensive checks

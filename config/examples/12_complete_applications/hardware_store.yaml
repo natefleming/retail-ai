@@ -150,13 +150,7 @@ resources:
       schema: *retail_schema
       name: find_inventory_by_upc                   # Function to find inventory by UPC
     
-    # Store-specific inventory functions
-    find_store_inventory_by_upc: &find_store_inventory_by_upc
-      schema: *retail_schema
-      name: find_store_inventory_by_upc             # Store-specific UPC inventory lookup
-    find_store_inventory_by_sku: &find_store_inventory_by_sku
-      schema: *retail_schema
-      name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
+
 
   # ---------------------------------------------------------------------------
   # WAREHOUSES
@@ -207,39 +201,10 @@ retrievers:
 
 tools:
   # ---------------------------------------------------------------------------
-  # MCP (Model Context Protocol) TOOLS
-  # ---------------------------------------------------------------------------
-  # External tools accessible via MCP protocol
-  weather_tool_mcp: &weather_tool_mcp
-    name: weather                                   # Tool name for agent reference
-    function:
-      type: mcp                                     # Tool type: MCP server
-      name: weather                                 # MCP function name
-      transport: streamable_http                    # Transport protocol
-      url: http://localhost:8000/mcp                # MCP server URL
-
-  # ---------------------------------------------------------------------------
   # FACTORY TOOLS
   # ---------------------------------------------------------------------------
   # Tools created by factory functions - configured at runtime
   
-  # Databricks Genie integration tool
-  genie_tool: &genie_tool
-    name: genie
-    function:
-      type: factory                                 # Tool type: factory function
-      name: dao_ai.tools.create_genie_tool       # Factory function path
-      args:                                         # Arguments passed to factory
-        genie_room: *retail_genie_room              # Reference to Genie room config
-
-  # Web search tool for general information
-  search_tool: &search_tool
-    name: search
-    function:
-      type: factory
-      name: dao_ai.tools.create_search_tool             # Factory function for web search
-      args: {}                                      # No arguments needed
-
   # Vector search tool for product similarity
   find_product_details_by_description_tool: &find_product_details_by_description_tool
     name: vector_search

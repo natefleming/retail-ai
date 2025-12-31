@@ -63,14 +63,6 @@ resources:
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
       on_behalf_of_user: False
 
-  tables:
-    all:
-      schema: *quick_serve_restaurant_schema                        # Reference to schema defined above
-
-  functions:
-    all: 
-      schema: *quick_serve_restaurant_schema
-
   databases:
     # Lakebase (PostgreSQL) database for semantic cache storage
     # Uses OAuth2 client credentials for Databricks authentication

@@ -811,7 +811,220 @@ When invoked with the `custom_inputs` above, the prompt automatically populates:
 - `session` state is automatically maintained and returned in `custom_outputs`
 - Backward compatible with legacy flat custom_inputs format
 
-## 13. Hook System
+## 13. Middleware (Input Validation, Logging, Monitoring)
+
+**What is middleware?** Middleware are functions that wrap around agent execution to add cross-cutting concerns like validation, logging, authentication, and monitoring. They run before and after the agent processes requests.
+
+**Why this matters:**
+- **Input validation**: Ensure required fields (store_num, tenant_id, API keys) are provided before processing
+- **Request logging**: Track all interactions for debugging and auditing
+- **Performance monitoring**: Identify slow agents and optimize bottlenecks
+- **Rate limiting**: Prevent abuse and control costs
+- **Audit trails**: Comprehensive logging for compliance and security
+- **Error handling**: Graceful failure management
+
+**Key concepts:**
+- Middleware executes in order (validation → logging → expensive operations)
+- Each middleware can run pre-processing and post-processing logic
+- Middleware can modify requests, validate inputs, log events, and even stop execution
+- Defined once at the app level, reused across multiple agents
+
+### Input Validation Middleware
+
+The most common middleware pattern is validating that required context fields are provided in custom inputs:
+
+```yaml
+middleware:
+  # Validate store number is provided
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        # Required field - must be provided
+        - name: store_num
+          description: "Your store number for inventory lookups"
+          example_value: "12345"
+        
+        # Optional field - shown in error message if missing
+        - name: user_id
+          description: "Your unique user identifier"
+          required: false
+          example_value: "user_abc123"
+
+agents:
+  store_agent:
+    name: store_agent
+    model: *default_llm
+    middleware:
+      - *store_validation    # Apply validation
+    prompt: |
+      ### Store Context
+      - **Store Number**: {store_num}
+      - **User ID**: {user_id}
+      
+      You are a helpful store assistant with access to store {store_num}'s data.
+```
+
+**What happens when required fields are missing:**
+
+```json
+{
+  "error": "Missing required field 'store_num'",
+  "description": "Your store number for inventory lookups",
+  "example": "12345",
+  "help": "Please provide it in custom_inputs.configurable: {...}"
+}
+```
+
+### Logging Middleware
+
+Track requests, performance, and create audit trails:
+
+```yaml
+middleware:
+  # Request logging
+  request_logger: &request_logger
+    name: dao_ai.middleware.create_logging_middleware
+    args:
+      log_level: INFO
+      log_inputs: true
+      log_outputs: false
+      include_metadata: true
+      message_prefix: "[REQUEST]"
+  
+  # Performance monitoring
+  performance_monitor: &performance_monitor
+    name: dao_ai.middleware.create_performance_middleware
+    args:
+      log_level: INFO
+      threshold_ms: 1000         # Warn if execution > 1 second
+      include_tool_timing: true
+  
+  # Audit trail
+  audit_trail: &audit_trail
+    name: dao_ai.middleware.create_audit_middleware
+    args:
+      log_level: INFO
+      log_user_info: true
+      log_tool_calls: true
+      mask_sensitive_fields: true
+
+agents:
+  production_agent:
+    middleware:
+      - *request_logger
+      - *performance_monitor
+      - *audit_trail
+```
+
+### Combined Middleware Stacks
+
+For production environments, combine multiple middleware for comprehensive request processing:
+
+```yaml
+agents:
+  production_agent:
+    middleware:
+      - *input_validation      # 1. Validate required fields first (fail fast)
+      - *request_logging       # 2. Log all requests early
+      - *rate_limiting         # 3. Check rate limits before expensive ops
+      - *performance_tracking  # 4. Monitor execution time
+      - *audit_logging         # 5. Create comprehensive audit trail
+```
+
+**Middleware execution flow:**
+
+```
+Request Received
+    ↓
+[Validation] → Verify required fields
+    ↓
+[Logging] → Log request details
+    ↓
+[Rate Limiting] → Check quotas
+    ↓
+[Agent Execution] → Process request, call tools, generate response
+    ↓
+[Performance] → Log execution time
+    ↓
+[Audit] → Create audit record
+    ↓
+Response Returned
+```
+
+### Common Middleware Patterns
+
+| Pattern | Use Case | Example |
+|---------|----------|---------|
+| **Store/Location Context** | Multi-location businesses | Validate `store_num` for inventory queries |
+| **Multi-Tenant Validation** | Enterprise SaaS | Validate `tenant_id` and `workspace_id` |
+| **API Key Validation** | Third-party integrations | Validate `external_api_key` before API calls |
+| **Request Logging** | Debugging and monitoring | Track all interactions with timestamps |
+| **Performance Tracking** | Optimization | Identify slow agents and tools |
+| **Audit Trail** | Compliance | Comprehensive logs with PII masking |
+| **Rate Limiting** | Cost control | Limit requests per user/tenant |
+
+### Creating Custom Middleware
+
+You can create custom middleware by implementing a factory function:
+
+```python
+from typing import Callable, Any
+from langgraph.types import StateSnapshot
+
+def create_my_middleware(**kwargs) -> Callable:
+    """Factory function that creates middleware."""
+    
+    def middleware(
+        state: StateSnapshot,
+        next_fn: Callable,
+        config: dict[str, Any]
+    ) -> Any:
+        # Pre-processing logic
+        print(f"Before: {state}")
+        
+        # Call next middleware or agent
+        result = next_fn(state, config)
+        
+        # Post-processing logic
+        print(f"After: {result}")
+        
+        return result
+    
+    return middleware
+```
+
+Then use it in your config:
+
+```yaml
+middleware:
+  custom: &custom
+    name: my_package.middleware.create_my_middleware
+    args:
+      custom_arg: value
+
+agents:
+  my_agent:
+    middleware:
+      - *custom
+```
+
+### Best Practices
+
+1. **Order matters**: Validation → Logging → Expensive operations
+2. **Fail fast**: Put validation first to reject bad requests early
+3. **Log everything**: Capture context for debugging production issues
+4. **Environment-specific**: Use minimal middleware for dev, full stack for production
+5. **Keep lightweight**: Avoid blocking operations in middleware
+6. **Security first**: Mask PII and sensitive data in logs
+
+**Example configurations:**
+- See [`config/examples/10_middleware/`](../config/examples/10_middleware/) for complete examples
+- See [`config/examples/12_complete_applications/hardware_store.yaml`](../config/examples/12_complete_applications/hardware_store.yaml) for production usage
+
+---
+
+## 14. Hook System
 
 **What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting" or "when shutting down".
 
@@ -821,7 +1034,7 @@ When invoked with the `custom_inputs` above, the prompt automatically populates:
 - Clean up resources on shutdown
 - Load configuration or credentials
 
-**For per-message logic** (logging requests, checking permissions, etc.), use **middleware** instead. Middleware provides much more flexibility and control over the agent execution flow.
+**Important:** For per-request logic (logging requests, validating inputs, checking permissions), use **middleware** instead. Middleware provides much more flexibility and control over the agent execution flow.
 
 Inject custom logic at key points in the agent lifecycle:
 
@@ -838,7 +1051,7 @@ app:
 
 agents:
   my_agent:
-    # For per-agent logic, use middleware
+    # For per-request logic, use middleware instead
     middleware:
       - my_package.middleware.log_requests
       - my_package.middleware.check_permissions

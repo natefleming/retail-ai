@@ -9,7 +9,7 @@ The examples follow a natural progression:
 ```
 01_getting_started → 02_tools → 04_genie → 05_memory 
     → 06_human_in_the_loop → 09_prompt_engineering 
-    → 10_orchestration → 11_complete_applications
+    → 10_middleware → 11_orchestration → 12_complete_applications
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -38,9 +38,13 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 - [`06_human_in_the_loop/`](../config/examples/06_human_in_the_loop/) - Guardrails, HITL, structured output
 - [`09_prompt_engineering/`](../config/examples/09_prompt_engineering/) - Prompt management and optimization
 
+### 🛡️ Need Validation & Monitoring?
+**Middleware patterns:**
+- [`10_middleware/`](../config/examples/10_middleware/) - Input validation, logging, performance monitoring
+
 ### 🏗️ Complete Solutions?
 **Full applications:**
-- [`11_complete_applications/`](../config/examples/11_complete_applications/) - Executive assistant, research agent, reservation system
+- [`12_complete_applications/`](../config/examples/12_complete_applications/) - Executive assistant, research agent, reservation system
 
 ---
 
@@ -158,7 +162,52 @@ Prompt versioning, management, and automated optimization.
 
 ---
 
-### 07. Orchestration [📖 README](../config/examples/10_orchestration/README.md)
+### 07. Middleware [📖 README](../config/examples/10_middleware/README.md)
+
+Cross-cutting concerns for production agents: validation, logging, and monitoring.
+
+| Example | Description |
+|---------|-------------|
+| `custom_field_validation.yaml` | Input validation patterns (store numbers, tenant IDs, API keys) |
+| `logging_middleware.yaml` | Request logging, performance monitoring, audit trails |
+| `combined_middleware.yaml` | Production-ready middleware stacks |
+
+**Key Concepts:**
+- **Input Validation**: Ensure required context fields (store_num, user_id) are provided
+- **Request Logging**: Track all interactions for debugging and auditing
+- **Performance Monitoring**: Identify bottlenecks and slow operations
+- **Audit Trails**: Comprehensive logging for compliance
+- **Middleware Composition**: Combine multiple middleware in the correct order
+
+**Common Patterns:**
+```yaml
+middleware:
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        - name: store_num
+          description: "Your store number"
+          example_value: "12345"
+
+agents:
+  my_agent:
+    middleware:
+      - *store_validation
+    prompt: |
+      Store Number: {store_num}
+      ...
+```
+
+**Real-World Example:**  
+The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`12_complete_applications/hardware_store.yaml`](../config/examples/12_complete_applications/hardware_store.yaml).
+
+**Prerequisites:** Basic understanding of agents and prompts  
+**Next:** Learn multi-agent coordination in `11_orchestration/`
+
+---
+
+### 08. Orchestration [📖 README](../config/examples/11_orchestration/README.md)
 
 Multi-agent coordination patterns.
 
@@ -167,11 +216,11 @@ Multi-agent coordination patterns.
 | *(Coming soon)* | Supervisor and swarm orchestration patterns |
 
 **Prerequisites:** Understanding of multi-agent systems  
-**Next:** See complete applications in `11_complete_applications/`
+**Next:** See complete applications in `12_complete_applications/`
 
 ---
 
-### 08. Complete Applications [📖 README](../config/examples/11_complete_applications/README.md)
+### 09. Complete Applications [📖 README](../config/examples/12_complete_applications/README.md)
 
 Full-featured, production-ready agent applications.
 

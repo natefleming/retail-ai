@@ -1,0 +1,262 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Custom Field Validation Middleware
+#
+# This example demonstrates how to validate custom input fields before agent execution.
+# Useful for ensuring required context (like user IDs, store numbers, API keys) are
+# provided in the configurable inputs.
+
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Middleware is executed before the agent processes the request.
+# Define reusable middleware here and reference them in agents.
+
+middleware:
+  # ---------------------------------------------------------------------------
+  # Store Number Validation
+  # ---------------------------------------------------------------------------
+  # Validates that store_num is provided in custom_inputs.configurable
+  # This is useful for multi-location businesses where agents need store context
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        # Required field - must be provided (no 'required: false')
+        - name: store_num
+          description: "Your store number for inventory lookups"
+          example_value: "12345"
+        
+        # Optional field - shown in error message if missing, but not required
+        - name: user_id
+          description: "Your unique user identifier"
+          required: false
+          example_value: "user_abc123"
+
+  # ---------------------------------------------------------------------------
+  # API Key Validation
+  # ---------------------------------------------------------------------------
+  # Validates that external API credentials are provided
+  # Useful when agents need to call third-party services
+  api_key_validation: &api_key_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        - name: external_api_key
+          description: "API key for external service integration"
+          example_value: "sk-proj-xxxxxxxxxxxxx"
+        
+        - name: api_region
+          description: "API region (us-east, us-west, eu-west)"
+          required: false
+          example_value: "us-east"
+
+  # ---------------------------------------------------------------------------
+  # Multi-Tenant Validation
+  # ---------------------------------------------------------------------------
+  # Validates tenant context for multi-tenant applications
+  # Ensures proper data isolation between tenants
+  tenant_validation: &tenant_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        - name: tenant_id
+          description: "Your organization's tenant identifier"
+          example_value: "org_2a8d9c3b"
+        
+        - name: workspace_id
+          description: "Workspace ID within the tenant"
+          required: false
+          example_value: "ws_abc123"
+        
+        - name: user_role
+          description: "User's role (admin, manager, user)"
+          required: false
+          example_value: "manager"
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail data using natural language
+        genie_room: *retail_genie
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  # ---------------------------------------------------------------------------
+  # Store Agent (with store number validation)
+  # ---------------------------------------------------------------------------
+  store_agent: &store_agent
+    name: store_agent
+    description: "Retail store assistant that requires store context"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *store_validation                           # Validates store_num before execution
+    prompt: |
+      ### Store Context
+      - **Store Number**: {store_num}
+      - **User ID**: {user_id}
+      
+      You are a helpful store assistant. You have access to store-specific data
+      and can answer questions about inventory, products, and store operations.
+      
+      Always use the store_num context when querying data to ensure accurate,
+      location-specific information.
+    handoff_prompt: |
+      Questions about store operations, inventory, or products that require
+      store-specific context.
+
+  # ---------------------------------------------------------------------------
+  # API Integration Agent (with API key validation)
+  # ---------------------------------------------------------------------------
+  api_agent: &api_agent
+    name: api_agent
+    description: "Agent that integrates with external APIs"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *api_key_validation                        # Validates API credentials
+    prompt: |
+      ### API Configuration
+      - **API Key**: (provided securely)
+      - **Region**: {api_region}
+      
+      You are an integration specialist that can connect to external services.
+      Use the provided API credentials to fetch data from third-party systems.
+      
+      Always ensure API calls are secure and properly authenticated.
+    handoff_prompt: |
+      Questions that require data from external APIs or third-party integrations.
+
+  # ---------------------------------------------------------------------------
+  # Tenant Agent (with multi-tenant validation)
+  # ---------------------------------------------------------------------------
+  tenant_agent: &tenant_agent
+    name: tenant_agent
+    description: "Multi-tenant agent with organization context"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *tenant_validation                         # Validates tenant context
+    prompt: |
+      ### Tenant Context
+      - **Tenant ID**: {tenant_id}
+      - **Workspace**: {workspace_id}
+      - **User Role**: {user_role}
+      
+      You are an enterprise assistant serving multiple organizations.
+      Always scope your responses and data access to the current tenant context
+      to ensure proper data isolation and security.
+      
+      Respect user roles and permissions when providing information.
+    handoff_prompt: |
+      Enterprise-level questions that require tenant-specific context.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: custom_field_validation_middleware_example
+  description: "Example demonstrating custom field validation middleware"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: field_validation_middleware_dao
+  endpoint_name: field_validation_middleware_demo
+  agents:
+    - *store_agent
+    - *api_agent
+    - *tenant_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  
+  # ---------------------------------------------------------------------------
+  # Input Examples
+  # ---------------------------------------------------------------------------
+  # These show the correct format for providing validated fields
+  input_example:
+    messages:
+      - role: user
+        content: What products do we have in stock?
+    custom_inputs:
+      configurable:
+        # Store Agent requires these fields:
+        store_num: "12345"              # Required by store_validation
+        user_id: "user_abc123"          # Optional but recommended
+        
+        # API Agent requires these fields:
+        # external_api_key: "sk-xxxxx"  # Required by api_key_validation
+        # api_region: "us-east"         # Optional
+        
+        # Tenant Agent requires these fields:
+        # tenant_id: "org_2a8d9c3b"     # Required by tenant_validation
+        # workspace_id: "ws_abc123"     # Optional
+        # user_role: "manager"          # Optional
+      session: {}
+
+# =============================================================================
+# ERROR EXAMPLES
+# =============================================================================
+# What happens when required fields are missing:
+#
+# Missing store_num for store_agent:
+#   Error: Missing required field 'store_num'
+#   Description: Your store number for inventory lookups
+#   Example: "12345"
+#   
+#   Please provide it in custom_inputs.configurable:
+#   {
+#     "custom_inputs": {
+#       "configurable": {
+#         "store_num": "12345",
+#         "user_id": "your_user_id",
+#         "thread_id": "optional_conversation_id"
+#       }
+#     }
+#   }
+#
+# Missing external_api_key for api_agent:
+#   Error: Missing required field 'external_api_key'
+#   Description: API key for external service integration
+#   Example: "sk-proj-xxxxxxxxxxxxx"
+#   
+#   [Similar error format as above]

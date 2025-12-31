@@ -2,8 +2,8 @@
 
 schemas:
   retail_schema: &retail_schema
-    catalog_name: nfleming                    # Unity Catalog name
-    schema_name: retail_ai                    # Schema within the catalog
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: hardware_store                    # Schema within the catalog
 
 resources:
   llms:
@@ -40,42 +40,29 @@ tools:
     name: vector_search
     function:
       type: factory
-      name: databricks_langchain.vector_search_retriever_tool.VectorSearchRetrieverTool
+      name: dao_ai.tools.create_vector_search_tool
       args:
-        name: product_vector_search_tool            # Tool instance name
-        description: "Search for products using vector search"  # Tool description
-        index_name: nfleming.retail_ai.products_index
+        vector_store: *products_vector_store
+        name: product_search
+        description: Product Search
 
 agents:
-  genie_agent: &genie_agent
-    name: genie_agent                                     # Agent identifier
+  simple_agent: &simple_agent
+    name: simple_agent                                     # Agent identifier
     model: *default_llm                             # Reference to LLM configuration
     tools:                                          # Tools available to this agent
       - *genie_tool
-    prompt: |                                       # System prompt defining agent behavior
-      Answers questions about foo
-    handoff_prompt: |                               # Conditions for routing to this agent
-      Answers all foo questions
-
-  vector_search_agent: &vector_search_agent
-    name: vector_search_agent                                   # Agent identifier
-    model: *default_llm                             # Reference to LLM configuration
-    tools:                                          # Tools available to this agent
       - *vector_search_tool
     prompt: |                                       # System prompt defining agent behavior
-      Answers questions about bar
-    handoff_prompt: |                               # Conditions for routing to this agent
-      Answers all bar questions
+      You are a helpful retail assistant. Answer questions about products and inventory using your available tools.
+
+
 
 app:
   name: minimal_dao             # Application name  
-  log_level: INFO                                   # Logging level for the application
+  log_level: TRACE                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: minimal_dao             # Model name in MLflow registry
   agents:                                           # List of agents included in the system
-    - *genie_agent                                       # Order management agent
-    - *vector_search_agent                               # Vector search agent
-  orchestration:                                    # Agent orchestration configuration
-    supervisor:                                     # Supervisor orchestration pattern
-      model: *default_llm                          # LLM for routing decisions
+    - *simple_agent                                       # Order management agent

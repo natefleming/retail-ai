@@ -119,25 +119,6 @@ resources:
 
 
   # ---------------------------------------------------------------------------
-  # TABLES
-  # ---------------------------------------------------------------------------
-  # Define Unity Catalog tables used by the system
-  tables:
-    # Product catalog table
-    fulfil_item_orders: &fulfil_item_orders
-      schema: *qsr_schema                        # Reference to schema defined above
-      name: fulfil_item_orders                                # Table name
-    items_description_table: &items_description_table
-      schema: *qsr_schema                        # Reference to schema defined above
-      name: items_description                                 # Table name
-    items_raw_table: &items_raw_table
-      schema: *qsr_schema                        # Reference to schema defined above
-      name: items_raw                                 # Table name    
-    orders_raw_table: &orders_raw_table
-      schema: *qsr_schema                        # Reference to schema defined above
-      name: orders_raw                                 # Table name    
-
-  # ---------------------------------------------------------------------------
   # FUNCTIONS
   # ---------------------------------------------------------------------------
   # Define Unity Catalog functions for data operations
