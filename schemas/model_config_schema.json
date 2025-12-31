@@ -3265,7 +3265,7 @@
           "title": "Tags"
         },
         "auto_register": {
-          "default": true,
+          "default": false,
           "description": "Whether to automatically register the default_template to the prompt registry. If False, the prompt will only be loaded from the registry (never created/updated). Defaults to True for backward compatibility.",
           "title": "Auto Register",
           "type": "boolean"
@@ -3898,6 +3898,14 @@
           ],
           "default": null,
           "title": "Default Agent"
+        },
+        "middleware": {
+          "description": "List of middleware to apply to all agents in the swarm",
+          "items": {
+            "$ref": "#/$defs/MiddlewareModel"
+          },
+          "title": "Middleware",
+          "type": "array"
         },
         "handoffs": {
           "anyOf": [
