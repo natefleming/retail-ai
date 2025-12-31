@@ -24,6 +24,7 @@ from databricks.sdk.credentials_provider import (
     ModelServingUserCredentials,
 )
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
+from databricks.sdk.service.dashboards import GenieSpace
 from databricks.sdk.service.database import DatabaseInstance
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
@@ -69,6 +70,8 @@ from pydantic import (
     field_serializer,
     model_validator,
 )
+
+from dao_ai.utils import normalize_name
 
 
 class HasValue(ABC):
@@ -603,11 +606,200 @@ class IndexModel(IsDatabricksResource, HasFullName):
         ]
 
 
+class FunctionModel(IsDatabricksResource, HasFullName):
+    model_config = ConfigDict()
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_name_or_schema_required(self) -> "FunctionModel":
+        if not self.name and not self.schema_model:
+            raise ValueError(
+                "Either 'name' or 'schema_model' must be provided for FunctionModel"
+            )
+        return self
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            name: str = ""
+            if self.name:
+                name = f".{self.name}"
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
+        return self.name
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        resources: list[DatabricksResource] = []
+        if self.name:
+            resources.append(
+                DatabricksFunction(
+                    function_name=self.full_name,
+                    on_behalf_of_user=self.on_behalf_of_user,
+                )
+            )
+        else:
+            w: WorkspaceClient = self.workspace_client
+            schema_full_name: str = self.schema_model.full_name
+            functions: Iterator[FunctionInfo] = w.functions.list(
+                catalog_name=self.schema_model.catalog_name,
+                schema_name=self.schema_model.schema_name,
+            )
+            resources.extend(
+                [
+                    DatabricksFunction(
+                        function_name=f"{schema_full_name}.{function.name}",
+                        on_behalf_of_user=self.on_behalf_of_user,
+                    )
+                    for function in functions
+                ]
+            )
+
+        return resources
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return ["sql.statement-execution"]
+
+
 class GenieRoomModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
     space_id: AnyVariable
+
+    _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
+
+    def _get_space_details(self) -> GenieSpace:
+        if self._space_details is None:
+            self._space_details = self.workspace_client.genie.get_space(
+                space_id=self.space_id, include_serialized_space=True
+            )
+        return self._space_details
+
+    def _parse_serialized_space(self) -> dict[str, Any]:
+        """Parse the serialized_space JSON string and return the parsed data."""
+        import json
+
+        space_details = self._get_space_details()
+        if not space_details.serialized_space:
+            return {}
+
+        try:
+            return json.loads(space_details.serialized_space)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse serialized_space: {e}")
+            return {}
+
+    @property
+    def tables(self) -> list[TableModel]:
+        """Extract tables from the serialized Genie space.
+
+        Databricks Genie stores tables in: data_sources.tables[].identifier
+        """
+        parsed_space = self._parse_serialized_space()
+        tables_list: list[TableModel] = []
+
+        # Primary structure: data_sources.tables with 'identifier' field
+        if "data_sources" in parsed_space:
+            data_sources = parsed_space["data_sources"]
+            if isinstance(data_sources, dict) and "tables" in data_sources:
+                tables_data = data_sources["tables"]
+                if isinstance(tables_data, list):
+                    for table_item in tables_data:
+                        if isinstance(table_item, dict):
+                            # Standard Databricks structure uses 'identifier'
+                            table_name = table_item.get("identifier") or table_item.get(
+                                "name"
+                            )
+                            if table_name:
+                                table_model = TableModel(
+                                    name=table_name,
+                                    on_behalf_of_user=self.on_behalf_of_user,
+                                    service_principal=self.service_principal,
+                                    client_id=self.client_id,
+                                    client_secret=self.client_secret,
+                                    workspace_host=self.workspace_host,
+                                    pat=self.pat,
+                                )
+                                # Share the cached workspace client if available
+                                if self._workspace_client is not None:
+                                    table_model._workspace_client = (
+                                        self._workspace_client
+                                    )
+                                tables_list.append(table_model)
+                        elif isinstance(table_item, str):
+                            table_model = TableModel(
+                                name=table_item,
+                                on_behalf_of_user=self.on_behalf_of_user,
+                                service_principal=self.service_principal,
+                                client_id=self.client_id,
+                                client_secret=self.client_secret,
+                                workspace_host=self.workspace_host,
+                                pat=self.pat,
+                            )
+                            # Share the cached workspace client if available
+                            if self._workspace_client is not None:
+                                table_model._workspace_client = self._workspace_client
+                            tables_list.append(table_model)
+
+        return tables_list
+
+    @property
+    def functions(self) -> list[FunctionModel]:
+        """Extract functions from the serialized Genie space.
+
+        Databricks Genie stores functions in: data_sources.functions[].identifier
+        Note: Functions may not always be present in the serialized space.
+        """
+        parsed_space = self._parse_serialized_space()
+        functions_list: list[FunctionModel] = []
+
+        # Primary structure: data_sources.functions with 'identifier' field
+        if "data_sources" in parsed_space:
+            data_sources = parsed_space["data_sources"]
+            if isinstance(data_sources, dict) and "functions" in data_sources:
+                functions_data = data_sources["functions"]
+                if isinstance(functions_data, list):
+                    for function_item in functions_data:
+                        if isinstance(function_item, dict):
+                            # Standard Databricks structure uses 'identifier'
+                            function_name = function_item.get(
+                                "identifier"
+                            ) or function_item.get("name")
+                            if function_name:
+                                function_model = FunctionModel(
+                                    name=function_name,
+                                    on_behalf_of_user=self.on_behalf_of_user,
+                                    service_principal=self.service_principal,
+                                    client_id=self.client_id,
+                                    client_secret=self.client_secret,
+                                    workspace_host=self.workspace_host,
+                                    pat=self.pat,
+                                )
+                                # Share the cached workspace client if available
+                                if self._workspace_client is not None:
+                                    function_model._workspace_client = (
+                                        self._workspace_client
+                                    )
+                                functions_list.append(function_model)
+                        elif isinstance(function_item, str):
+                            function_model = FunctionModel(
+                                name=function_item,
+                                on_behalf_of_user=self.on_behalf_of_user,
+                                service_principal=self.service_principal,
+                                client_id=self.client_id,
+                                client_secret=self.client_secret,
+                                workspace_host=self.workspace_host,
+                                pat=self.pat,
+                            )
+                            # Share the cached workspace client if available
+                            if self._workspace_client is not None:
+                                function_model._workspace_client = (
+                                    self._workspace_client
+                                )
+                            functions_list.append(function_model)
+
+        return functions_list
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -626,6 +818,18 @@ class GenieRoomModel(IsDatabricksResource):
     @model_validator(mode="after")
     def update_space_id(self) -> Self:
         self.space_id = value_of(self.space_id)
+        return self
+
+    @model_validator(mode="after")
+    def update_description_from_space(self) -> Self:
+        """Populate description from GenieSpace if not provided."""
+        if not self.description:
+            try:
+                space_details = self._get_space_details()
+                if space_details.description:
+                    self.description = space_details.description
+            except Exception as e:
+                logger.debug(f"Could not fetch description from Genie space: {e}")
         return self
 
 
@@ -786,61 +990,6 @@ class VectorStoreModel(IsDatabricksResource):
 
         provider: ServiceProvider = DatabricksProvider(vsc=vsc)
         provider.create_vector_store(self)
-
-
-class FunctionModel(IsDatabricksResource, HasFullName):
-    model_config = ConfigDict()
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: Optional[str] = None
-
-    @model_validator(mode="after")
-    def validate_name_or_schema_required(self) -> "FunctionModel":
-        if not self.name and not self.schema_model:
-            raise ValueError(
-                "Either 'name' or 'schema_model' must be provided for FunctionModel"
-            )
-        return self
-
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            name: str = ""
-            if self.name:
-                name = f".{self.name}"
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
-        return self.name
-
-    def as_resources(self) -> Sequence[DatabricksResource]:
-        resources: list[DatabricksResource] = []
-        if self.name:
-            resources.append(
-                DatabricksFunction(
-                    function_name=self.full_name,
-                    on_behalf_of_user=self.on_behalf_of_user,
-                )
-            )
-        else:
-            w: WorkspaceClient = self.workspace_client
-            schema_full_name: str = self.schema_model.full_name
-            functions: Iterator[FunctionInfo] = w.functions.list(
-                catalog_name=self.schema_model.catalog_name,
-                schema_name=self.schema_model.schema_name,
-            )
-            resources.extend(
-                [
-                    DatabricksFunction(
-                        function_name=f"{schema_full_name}.{function.name}",
-                        on_behalf_of_user=self.on_behalf_of_user,
-                    )
-                    for function in functions
-                ]
-            )
-
-        return resources
-
-    @property
-    def api_scopes(self) -> Sequence[str]:
-        return ["sql.statement-execution"]
 
 
 class ConnectionModel(IsDatabricksResource, HasFullName):
@@ -2685,6 +2834,74 @@ class ResourcesModel(BaseModel):
     databases: dict[str, DatabaseModel] = Field(default_factory=dict)
     connections: dict[str, ConnectionModel] = Field(default_factory=dict)
     apps: dict[str, DatabricksAppModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def update_genie_tables(self) -> Self:
+        """
+        Automatically populate tables from genie_rooms.
+
+        Tables are extracted from each Genie room and added to the
+        resources if they don't already exist (based on full_name).
+        """
+        if not self.genie_rooms:
+            return self
+
+        # Process tables from all genie rooms
+        for genie_room in self.genie_rooms.values():
+            genie_room: GenieRoomModel
+            for table in genie_room.tables:
+                table: TableModel
+                table_exists: bool = any(
+                    existing_table.full_name == table.full_name
+                    for existing_table in self.tables.values()
+                )
+                if not table_exists:
+                    table_key: str = normalize_name(
+                        "_".join([table.full_name, genie_room.space_id])
+                    )
+                    self.tables[table_key] = table
+                    logger.trace(
+                        "Added table from Genie room",
+                        room=genie_room.name,
+                        table=table.name,
+                        key=table_key,
+                    )
+
+        return self
+
+    @model_validator(mode="after")
+    def update_genie_functions(self) -> Self:
+        """
+        Automatically populate functions from genie_rooms.
+
+        Functions are extracted from each Genie room and added to the
+        resources if they don't already exist (based on full_name).
+        """
+        if not self.genie_rooms:
+            return self
+
+        # Process functions from all genie rooms
+        for genie_room in self.genie_rooms.values():
+            genie_room: GenieRoomModel
+            for function in genie_room.functions:
+                function: FunctionModel
+                function_exists: bool = any(
+                    existing_function.full_name == function.full_name
+                    for existing_function in self.functions.values()
+                )
+                if not function_exists:
+                    function_key: str = normalize_name(
+                        "_".join([function.full_name, genie_room.name])
+                    )
+                    self.functions[function_key] = function
+                    logger.trace(
+                        "Added function from Genie room",
+                        room=genie_room.name,
+                        function=function.name,
+                        key=function_key,
+                    )
+
+        return self
 
 
 class AppConfig(BaseModel):

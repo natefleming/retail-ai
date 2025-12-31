@@ -6,7 +6,6 @@ is properly applied to all agents in the swarm.
 """
 
 from copy import deepcopy
-from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -14,13 +13,10 @@ import pytest
 from dao_ai.config import (
     AgentModel,
     AppConfig,
-    AppModel,
     LLMModel,
     MiddlewareModel,
-    OrchestrationModel,
     SwarmModel,
 )
-
 
 # =============================================================================
 # SwarmModel Configuration Tests
@@ -183,7 +179,9 @@ class TestSwarmMiddlewareMerging:
 
         # Simulate merging
         agent_with_middleware = deepcopy(original_agent)
-        agent_with_middleware.middleware = swarm_middleware + agent_with_middleware.middleware
+        agent_with_middleware.middleware = (
+            swarm_middleware + agent_with_middleware.middleware
+        )
 
         # Original agent should be unchanged
         assert len(original_agent.middleware) == original_count
@@ -232,7 +230,10 @@ class TestSwarmMiddlewareInAppConfig:
 
         assert config.app.orchestration.swarm is not None
         assert len(config.app.orchestration.swarm.middleware) == 1
-        assert config.app.orchestration.swarm.middleware[0].name == "dao_ai.middleware.test_middleware"
+        assert (
+            config.app.orchestration.swarm.middleware[0].name
+            == "dao_ai.middleware.test_middleware"
+        )
 
     def test_app_config_swarm_without_middleware(self) -> None:
         """Test that swarm without middleware works (backward compatibility)."""
@@ -362,9 +363,7 @@ class TestSwarmMiddlewareYAMLConfig:
                 "store_validation": {
                     "name": "dao_ai.middleware.create_custom_field_validation_middleware",
                     "args": {
-                        "fields": [
-                            {"name": "store_num", "description": "Store number"}
-                        ]
+                        "fields": [{"name": "store_num", "description": "Store number"}]
                     },
                 }
             },
@@ -388,7 +387,10 @@ class TestSwarmMiddlewareYAMLConfig:
                                 "name": "dao_ai.middleware.create_custom_field_validation_middleware",
                                 "args": {
                                     "fields": [
-                                        {"name": "store_num", "description": "Store number"}
+                                        {
+                                            "name": "store_num",
+                                            "description": "Store number",
+                                        }
                                     ]
                                 },
                             }
@@ -403,7 +405,10 @@ class TestSwarmMiddlewareYAMLConfig:
         assert config.app.orchestration.swarm is not None
         assert len(config.app.orchestration.swarm.middleware) == 1
         middleware = config.app.orchestration.swarm.middleware[0]
-        assert middleware.name == "dao_ai.middleware.create_custom_field_validation_middleware"
+        assert (
+            middleware.name
+            == "dao_ai.middleware.create_custom_field_validation_middleware"
+        )
         assert "fields" in middleware.args
         assert len(middleware.args["fields"]) == 1
         assert middleware.args["fields"][0]["name"] == "store_num"

@@ -181,7 +181,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # Each agent gets handoff tools only for agents they're allowed to hand off to
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
     memory: MemoryModel | None = orchestration.memory
-    
+
     # Get swarm-level middleware to apply to all agents
     swarm_middleware: list = swarm.middleware if swarm.middleware else []
     if swarm_middleware:
@@ -190,7 +190,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             middleware_count=len(swarm_middleware),
             middleware_names=[mw.name for mw in swarm_middleware],
         )
-    
+
     for registered_agent in config.app.agents:
         # Get handoff tools for this agent
         handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
@@ -202,13 +202,15 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         # Swarm middleware is applied first, then agent middleware
         if swarm_middleware:
             from copy import deepcopy
-            
+
             # Create a copy of the agent to avoid modifying the original
             agent_with_middleware = deepcopy(registered_agent)
-            
+
             # Combine swarm middleware (first) with agent middleware
-            agent_with_middleware.middleware = swarm_middleware + agent_with_middleware.middleware
-            
+            agent_with_middleware.middleware = (
+                swarm_middleware + agent_with_middleware.middleware
+            )
+
             logger.debug(
                 "Merged middleware for agent",
                 agent=registered_agent.name,

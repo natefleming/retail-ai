@@ -158,7 +158,9 @@ class Context(BaseModel):
                 return None
     """
 
-    model_config = ConfigDict(extra="allow")  # Allow extra fields as top-level attributes
+    model_config = ConfigDict(
+        extra="allow"
+    )  # Allow extra fields as top-level attributes
 
     user_id: str | None = None
     thread_id: str | None = None
