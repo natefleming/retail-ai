@@ -20,7 +20,7 @@ def supervisor_config_path() -> Path:
         Path(__file__).parents[2]
         / "config"
         / "examples"
-        / "11_complete_applications"
+        / "10_complete_applications"
         / "hardware_store_lakebase.yaml"
     )
 
@@ -32,7 +32,7 @@ def supervisor_postgres_config_path() -> Path:
         Path(__file__).parents[2]
         / "config"
         / "examples"
-        / "11_complete_applications"
+        / "10_complete_applications"
         / "hardware_store.yaml"
     )
 
@@ -388,7 +388,7 @@ def test_config_has_required_components_for_inference() -> None:
         Path(__file__).parents[2]
         / "config"
         / "examples"
-        / "11_complete_applications"
+        / "10_complete_applications"
         / "hardware_store_lakebase.yaml"
     )
 
