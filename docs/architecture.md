@@ -168,7 +168,7 @@ graph TB
 - *Use case:* Create GitHub issue, send Slack message
 
 **4. State Persistence**
-- Conversation state saved to Lakebase checkpointer (Delta table)
+- Conversation state saved to Lakebase checkpointer (PostgreSQL table)
 - User preferences stored in Lakebase store (Unity Catalog governed)
 - Enables multi-turn conversations and personalization
 - Survives agent restarts and scales across instances

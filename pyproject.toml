@@ -102,6 +102,8 @@ test = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "pytest-mock>=3.15.1",
+    "pytest-rerunfailures>=15.0",
+    "pytest-xdist>=3.6.1",
 ]
 databricks = [
     "databricks-vectorsearch>=0.63",
@@ -125,6 +127,8 @@ test = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "pytest-mock>=3.15.1",
+    "pytest-rerunfailures>=15.0",
+    "pytest-xdist>=3.6.1",
 ]
 databricks = [
     "databricks-vectorsearch>=0.63",
@@ -163,6 +167,28 @@ exclude = [
     ".ruff_cache",
     ".env",
     "uv.lock",
+]
+
+[tool.pytest.ini_options]
+# Pytest configuration
+minversion = "9.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",                          # Verbose output
+    "--strict-markers",            # Enforce marker registration
+    "--tb=short",                  # Shorter traceback format
+    "--disable-warnings",          # Disable warnings in output
+    # Uncomment to enable parallel execution by default:
+    # "-n", "auto",                # Run tests in parallel using all available CPUs
+]
+markers = [
+    "unit: Unit tests (fast, no external dependencies)",
+    "integration: Integration tests (may require external services)",
+    "slow: Slow tests that take more than a few seconds",
+    "flaky: Tests that may fail intermittently",
 ]
 
 [tool.ruff]

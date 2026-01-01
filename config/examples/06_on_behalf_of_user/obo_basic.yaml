@@ -1,0 +1,194 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# On-Behalf-Of (OBO) User Authentication Example
+# =============================================================================
+# This configuration demonstrates how to enable On-Behalf-Of (OBO) authentication
+# for Databricks resources. OBO allows agents to access resources using the 
+# credentials of the end user making the request, rather than a service principal.
+#
+# Benefits of OBO:
+# - Fine-grained access control based on end user permissions
+# - Audit trails showing which user performed which actions
+# - Compliance with data governance policies
+# - No need for service principal credentials in tools
+#
+# Use cases:
+# - Multi-tenant applications where users have different data access
+# - Compliance requirements for user-level audit trails
+# - Applications deployed to Databricks Apps or Model Serving
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  demo_schema: &demo_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.7
+      max_tokens: 4096
+      # Enable OBO for LLM requests
+      on_behalf_of_user: true
+
+  # ---------------------------------------------------------------------------
+  # GENIE ROOMS
+  # ---------------------------------------------------------------------------
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie"
+      description: "Genie space for retail queries with OBO"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+      # Enable OBO - Genie will execute queries as the end user
+      on_behalf_of_user: true
+
+  # ---------------------------------------------------------------------------
+  # UC FUNCTIONS
+  # ---------------------------------------------------------------------------
+  # Define UC functions that will be used by agents
+  # Note: Functions don't have OBO setting - it's inherited from the workspace client
+  functions:
+    find_product_sku: &find_product_sku
+      schema: *demo_schema
+      name: find_product_by_sku
+      on_behalf_of_user: true
+    
+    find_product_upc: &find_product_upc
+      schema: *demo_schema
+      name: find_product_by_upc
+      on_behalf_of_user: true
+
+    find_inventory_sku: &find_inventory_sku
+      schema: *demo_schema
+      name: find_inventory_by_sku
+      on_behalf_of_user: true
+
+    find_inventory_upc: &find_inventory_upc
+      schema: *demo_schema
+      name: find_inventory_by_upc
+      on_behalf_of_user: true
+# =============================================================================
+# TOOLS
+# =============================================================================
+# Note: Tools inherit OBO settings from their resources (functions, Genie rooms, etc.)
+# The functions and Genie tools will automatically use the user's credentials
+tools:
+  # UC Functions tools - execute functions as the end user
+  product_sku_lookup: &product_sku_lookup
+    name: product_sku_lookup
+    function:
+      type: unity_catalog
+      resource: *find_product_sku
+  
+  product_upc_lookup: &product_upc_lookup
+    name: product_upc_lookup
+    function: 
+      type: unity_catalog
+      resource: *find_product_upc
+  
+  inventory_sku_lookup: &inventory_sku_lookup
+    name: inventory_sku_lookup
+    function: 
+      type: unity_catalog
+      resource: *find_inventory_sku
+  
+  inventory_upc_lookup: &inventory_upc_lookup
+    name: inventory_upc_lookup
+    function: 
+      type: unity_catalog
+      resource: *find_inventory_upc
+
+  # Genie tool - queries execute as the end user
+  retail_data_query: &retail_data_query
+    name: retail_data_query
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_data_query
+        description: "Query retail data using natural language. Access is controlled by user permissions."
+        genie_room: *retail_genie  # OBO inherited from genie_room resource
+
+# =============================================================================
+# PROMPTS
+# =============================================================================
+prompts:
+  retail_assistant_prompt: &retail_assistant_prompt
+    schema: *demo_schema
+    name: retail_assistant_prompt
+    description: "Retail assistant with OBO"
+    default_template: |
+      You are a helpful retail assistant with access to product and inventory data.
+      
+      You have two types of tools available:
+      1. UC Functions for precise product and inventory lookups by SKU or UPC
+      2. Genie for natural language queries about retail data
+      
+      All queries will be executed with the user's credentials, so you can only
+      access data that the current user has permission to view.
+      
+      When helping users:
+      - Use UC Functions for specific product lookups (SKU/UPC searches)
+      - Use Genie for complex queries or when exploring data
+      - Be transparent about data access limitations
+      - Provide helpful responses even if some data is restricted
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  retail_assistant: &retail_assistant
+    name: retail_assistant
+    model: *default_llm
+    tools:
+      - *product_sku_lookup
+      - *product_upc_lookup
+      - *inventory_sku_lookup
+      - *inventory_upc_lookup
+      - *retail_data_query
+    prompt: *retail_assistant_prompt
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: obo_demo
+  log_level: INFO
+  registered_model:
+    schema: *demo_schema
+    name: obo_retail_assistant
+  agents:
+    - *retail_assistant
+
+# =============================================================================
+# DEPLOYMENT NOTES
+# =============================================================================
+# When deploying with OBO enabled:
+#
+# 1. Databricks Apps Deployment:
+#    - OBO is automatically handled by the Apps platform
+#    - User tokens are passed through the request context
+#
+# 2. Model Serving Deployment:
+#    - Set up OAuth for your serving endpoint
+#    - Pass user tokens in API requests via Authorization header
+#
+# 3. Local Development/Testing:
+#    - OBO falls back to your personal credentials (databricks-cli auth)
+#    - Useful for testing access control behavior
+#
+# 4. Access Control:
+#    - Ensure users have appropriate UC permissions:
+#      - EXECUTE on functions
+#      - USE CATALOG and USE SCHEMA
+#      - SELECT on tables (for Genie queries)
+#    - Test with users who have different permission levels

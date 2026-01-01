@@ -89,15 +89,15 @@ def create_genie_tool(
     Returns:
         A LangGraph tool that processes natural language queries through Genie
     """
-    logger.debug("create_genie_tool")
-    logger.debug(f"genie_room type: {type(genie_room)}")
-    logger.debug(f"genie_room: {genie_room}")
-    logger.debug(f"persist_conversation: {persist_conversation}")
-    logger.debug(f"truncate_results: {truncate_results}")
-    logger.debug(f"name: {name}")
-    logger.debug(f"description: {description}")
-    logger.debug(f"lru_cache_parameters: {lru_cache_parameters}")
-    logger.debug(f"semantic_cache_parameters: {semantic_cache_parameters}")
+    logger.debug(
+        "Creating Genie tool",
+        genie_room_type=type(genie_room).__name__,
+        persist_conversation=persist_conversation,
+        truncate_results=truncate_results,
+        name=name,
+        has_lru_cache=lru_cache_parameters is not None,
+        has_semantic_cache=semantic_cache_parameters is not None,
+    )
 
     if isinstance(genie_room, dict):
         genie_room = GenieRoomModel(**genie_room)
@@ -188,8 +188,10 @@ GenieResponse: A response object containing the conversation ID and result from 
         existing_conversation_id: str | None = session.genie.get_conversation_id(
             space_id_str
         )
-        logger.debug(
-            f"Existing conversation ID for space {space_id_str}: {existing_conversation_id}"
+        logger.trace(
+            "Using existing conversation ID",
+            space_id=space_id_str,
+            conversation_id=existing_conversation_id,
         )
 
         # Call ask_question which always returns CacheResult with cache metadata
@@ -202,8 +204,11 @@ GenieResponse: A response object containing the conversation ID and result from 
 
         current_conversation_id: str = genie_response.conversation_id
         logger.debug(
-            f"Current conversation ID for space {space_id_str}: {current_conversation_id}, "
-            f"cache_hit: {cache_hit}, cache_key: {cache_key}"
+            "Genie question answered",
+            space_id=space_id_str,
+            conversation_id=current_conversation_id,
+            cache_hit=cache_hit,
+            cache_key=cache_key,
         )
 
         # Update session state with cache information

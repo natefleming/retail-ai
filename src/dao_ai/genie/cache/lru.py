@@ -124,7 +124,9 @@ class LRUCacheService(GenieServiceBase):
         if self._cache:
             oldest_key: str = next(iter(self._cache))
             del self._cache[oldest_key]
-            logger.debug(f"[{self.name}] Evicted: {oldest_key[:50]}...")
+            logger.trace(
+                "Evicted cache entry", layer=self.name, key_prefix=oldest_key[:50]
+            )
 
     def _get(self, key: str) -> SQLCacheEntry | None:
         """Get from cache, returning None if not found or expired."""
@@ -135,7 +137,7 @@ class LRUCacheService(GenieServiceBase):
 
         if self._is_expired(entry):
             del self._cache[key]
-            logger.debug(f"[{self.name}] Expired: {key[:50]}...")
+            logger.trace("Expired cache entry", layer=self.name, key_prefix=key[:50])
             return None
 
         self._cache.move_to_end(key)
@@ -156,9 +158,12 @@ class LRUCacheService(GenieServiceBase):
             created_at=datetime.now(),
         )
         logger.info(
-            f"[{self.name}] Stored cache entry: key='{key[:50]}...' "
-            f"sql='{response.query[:50] if response.query else 'None'}...' "
-            f"(cache_size={len(self._cache)}/{self.capacity})"
+            "Stored cache entry",
+            layer=self.name,
+            key_prefix=key[:50],
+            sql_prefix=response.query[:50] if response.query else None,
+            cache_size=len(self._cache),
+            capacity=self.capacity,
         )
 
     @mlflow.trace(name="execute_cached_sql")
@@ -175,7 +180,7 @@ class LRUCacheService(GenieServiceBase):
         w: WorkspaceClient = self.warehouse.workspace_client
         warehouse_id: str = str(self.warehouse.warehouse_id)
 
-        logger.debug(f"[{self.name}] Executing cached SQL: {sql[:100]}...")
+        logger.trace("Executing cached SQL", layer=self.name, sql_prefix=sql[:100])
 
         statement_response: StatementResponse = w.statement_execution.execute_statement(
             statement=sql,
@@ -194,7 +199,11 @@ class LRUCacheService(GenieServiceBase):
 
         if statement_response.status.state != StatementState.SUCCEEDED:
             error_msg: str = f"SQL execution failed: {statement_response.status}"
-            logger.error(f"[{self.name}] {error_msg}")
+            logger.error(
+                "SQL execution failed",
+                layer=self.name,
+                status=str(statement_response.status),
+            )
             return error_msg
 
         # Convert to DataFrame
@@ -250,8 +259,12 @@ class LRUCacheService(GenieServiceBase):
 
         if cached is not None:
             logger.info(
-                f"[{self.name}] Cache HIT: '{question[:50]}...' "
-                f"(conversation_id={conversation_id}, cache_size={self.size}/{self.capacity})"
+                "Cache HIT",
+                layer=self.name,
+                question_prefix=question[:50],
+                conversation_id=conversation_id,
+                cache_size=self.size,
+                capacity=self.capacity,
             )
 
             # Re-execute the cached SQL to get fresh data
@@ -271,8 +284,13 @@ class LRUCacheService(GenieServiceBase):
 
         # Cache miss - delegate to wrapped service
         logger.info(
-            f"[{self.name}] Cache MISS: '{question[:50]}...' "
-            f"(conversation_id={conversation_id}, cache_size={self.size}/{self.capacity}, delegating to {type(self.impl).__name__})"
+            "Cache MISS",
+            layer=self.name,
+            question_prefix=question[:50],
+            conversation_id=conversation_id,
+            cache_size=self.size,
+            capacity=self.capacity,
+            delegating_to=type(self.impl).__name__,
         )
 
         result: CacheResult = self.impl.ask_question(question, conversation_id)

@@ -1,0 +1,98 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+
+schemas:
+
+  quick_serve_restaurant_schema: &quick_serve_restaurant_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: quick_serve_restaurant                    # Schema within the catalog
+
+resources:
+  llms:
+    # Primary LLM for general tasks
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+      on_behalf_of_user: False
+
+  warehouses:
+
+    shared_endpoint_warehouse: &shared_endpoint_warehouse
+      name: "Shared Endpoint Warehouse"             # Human-readable name
+      description: "A warehouse for shared endpoints"  # Description
+      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
+      on_behalf_of_user: False
+
+  genie_rooms:
+    # Genie space for retail data queries
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"                        # Human-readable name
+      description: "A room for Genie agents to interact"  # Description
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# Configure in-memory storage for agent conversations and state persistence
+
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
+
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_genie_tool       # Factory function path
+      args:                                         # Arguments passed to factory
+        name: my_genie_tool
+        description: Answers questions about retail products and inventory
+        genie_room: *retail_genie_room              # Reference to Genie room config
+        lru_cache_parameters:                       # LRU cache configuration for SQL query caching
+          warehouse: *shared_endpoint_warehouse     # Warehouse used to re-execute cached SQL
+          capacity: 100                             # Maximum number of queries to cache
+          time_to_live_seconds: 86400               # Cache entries expire after 1 day (default)
+        persist_conversation: true
+
+
+agents:
+  genie: &genie
+    name: genie                                     # Agent identifier
+    description: "Genie Agent"
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *genie_tool
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about retail products and inventory
+
+
+app:
+  name: genie_lru_cache_dao                      # Application name  
+  description: "Multi-agent system that talks to genie"
+  log_level: DEBUG                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *quick_serve_restaurant_schema                          # Schema where model will be registered
+    name: genie_lru_cache_dao
+  endpoint_name: dao_genie_lru_cache                    # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_QUERY                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *genie                                        # Order management agent
+  orchestration:                                    # Agent orchestration configuration
+    memory: *memory                                 # In-memory conversation persistence
+    swarm:                                          # Swarm orchestration pattern
+      model: *default_llm                           # LLM for routing decisions
+
+

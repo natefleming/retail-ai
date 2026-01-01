@@ -103,7 +103,10 @@ def _config_to_interrupt_on_entry(
             interrupt_entry["description"] = config.review_prompt
         return interrupt_entry
 
-    logger.warning(f"Unknown HITL config type: {type(config)}, defaulting to True")
+    logger.warning(
+        "Unknown HITL config type, defaulting to True",
+        config_type=type(config).__name__,
+    )
     return True
 
 
@@ -152,8 +155,9 @@ def create_human_in_the_loop_middleware(
             normalized_interrupt_on[tool_name] = config
 
     logger.debug(
-        f"Creating HITL middleware for {len(normalized_interrupt_on)} tools: "
-        f"{list(normalized_interrupt_on.keys())}"
+        "Creating HITL middleware",
+        tools_count=len(normalized_interrupt_on),
+        tools=list(normalized_interrupt_on.keys()),
     )
 
     return HumanInTheLoopMiddleware(
@@ -216,10 +220,10 @@ def create_hitl_middleware_from_tool_models(
             tool_name: str | None = getattr(func_tool, "name", None)
             if tool_name:
                 interrupt_on[tool_name] = hitl_config
-                logger.debug(f"Tool '{tool_name}' configured for HITL")
+                logger.trace("Tool configured for HITL", tool_name=tool_name)
 
     if not interrupt_on:
-        logger.debug("No tools require HITL - returning None")
+        logger.trace("No tools require HITL - returning None")
         return None
 
     return create_human_in_the_loop_middleware(

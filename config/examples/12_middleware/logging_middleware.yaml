@@ -1,0 +1,180 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Logging Middleware
+#
+# This example demonstrates how to add custom logging middleware to track
+# agent invocations, tool calls, and performance metrics.
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+middleware:
+  # ---------------------------------------------------------------------------
+  # Request Logging Middleware
+  # ---------------------------------------------------------------------------
+  # Logs all incoming requests with timestamps and metadata
+  # Useful for debugging and audit trails
+  request_logger: &request_logger
+    name: dao_ai.middleware.create_logging_middleware
+    args:
+      log_level: INFO
+      log_inputs: true
+      log_outputs: false
+      include_metadata: true
+      message_prefix: "[REQUEST]"
+
+  # ---------------------------------------------------------------------------
+  # Performance Monitoring Middleware
+  # ---------------------------------------------------------------------------
+  # Tracks execution time and performance metrics
+  # Helps identify slow agents or tools
+  performance_monitor: &performance_monitor
+    name: dao_ai.middleware.create_performance_middleware
+    args:
+      log_level: INFO
+      threshold_ms: 1000                    # Warn if execution > 1 second
+      include_tool_timing: true
+      include_memory_usage: false
+
+  # ---------------------------------------------------------------------------
+  # Audit Trail Middleware
+  # ---------------------------------------------------------------------------
+  # Creates detailed audit logs for compliance and debugging
+  # Includes user context, timestamps, and full conversation history
+  audit_trail: &audit_trail
+    name: dao_ai.middleware.create_audit_middleware
+    args:
+      log_level: INFO
+      log_user_info: true
+      log_conversation_id: true
+      log_tool_calls: true
+      log_errors: true
+      mask_sensitive_fields: true           # Masks PII in logs
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail data
+        genie_room: *retail_genie
+
+  current_time: &current_time
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Agent with Request Logging
+  # ---------------------------------------------------------------------------
+  logged_agent: &logged_agent
+    name: logged_agent
+    description: "Agent with request logging enabled"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *current_time
+    middleware:
+      - *request_logger                     # Logs all requests
+    prompt: |
+      You are a helpful assistant with request logging enabled.
+      All interactions are logged for quality assurance.
+
+  # ---------------------------------------------------------------------------
+  # Agent with Performance Monitoring
+  # ---------------------------------------------------------------------------
+  monitored_agent: &monitored_agent
+    name: monitored_agent
+    description: "Agent with performance monitoring"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *performance_monitor                # Tracks execution time
+    prompt: |
+      You are a helpful assistant with performance monitoring.
+      Slow operations will be flagged for optimization.
+
+  # ---------------------------------------------------------------------------
+  # Agent with Full Audit Trail
+  # ---------------------------------------------------------------------------
+  audited_agent: &audited_agent
+    name: audited_agent
+    description: "Agent with comprehensive audit logging"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *current_time
+    middleware:
+      - *audit_trail                        # Full audit logs
+    prompt: |
+      You are a helpful assistant with comprehensive audit logging.
+      All actions are tracked for compliance and security purposes.
+
+app:
+  name: logging_middleware_example
+  description: "Example demonstrating logging middleware patterns"
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: logging_middleware_dao
+  endpoint_name: logging_middleware_demo
+  agents:
+    - *logged_agent
+    - *monitored_agent
+    - *audited_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    messages:
+      - role: user
+        content: What time is it?
+    custom_inputs:
+      configurable:
+        user_id: "test_user_123"
+      session: {}
+
+# =============================================================================
+# LOGGING OUTPUT EXAMPLES
+# =============================================================================
+#
+# Request Logger Output:
+#   [REQUEST] Agent: logged_agent | User: test_user_123 | Message: What time is it?
+#   [REQUEST] Conversation ID: abc123-def456-789
+#   [REQUEST] Timestamp: 2024-01-15T10:30:00Z
+#
+# Performance Monitor Output:
+#   [PERF] Agent: monitored_agent | Execution Time: 1250ms ⚠️ (threshold: 1000ms)
+#   [PERF] Tool: genie | Time: 1100ms
+#   [PERF] LLM Call: 150ms
+#
+# Audit Trail Output:
+#   [AUDIT] User: test_user_123 | Agent: audited_agent | Action: query
+#   [AUDIT] Conversation: abc123-def456-789 | Timestamp: 2024-01-15T10:30:00Z
+#   [AUDIT] Tool Called: genie | Input: [MASKED] | Output: Success
+#   [AUDIT] Response Generated: 45 tokens | Cost: $0.002

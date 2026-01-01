@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+
+schemas:
+
+  quick_serve_restaurant_schema: &quick_serve_restaurant_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: quick_serve_restaurant                    # Schema within the catalog
+
+resources:
+  llms:
+    # Primary LLM for general tasks
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+      on_behalf_of_user: False
+
+  
+
+  genie_rooms:
+    # Genie space for retail data queries
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"                        # Human-readable name
+      description: "A room for Genie agents to interact"  # Description
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_genie_tool       # Factory function path
+      args:                                         # Arguments passed to factory
+        name: my_genie_tool
+        description: Answers questions about retail products and inventory
+        genie_room: *retail_genie_room              # Reference to Genie room config
+
+
+agents:
+  genie: &genie
+    name: genie                                     # Agent identifier
+    description: "Genie Agent"
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *genie_tool
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about retail products and inventory
+
+
+app:
+  log_level: TRACE
+  name: genie_basic_dao                      # Application name  
+  description: "Multi-agent system that talks to genie"
+  registered_model:                                 # MLflow registered model configuration
+    schema: *quick_serve_restaurant_schema                          # Schema where model will be registered
+    name: genie_basic_dao
+  endpoint_name: dao_genie                    # Model serving endpoint name
+  agents:                                           # List of agents included in the system
+    - *genie                                        # Genie agent
+

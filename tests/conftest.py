@@ -14,10 +14,10 @@ from mlflow.pyfunc import ChatModel
 
 from dao_ai.config import AppConfig, LLMModel
 from dao_ai.graph import create_dao_ai_graph
+from dao_ai.logging import configure_logging
 from dao_ai.models import create_agent
 
-logger.remove()
-logger.add(sys.stderr, level="INFO")
+configure_logging(level="INFO")
 
 
 root_dir: Path = Path(__file__).parents[1]
@@ -158,12 +158,14 @@ def create_mock_llm_model() -> MagicMock:
     - spec=LLMModel for attribute checking
     - IsDatabricksResource attributes properly set
     - as_chat_model() returning a mock that can invoke
+    - name attribute for logging
     """
     mock_llm = MagicMock()
     mock_llm.invoke.return_value = AIMessage(content="This is a test summary.")
 
     mock_llm_model = MagicMock(spec=LLMModel)
     mock_llm_model.as_chat_model.return_value = mock_llm
+    mock_llm_model.name = "test-model"
 
     # Add IsDatabricksResource attributes
     add_databricks_resource_attrs(mock_llm_model)

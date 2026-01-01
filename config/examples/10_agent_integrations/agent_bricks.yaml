@@ -1,0 +1,112 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# Agent Bricks Integration Example
+# ==============================================================================
+# This example demonstrates how to integrate with Agent Bricks using agent
+# endpoint tools. Agent Bricks provides specialized AI agents for various
+# enterprise tasks. This configuration shows how to call an Agent Bricks agent
+# as a tool from within your DAO-AI agent.
+#
+# Use Case: Delegating specialized tasks to domain-specific Agent Bricks agents
+# ==============================================================================
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+
+resources:
+  llms:
+    # Main agent LLM
+    main_llm: &main_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+
+    # Agent Bricks endpoint configuration
+    # This represents an external Agent Bricks agent endpoint
+    agent_bricks_customer_support: &agent_bricks_customer_support
+      name: agent-bricks-customer-support-endpoint
+      temperature: 0.7
+      max_tokens: 1000
+
+    agent_bricks_product_expert: &agent_bricks_product_expert
+      name: agent-bricks-product-expert-endpoint
+      temperature: 0.3
+      max_tokens: 800
+
+tools:
+  # Agent Bricks Customer Support Tool
+  customer_support_tool: &customer_support_tool
+    name: customer_support_agent
+    function:
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *agent_bricks_customer_support
+        name: customer_support_specialist
+        description: |
+          Delegate customer support queries to a specialized Agent Bricks customer support agent.
+          Use this tool for:
+          - Handling customer complaints and issues
+          - Processing returns and refunds
+          - Managing customer satisfaction concerns
+          - Escalation handling
+          
+          The agent is trained on customer support best practices and your company's policies.
+          Pass the customer's question or issue as the prompt.
+
+  # Agent Bricks Product Expert Tool
+  product_expert_tool: &product_expert_tool
+    name: product_expert_agent
+    function:
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *agent_bricks_product_expert
+        name: product_knowledge_expert
+        description: |
+          Consult with a specialized Agent Bricks product expert for detailed product information.
+          Use this tool for:
+          - Technical product specifications
+          - Product comparisons and recommendations
+          - Compatibility questions
+          - Usage instructions and best practices
+          
+          This agent has deep knowledge of your product catalog and can provide
+          expert-level guidance on product selection and usage.
+
+agents:
+  # Main orchestrator agent that delegates to Agent Bricks specialists
+  orchestrator_agent: &orchestrator_agent
+    name: main_orchestrator
+    model: *main_llm
+    tools:
+      - *customer_support_tool
+      - *product_expert_tool
+    prompt: |
+      You are an intelligent routing agent for a retail hardware store.
+      
+      Your role is to understand customer inquiries and delegate them to the appropriate
+      specialist agents:
+      
+      - For customer service issues, complaints, returns, or satisfaction concerns,
+        use the customer_support_specialist tool
+      - For detailed product information, technical specifications, or recommendations,
+        use the product_knowledge_expert tool
+      
+      When using these tools, formulate clear and complete prompts that give the
+      specialist agent all necessary context. After receiving their response,
+      provide it to the user in a helpful and professional manner.
+      
+      If a question requires both customer support and product expertise, you may
+      call both tools in sequence and synthesize the responses.
+
+app:
+  name: agent_bricks_integration
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: agent_bricks_integration
+  agents:
+    - *orchestrator_agent

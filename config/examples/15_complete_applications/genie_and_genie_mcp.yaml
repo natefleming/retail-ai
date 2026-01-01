@@ -1,0 +1,166 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+variables:
+  client_id: &client_id                          # Service principal client ID
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret: &client_secret                  # Service principal secret
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+  workspace_host: &workspace_host                # Databricks workspace URL
+    options:
+      - env: RETAIL_AI_DATABRICKS_HOST
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_HOST
+
+schemas:
+
+  store_ops_schema: &store_ops_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: store_ops                    # Schema within the catalog
+
+resources:
+  llms:
+    
+    fast_llm: &fast_llm
+      name: databricks-claude-sonnet-4
+      on_behalf_of_user: False
+
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-sonnet-4
+      on_behalf_of_user: False
+
+  genie_rooms:
+    # Genie space for retail data queries
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"                        # Human-readable name
+      description: "A room for Genie agents to interact"  # Description
+      space_id: 01f05dd06c421ad6b522bf7a517cf6d2          # Databricks Genie space ID
+
+prompts:
+  # ---------------------------------------------------------------------------
+  # Employee Agent Prompt
+  # ---------------------------------------------------------------------------
+  employee_agent_prompt: &employee_agent_prompt
+    schema: *store_ops_schema
+    name: employee_prompt
+    description: "The employee management agent prompt for retail operations"
+    default_template: |
+      You are an employee management specialist for retail operations.
+      Your role is to help answer questions about employees, their performance,
+      tasks, and daily activities using the available data sources.
+      
+      You have access to the following data through your tools:
+      - **employee_daily_tasks**: Track daily tasks assigned to employees
+      - **employee_performance**: Monitor employee performance metrics and evaluations
+      - **employee_tasks**: Manage task assignments and completion status
+      
+      When responding:
+      - Be specific when referencing employee data and metrics
+      - Use the genie tool to query the employee databases for current information
+      - Provide insights on performance trends and task completion rates
+      - Respect employee privacy while providing helpful analytics
+      - When discussing tasks, always check current status before responding
+      - Provide actionable recommendations for task management and performance improvement
+      
+      Available tables in retail_consumer_goods.store_ops schema:
+      - employee_daily_tasks
+      - employee_performance  
+      - employee_tasks
+    tags:
+      environment: development
+      agent_type: employee_agent
+
+  # ---------------------------------------------------------------------------
+  # Inventory Agent Prompt
+  # ---------------------------------------------------------------------------
+  inventory_agent_prompt: &inventory_agent_prompt
+    schema: *store_ops_schema
+    name: inventory_prompt
+    description: "The inventory agent prompt for retail operations"
+    default_template: |
+      You are an inventory management specialist for retail operations.
+      Your role is to help answer questions about product inventory, stock levels,
+      and inventory-related queries using the available data sources.
+      
+      When responding:
+      - Be precise with inventory numbers and product details
+      - Always verify information before providing answers
+      - If you need current data, use the genie tool to query the inventory database
+      - Provide actionable insights when discussing stock levels
+    tags:
+      environment: development
+      agent_type: inventory_agent
+
+tools:
+  genie_tool: &genie_tool
+    name: genie_tool
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_genie_tool       # Factory function path
+      args:                                         # Arguments passed to factory
+        name: genie_tool
+        description: Answers questions about retail products and inventory
+        genie_room: *retail_genie_room              # Reference to Genie room config
+
+  genie_mcp: &genie_mcp                          # Genie MCP tool configuration
+    name: genie_mcp                                  
+    function:
+      type: mcp                                  # MCP function type
+      genie_room: *retail_genie_room             # Use genie_room convenience object
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+
+agents:
+  employee_agent: &employee_agent
+    name: employee_agent                                   
+    description: "Employee Agent"
+    model: *tool_calling_llm                          
+    tools:                                      
+      - *genie_tool
+    prompt: *employee_agent_prompt
+    handoff_prompt: |
+      Questions about employees, employee performance, task assignments, daily activities, or workforce management.
+      Examples: "What tasks are assigned to John today?", "Show me employee performance metrics", "How is Sarah performing?", "What are the pending employee tasks?", "Who completed the most tasks this week?"
+
+  inventory_agent: &inventory_agent
+    name: inventory_agent
+    description: "Inventory Management Agent - handles inventory queries via Genie MCP"
+    model: *tool_calling_llm
+    tools:
+      - *genie_mcp                            # Uses Genie MCP server tool
+    prompt: *inventory_agent_prompt           # Uses external prompt from registry
+    handoff_prompt: |
+      Questions about inventory, stock levels, product availability, or inventory management.
+      Examples: "What's the current inventory level?", "Do we have product X in stock?", "Show me low stock items", "What products need reordering?", "What's the inventory status for store 123?"
+      
+
+app:
+  name: genie_and_genie_mcp_dao                      # Application name  
+  description: "Multi-agent system that talks to genie"
+  log_level: DEBUG                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *store_ops_schema                          # Schema where model will be registered
+    name: genie_and_genie_mcp_dao
+  endpoint_name: dao_pepsi_genie_demo                    # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_QUERY                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *employee_agent                               # Employee management agent
+    - *inventory_agent                              # Inventory management agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *fast_llm                           # LLM for routing decisions
+
+

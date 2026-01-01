@@ -1,0 +1,138 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: nfleming                    # Unity Catalog name
+    schema_name: retail_ai                    # Schema within the catalog
+
+resources:
+  llms:
+    # Primary LLM for general tasks
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en                 # Text embedding model
+
+  vector_stores:
+    # Product information vector store for similarity search
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model             # Reference to embedding model above
+      endpoint:                                     # Vector search endpoint configuration
+        name: one-env-shared-endpoint-12            # Databricks vector search endpoint
+        type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
+      index:                                        # Vector search index configuration
+        schema: *retail_schema                      # Unity Catalog schema for the index
+        name: products_index                        # Index name
+      source_table:                                 # Table containing source data
+        schema: *retail_schema
+        name: products
+      primary_key: product_id                       # Primary key column
+      doc_uri: ~                                    # Optional document URI column (null in this case)
+      embedding_source_column: description          # Column to create embeddings from
+      columns:                                      # Columns to include in vector store
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
+
+  genie_rooms:
+    # Genie space for retail data queries
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"                  # Human-readable name
+      description: "A room for Genie agents to interact"  # Description
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+retrievers:
+  # Product information retriever using vector search
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store            # Reference to vector store defined above
+    columns:                                        # Columns to return in search results
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:                              # Search configuration
+      num_results: 10                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_genie_tool       # Factory function path
+      args:                                         # Arguments passed to factory
+        name: my_genie_tool
+        description: My Answers questions about genie
+        genie_room: *retail_genie_room              # Reference to Genie room config
+
+  vector_search_tool: &vector_search_tool
+    name: vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products using vector search"  # Tool description
+
+
+agents:
+  genie: &genie
+    name: genie                                     # Agent identifier
+    description: "Genie Agent"
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *genie_tool
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about foo
+    handoff_prompt: |                               # Conditions for routing to this agent
+      Answers all foo questions
+
+  vector_search: &vector_search
+    name: vector_search                                   # Agent identifier
+    description: "Vector Search Agent"
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *vector_search_tool
+    prompt: |                                       # System prompt defining agent behavior
+      Answers questions about bar
+    handoff_prompt: |                               # Conditions for routing to this agent
+      Answers all bar questions
+
+app:
+  name: genie_vector_search_hybrid_dao             # Application name  
+  description: "Multi-agent system that talks to genie and vector search"  # Application description
+  log_level: INFO                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: genie_vector_search_hybrid_dao
+  endpoint_name: genie_and_vector_search_agent      # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_MANAGE                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *genie                                       # Order management agent
+    - *vector_search                               # Vector search agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *default_llm                      # LLM for routing decisions
+

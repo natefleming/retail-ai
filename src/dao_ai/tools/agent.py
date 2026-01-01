@@ -14,9 +14,7 @@ def create_agent_endpoint_tool(
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> Callable[..., Any]:
-    logger.debug(
-        f"Creating agent endpoint tool with name: {name} and description: {description}"
-    )
+    logger.debug("Creating agent endpoint tool", name=name, description=description)
 
     default_description: str = dedent("""
     This tool allows you to interact with a language model endpoint to answer questions.

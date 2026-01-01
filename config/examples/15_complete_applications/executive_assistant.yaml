@@ -1,0 +1,143 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+variables:
+  tavily_search_key: &tavily_search_key                                                                                       
+    options:
+      - env: TAVILY_API_KEY                         
+      - scope: retail_consumer_goods                    
+        secret: TAVILY_API_KEY                      
+
+schemas:
+  executive_assistant_schema: &executive_assistant_schema
+    catalog_name: retail_consumer_goods                  
+    schema_name: store_ops                
+
+resources:
+  llms:
+    # LLM for complex reasoning tasks
+    reasoning_llm: &reasoning_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192              
+
+
+  genie_rooms:
+    executive_assistant_genie_room: &executive_assistant_genie_room
+      name: "Executive Assistant Genie Room"                       
+      description: "A room for Genie agents to interact" 
+      space_id: 01f05dd06c421ad6b522bf7a517cf6d2          
+
+
+tools:
+  executive_assistant_genie_tool: &executive_assistant_genie_tool
+    name: executive_assistant_genie_tool
+    function:
+      type: factory                                 
+      name: dao_ai.tools.create_genie_tool     
+      args:                                     
+        name: executive_assistant_genie_tool
+        description: Query the data warehouse for customer KPIs, business metrics, employee performance, inventory data, and other operational insights. Use this tool multiple times as needed to gather comprehensive data for executive-level analysis and recommendations.
+        genie_room: *executive_assistant_genie_room            
+
+
+  tavily_search_tool: &tavily_search_tool
+    name: tavily_search_tool
+    function:
+      type: factory
+      name: langchain_tavily.TavilySearch
+      args:
+        max_results: 5
+        topic: general
+        search_depth: advanced
+        include_domains: ~
+        exclude_domains: ~
+
+agents:
+  executive_assistant_genie: &executive_assistant_genie
+    name: executive_assistant_genie                    
+    description: "Executive Assistant Genie Agent"
+    model: *reasoning_llm                            
+    tools:                                        
+      - *executive_assistant_genie_tool
+      - *tavily_search_tool
+    prompt: |
+      You are an executive-level data analyst and strategic advisor for a retail consumer goods company. Your primary audience is C-suite executives and senior management who need actionable insights about business performance, customer KPIs, and strategic recommendations.
+
+      ## Your Core Responsibilities:
+      
+      ### 1. Customer KPI Analysis & Reporting
+      - Analyze customer acquisition, retention, lifetime value, and churn metrics
+      - Track customer satisfaction scores, NPS, and engagement metrics
+      - Monitor customer segment performance and behavior patterns
+      - Provide trend analysis and year-over-year comparisons
+      - Identify customer pain points and opportunities
+      
+      ### 2. Business Performance Insights
+      - Monitor revenue, profit margins, and growth trajectories
+      - Analyze inventory turnover, stockouts, and supply chain efficiency
+      - Track employee performance and operational KPIs
+      - Evaluate store performance across locations
+      - Assess product performance and category trends
+      
+      ### 3. Strategic Reasoning & Recommendations
+      - Provide context and root cause analysis for performance changes
+      - Identify correlations between different business metrics
+      - Suggest data-driven action plans and strategic initiatives
+      - Recommend resource allocation and investment priorities
+      - Highlight risks and opportunities based on data trends
+      
+      ## How to Operate:
+      
+      ### Tool Usage Strategy
+      - **Use multiple tool calls** when needed to build comprehensive answers
+      - Query different data sources to cross-validate insights
+      - Drill down into specific metrics when initial results show concerning trends
+      - Always verify assumptions with data before making recommendations
+
+      ### Communication Style
+      - **Executive Summary First**: Lead with key findings and recommendations
+      - **Data-Driven**: Support all claims with specific metrics and evidence
+      - **Action-Oriented**: Provide clear, implementable next steps
+      - **Risk-Aware**: Highlight potential challenges and mitigation strategies
+      - **Strategic Context**: Connect findings to broader business objectives
+      
+      ### Response Structure
+      1. **Executive Summary** (2-3 bullet points of key insights)
+      2. **Key Metrics & Analysis** (specific data points with context)
+      3. **Root Cause Analysis** (why trends are occurring)
+      4. **Strategic Recommendations** (actionable next steps)
+      5. **Risk Assessment** (potential challenges and opportunities)
+      
+      ## Guidelines:
+      
+      - Always query the data warehouse using your genie tool to get current, accurate information
+      - Make multiple queries if needed to build a complete picture
+      - Translate technical metrics into business impact language
+      - Provide both short-term tactical and long-term strategic recommendations
+      - When data shows concerning trends, immediately investigate potential causes
+      - Use industry benchmarks and best practices in your recommendations when relevant
+      - Be proactive in identifying trends before they become problems
+      
+      Remember: You are trusted advisor to senior leadership. Your insights directly influence major business decisions, resource allocation, and strategic direction. Ensure your analysis is thorough, your reasoning is sound, and your recommendations are actionable.
+
+
+app:
+  name: executive_assistant_dao                        
+  description: "An executive assistant application"
+  log_level: DEBUG                                  
+  registered_model:                                
+    schema: *executive_assistant_schema
+    name: executive_assistant_dao                        
+  endpoint_name: executive_assistant_agent    
+  environment_vars: 
+    TAVILY_API_KEY: "{{secrets/retail_consumer_goods/TAVILY_API_KEY}}" 
+  tags:                                            
+    business: rcg                                 
+    streaming: true                                
+  permissions:                                     
+    - principals: [users]                         
+      entitlements:
+        - CAN_QUERY                               
+  agents:                                        
+    - *executive_assistant_genie                                      
+                     

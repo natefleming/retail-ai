@@ -1,19 +1,127 @@
+"""
+MCP (Model Context Protocol) tool creation for LangChain agents.
+
+This module provides tools for connecting to MCP servers using the
+MCP SDK and langchain-mcp-adapters library.
+
+For compatibility with Databricks APIs, we use manual tool wrappers
+that give us full control over the response format.
+
+Reference: https://docs.langchain.com/oss/python/langchain/mcp
+"""
+
 import asyncio
 from typing import Any, Sequence
 
-from databricks_mcp import DatabricksOAuthClientProvider
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import tool as create_tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
-from mcp.types import ListToolsResult, Tool
+from mcp.types import CallToolResult, TextContent, Tool
 
 from dao_ai.config import (
     McpFunctionModel,
     TransportType,
+    value_of,
 )
+
+
+def _build_connection_config(
+    function: McpFunctionModel,
+) -> dict[str, Any]:
+    """
+    Build the connection configuration dictionary for MultiServerMCPClient.
+
+    Args:
+        function: The MCP function model configuration.
+
+    Returns:
+        A dictionary containing the transport-specific connection settings.
+    """
+    if function.transport == TransportType.STDIO:
+        return {
+            "command": function.command,
+            "args": function.args,
+            "transport": function.transport.value,
+        }
+
+    # For HTTP transport with UC Connection, use DatabricksOAuthClientProvider
+    if function.connection:
+        from databricks_mcp import DatabricksOAuthClientProvider
+
+        workspace_client = function.connection.workspace_client
+        auth_provider = DatabricksOAuthClientProvider(workspace_client)
+
+        logger.trace(
+            "Using DatabricksOAuthClientProvider for authentication",
+            connection_name=function.connection.name,
+        )
+
+        return {
+            "url": function.mcp_url,
+            "transport": "http",
+            "auth": auth_provider,
+        }
+
+    # For HTTP transport with headers-based authentication
+    headers: dict[str, str] = {
+        key: str(value_of(val)) for key, val in function.headers.items()
+    }
+
+    if "Authorization" not in headers:
+        logger.trace("Generating fresh authentication token")
+
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        try:
+            provider = DatabricksProvider(
+                workspace_host=value_of(function.workspace_host),
+                client_id=value_of(function.client_id),
+                client_secret=value_of(function.client_secret),
+                pat=value_of(function.pat),
+            )
+            headers["Authorization"] = f"Bearer {provider.create_token()}"
+            logger.trace("Generated fresh authentication token")
+        except Exception as e:
+            logger.error("Failed to create fresh token", error=str(e))
+    else:
+        logger.trace("Using existing authentication token")
+
+    return {
+        "url": function.mcp_url,
+        "transport": "http",
+        "headers": headers,
+    }
+
+
+def _extract_text_content(result: CallToolResult) -> str:
+    """
+    Extract text content from an MCP CallToolResult.
+
+    Converts the MCP result content to a plain string format that is
+    compatible with all LLM APIs (avoiding extra fields like 'id').
+
+    Args:
+        result: The MCP tool call result.
+
+    Returns:
+        A string containing the concatenated text content.
+    """
+    if not result.content:
+        return ""
+
+    text_parts: list[str] = []
+    for item in result.content:
+        if isinstance(item, TextContent):
+            text_parts.append(item.text)
+        elif hasattr(item, "text"):
+            # Handle other content types that have text
+            text_parts.append(str(item.text))
+        else:
+            # Fallback: convert to string representation
+            text_parts.append(str(item))
+
+    return "\n".join(text_parts)
 
 
 def create_mcp_tools(
@@ -23,174 +131,133 @@ def create_mcp_tools(
     Create tools for invoking Databricks MCP functions.
 
     Supports both direct MCP connections and UC Connection-based MCP access.
-    Uses session-based approach to handle authentication token expiration properly.
+    Uses manual tool wrappers to ensure response format compatibility with
+    Databricks APIs (which reject extra fields in tool results).
 
     Based on: https://docs.databricks.com/aws/en/generative-ai/mcp/external-mcp
+
+    Args:
+        function: The MCP function model configuration.
+
+    Returns:
+        A sequence of LangChain tools that can be used by agents.
     """
-    logger.debug(f"create_mcp_tools: {function}")
-
-    # Get MCP URL - handles all convenience objects (connection, genie_room, warehouse, etc.)
     mcp_url = function.mcp_url
-    logger.debug(f"Using MCP URL: {mcp_url}")
+    logger.debug("Creating MCP tools", mcp_url=mcp_url)
 
-    # Check if using UC Connection or direct MCP connection
+    connection_config = _build_connection_config(function)
+
     if function.connection:
-        # Use UC Connection approach with DatabricksOAuthClientProvider
-        logger.debug(f"Using UC Connection for MCP: {function.connection.name}")
-
-        async def _list_tools_with_connection():
-            """List available tools using DatabricksOAuthClientProvider."""
-            workspace_client = function.connection.workspace_client
-
-            async with streamablehttp_client(
-                mcp_url, auth=DatabricksOAuthClientProvider(workspace_client)
-            ) as (read_stream, write_stream, _):
-                async with ClientSession(read_stream, write_stream) as session:
-                    # Initialize and list tools
-                    await session.initialize()
-                    return await session.list_tools()
-
-        try:
-            mcp_tools: list[Tool] | ListToolsResult = asyncio.run(
-                _list_tools_with_connection()
-            )
-            if isinstance(mcp_tools, ListToolsResult):
-                mcp_tools = mcp_tools.tools
-
-            logger.debug(f"Retrieved {len(mcp_tools)} MCP tools via UC Connection")
-
-        except Exception as e:
-            logger.error(f"Failed to get tools from MCP server via UC Connection: {e}")
-            raise RuntimeError(
-                f"Failed to list MCP tools for function '{function.name}' via UC Connection '{function.connection.name}': {e}"
-            )
-
-        # Create wrapper tools with fresh session per invocation
-        def _create_tool_wrapper_with_connection(mcp_tool: Tool) -> RunnableLike:
-            @create_tool(
-                mcp_tool.name,
-                description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
-                args_schema=mcp_tool.inputSchema,
-            )
-            async def tool_wrapper(**kwargs):
-                """Execute MCP tool with fresh UC Connection session."""
-                logger.debug(
-                    f"Invoking MCP tool {mcp_tool.name} with fresh UC Connection session"
-                )
-                workspace_client = function.connection.workspace_client
-
-                try:
-                    async with streamablehttp_client(
-                        mcp_url, auth=DatabricksOAuthClientProvider(workspace_client)
-                    ) as (read_stream, write_stream, _):
-                        async with ClientSession(read_stream, write_stream) as session:
-                            await session.initialize()
-                            result = await session.call_tool(mcp_tool.name, kwargs)
-                            logger.debug(
-                                f"MCP tool {mcp_tool.name} completed successfully"
-                            )
-                            return result
-                except Exception as e:
-                    logger.error(f"MCP tool {mcp_tool.name} failed: {e}")
-                    raise
-
-            # HITL is now handled at middleware level via HumanInTheLoopMiddleware
-            return tool_wrapper
-
-        return [_create_tool_wrapper_with_connection(tool) for tool in mcp_tools]
-
+        logger.debug(
+            "Using UC Connection for MCP",
+            connection_name=function.connection.name,
+            mcp_url=mcp_url,
+        )
     else:
-        # Use direct MCP connection with MultiServerMCPClient
-        logger.debug("Using direct MCP connection with MultiServerMCPClient")
+        logger.debug(
+            "Using direct connection for MCP",
+            transport=function.transport,
+            mcp_url=mcp_url,
+        )
 
-        def _create_fresh_connection() -> dict[str, Any]:
-            """Create connection config with fresh authentication headers."""
-            logger.debug("Creating fresh connection...")
+    # Create client to list available tools
+    client = MultiServerMCPClient({"mcp_function": connection_config})
 
-            if function.transport == TransportType.STDIO:
-                return {
-                    "command": function.command,
-                    "args": function.args,
-                    "transport": function.transport,
-                }
+    async def _list_tools() -> list[Tool]:
+        """List available MCP tools from the server."""
+        async with client.session("mcp_function") as session:
+            result = await session.list_tools()
+            return result.tools if hasattr(result, "tools") else list(result)
 
-            # For HTTP transport, generate fresh headers
-            headers = function.headers.copy() if function.headers else {}
+    try:
+        mcp_tools: list[Tool] = asyncio.run(_list_tools())
 
-            if "Authorization" not in headers:
-                logger.debug("Generating fresh authentication token for MCP function")
+        # Log discovered tools
+        logger.info(
+            "Discovered MCP tools",
+            tools_count=len(mcp_tools),
+            mcp_url=mcp_url,
+        )
+        for mcp_tool in mcp_tools:
+            logger.debug(
+                "MCP tool discovered",
+                tool_name=mcp_tool.name,
+                tool_description=(
+                    mcp_tool.description[:100] if mcp_tool.description else None
+                ),
+            )
 
-                from dao_ai.config import value_of
-                from dao_ai.providers.databricks import DatabricksProvider
+    except Exception as e:
+        if function.connection:
+            logger.error(
+                "Failed to get tools from MCP server via UC Connection",
+                connection_name=function.connection.name,
+                error=str(e),
+            )
+            raise RuntimeError(
+                f"Failed to list MCP tools via UC Connection "
+                f"'{function.connection.name}': {e}"
+            ) from e
+        else:
+            logger.error(
+                "Failed to get tools from MCP server",
+                transport=function.transport,
+                url=function.url,
+                error=str(e),
+            )
+            raise RuntimeError(
+                f"Failed to list MCP tools with transport '{function.transport}' "
+                f"and URL '{function.url}': {e}"
+            ) from e
 
-                try:
-                    provider = DatabricksProvider(
-                        workspace_host=value_of(function.workspace_host),
-                        client_id=value_of(function.client_id),
-                        client_secret=value_of(function.client_secret),
-                        pat=value_of(function.pat),
-                    )
-                    headers["Authorization"] = f"Bearer {provider.create_token()}"
-                    logger.debug("Generated fresh authentication token")
-                except Exception as e:
-                    logger.error(f"Failed to create fresh token: {e}")
-            else:
-                logger.debug("Using existing authentication token")
+    def _create_tool_wrapper(mcp_tool: Tool) -> RunnableLike:
+        """
+        Create a LangChain tool wrapper for an MCP tool.
 
-            return {
-                "url": mcp_url,  # Use the resolved MCP URL
-                "transport": function.transport,
-                "headers": headers,
-            }
+        This wrapper handles:
+        - Fresh session creation per invocation (stateless)
+        - Content extraction to plain text (avoiding extra fields)
+        """
 
-        # Get available tools from MCP server
-        async def _list_mcp_tools():
-            connection = _create_fresh_connection()
-            client = MultiServerMCPClient({function.name: connection})
+        @create_tool(
+            mcp_tool.name,
+            description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
+            args_schema=mcp_tool.inputSchema,
+        )
+        async def tool_wrapper(**kwargs: Any) -> str:
+            """Execute MCP tool with fresh session."""
+            logger.trace("Invoking MCP tool", tool_name=mcp_tool.name, args=kwargs)
+
+            # Create a fresh client/session for each invocation
+            invocation_client = MultiServerMCPClient(
+                {"mcp_function": _build_connection_config(function)}
+            )
 
             try:
-                async with client.session(function.name) as session:
-                    return await session.list_tools()
+                async with invocation_client.session("mcp_function") as session:
+                    result: CallToolResult = await session.call_tool(
+                        mcp_tool.name, kwargs
+                    )
+
+                    # Extract text content, avoiding extra fields
+                    text_result = _extract_text_content(result)
+
+                    logger.trace(
+                        "MCP tool completed",
+                        tool_name=mcp_tool.name,
+                        result_length=len(text_result),
+                    )
+
+                    return text_result
+
             except Exception as e:
-                logger.error(f"Failed to list MCP tools: {e}")
-                return []
+                logger.error(
+                    "MCP tool failed",
+                    tool_name=mcp_tool.name,
+                    error=str(e),
+                )
+                raise
 
-        # Note: This still needs to run sync during tool creation/registration
-        # The actual tool execution will be async
-        try:
-            mcp_tools: list[Tool] | ListToolsResult = asyncio.run(_list_mcp_tools())
-            if isinstance(mcp_tools, ListToolsResult):
-                mcp_tools = mcp_tools.tools
+        return tool_wrapper
 
-            logger.debug(f"Retrieved {len(mcp_tools)} MCP tools")
-        except Exception as e:
-            logger.error(f"Failed to get tools from MCP server: {e}")
-            raise RuntimeError(
-                f"Failed to list MCP tools for function '{function.name}' with transport '{function.transport}' and URL '{function.url}': {e}"
-            )
-
-        # Create wrapper tools with fresh session per invocation
-        def _create_tool_wrapper(mcp_tool: Tool) -> RunnableLike:
-            @create_tool(
-                mcp_tool.name,
-                description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
-                args_schema=mcp_tool.inputSchema,
-            )
-            async def tool_wrapper(**kwargs):
-                """Execute MCP tool with fresh session and authentication."""
-                logger.debug(f"Invoking MCP tool {mcp_tool.name} with fresh session")
-
-                connection = _create_fresh_connection()
-                client = MultiServerMCPClient({function.name: connection})
-
-                try:
-                    async with client.session(function.name) as session:
-                        return await session.call_tool(mcp_tool.name, kwargs)
-                except Exception as e:
-                    logger.error(f"MCP tool {mcp_tool.name} failed: {e}")
-                    raise
-
-            # HITL is now handled at middleware level via HumanInTheLoopMiddleware
-            return tool_wrapper
-
-        return [_create_tool_wrapper(tool) for tool in mcp_tools]
+    return [_create_tool_wrapper(tool) for tool in mcp_tools]

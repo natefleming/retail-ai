@@ -1,0 +1,807 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Multi-Agent AI Orchestration Framework Configuration
+# =============================================================================
+# This configuration file defines the complete setup for the multi-agent system
+# including schemas, resources, tools, agents, and orchestration patterns.
+
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+# Define Unity Catalog schemas where data and functions will be stored
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: hardware_store                    # Schema within the catalog
+
+# =============================================================================
+# RESOURCES CONFIGURATION
+# =============================================================================
+# Define all resources needed by the multi-agent system including LLMs,
+# vector stores, databases, tables, and other Databricks resources
+
+resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS (LLMs)
+  # ---------------------------------------------------------------------------
+  # Configure different LLMs for various purposes in the agent system
+  llms:
+    # Primary LLM for general tasks
+    default_llm: &default_llm
+      name: databricks-claude-3-7-sonnet  # Databricks serving endpoint name
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+
+    # LLM optimized for tool calling and function execution
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-3-7-sonnet 
+      temperature: 0.1
+      max_tokens: 8192
+
+    # LLM for evaluating and judging responses (guardrails)
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.5                              # Higher temperature for diverse judgments
+      max_tokens: 8192
+
+    # Embedding model for vector search and semantic similarity
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en                 # Text embedding model
+
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES
+  # ---------------------------------------------------------------------------
+  # Configure vector databases for semantic search and retrieval
+  vector_stores:
+    # Product information vector store for similarity search
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model             # Reference to embedding model above
+      endpoint:                                     # Vector search endpoint configuration
+        name: dbdemos_vs_endpoint            # Databricks vector search endpoint
+        type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
+      index:                                        # Vector search index configuration
+        schema: *retail_schema                      # Unity Catalog schema for the index
+        name: products_index                        # Index name
+      source_table:                                 # Table containing source data
+        schema: *retail_schema
+        name: products
+      primary_key: product_id                       # Primary key column
+      doc_uri: ~                                    # Optional document URI column (null in this case)
+      embedding_source_column: description          # Column to create embeddings from
+      columns:                                      # Columns to include in vector store
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
+
+  # ---------------------------------------------------------------------------
+  # FUNCTIONS
+  # ---------------------------------------------------------------------------
+  # Define Unity Catalog functions for data operations
+  functions:
+    # Product lookup functions
+    find_product_by_sku: &find_product_by_sku
+      schema: *retail_schema
+      name: find_product_by_sku                     # Function to find products by SKU
+    find_product_by_upc: &find_product_by_upc
+      schema: *retail_schema
+      name: find_product_by_upc                     # Function to find products by UPC
+    
+    # Inventory lookup functions
+    find_inventory_by_sku: &find_inventory_by_sku
+      schema: *retail_schema
+      name: find_inventory_by_sku                   # Function to find inventory by SKU
+    find_inventory_by_upc: &find_inventory_by_upc
+      schema: *retail_schema
+      name: find_inventory_by_upc                   # Function to find inventory by UPC
+    
+    # Store-specific inventory functions
+    find_store_inventory_by_upc: &find_store_inventory_by_upc
+      schema: *retail_schema
+      name: find_store_inventory_by_upc             # Store-specific UPC inventory lookup
+    find_store_inventory_by_sku: &find_store_inventory_by_sku
+      schema: *retail_schema
+      name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
+
+# =============================================================================
+# RETRIEVERS CONFIGURATION
+# =============================================================================
+# Configure retrieval systems for semantic search and information retrieval
+
+retrievers:
+  # Product information retriever using vector search
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store            # Reference to vector store defined above
+    columns:                                        # Columns to return in search results
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:                              # Search configuration
+      num_results: 50                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
+    rerank:
+      top_n: 10
+      columns:
+        - merchandise_class
+        - product_name
+        - brand_name
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# Define tools that agents can use to perform various tasks
+# Tools can be of different types: python, factory, unity_catalog, or mcp
+
+tools:
+  # ---------------------------------------------------------------------------
+  # FACTORY TOOLS
+  # ---------------------------------------------------------------------------
+  # Tools created by factory functions - configured at runtime
+  
+  # Vector search tool for product similarity
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products by description"  # Tool description
+
+  # ---------------------------------------------------------------------------
+  # UNITY CATALOG TOOLS
+  # ---------------------------------------------------------------------------
+  # Tools that directly call Unity Catalog functions
+  
+  # Product lookup tools using Unity Catalog functions
+  find_product_by_sku_tool: &find_product_by_sku_tool
+    name: find_product_by_sku_uc
+    function:
+      type: unity_catalog                           # Tool type: Unity Catalog function
+      resource: *find_product_by_sku                # Reference to function definition
+
+  find_product_by_upc_tool: &find_product_by_upc_tool
+    name: find_product_by_upc_uc
+    function:
+      type: unity_catalog
+      resource: *find_product_by_upc
+
+  # Inventory lookup tools using Unity Catalog functions
+  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
+    name: find_inventory_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_inventory_by_sku
+
+  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
+    name: find_inventory_by_upc_uc
+    function:
+      type: unity_catalog
+      resource: *find_inventory_by_upc
+
+      
+# =============================================================================
+# GUARDRAILS CONFIGURATION
+# =============================================================================
+# Define response quality and safety checks for agent outputs
+
+guardrails:
+  # LLM-based response evaluation guardrail
+  llm_judge_guardrail: &llm_judge_guardrail
+    name: llm_judge                                 # Guardrail identifier
+    model: *judge_llm                               # Reference to judge LLM defined above
+    prompt: |                                       # Evaluation prompt for the judge LLM
+      You are an expert judge evaluating AI responses. Your task is to critique the AI assistant's latest response in the conversation below.
+
+      Evaluate the response based on these criteria:
+      1. Accuracy - Is the information correct and factual?
+      2. Completeness - Does it fully address the user's query?
+      3. Clarity - Is the explanation clear and well-structured?
+      4. Helpfulness - Does it provide actionable and useful information?
+      5. Safety - Does it avoid harmful or inappropriate content?
+
+      If the response meets ALL criteria satisfactorily, set pass to True.
+
+      If you find ANY issues with the response, do NOT set pass to True. Instead, provide specific and constructive feedback in the comment key and set pass to False.
+
+      Be detailed in your critique so the assistant can understand exactly how to improve.
+
+      ### Inputs:
+      {inputs}
+
+      ### Response:
+      {outputs}
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Define reusable middleware that can be applied to agents or the supervisor.
+# Middleware is defined here at the AppConfig level and can be referenced
+# using YAML anchors (&name) in agent or supervisor configurations.
+#
+# Usage:
+#   middleware:
+#     my_middleware: &my_middleware       # Define with anchor
+#       name: path.to.middleware_factory  # Factory function path
+#       args:                             # Arguments passed to factory
+#         key: value
+#
+#   agents:
+#     my_agent:
+#       middleware:
+#         - *my_middleware                # Reference the middleware
+
+middleware:
+  # Input validation middleware - validates required fields in custom context
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        # Required field - must be provided (no 'required: false')
+        - name: store_num
+          description: "Your store number for inventory lookups"
+          example_value: "12345"
+        # Optional fields (required: false) - shown in error messages with example values
+        # Note: thread_id and user_id are handled by the middleware's error message format
+        #       so we don't need to list them here - they're automatically included
+        - name: user_id
+          description: "Your unique user identifier"
+          required: false
+          example_value: "my_user_id"
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+# Define specialized agents for different aspects of customer service
+# Each agent has specific tools, capabilities, and responsibilities
+
+agents:
+  # ---------------------------------------------------------------------------
+  # GENERAL AGENT
+  # ---------------------------------------------------------------------------
+  # Handles general store information and basic inquiries
+  general: &general
+    name: general                                   # Agent identifier
+    description: "General retail store assistant for home improvement and hardware store inquiries"
+    model: *tool_calling_llm                       # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |                                       # System prompt defining agent behavior
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a helpful retail store assistant for a home improvement and hardware store. You have access to search tools to find general information 
+      which can not be better answered by another agent.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
+      Before answering ANY question:
+      - ALWAYS use your available search tools to find the most current and accurate information
+      - Search for specific details about store policies, product availability, pricing, and services
+      - Use search results as the primary source for your responses
+      - If multiple tools are available, use the most appropriate one for the specific query
+      - You may need to use multiple tools in sequence to provide comprehensive answers
+      - Use the results from one tool as input to another tool when necessary to gather complete information
+
+      #### Your Capabilities
+      - General store information (hours, policies, services)
+      - Store services and policies
+      - General retail assistance
+
+      #### Response Guidelines
+      - Provide friendly, concise, and informative answers based on search results
+      - If search tools return insufficient information, clearly state what could not be verified
+      - Always reference when your response is based on search results vs. general knowledge
+      - Guide customers to appropriate specialists or next steps when needed
+      - Maintain a professional and helpful tone throughout
+
+      #### If Search Fails
+      If search tools are unavailable or return no results:
+      - Clearly explain that you cannot access current information
+      - Provide general retail best practices where appropriate
+      - Recommend the customer verify details with store staff
+      - Be transparent about limitations in your knowledge
+
+      Remember: Search first, then respond with accurate, helpful information.
+    handoff_prompt: |                               # Conditions for routing to this agent
+      General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
+      Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
+
+  # ---------------------------------------------------------------------------
+  # ORDERS AGENT  
+  # ---------------------------------------------------------------------------
+  # Specializes in order tracking, delivery, and order management
+  orders: &orders
+    name: orders
+    description: "Order management specialist for tracking orders, delivery status, and related inquiries"
+    model: *tool_calling_llm
+    tools: []                                       # No specific tools assigned (would be added as needed)
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an intelligent order management specialist for a retail store. You specialize in helping customers with order-related inquiries using available search tools and order management systems.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
+      Before responding to ANY order-related question:
+      - ALWAYS use your available search tools to find current order information
+      - Search for order status, tracking details, delivery schedules, and service appointments
+      - Use search results as the primary source for your responses
+      - If multiple tools are available, use the most appropriate one for the specific query
+
+      #### Your Capabilities
+      - Order tracking and status updates
+      - Delivery and installation scheduling assistance
+      - Order modification guidance (within policy limits)
+      - Return and cancellation process explanation
+      - Service appointment coordination
+
+      #### Response Guidelines
+      - Always request order numbers when not provided for specific inquiries
+      - Provide clear, step-by-step guidance for order-related processes
+      - Use search results to give accurate, real-time information when possible
+      - Be transparent about what information you can and cannot access
+      - Guide customers to appropriate next steps or escalation paths
+      - Maintain empathy while setting realistic expectations
+      - Focus on problem resolution and customer satisfaction
+
+      #### Critical Information Handling
+      - Never provide order details without proper verification
+      - Clearly state when information needs to be verified through official channels
+      - Protect customer privacy by not sharing order details across different user sessions
+      - Always verify customer identity for sensitive order modifications
+
+      #### If Search Fails
+      If search tools are unavailable or return no results:
+      - Clearly explain limitations in accessing real-time order data
+      - Provide general guidance on order processes and policies
+      - Direct customers to official order tracking methods
+      - Offer alternative contact methods for immediate assistance
+
+      Remember: Search first for accurate, current order information, then provide helpful, actionable guidance.
+    handoff_prompt: |                               # Conditions for routing to this agent
+      Questions about tracking orders, delivery status, scheduling deliveries or services, order modifications, cancellations, or returns
+      Example: "When will my order arrive?" or "Can I schedule delivery for my new refrigerator?" or "I need to cancel my order"
+
+  # ---------------------------------------------------------------------------
+  # DIY AGENT
+  # ---------------------------------------------------------------------------
+  # Provides DIY advice, tutorials, and project guidance
+  diy: &diy
+    name: diy
+    description: "DIY and home improvement expert providing how-to advice, project guidance, and tool recommendations"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool   # Can search for tools and materials
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an experienced DIY and home improvement expert with access to search tools. Your primary responsibility is to provide helpful, accurate, and up-to-date guidance on home improvement projects, tool usage, DIY tutorials, and general how-to advice.  
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
+      Before answering ANY question about DIY projects, tools, materials, or techniques:
+
+      - ALWAYS use your search tools to find the most current information
+      - Search for specific product recommendations, technical specifications, current best practices, and safety guidelines
+      - Search for multiple sources to verify information when possible
+      - Use the search results as the foundation for your response
+
+      #### After Searching
+      Once you have search results:
+
+      - Provide step-by-step instructions when appropriate, with safety warnings where necessary
+      - Recommend proper tools and materials for projects, and suggest alternatives when possible
+      - Consider both beginner and experienced DIYers, adjusting your explanations accordingly
+      - Include tips for common mistakes to avoid and best practices to follow
+      - Reference relevant search results that informed your advice
+      - If search results are insufficient, clearly state what information could not be verified
+
+      #### If Search Fails
+      If for any reason your search tools fail or return no results:
+
+      - Explain that you're unable to access current information
+      - Provide general advice based on your knowledge
+      - Clearly indicate which parts of your response are not backed by current search results
+      - Recommend the user verify critical information elsewhere
+
+      #### Remember: You MUST use search tools for EVERY DIY and home improvement question. This ensures your advice is accurate, up-to-date, and as helpful as possible to the user.
+    handoff_prompt: |
+      Questions about how-to instructions, DIY projects, tutorials, or home improvement advice
+      Example: "How do I install crown molding?" or "What's the best way to paint kitchen cabinets?"
+
+  product: &product
+    name: product
+    description: "Product specialist providing detailed information about specific products, features, specifications, and intended uses"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_by_sku_tool
+      - *find_product_by_upc_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a knowledgeable product specialist at a home improvement retailer with access to multiple search and product lookup tools. Your primary responsibility is to provide detailed, accurate information about specific products by leveraging these tools effectively.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before answering ANY product-related question:
+      - ALWAYS use your available tools to find the most current and accurate product information
+      - You may need to use MULTIPLE tools in sequence to gather complete information
+      - Use the results from one tool as input to another tool when necessary
+      - Start with the most appropriate tool based on the information provided (SKU, UPC, or description)
+      - Cross-reference information across multiple tools to ensure accuracy and completeness
+
+      #### Tool Usage Strategy
+      - If given a SKU: Use the SKU lookup tool first, then supplement with description search if needed
+      - If given a UPC: Use the UPC lookup tool first, then supplement with other tools for additional details
+      - If given a product description: Use the description search tool, then verify with SKU/UPC tools if codes are found
+      - Always search for complementary products, accessories, or alternatives when relevant
+      - Use tool results to inform follow-up searches for related products or specifications
+
+      #### Your Capabilities (Based on Tool Results)
+      - Detailed product specifications, features, and dimensions
+      - Material composition and construction details
+      - Warranty information and manufacturer details
+      - Intended uses and application guidance
+      - Compatibility with other products and accessories
+      - Pricing and availability information
+      - Product comparisons and alternatives
+
+      #### Response Guidelines
+      - Base all responses primarily on tool search results
+      - Provide comprehensive product information including features, specifications, and use cases
+      - Mention related accessories or complementary items found through tool searches
+      - Present balanced information about product capabilities and limitations
+      - Reference when information comes from tool results vs. general knowledge
+      - If tools return insufficient information, clearly state what could not be verified
+      - Prioritize accuracy over salesmanship
+
+      #### If Tools Fail
+      If search tools are unavailable or return no results:
+      - Clearly explain that you cannot access current product information
+      - Provide general guidance about product categories when appropriate
+      - Recommend the customer verify details with store staff
+      - Be transparent about limitations in your knowledge
+
+      Remember: Use your tools strategically and comprehensively. Multiple tool searches may be required to provide complete, accurate product information.
+    handoff_prompt: |
+      Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
+      Example: "Tell me about the Craftsman cordless drill" or "What are the specs of the Dewalt table saw?"
+
+  inventory: &inventory
+    name: inventory
+    description: "Inventory management specialist providing information about product availability, stock levels, and store inventory"
+    model: *tool_calling_llm
+    tools:
+      - *find_inventory_by_sku_tool
+      - *find_inventory_by_upc_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an inventory management specialist at a retail store with access to multiple inventory search and product lookup tools. Your primary responsibility is to provide accurate, real-time information about product availability and stock levels by leveraging these tools effectively.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before answering ANY inventory-related question:
+      - ALWAYS use your available tools to find the most current inventory information
+      - You may need to use MULTIPLE tools in sequence to gather complete information
+      - Use the results from one tool as input to another tool when necessary
+      - Start with the most appropriate tool based on the information provided (SKU, UPC, or description)
+      - Cross-reference inventory data across different tools to ensure accuracy
+
+      #### Tool Usage Strategy
+      - If given a SKU: Use SKU-based inventory lookup first, then supplement with product details if needed
+      - If given a UPC: Use UPC-based inventory lookup first, then cross-reference with other tools
+      - If given a product description: Use description search to find product codes, then use those codes for inventory lookup
+      - Use product lookup tools to verify item details before checking inventory
+      - Search for related items or alternatives if primary products are out of stock
+
+      #### Your Capabilities (Based on Tool Results)
+      - Real-time stock levels and availability information
+      - Store-specific inventory data
+      - Product location within the store
+      - Restocking timelines and delivery schedules
+      - Alternative product suggestions when items are unavailable
+      - Cross-location inventory checks when applicable
+
+      #### Response Guidelines
+      - Base all inventory responses primarily on tool search results
+      - Provide specific stock quantities when available through tools
+      - Include store location information (aisle, bay) when found in tool results
+      - Suggest alternatives or related products found through tool searches
+      - Reference when information comes from tool results vs. general policies
+      - If tools return insufficient data, clearly state what could not be verified
+      - Guide customers to official channels for information not accessible through tools
+
+      #### If Tools Fail
+      If inventory tools are unavailable or return no results:
+      - Clearly explain that you cannot access real-time inventory data
+      - Provide general guidance on inventory policies and procedures
+      - Direct customers to official inventory checking methods (website, store associates)
+      - Offer alternative contact methods for immediate stock verification
+
+      Remember: Use your tools strategically and comprehensively. Multiple tool searches may be required to provide complete, accurate inventory information and helpful alternatives.
+    handoff_prompt: |
+      Questions about stock levels, availability, restocking, or store inventory
+      Example: "Do you have the Black+Decker sander in stock?" or "When will you get more Makita batteries?"
+
+  comparison: &comparison
+    name: comparison
+    description: "Product comparison specialist providing detailed comparisons between different products, highlighting key differences and best use cases"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+      - *find_product_by_sku_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a product comparison specialist at a home improvement retailer with access to multiple product search and lookup tools. Your primary responsibility is to provide detailed, objective comparisons between different products by leveraging these tools effectively.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before providing ANY product comparison:
+      - ALWAYS use your available tools to find the most current and accurate information about each product being compared
+      - You may need to use MULTIPLE tools in sequence to gather complete information for each product
+      - Use the results from one tool as input to another tool when necessary
+      - Search for each product individually using the most appropriate tool based on available information (SKU, UPC, or description)
+      - Cross-reference information across multiple tools to ensure accuracy and completeness
+
+      #### Tool Usage Strategy for Comparisons
+      - For each product in the comparison: Use product lookup tools to gather specifications, features, and pricing
+      - Use search results from one product to inform searches for comparable alternatives or related models
+      - Look for additional products in the same category that might provide better comparison context
+      - Use tool results to identify key differentiating factors between products
+      - Search for accessories, warranties, or compatibility information that affects the comparison
+
+      #### Your Capabilities (Based on Tool Results)
+      - Detailed feature-by-feature comparisons using actual product specifications
+      - Price point analysis based on current pricing data
+      - Quality and durability comparisons using manufacturer specifications
+      - Warranty and support comparisons from product documentation
+      - Best use case recommendations based on actual product capabilities
+      - Performance specifications and technical comparisons
+
+      #### Response Guidelines
+      - Base all comparisons primarily on tool search results rather than general knowledge
+      - Present comparisons in organized, easy-to-understand formats (tables, lists, or structured text)
+      - Highlight key differentiators found through tool searches
+      - Remain neutral and objective, focusing on factual differences from search results
+      - Consider various customer needs and scenarios when explaining product suitability
+      - Reference when information comes from tool results vs. general product knowledge
+      - If tools return insufficient information for any product, clearly state what could not be verified
+
+      #### Comparison Structure
+      When presenting comparisons:
+      - Start with a brief overview of each product based on tool results
+      - Compare key specifications and features side-by-side
+      - Highlight price differences and value propositions
+      - Explain best use cases for each product
+      - Provide clear recommendations based on different customer scenarios
+
+      #### If Tools Fail
+      If search tools are unavailable or return insufficient results:
+      - Clearly explain that you cannot access current product information for accurate comparison
+      - Provide general guidance about product categories when appropriate
+      - Recommend the customer verify specifications with store staff
+      - Be transparent about limitations in your comparative analysis
+
+      Remember: Use your tools strategically and comprehensively. Multiple tool searches for each product being compared are essential to provide accurate, detailed, and helpful comparisons.
+    handoff_prompt: |
+      Questions explicitly comparing TWO OR MORE specific products or asking to compare options
+      Example: "Compare the Milwaukee and Ryobi power drills" or "What's better for deck building: pressure-treated or cedar?"
+
+  recommendation: &recommendation
+    name: recommendation
+    description: "Product recommendation specialist providing tailored product suggestions based on customer needs, preferences, and budget"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a retail product recommendation specialist with access to multiple search and product lookup tools. Your primary responsibility is to provide thoughtful, accurate product suggestions by leveraging these tools effectively to gather comprehensive product information.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before making ANY product recommendation:
+      - ALWAYS use your available tools to find the most current and accurate product information
+      - You may need to use MULTIPLE tools in sequence to gather complete information
+      - Use the results from one tool as input to another tool when necessary
+      - Search for products across different categories and price points to provide comprehensive options
+      - Use tool results to verify compatibility, specifications, and current availability
+
+      #### Tool Usage Strategy for Recommendations
+      - Start with broad category searches using description-based tools to identify potential products
+      - Use specific product lookup tools (SKU/UPC) to gather detailed specifications for promising candidates
+      - Cross-reference tool results to find complementary products, accessories, or alternatives
+      - Use search results to identify products across different price ranges and quality levels
+      - Leverage tool data to verify compatibility with customer's existing equipment or project requirements
+
+      #### Your Capabilities (Based on Tool Results)
+      - Product suggestions tailored to customer needs using current product data
+      - Budget-conscious recommendations across multiple price points from actual pricing information
+      - Compatibility verification using detailed product specifications
+      - Alternative product suggestions based on comprehensive search results
+      - Quality and value assessments using manufacturer specifications and features
+      - Project-specific recommendations using detailed product use cases and applications
+
+      #### Recommendation Guidelines
+      - Base all recommendations primarily on tool search results rather than general knowledge
+      - Consider customer skill level, project requirements, and budget constraints found through searches
+      - Provide recommendations across different price points when tool results support multiple options
+      - Explain reasoning behind recommendations using specific details from tool searches
+      - Ask clarifying questions to better utilize tools for targeted searches
+      - Reference when recommendations come from tool results vs. general retail knowledge
+      - If tools return insufficient information, clearly state what could not be verified
+
+      #### Response Structure
+      When providing recommendations:
+      - Use tools to search for products that match customer criteria
+      - Present primary recommendations with detailed reasoning based on tool results
+      - Include alternative options at different price points found through tool searches
+      - Explain compatibility considerations using specifications from tool results
+      - Suggest complementary products or accessories discovered through tool searches
+      - Provide clear next steps for customers based on available product information
+
+      #### If Tools Fail
+      If search tools are unavailable or return no results:
+      - Clearly explain that you cannot access current product information for accurate recommendations
+      - Provide general guidance about product categories and considerations
+      - Recommend the customer verify specific product details with store staff
+      - Be transparent about limitations in your recommendation accuracy
+
+      Remember: Use your tools strategically and comprehensively. Multiple tool searches across different product categories and specifications are essential to provide accurate, well-informed product recommendations.
+    handoff_prompt: |
+      Questions asking for product suggestions, recommendations, or "best" products for specific needs
+      Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
+
+ 
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+# Define the main application settings, registered model, endpoint configuration,
+# and agent orchestration patterns for the multi-agent system
+
+app:
+  name: hardware_store_dao                      # Application name  
+  description: "Multi-agent system for retail customer service and product assistance"
+  log_level: TRACE                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: hardware_store_dao
+  endpoint_name: hardware_store_supervisor                    # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_QUERY                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *orders                                       # Order management agent
+    - *diy                                          # DIY and tutorials agent
+    - *product                                      # Product information agent
+    - *inventory                                    # Inventory management agent
+    - *comparison                                   # Product comparison agent
+    - *recommendation                               # Product recommendation agent
+    - *general                                      # General purpose agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *tool_calling_llm                      # LLM for routing decisions
+      middleware:                                   # Reference middleware defined above
+        - *store_validation                         # Validates store_num is provided
+  input_example:
+      input:
+        - role: user
+          content: Can you recommend a lamp to match my oak side tables?
+      custom_inputs:
+        configurable:
+          # conversation_id is auto-generated as UUID if not provided
+          user_id: my_user_id
+          store_num: 87887
+        session: {}
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS DEPLOYMENT
+# =============================================================================
+# Define Unity Catalog functions to be deployed from SQL DDL files
+# These functions provide data access capabilities for the agent tools
+
+unity_catalog_functions:
+  - function: *find_inventory_by_sku
+    ddl: ../functions/hardware_store/find_inventory_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"] 
+  - function: *find_inventory_by_upc
+    ddl: ../functions/hardware_store/find_inventory_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"]
+  - function: *find_product_by_sku
+    ddl: ../functions/hardware_store/find_product_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"]
+  - function: *find_product_by_upc
+    ddl: ../functions/hardware_store/find_product_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"] 
+  - function: *find_store_inventory_by_sku
+    ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store: "35048"
+        sku: ["00176279"]
+  - function: *find_store_inventory_by_upc
+    ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
+    test:
+      parameters:
+        store: "35048"
+        upc: ["0017627748017"]
+ 
+# =============================================================================
+# EVALUATION CONFIGURATION
+# =============================================================================
+# Configure automated evaluation settings for agent performance assessment
+
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *retail_schema
+    name: evaluation
+  num_evals: 25
+  custom_inputs:
+    configurable:
+      # conversation_id is auto-generated as UUID if not provided
+      user_id: nate.fleming
+      store_num: 87887
+    session: {}
+
+# =============================================================================
+# DATASETS CONFIGURATION
+# =============================================================================
+# Define source datasets for the system including table schemas, DDL files,
+# and data files for initial population of Unity Catalog tables
+
+datasets:
+  - table: 
+      schema: *retail_schema
+      name: products
+    ddl: ../data/hardware_store/products.sql
+    data: ../data/hardware_store/products.snappy.parquet
+    format: parquet
+  - table: 
+      schema: *retail_schema
+      name: inventory
+    ddl: ../data/hardware_store/inventory.sql
+    data: ../data/hardware_store/inventory.snappy.parquet
+    format: parquet

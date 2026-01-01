@@ -28,9 +28,10 @@ def _create_pool(
     kwargs: dict,
 ) -> ConnectionPool:
     """Create a connection pool using the provided connection parameters."""
-    logger.debug(
-        f"Connection params for {database_name}: {', '.join(k + '=' + (str(v) if k != 'password' else '***') for k, v in connection_params.items())}"
-    )
+    safe_params = {
+        k: (str(v) if k != "password" else "***") for k, v in connection_params.items()
+    }
+    logger.debug("Creating connection pool", database=database_name, **safe_params)
 
     # Merge connection_params into kwargs for psycopg
     connection_kwargs = kwargs | connection_params
@@ -43,7 +44,11 @@ def _create_pool(
         kwargs=connection_kwargs,
     )
     pool.open(wait=True, timeout=timeout_seconds)
-    logger.info(f"Successfully connected to {database_name}")
+    logger.success(
+        "PostgreSQL connection pool created",
+        database=database_name,
+        pool_size=max_pool_size,
+    )
     return pool
 
 
@@ -55,8 +60,11 @@ async def _create_async_pool(
     kwargs: dict,
 ) -> AsyncConnectionPool:
     """Create an async connection pool using the provided connection parameters."""
+    safe_params = {
+        k: (str(v) if k != "password" else "***") for k, v in connection_params.items()
+    }
     logger.debug(
-        f"Connection params for {database_name}: {', '.join(k + '=' + (str(v) if k != 'password' else '***') for k, v in connection_params.items())}"
+        "Creating async connection pool", database=database_name, **safe_params
     )
 
     # Merge connection_params into kwargs for psycopg
@@ -69,7 +77,11 @@ async def _create_async_pool(
         kwargs=connection_kwargs,
     )
     await pool.open(wait=True, timeout=timeout_seconds)
-    logger.info(f"Successfully connected to {database_name}")
+    logger.success(
+        "Async PostgreSQL connection pool created",
+        database=database_name,
+        pool_size=max_pool_size,
+    )
     return pool
 
 
@@ -84,10 +96,12 @@ class AsyncPostgresPoolManager:
 
         async with cls._lock:
             if connection_key in cls._pools:
-                logger.debug(f"Reusing existing PostgreSQL pool for {database.name}")
+                logger.trace(
+                    "Reusing existing async PostgreSQL pool", database=database.name
+                )
                 return cls._pools[connection_key]
 
-            logger.debug(f"Creating new PostgreSQL pool for {database.name}")
+            logger.debug("Creating new async PostgreSQL pool", database=database.name)
 
             kwargs: dict[str, Any] = {
                 "row_factory": dict_row,
@@ -114,7 +128,7 @@ class AsyncPostgresPoolManager:
             if connection_key in cls._pools:
                 pool = cls._pools.pop(connection_key)
                 await pool.close()
-                logger.debug(f"Closed PostgreSQL pool for {database.name}")
+                logger.debug("Async PostgreSQL pool closed", database=database.name)
 
     @classmethod
     async def close_all_pools(cls):
@@ -123,17 +137,21 @@ class AsyncPostgresPoolManager:
                 try:
                     # Use a short timeout to avoid blocking on pool closure
                     await asyncio.wait_for(pool.close(), timeout=2.0)
-                    logger.debug(f"Closed PostgreSQL pool: {connection_key}")
+                    logger.debug("Async PostgreSQL pool closed", pool=connection_key)
                 except asyncio.TimeoutError:
                     logger.warning(
-                        f"Timeout closing pool {connection_key}, forcing closure"
+                        "Timeout closing async pool, forcing closure",
+                        pool=connection_key,
                     )
                 except asyncio.CancelledError:
                     logger.warning(
-                        f"Pool closure cancelled for {connection_key} (shutdown in progress)"
+                        "Async pool closure cancelled (shutdown in progress)",
+                        pool=connection_key,
                     )
                 except Exception as e:
-                    logger.error(f"Error closing pool {connection_key}: {e}")
+                    logger.error(
+                        "Error closing async pool", pool=connection_key, error=str(e)
+                    )
             cls._pools.clear()
 
 
@@ -181,12 +199,16 @@ class AsyncPostgresStoreManager(StoreManagerBase):
             await self._store.setup()
 
             self._setup_complete = True
-            logger.debug(
-                f"PostgresStore initialized successfully for {self.store_model.name}"
+            logger.success(
+                "Async PostgreSQL store initialized", store=self.store_model.name
             )
 
         except Exception as e:
-            logger.error(f"Error setting up PostgresStore: {e}")
+            logger.error(
+                "Error setting up async PostgreSQL store",
+                store=self.store_model.name,
+                error=str(e),
+            )
             raise
 
 
@@ -244,12 +266,17 @@ class AsyncPostgresCheckpointerManager(CheckpointManagerBase):
             await self._checkpointer.setup()
 
             self._setup_complete = True
-            logger.debug(
-                f"PostgresSaver initialized successfully for {self.checkpointer_model.name}"
+            logger.success(
+                "Async PostgreSQL checkpointer initialized",
+                checkpointer=self.checkpointer_model.name,
             )
 
         except Exception as e:
-            logger.error(f"Error setting up PostgresSaver: {e}")
+            logger.error(
+                "Error setting up async PostgreSQL checkpointer",
+                checkpointer=self.checkpointer_model.name,
+                error=str(e),
+            )
             raise
 
 
@@ -269,10 +296,10 @@ class PostgresPoolManager:
 
         with cls._lock:
             if connection_key in cls._pools:
-                logger.debug(f"Reusing existing PostgreSQL pool for {database.name}")
+                logger.trace("Reusing existing PostgreSQL pool", database=database.name)
                 return cls._pools[connection_key]
 
-            logger.debug(f"Creating new PostgreSQL pool for {database.name}")
+            logger.debug("Creating new PostgreSQL pool", database=database.name)
 
             kwargs: dict[str, Any] = {
                 "row_factory": dict_row,
@@ -299,7 +326,7 @@ class PostgresPoolManager:
             if connection_key in cls._pools:
                 pool = cls._pools.pop(connection_key)
                 pool.close()
-                logger.debug(f"Closed PostgreSQL pool for {database.name}")
+                logger.debug("PostgreSQL pool closed", database=database.name)
 
     @classmethod
     def close_all_pools(cls):
@@ -307,9 +334,13 @@ class PostgresPoolManager:
             for connection_key, pool in cls._pools.items():
                 try:
                     pool.close()
-                    logger.debug(f"Closed PostgreSQL pool: {connection_key}")
+                    logger.debug("PostgreSQL pool closed", pool=connection_key)
                 except Exception as e:
-                    logger.error(f"Error closing pool {connection_key}: {e}")
+                    logger.error(
+                        "Error closing PostgreSQL pool",
+                        pool=connection_key,
+                        error=str(e),
+                    )
             cls._pools.clear()
 
 
@@ -349,12 +380,14 @@ class PostgresStoreManager(StoreManagerBase):
             self._store.setup()
 
             self._setup_complete = True
-            logger.debug(
-                f"PostgresStore initialized successfully for {self.store_model.name}"
-            )
+            logger.success("PostgreSQL store initialized", store=self.store_model.name)
 
         except Exception as e:
-            logger.error(f"Error setting up PostgresStore: {e}")
+            logger.error(
+                "Error setting up PostgreSQL store",
+                store=self.store_model.name,
+                error=str(e),
+            )
             raise
 
 
@@ -400,21 +433,28 @@ class PostgresCheckpointerManager(CheckpointManagerBase):
             self._checkpointer.setup()
 
             self._setup_complete = True
-            logger.debug(
-                f"PostgresSaver initialized successfully for {self.checkpointer_model.name}"
+            logger.success(
+                "PostgreSQL checkpointer initialized",
+                checkpointer=self.checkpointer_model.name,
             )
 
         except Exception as e:
-            logger.error(f"Error setting up PostgresSaver: {e}")
+            logger.error(
+                "Error setting up PostgreSQL checkpointer",
+                checkpointer=self.checkpointer_model.name,
+                error=str(e),
+            )
             raise
 
 
 def _shutdown_pools() -> None:
     try:
         PostgresPoolManager.close_all_pools()
-        logger.debug("Successfully closed all synchronous PostgreSQL pools")
+        logger.debug("All synchronous PostgreSQL pools closed during shutdown")
     except Exception as e:
-        logger.error(f"Error closing synchronous PostgreSQL pools during shutdown: {e}")
+        logger.error(
+            "Error closing synchronous PostgreSQL pools during shutdown", error=str(e)
+        )
 
 
 def _shutdown_async_pools() -> None:
@@ -434,15 +474,16 @@ def _shutdown_async_pools() -> None:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                 loop.run_until_complete(AsyncPostgresPoolManager.close_all_pools())
-                logger.debug("Successfully closed all asynchronous PostgreSQL pools")
+                logger.debug("All asynchronous PostgreSQL pools closed during shutdown")
             except Exception as inner_e:
                 # If all else fails, just log the error
                 logger.warning(
-                    f"Could not close async pools cleanly during shutdown: {inner_e}"
+                    "Could not close async pools cleanly during shutdown",
+                    error=str(inner_e),
                 )
     except Exception as e:
         logger.error(
-            f"Error closing asynchronous PostgreSQL pools during shutdown: {e}"
+            "Error closing asynchronous PostgreSQL pools during shutdown", error=str(e)
         )
 
 

@@ -23,8 +23,11 @@ from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
     ModelServingUserCredentials,
 )
+from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
+from databricks.sdk.service.dashboards import GenieSpace
 from databricks.sdk.service.database import DatabaseInstance
+from databricks.sdk.service.sql import GetWarehouseResponse
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -65,9 +68,12 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     field_serializer,
     model_validator,
 )
+
+from dao_ai.utils import normalize_name
 
 
 class HasValue(ABC):
@@ -228,6 +234,9 @@ class IsDatabricksResource(ABC, BaseModel):
     workspace_host: Optional[AnyVariable] = None
     pat: Optional[AnyVariable] = None
 
+    # Private attribute to cache the workspace client (lazy instantiation)
+    _workspace_client: Optional[WorkspaceClient] = PrivateAttr(default=None)
+
     @abstractmethod
     def as_resources(self) -> Sequence[DatabricksResource]: ...
 
@@ -263,6 +272,8 @@ class IsDatabricksResource(ABC, BaseModel):
         """
         Get a WorkspaceClient configured with the appropriate authentication.
 
+        The client is lazily instantiated on first access and cached for subsequent calls.
+
         Authentication priority:
         1. If on_behalf_of_user is True, uses ModelServingUserCredentials (OBO)
         2. If service principal credentials are configured (client_id, client_secret,
@@ -270,6 +281,10 @@ class IsDatabricksResource(ABC, BaseModel):
         3. If PAT is configured, uses token authentication
         4. Otherwise, uses default/ambient authentication
         """
+        # Return cached client if already instantiated
+        if self._workspace_client is not None:
+            return self._workspace_client
+
         from dao_ai.utils import normalize_host
 
         # Check for OBO first (highest priority)
@@ -279,7 +294,10 @@ class IsDatabricksResource(ABC, BaseModel):
                 f"Creating WorkspaceClient for {self.__class__.__name__} "
                 f"with OBO credentials strategy"
             )
-            return WorkspaceClient(credentials_strategy=credentials_strategy)
+            self._workspace_client = WorkspaceClient(
+                credentials_strategy=credentials_strategy
+            )
+            return self._workspace_client
 
         # Check for service principal credentials
         client_id_value: str | None = (
@@ -299,12 +317,13 @@ class IsDatabricksResource(ABC, BaseModel):
                 f"Creating WorkspaceClient for {self.__class__.__name__} with service principal: "
                 f"client_id={client_id_value}, host={workspace_host_value}"
             )
-            return WorkspaceClient(
+            self._workspace_client = WorkspaceClient(
                 host=workspace_host_value,
                 client_id=client_id_value,
                 client_secret=client_secret_value,
                 auth_type="oauth-m2m",
             )
+            return self._workspace_client
 
         # Check for PAT authentication
         pat_value: str | None = value_of(self.pat) if self.pat else None
@@ -312,18 +331,20 @@ class IsDatabricksResource(ABC, BaseModel):
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} with PAT"
             )
-            return WorkspaceClient(
+            self._workspace_client = WorkspaceClient(
                 host=workspace_host_value,
                 token=pat_value,
                 auth_type="pat",
             )
+            return self._workspace_client
 
         # Default: use ambient authentication
         logger.debug(
             f"Creating WorkspaceClient for {self.__class__.__name__} "
             "with default/ambient authentication"
         )
-        return WorkspaceClient()
+        self._workspace_client = WorkspaceClient()
+        return self._workspace_client
 
 
 class Privilege(str, Enum):
@@ -431,6 +452,22 @@ class TableModel(IsDatabricksResource, HasFullName):
     def api_scopes(self) -> Sequence[str]:
         return []
 
+    def exists(self) -> bool:
+        """Check if the table exists in Unity Catalog.
+
+        Returns:
+            True if the table exists, False otherwise.
+        """
+        try:
+            self.workspace_client.tables.get(full_name=self.full_name)
+            return True
+        except NotFound:
+            logger.debug(f"Table not found: {self.full_name}")
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking table existence for {self.full_name}: {e}")
+            return False
+
     def as_resources(self) -> Sequence[DatabricksResource]:
         resources: list[DatabricksResource] = []
 
@@ -477,6 +514,7 @@ class TableModel(IsDatabricksResource, HasFullName):
 class LLMModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
+    description: Optional[str] = None
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
     fallbacks: Optional[list[Union[str, "LLMModel"]]] = Field(default_factory=list)
@@ -587,11 +625,296 @@ class IndexModel(IsDatabricksResource, HasFullName):
         ]
 
 
+class FunctionModel(IsDatabricksResource, HasFullName):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
+    name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_name_or_schema_required(self) -> Self:
+        if not self.name and not self.schema_model:
+            raise ValueError(
+                "Either 'name' or 'schema_model' must be provided for FunctionModel"
+            )
+        return self
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            name: str = ""
+            if self.name:
+                name = f".{self.name}"
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
+        return self.name
+
+    def exists(self) -> bool:
+        """Check if the function exists in Unity Catalog.
+
+        Returns:
+            True if the function exists, False otherwise.
+        """
+        try:
+            self.workspace_client.functions.get(name=self.full_name)
+            return True
+        except NotFound:
+            logger.debug(f"Function not found: {self.full_name}")
+            return False
+        except Exception as e:
+            logger.warning(
+                f"Error checking function existence for {self.full_name}: {e}"
+            )
+            return False
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        resources: list[DatabricksResource] = []
+        if self.name:
+            resources.append(
+                DatabricksFunction(
+                    function_name=self.full_name,
+                    on_behalf_of_user=self.on_behalf_of_user,
+                )
+            )
+        else:
+            w: WorkspaceClient = self.workspace_client
+            schema_full_name: str = self.schema_model.full_name
+            functions: Iterator[FunctionInfo] = w.functions.list(
+                catalog_name=self.schema_model.catalog_name,
+                schema_name=self.schema_model.schema_name,
+            )
+            resources.extend(
+                [
+                    DatabricksFunction(
+                        function_name=f"{schema_full_name}.{function.name}",
+                        on_behalf_of_user=self.on_behalf_of_user,
+                    )
+                    for function in functions
+                ]
+            )
+
+        return resources
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return ["sql.statement-execution"]
+
+
+class WarehouseModel(IsDatabricksResource):
+    model_config = ConfigDict()
+    name: str
+    description: Optional[str] = None
+    warehouse_id: AnyVariable
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return [
+            "sql.warehouses",
+            "sql.statement-execution",
+        ]
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        return [
+            DatabricksSQLWarehouse(
+                warehouse_id=value_of(self.warehouse_id),
+                on_behalf_of_user=self.on_behalf_of_user,
+            )
+        ]
+
+    @model_validator(mode="after")
+    def update_warehouse_id(self) -> Self:
+        self.warehouse_id = value_of(self.warehouse_id)
+        return self
+
+
 class GenieRoomModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: Optional[str] = None
     space_id: AnyVariable
+
+    _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
+
+    def _get_space_details(self) -> GenieSpace:
+        if self._space_details is None:
+            self._space_details = self.workspace_client.genie.get_space(
+                space_id=self.space_id, include_serialized_space=True
+            )
+        return self._space_details
+
+    def _parse_serialized_space(self) -> dict[str, Any]:
+        """Parse the serialized_space JSON string and return the parsed data."""
+        import json
+
+        space_details = self._get_space_details()
+        if not space_details.serialized_space:
+            return {}
+
+        try:
+            return json.loads(space_details.serialized_space)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse serialized_space: {e}")
+            return {}
+
+    @property
+    def warehouse(self) -> Optional[WarehouseModel]:
+        """Extract warehouse information from the Genie space.
+
+        Returns:
+            WarehouseModel instance if warehouse_id is available, None otherwise.
+        """
+        space_details: GenieSpace = self._get_space_details()
+
+        if not space_details.warehouse_id:
+            return None
+
+        try:
+            response: GetWarehouseResponse = self.workspace_client.warehouses.get(
+                space_details.warehouse_id
+            )
+            warehouse_name: str = response.name or space_details.warehouse_id
+
+            warehouse_model = WarehouseModel(
+                name=warehouse_name,
+                warehouse_id=space_details.warehouse_id,
+                on_behalf_of_user=self.on_behalf_of_user,
+                service_principal=self.service_principal,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                workspace_host=self.workspace_host,
+                pat=self.pat,
+            )
+
+            # Share the cached workspace client if available
+            if self._workspace_client is not None:
+                warehouse_model._workspace_client = self._workspace_client
+
+            return warehouse_model
+        except Exception as e:
+            logger.warning(
+                f"Failed to fetch warehouse details for {space_details.warehouse_id}: {e}"
+            )
+            return None
+
+    @property
+    def tables(self) -> list[TableModel]:
+        """Extract tables from the serialized Genie space.
+
+        Databricks Genie stores tables in: data_sources.tables[].identifier
+        Only includes tables that actually exist in Unity Catalog.
+        """
+        parsed_space = self._parse_serialized_space()
+        tables_list: list[TableModel] = []
+
+        # Primary structure: data_sources.tables with 'identifier' field
+        if "data_sources" in parsed_space:
+            data_sources = parsed_space["data_sources"]
+            if isinstance(data_sources, dict) and "tables" in data_sources:
+                tables_data = data_sources["tables"]
+                if isinstance(tables_data, list):
+                    for table_item in tables_data:
+                        table_name: str | None = None
+                        if isinstance(table_item, dict):
+                            # Standard Databricks structure uses 'identifier'
+                            table_name = table_item.get("identifier") or table_item.get(
+                                "name"
+                            )
+                        elif isinstance(table_item, str):
+                            table_name = table_item
+
+                        if table_name:
+                            table_model = TableModel(
+                                name=table_name,
+                                on_behalf_of_user=self.on_behalf_of_user,
+                                service_principal=self.service_principal,
+                                client_id=self.client_id,
+                                client_secret=self.client_secret,
+                                workspace_host=self.workspace_host,
+                                pat=self.pat,
+                            )
+                            # Share the cached workspace client if available
+                            if self._workspace_client is not None:
+                                table_model._workspace_client = self._workspace_client
+
+                            # Verify the table exists before adding
+                            if not table_model.exists():
+                                continue
+
+                            tables_list.append(table_model)
+
+        return tables_list
+
+    @property
+    def functions(self) -> list[FunctionModel]:
+        """Extract functions from the serialized Genie space.
+
+        Databricks Genie stores functions in multiple locations:
+        - instructions.sql_functions[].identifier (SQL functions)
+        - data_sources.functions[].identifier (other functions)
+        Only includes functions that actually exist in Unity Catalog.
+        """
+        parsed_space = self._parse_serialized_space()
+        functions_list: list[FunctionModel] = []
+        seen_functions: set[str] = set()
+
+        def add_function_if_exists(function_name: str) -> None:
+            """Helper to add a function if it exists and hasn't been added."""
+            if function_name in seen_functions:
+                return
+
+            seen_functions.add(function_name)
+            function_model = FunctionModel(
+                name=function_name,
+                on_behalf_of_user=self.on_behalf_of_user,
+                service_principal=self.service_principal,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                workspace_host=self.workspace_host,
+                pat=self.pat,
+            )
+            # Share the cached workspace client if available
+            if self._workspace_client is not None:
+                function_model._workspace_client = self._workspace_client
+
+            # Verify the function exists before adding
+            if not function_model.exists():
+                return
+
+            functions_list.append(function_model)
+
+        # Primary structure: instructions.sql_functions with 'identifier' field
+        if "instructions" in parsed_space:
+            instructions = parsed_space["instructions"]
+            if isinstance(instructions, dict) and "sql_functions" in instructions:
+                sql_functions_data = instructions["sql_functions"]
+                if isinstance(sql_functions_data, list):
+                    for function_item in sql_functions_data:
+                        if isinstance(function_item, dict):
+                            # SQL functions use 'identifier' field
+                            function_name = function_item.get(
+                                "identifier"
+                            ) or function_item.get("name")
+                            if function_name:
+                                add_function_if_exists(function_name)
+
+        # Secondary structure: data_sources.functions with 'identifier' field
+        if "data_sources" in parsed_space:
+            data_sources = parsed_space["data_sources"]
+            if isinstance(data_sources, dict) and "functions" in data_sources:
+                functions_data = data_sources["functions"]
+                if isinstance(functions_data, list):
+                    for function_item in functions_data:
+                        function_name: str | None = None
+                        if isinstance(function_item, dict):
+                            # Standard Databricks structure uses 'identifier'
+                            function_name = function_item.get(
+                                "identifier"
+                            ) or function_item.get("name")
+                        elif isinstance(function_item, str):
+                            function_name = function_item
+
+                        if function_name:
+                            add_function_if_exists(function_name)
+
+        return functions_list
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -610,6 +933,18 @@ class GenieRoomModel(IsDatabricksResource):
     @model_validator(mode="after")
     def update_space_id(self) -> Self:
         self.space_id = value_of(self.space_id)
+        return self
+
+    @model_validator(mode="after")
+    def update_description_from_space(self) -> Self:
+        """Populate description from GenieSpace if not provided."""
+        if not self.description:
+            try:
+                space_details = self._get_space_details()
+                if space_details.description:
+                    self.description = space_details.description
+            except Exception as e:
+                logger.debug(f"Could not fetch description from Genie space: {e}")
         return self
 
 
@@ -772,61 +1107,6 @@ class VectorStoreModel(IsDatabricksResource):
         provider.create_vector_store(self)
 
 
-class FunctionModel(IsDatabricksResource, HasFullName):
-    model_config = ConfigDict()
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: Optional[str] = None
-
-    @model_validator(mode="after")
-    def validate_name_or_schema_required(self) -> "FunctionModel":
-        if not self.name and not self.schema_model:
-            raise ValueError(
-                "Either 'name' or 'schema_model' must be provided for FunctionModel"
-            )
-        return self
-
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            name: str = ""
-            if self.name:
-                name = f".{self.name}"
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
-        return self.name
-
-    def as_resources(self) -> Sequence[DatabricksResource]:
-        resources: list[DatabricksResource] = []
-        if self.name:
-            resources.append(
-                DatabricksFunction(
-                    function_name=self.full_name,
-                    on_behalf_of_user=self.on_behalf_of_user,
-                )
-            )
-        else:
-            w: WorkspaceClient = self.workspace_client
-            schema_full_name: str = self.schema_model.full_name
-            functions: Iterator[FunctionInfo] = w.functions.list(
-                catalog_name=self.schema_model.catalog_name,
-                schema_name=self.schema_model.schema_name,
-            )
-            resources.extend(
-                [
-                    DatabricksFunction(
-                        function_name=f"{schema_full_name}.{function.name}",
-                        on_behalf_of_user=self.on_behalf_of_user,
-                    )
-                    for function in functions
-                ]
-            )
-
-        return resources
-
-    @property
-    def api_scopes(self) -> Sequence[str]:
-        return ["sql.statement-execution"]
-
-
 class ConnectionModel(IsDatabricksResource, HasFullName):
     model_config = ConfigDict()
     name: str
@@ -854,55 +1134,25 @@ class ConnectionModel(IsDatabricksResource, HasFullName):
         ]
 
 
-class WarehouseModel(IsDatabricksResource):
-    model_config = ConfigDict()
-    name: str
-    description: Optional[str] = None
-    warehouse_id: AnyVariable
-
-    @property
-    def api_scopes(self) -> Sequence[str]:
-        return [
-            "sql.warehouses",
-            "sql.statement-execution",
-        ]
-
-    def as_resources(self) -> Sequence[DatabricksResource]:
-        return [
-            DatabricksSQLWarehouse(
-                warehouse_id=value_of(self.warehouse_id),
-                on_behalf_of_user=self.on_behalf_of_user,
-            )
-        ]
-
-    @model_validator(mode="after")
-    def update_warehouse_id(self) -> Self:
-        self.warehouse_id = value_of(self.warehouse_id)
-        return self
-
-
-class DatabaseType(str, Enum):
-    POSTGRES = "postgres"
-    LAKEBASE = "lakebase"
-
-
 class DatabaseModel(IsDatabricksResource):
     """
-    Configuration for a Databricks Lakebase (PostgreSQL) database instance.
+    Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.
 
     Authentication is inherited from IsDatabricksResource. Additionally supports:
     - user/password: For user-based database authentication
 
-    Database Type:
-    - lakebase: Databricks-managed Lakebase instance (authentication optional, supports ambient auth)
-    - postgres: Standard PostgreSQL database (authentication required)
+    Connection Types (determined by fields provided):
+    - Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)
+    - Standard PostgreSQL: Provide `host` (authentication required via user/password)
 
-    Example Service Principal Configuration:
+    Note: `instance_name` and `host` are mutually exclusive. Provide one or the other.
+
+    Example Databricks Lakebase with Service Principal:
     ```yaml
     databases:
       my_lakebase:
         name: my-database
-        type: lakebase
+        instance_name: my-lakebase-instance
         service_principal:
           client_id:
             env: SERVICE_PRINCIPAL_CLIENT_ID
@@ -913,28 +1163,31 @@ class DatabaseModel(IsDatabricksResource):
           env: DATABRICKS_HOST
     ```
 
-    Example User Configuration:
+    Example Databricks Lakebase with Ambient Authentication:
     ```yaml
     databases:
       my_lakebase:
         name: my-database
-        type: lakebase
-        user: my-user@databricks.com
+        instance_name: my-lakebase-instance
+        on_behalf_of_user: true
     ```
 
-    Example Ambient Authentication (Lakebase only):
+    Example Standard PostgreSQL:
     ```yaml
     databases:
-      my_lakebase:
+      my_postgres:
         name: my-database
-        type: lakebase
-        on_behalf_of_user: true
+        host: my-postgres-host.example.com
+        port: 5432
+        database: my_db
+        user: my_user
+        password:
+          env: PGPASSWORD
     ```
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    type: Optional[DatabaseType] = DatabaseType.LAKEBASE
     instance_name: Optional[str] = None
     description: Optional[str] = None
     host: Optional[AnyVariable] = None
@@ -949,27 +1202,38 @@ class DatabaseModel(IsDatabricksResource):
     user: Optional[AnyVariable] = None
     password: Optional[AnyVariable] = None
 
-    @field_serializer("type")
-    def serialize_type(self, value: DatabaseType | None) -> str | None:
-        """Serialize the database type enum to its string value."""
-        return value.value if value is not None else None
-
     @property
     def api_scopes(self) -> Sequence[str]:
         return ["database.database-instances"]
 
+    @property
+    def is_lakebase(self) -> bool:
+        """Returns True if this is a Databricks Lakebase connection (instance_name provided)."""
+        return self.instance_name is not None
+
     def as_resources(self) -> Sequence[DatabricksResource]:
-        return [
-            DatabricksLakebase(
-                database_instance_name=self.instance_name,
-                on_behalf_of_user=self.on_behalf_of_user,
-            )
-        ]
+        if self.is_lakebase:
+            return [
+                DatabricksLakebase(
+                    database_instance_name=self.instance_name,
+                    on_behalf_of_user=self.on_behalf_of_user,
+                )
+            ]
+        return []
 
     @model_validator(mode="after")
-    def update_instance_name(self) -> Self:
-        if self.instance_name is None:
-            self.instance_name = self.name
+    def validate_connection_type(self) -> Self:
+        """Validate connection configuration based on type.
+
+        - If instance_name is provided: Databricks Lakebase connection
+          (host is optional - will be fetched from API if not provided)
+        - If only host is provided: Standard PostgreSQL connection
+          (must not have instance_name)
+        """
+        if not self.instance_name and not self.host:
+            raise ValueError(
+                "Either instance_name (Databricks Lakebase) or host (PostgreSQL) must be provided."
+            )
         return self
 
     @model_validator(mode="after")
@@ -978,10 +1242,10 @@ class DatabaseModel(IsDatabricksResource):
         if self.on_behalf_of_user or self.client_id or self.user or self.pat:
             return self
 
-        # For postgres, we need explicit user credentials
-        # For lakebase with no auth, ambient auth is allowed
-        if self.type == DatabaseType.POSTGRES:
-            # Try to determine current user for local development
+        # For standard PostgreSQL, we need explicit user credentials
+        # For Lakebase with no auth, ambient auth is allowed
+        if not self.is_lakebase:
+            # Standard PostgreSQL - try to determine current user for local development
             try:
                 self.user = self.workspace_client.current_user.me().user_name
             except Exception as e:
@@ -990,12 +1254,12 @@ class DatabaseModel(IsDatabricksResource):
                     f"Please provide explicit user credentials."
                 )
         else:
-            # For lakebase, try to determine current user but don't fail if we can't
+            # For Lakebase, try to determine current user but don't fail if we can't
             try:
                 self.user = self.workspace_client.current_user.me().user_name
             except Exception:
                 # If we can't determine user and no explicit auth, that's okay
-                # for lakebase with ambient auth - credentials will be injected at runtime
+                # for Lakebase with ambient auth - credentials will be injected at runtime
                 pass
 
         return self
@@ -1005,28 +1269,29 @@ class DatabaseModel(IsDatabricksResource):
         if self.host is not None:
             return self
 
-        # Try to fetch host from existing instance
+        # If instance_name is provided (Lakebase), try to fetch host from existing instance
         # This may fail for OBO/ambient auth during model logging (before deployment)
-        try:
-            existing_instance: DatabaseInstance = (
-                self.workspace_client.database.get_database_instance(
-                    name=self.instance_name
+        if self.is_lakebase:
+            try:
+                existing_instance: DatabaseInstance = (
+                    self.workspace_client.database.get_database_instance(
+                        name=self.instance_name
+                    )
                 )
-            )
-            self.host = existing_instance.read_write_dns
-        except Exception as e:
-            # For lakebase with OBO/ambient auth, we can't fetch at config time
-            # The host will need to be provided explicitly or fetched at runtime
-            if self.type == DatabaseType.LAKEBASE and self.on_behalf_of_user:
-                logger.debug(
-                    f"Could not fetch host for database {self.instance_name} "
-                    f"(Lakebase with OBO mode - will be resolved at runtime): {e}"
-                )
-            else:
-                raise ValueError(
-                    f"Could not fetch host for database {self.instance_name}. "
-                    f"Please provide the 'host' explicitly or ensure the instance exists: {e}"
-                )
+                self.host = existing_instance.read_write_dns
+            except Exception as e:
+                # For Lakebase with OBO/ambient auth, we can't fetch at config time
+                # The host will need to be provided explicitly or fetched at runtime
+                if self.on_behalf_of_user:
+                    logger.debug(
+                        f"Could not fetch host for database {self.instance_name} "
+                        f"(Lakebase with OBO mode - will be resolved at runtime): {e}"
+                    )
+                else:
+                    raise ValueError(
+                        f"Could not fetch host for database {self.instance_name}. "
+                        f"Please provide the 'host' explicitly or ensure the instance exists: {e}"
+                    )
         return self
 
     @model_validator(mode="after")
@@ -1054,9 +1319,9 @@ class DatabaseModel(IsDatabricksResource):
                 "or user credentials (user)."
             )
 
-        # For postgres type, at least one auth method must be configured
-        # For lakebase type, auth is optional (supports ambient authentication)
-        if self.type == DatabaseType.POSTGRES and auth_methods_count == 0:
+        # For standard PostgreSQL (host-based), at least one auth method must be configured
+        # For Lakebase (instance_name-based), auth is optional (supports ambient authentication)
+        if not self.is_lakebase and auth_methods_count == 0:
             raise ValueError(
                 "PostgreSQL databases require explicit authentication. "
                 "Please provide one of: "
@@ -1074,24 +1339,23 @@ class DatabaseModel(IsDatabricksResource):
         Get database connection parameters as a dictionary.
 
         Returns a dict with connection parameters suitable for psycopg ConnectionPool.
-        If username is configured, it will be included; otherwise it will be omitted
-        to allow Lakebase to authenticate using the token's identity.
+
+        For Lakebase: Uses Databricks-generated credentials (token-based auth).
+        For standard PostgreSQL: Uses provided user/password credentials.
         """
         import uuid as _uuid
 
         from databricks.sdk.service.database import DatabaseCredential
 
+        host: str
+        port: int
+        database: str
         username: str | None = None
-
-        if self.client_id and self.client_secret and self.workspace_host:
-            username = value_of(self.client_id)
-        elif self.user:
-            username = value_of(self.user)
-        # For OBO mode, no username is needed - the token identity is used
+        password_value: str | None = None
 
         # Resolve host - may need to fetch at runtime for OBO mode
         host_value: Any = self.host
-        if host_value is None and self.on_behalf_of_user:
+        if host_value is None and self.is_lakebase and self.on_behalf_of_user:
             # Fetch host at runtime for OBO mode
             existing_instance: DatabaseInstance = (
                 self.workspace_client.database.get_database_instance(
@@ -1101,29 +1365,50 @@ class DatabaseModel(IsDatabricksResource):
             host_value = existing_instance.read_write_dns
 
         if host_value is None:
+            instance_or_name = self.instance_name if self.is_lakebase else self.name
             raise ValueError(
-                f"Database host not configured for {self.instance_name}. "
+                f"Database host not configured for {instance_or_name}. "
                 "Please provide 'host' explicitly."
             )
 
-        host: str = value_of(host_value)
-        port: int = value_of(self.port)
-        database: str = value_of(self.database)
+        host = value_of(host_value)
+        port = value_of(self.port)
+        database = value_of(self.database)
 
-        # Use the resource's own workspace_client to generate the database credential
-        w: WorkspaceClient = self.workspace_client
-        cred: DatabaseCredential = w.database.generate_database_credential(
-            request_id=str(_uuid.uuid4()),
-            instance_names=[self.instance_name],
-        )
-        token: str = cred.token
+        if self.is_lakebase:
+            # Lakebase: Use Databricks-generated credentials
+            if self.client_id and self.client_secret and self.workspace_host:
+                username = value_of(self.client_id)
+            elif self.user:
+                username = value_of(self.user)
+            # For OBO mode, no username is needed - the token identity is used
+
+            # Generate Databricks database credential (token)
+            w: WorkspaceClient = self.workspace_client
+            cred: DatabaseCredential = w.database.generate_database_credential(
+                request_id=str(_uuid.uuid4()),
+                instance_names=[self.instance_name],
+            )
+            password_value = cred.token
+        else:
+            # Standard PostgreSQL: Use provided credentials
+            if self.user:
+                username = value_of(self.user)
+            if self.password:
+                password_value = value_of(self.password)
+
+            if not username or not password_value:
+                raise ValueError(
+                    f"Standard PostgreSQL databases require both 'user' and 'password'. "
+                    f"Database: {self.name}"
+                )
 
         # Build connection parameters dictionary
         params: dict[str, Any] = {
             "dbname": database,
             "host": host,
             "port": port,
-            "password": token,
+            "password": password_value,
             "sslmode": "require",
         }
 
@@ -1282,8 +1567,8 @@ class RerankParametersModel(BaseModel):
         description="Number of documents to return after reranking. If None, uses search_parameters.num_results.",
     )
     cache_dir: Optional[str] = Field(
-        default="/tmp/flashrank_cache",
-        description="Directory to cache downloaded model weights.",
+        default="~/.dao_ai/cache/flashrank",
+        description="Directory to cache downloaded model weights. Supports tilde expansion (e.g., ~/.dao_ai).",
     )
     columns: Optional[list[str]] = Field(
         default_factory=list, description="Columns to rerank using DatabricksReranker"
@@ -1373,7 +1658,6 @@ class BaseFunctionModel(ABC, BaseModel):
         discriminator="type",
     )
     type: FunctionType
-    name: str
     human_in_the_loop: Optional[HumanInTheLoopModel] = None
 
     @abstractmethod
@@ -1390,6 +1674,7 @@ class BaseFunctionModel(ABC, BaseModel):
 class PythonFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: Literal[FunctionType.PYTHON] = FunctionType.PYTHON
+    name: str
 
     @property
     def full_name(self) -> str:
@@ -1403,8 +1688,9 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    args: Optional[dict[str, Any]] = Field(default_factory=dict)
     type: Literal[FunctionType.FACTORY] = FunctionType.FACTORY
+    name: str
+    args: Optional[dict[str, Any]] = Field(default_factory=dict)
 
     @property
     def full_name(self) -> str:
@@ -1427,7 +1713,7 @@ class TransportType(str, Enum):
     STDIO = "stdio"
 
 
-class McpFunctionModel(BaseFunctionModel, IsDatabricksResource, HasFullName):
+class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     """
     MCP Function Model with authentication inherited from IsDatabricksResource.
 
@@ -1465,10 +1751,6 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource, HasFullName):
     def as_resources(self) -> Sequence[DatabricksResource]:
         """MCP functions don't declare static resources."""
         return []
-
-    @property
-    def full_name(self) -> str:
-        return self.name
 
     def _get_workspace_host(self) -> str:
         """
@@ -1635,17 +1917,11 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource, HasFullName):
         return create_mcp_tools(self)
 
 
-class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
+class UnityCatalogFunctionModel(BaseFunctionModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    partial_args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
     type: Literal[FunctionType.UNITY_CATALOG] = FunctionType.UNITY_CATALOG
-
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
+    resource: FunctionModel
+    partial_args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_uc_tools
@@ -1679,6 +1955,12 @@ class PromptModel(BaseModel, HasFullName):
     alias: Optional[str] = None
     version: Optional[int] = None
     tags: Optional[dict[str, Any]] = Field(default_factory=dict)
+    auto_register: bool = Field(
+        default=False,
+        description="Whether to automatically register the default_template to the prompt registry. "
+        "If False, the prompt will only be loaded from the registry (never created/updated). "
+        "Defaults to True for backward compatibility.",
+    )
 
     @property
     def template(self) -> str:
@@ -1760,23 +2042,17 @@ class MiddlewareModel(BaseModel):
 class StorageType(str, Enum):
     POSTGRES = "postgres"
     MEMORY = "memory"
-    LAKEBASE = "lakebase"
 
 
 class CheckpointerModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    type: Optional[StorageType] = StorageType.MEMORY
     database: Optional[DatabaseModel] = None
 
-    @model_validator(mode="after")
-    def validate_storage_requires_database(self) -> Self:
-        if (
-            self.type in [StorageType.POSTGRES, StorageType.LAKEBASE]
-            and not self.database
-        ):
-            raise ValueError("Database must be provided when storage type is POSTGRES")
-        return self
+    @property
+    def storage_type(self) -> StorageType:
+        """Infer storage type from database presence."""
+        return StorageType.POSTGRES if self.database else StorageType.MEMORY
 
     def as_checkpointer(self) -> BaseCheckpointSaver:
         from dao_ai.memory import CheckpointManager
@@ -1792,16 +2068,14 @@ class StoreModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     embedding_model: Optional[LLMModel] = None
-    type: Optional[StorageType] = StorageType.MEMORY
     dims: Optional[int] = 1536
     database: Optional[DatabaseModel] = None
     namespace: Optional[str] = None
 
-    @model_validator(mode="after")
-    def validate_postgres_requires_database(self) -> Self:
-        if self.type == StorageType.POSTGRES and not self.database:
-            raise ValueError("Database must be provided when storage type is POSTGRES")
-        return self
+    @property
+    def storage_type(self) -> StorageType:
+        """Infer storage type from database presence."""
+        return StorageType.POSTGRES if self.database else StorageType.MEMORY
 
     def as_store(self) -> BaseStore:
         from dao_ai.memory import StoreManager
@@ -2044,6 +2318,10 @@ class SwarmModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     default_agent: Optional[AgentModel | str] = None
+    middleware: list[MiddlewareModel] = Field(
+        default_factory=list,
+        description="List of middleware to apply to all agents in the swarm",
+    )
     handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
         default_factory=dict
     )
@@ -2606,7 +2884,7 @@ class UnityCatalogFunctionSqlTestModel(BaseModel):
 
 class UnityCatalogFunctionSqlModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    function: UnityCatalogFunctionModel
+    function: FunctionModel
     ddl: str
     parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
     test: Optional[UnityCatalogFunctionSqlTestModel] = None
@@ -2635,6 +2913,113 @@ class ResourcesModel(BaseModel):
     databases: dict[str, DatabaseModel] = Field(default_factory=dict)
     connections: dict[str, ConnectionModel] = Field(default_factory=dict)
     apps: dict[str, DatabricksAppModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def update_genie_warehouses(self) -> Self:
+        """
+        Automatically populate warehouses from genie_rooms.
+
+        Warehouses are extracted from each Genie room and added to the
+        resources if they don't already exist (based on warehouse_id).
+        """
+        if not self.genie_rooms:
+            return self
+
+        # Process warehouses from all genie rooms
+        for genie_room in self.genie_rooms.values():
+            genie_room: GenieRoomModel
+            warehouse: Optional[WarehouseModel] = genie_room.warehouse
+
+            if warehouse is None:
+                continue
+
+            # Check if warehouse already exists based on warehouse_id
+            warehouse_exists: bool = any(
+                existing_warehouse.warehouse_id == warehouse.warehouse_id
+                for existing_warehouse in self.warehouses.values()
+            )
+
+            if not warehouse_exists:
+                warehouse_key: str = normalize_name(
+                    "_".join([genie_room.name, warehouse.warehouse_id])
+                )
+                self.warehouses[warehouse_key] = warehouse
+                logger.trace(
+                    "Added warehouse from Genie room",
+                    room=genie_room.name,
+                    warehouse=warehouse.warehouse_id,
+                    key=warehouse_key,
+                )
+
+        return self
+
+    @model_validator(mode="after")
+    def update_genie_tables(self) -> Self:
+        """
+        Automatically populate tables from genie_rooms.
+
+        Tables are extracted from each Genie room and added to the
+        resources if they don't already exist (based on full_name).
+        """
+        if not self.genie_rooms:
+            return self
+
+        # Process tables from all genie rooms
+        for genie_room in self.genie_rooms.values():
+            genie_room: GenieRoomModel
+            for table in genie_room.tables:
+                table: TableModel
+                table_exists: bool = any(
+                    existing_table.full_name == table.full_name
+                    for existing_table in self.tables.values()
+                )
+                if not table_exists:
+                    table_key: str = normalize_name(
+                        "_".join([genie_room.name, table.full_name])
+                    )
+                    self.tables[table_key] = table
+                    logger.trace(
+                        "Added table from Genie room",
+                        room=genie_room.name,
+                        table=table.name,
+                        key=table_key,
+                    )
+
+        return self
+
+    @model_validator(mode="after")
+    def update_genie_functions(self) -> Self:
+        """
+        Automatically populate functions from genie_rooms.
+
+        Functions are extracted from each Genie room and added to the
+        resources if they don't already exist (based on full_name).
+        """
+        if not self.genie_rooms:
+            return self
+
+        # Process functions from all genie rooms
+        for genie_room in self.genie_rooms.values():
+            genie_room: GenieRoomModel
+            for function in genie_room.functions:
+                function: FunctionModel
+                function_exists: bool = any(
+                    existing_function.full_name == function.full_name
+                    for existing_function in self.functions.values()
+                )
+                if not function_exists:
+                    function_key: str = normalize_name(
+                        "_".join([genie_room.name, function.full_name])
+                    )
+                    self.functions[function_key] = function
+                    logger.trace(
+                        "Added function from Genie room",
+                        room=genie_room.name,
+                        function=function.name,
+                        key=function_key,
+                    )
+
+        return self
 
 
 class AppConfig(BaseModel):
@@ -2674,10 +3059,10 @@ class AppConfig(BaseModel):
 
     def initialize(self) -> None:
         from dao_ai.hooks.core import create_hooks
+        from dao_ai.logging import configure_logging
 
         if self.app and self.app.log_level:
-            logger.remove()
-            logger.add(sys.stderr, level=self.app.log_level)
+            configure_logging(level=self.app.log_level)
 
         logger.debug("Calling initialization hooks...")
         initialization_functions: Sequence[Callable[..., Any]] = create_hooks(

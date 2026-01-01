@@ -59,23 +59,23 @@ class AsyncDatabricksCheckpointSaver(DatabricksCheckpointSaver):
     async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Async version of get_tuple."""
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-        logger.debug(f"aget_tuple: Fetching checkpoint for thread_id={thread_id}")
+        logger.trace("Fetching checkpoint", thread_id=thread_id, method="aget_tuple")
         result = await asyncio.to_thread(self.get_tuple, config)
         if result:
-            logger.debug(f"aget_tuple: Found checkpoint for thread_id={thread_id}")
+            logger.trace("Checkpoint found", thread_id=thread_id)
         else:
-            logger.debug(f"aget_tuple: No checkpoint found for thread_id={thread_id}")
+            logger.trace("No checkpoint found", thread_id=thread_id)
         return result
 
     async def aget(self, config: RunnableConfig) -> Checkpoint | None:
         """Async version of get."""
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-        logger.debug(f"aget: Fetching checkpoint for thread_id={thread_id}")
+        logger.trace("Fetching checkpoint", thread_id=thread_id, method="aget")
         result = await asyncio.to_thread(self.get, config)
         if result:
-            logger.debug(f"aget: Found checkpoint for thread_id={thread_id}")
+            logger.trace("Checkpoint found", thread_id=thread_id)
         else:
-            logger.debug(f"aget: No checkpoint found for thread_id={thread_id}")
+            logger.trace("No checkpoint found", thread_id=thread_id)
         return result
 
     async def aput(
@@ -88,13 +88,15 @@ class AsyncDatabricksCheckpointSaver(DatabricksCheckpointSaver):
         """Async version of put."""
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
         checkpoint_id = checkpoint.get("id", "unknown")
-        logger.debug(
-            f"aput: Saving checkpoint id={checkpoint_id} for thread_id={thread_id}"
+        logger.trace(
+            "Saving checkpoint", checkpoint_id=checkpoint_id, thread_id=thread_id
         )
         result = await asyncio.to_thread(
             self.put, config, checkpoint, metadata, new_versions
         )
-        logger.debug(f"aput: Checkpoint saved for thread_id={thread_id}")
+        logger.trace(
+            "Checkpoint saved", thread_id=thread_id, checkpoint_id=checkpoint_id
+        )
         return result
 
     async def aput_writes(
@@ -106,12 +108,14 @@ class AsyncDatabricksCheckpointSaver(DatabricksCheckpointSaver):
     ) -> None:
         """Async version of put_writes."""
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-        logger.debug(
-            f"aput_writes: Saving {len(writes)} writes for thread_id={thread_id}, "
-            f"task_id={task_id}"
+        logger.trace(
+            "Saving checkpoint writes",
+            writes_count=len(writes),
+            thread_id=thread_id,
+            task_id=task_id,
         )
         await asyncio.to_thread(self.put_writes, config, writes, task_id, task_path)
-        logger.debug(f"aput_writes: Writes saved for thread_id={thread_id}")
+        logger.trace("Checkpoint writes saved", thread_id=thread_id, task_id=task_id)
 
     async def alist(
         self,
@@ -127,22 +131,20 @@ class AsyncDatabricksCheckpointSaver(DatabricksCheckpointSaver):
             if config
             else "all"
         )
-        logger.debug(
-            f"alist: Listing checkpoints for thread_id={thread_id}, limit={limit}"
-        )
+        logger.trace("Listing checkpoints", thread_id=thread_id, limit=limit)
         # Get all items from sync iterator in a thread
         items = await asyncio.to_thread(
             lambda: list(self.list(config, filter=filter, before=before, limit=limit))
         )
-        logger.debug(f"alist: Found {len(items)} checkpoints for thread_id={thread_id}")
+        logger.debug("Checkpoints listed", thread_id=thread_id, count=len(items))
         for item in items:
             yield item
 
     async def adelete_thread(self, thread_id: str) -> None:
         """Async version of delete_thread."""
-        logger.debug(f"adelete_thread: Deleting thread_id={thread_id}")
+        logger.trace("Deleting thread", thread_id=thread_id)
         await asyncio.to_thread(self.delete_thread, thread_id)
-        logger.debug(f"adelete_thread: Thread deleted thread_id={thread_id}")
+        logger.debug("Thread deleted", thread_id=thread_id)
 
 
 class AsyncDatabricksStore(DatabricksStore):
@@ -156,9 +158,9 @@ class AsyncDatabricksStore(DatabricksStore):
     async def abatch(self, ops: Iterable[Op]) -> list[Result]:
         """Async version of batch."""
         ops_list = list(ops)
-        logger.debug(f"abatch: Executing {len(ops_list)} operations")
+        logger.trace("Executing batch operations", operations_count=len(ops_list))
         result = await asyncio.to_thread(self.batch, ops_list)
-        logger.debug(f"abatch: Completed {len(result)} operations")
+        logger.debug("Batch operations completed", operations_count=len(result))
         return result
 
     async def aget(
@@ -170,14 +172,14 @@ class AsyncDatabricksStore(DatabricksStore):
     ) -> Item | None:
         """Async version of get."""
         ns_str = "/".join(namespace)
-        logger.debug(f"aget: Fetching key={key} from namespace={ns_str}")
+        logger.trace("Fetching store item", key=key, namespace=ns_str)
         result = await asyncio.to_thread(
             partial(self.get, namespace, key, refresh_ttl=refresh_ttl)
         )
         if result:
-            logger.debug(f"aget: Found item key={key} in namespace={ns_str}")
+            logger.trace("Store item found", key=key, namespace=ns_str)
         else:
-            logger.debug(f"aget: No item found key={key} in namespace={ns_str}")
+            logger.trace("Store item not found", key=key, namespace=ns_str)
         return result
 
     async def aput(
@@ -191,7 +193,7 @@ class AsyncDatabricksStore(DatabricksStore):
     ) -> None:
         """Async version of put."""
         ns_str = "/".join(namespace)
-        logger.debug(f"aput: Storing key={key} in namespace={ns_str}")
+        logger.trace("Storing item", key=key, namespace=ns_str, has_ttl=ttl is not None)
         # Handle the ttl parameter - only pass if explicitly provided
         if ttl is not None:
             await asyncio.to_thread(
@@ -199,14 +201,14 @@ class AsyncDatabricksStore(DatabricksStore):
             )
         else:
             await asyncio.to_thread(partial(self.put, namespace, key, value, index))
-        logger.debug(f"aput: Stored key={key} in namespace={ns_str}")
+        logger.trace("Item stored", key=key, namespace=ns_str)
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
         """Async version of delete."""
         ns_str = "/".join(namespace)
-        logger.debug(f"adelete: Deleting key={key} from namespace={ns_str}")
+        logger.trace("Deleting item", key=key, namespace=ns_str)
         await asyncio.to_thread(self.delete, namespace, key)
-        logger.debug(f"adelete: Deleted key={key} from namespace={ns_str}")
+        logger.trace("Item deleted", key=key, namespace=ns_str)
 
     async def asearch(
         self,
@@ -221,8 +223,8 @@ class AsyncDatabricksStore(DatabricksStore):
     ) -> list[SearchItem]:
         """Async version of search."""
         ns_str = "/".join(namespace_prefix)
-        logger.debug(
-            f"asearch: Searching namespace_prefix={ns_str}, query={query}, limit={limit}"
+        logger.trace(
+            "Searching store", namespace_prefix=ns_str, query=query, limit=limit
         )
         result = await asyncio.to_thread(
             partial(
@@ -235,7 +237,9 @@ class AsyncDatabricksStore(DatabricksStore):
                 refresh_ttl=refresh_ttl,
             )
         )
-        logger.debug(f"asearch: Found {len(result)} items in namespace_prefix={ns_str}")
+        logger.debug(
+            "Store search completed", namespace_prefix=ns_str, results_count=len(result)
+        )
         return result
 
     async def alist_namespaces(
@@ -249,9 +253,7 @@ class AsyncDatabricksStore(DatabricksStore):
     ) -> list[tuple[str, ...]]:
         """Async version of list_namespaces."""
         prefix_str = "/".join(prefix) if prefix else "all"
-        logger.debug(
-            f"alist_namespaces: Listing namespaces prefix={prefix_str}, limit={limit}"
-        )
+        logger.trace("Listing namespaces", prefix=prefix_str, limit=limit)
         result = await asyncio.to_thread(
             partial(
                 self.list_namespaces,
@@ -262,7 +264,7 @@ class AsyncDatabricksStore(DatabricksStore):
                 offset=offset,
             )
         )
-        logger.debug(f"alist_namespaces: Found {len(result)} namespaces")
+        logger.debug("Namespaces listed", count=len(result))
         return result
 
 
@@ -297,7 +299,7 @@ class DatabricksCheckpointerManager(CheckpointManagerBase):
             workspace_client = database.workspace_client
 
             logger.debug(
-                f"Creating AsyncDatabricksCheckpointSaver for instance: {instance_name}"
+                "Creating Databricks checkpointer", instance_name=instance_name
             )
 
             checkpointer = AsyncDatabricksCheckpointSaver(
@@ -306,10 +308,10 @@ class DatabricksCheckpointerManager(CheckpointManagerBase):
             )
 
             # Setup the checkpointer (creates necessary tables if needed)
-            logger.debug(f"Setting up checkpoint tables for instance: {instance_name}")
+            logger.debug("Setting up checkpoint tables", instance_name=instance_name)
             checkpointer.setup()
-            logger.debug(
-                f"Checkpoint tables setup complete for instance: {instance_name}"
+            logger.success(
+                "Databricks checkpointer initialized", instance_name=instance_name
             )
 
             self._checkpointer = checkpointer
@@ -360,12 +362,18 @@ class DatabricksStoreManager(StoreManagerBase):
                 embedding_dims = self.store_model.dims
 
                 logger.debug(
-                    f"Configuring embeddings: endpoint={embedding_endpoint}, dims={embedding_dims}"
+                    "Configuring store embeddings",
+                    endpoint=embedding_endpoint,
+                    dimensions=embedding_dims,
                 )
 
                 embeddings = DatabricksEmbeddings(endpoint=embedding_endpoint)
 
-            logger.debug(f"Creating AsyncDatabricksStore for instance: {instance_name}")
+            logger.debug(
+                "Creating Databricks store",
+                instance_name=instance_name,
+                embeddings_enabled=embeddings is not None,
+            )
 
             store = AsyncDatabricksStore(
                 instance_name=instance_name,
@@ -376,6 +384,11 @@ class DatabricksStoreManager(StoreManagerBase):
 
             # Setup the store (creates necessary tables if needed)
             store.setup()
+            logger.success(
+                "Databricks store initialized",
+                instance_name=instance_name,
+                embeddings_enabled=embeddings is not None,
+            )
             self._store = store
 
         return self._store

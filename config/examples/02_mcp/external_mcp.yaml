@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+schemas:
+  retail_schema: &retail_schema                  # Unity Catalog schema configuration
+    catalog_name: nfleming                       # Unity Catalog name
+    schema_name: retail_ai                       # Schema within the catalog
+
+resources:
+  llms:
+    default_llm: &default_llm                    # Default LLM configuration
+      name: databricks-claude-sonnet-4           # Databricks serving endpoint name
+  
+  connections:
+    github_connection: &github_connection        # UC Connection for GitHub
+      name: github_pat_connection_nfleming       # UC Connection name
+
+tools:
+  # Using UC Connection (automatic URL generation and OAuth authentication)
+  github_mcp_uc: &github_mcp_uc
+    name: github_mcp                                # Tool name for agent reference
+    function:
+      type: mcp                                     # Tool type: MCP server
+      connection: *github_connection                # Reference to UC Connection (provides OAuth auth)
+      # Note: URL is auto-generated from connection, no need to specify
+
+
+prompts:
+  mcp_agent_prompt: &mcp_agent_prompt
+    schema: *retail_schema
+    name: mcp_agent_prompt
+    description: "GitHub MCP agent prompt"
+    default_template: |
+      You are a GitHub integration agent that can interact with GitHub repositories, issues, 
+      pull requests, and other GitHub resources via the Model Context Protocol (MCP).
+      
+      Use the github_mcp tool to help users with GitHub-related tasks such as:
+      - Searching for repositories, issues, or pull requests
+      - Reading file contents from repositories
+      - Creating or updating issues
+      - Reviewing pull request information
+      
+      Always be helpful and provide clear explanations of GitHub data.
+
+agents:
+  mcp_agent: &mcp_agent                          # MCP agent configuration
+    name: mcp_agent                              # Agent identifier
+    model: *default_llm                          # Reference to LLM configuration
+    tools:                                       # Tools available to this agent
+      - *github_mcp_uc                           # GitHub MCP via UC Connection
+    prompt: *mcp_agent_prompt
+      
+app:
+  name: external_mcp_dao                         # Application name  
+  log_level: DEBUG                               # Logging level for the application
+  registered_model:                              # MLflow registered model configuration
+    schema: *retail_schema                       # Schema where model will be registered
+    name: external_mcp_dao                       # Model name in MLflow registry
+  agents:                                        # List of agents included in the system
+    - *mcp_agent                                 # MCP agent

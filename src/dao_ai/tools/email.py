@@ -107,70 +107,41 @@ def create_send_email_tool(
                     key: smtp_password
         ```
     """
-    logger.info("=== Creating send_email_tool ===")
     logger.debug(
-        f"Factory called with config type: {type(smtp_config).__name__}, "
-        f"name={name}, description={description}"
+        "Creating send_email_tool",
+        config_type=type(smtp_config).__name__,
+        tool_name=name,
     )
 
     # Convert dict to SMTPConfigModel if needed
     if isinstance(smtp_config, dict):
-        logger.debug("Converting dict config to SMTPConfigModel")
         smtp_config = SMTPConfigModel(**smtp_config)
-    else:
-        logger.debug("Config already is SMTPConfigModel")
 
     # Resolve all variable values
-    logger.debug("Resolving SMTP configuration variables...")
-
-    logger.debug("  - Resolving host")
     host: str = value_of(smtp_config.host)
-    logger.debug(f"    Host resolved: {host}")
-
-    logger.debug("  - Resolving port")
     port: int = int(value_of(smtp_config.port))
-    logger.debug(f"    Port resolved: {port}")
-
-    logger.debug("  - Resolving username")
     username: str = value_of(smtp_config.username)
-    logger.debug(f"    Username resolved: {username}")
-
-    logger.debug("  - Resolving password")
     password: str = value_of(smtp_config.password)
-    logger.debug(
-        f"    Password resolved: {'*' * len(password) if password else 'None'}"
-    )
-
-    logger.debug("  - Resolving sender_email")
     sender_email: str = (
         value_of(smtp_config.sender_email) if smtp_config.sender_email else username
     )
-    logger.debug(
-        f"    Sender email resolved: {sender_email} "
-        f"({'from sender_email' if smtp_config.sender_email else 'defaulted to username'})"
-    )
-
     use_tls: bool = smtp_config.use_tls
-    logger.debug(f"  - TLS enabled: {use_tls}")
 
     logger.info(
-        f"SMTP configuration resolved - host={host}, port={port}, "
-        f"sender={sender_email}, use_tls={use_tls}"
+        "SMTP configuration resolved",
+        host=host,
+        port=port,
+        sender=sender_email,
+        use_tls=use_tls,
+        password_set=bool(password),
     )
 
     if name is None:
         name = "send_email"
-        logger.debug(f"Tool name defaulted to: {name}")
-    else:
-        logger.debug(f"Tool name set to: {name}")
-
     if description is None:
         description = "Send an email to a recipient with subject and body content"
-        logger.debug("Tool description using default")
-    else:
-        logger.debug(f"Tool description set to: {description}")
 
-    logger.info(f"Creating tool '{name}' with @tool decorator")
+    logger.debug("Creating email tool with decorator", tool_name=name)
 
     @tool(
         name_or_callable=name,
@@ -194,87 +165,68 @@ def create_send_email_tool(
         Returns:
             str: Success or error message
         """
-        logger.info("=== send_email tool invoked ===")
-        logger.info(f"  To: {to}")
-        logger.info(f"  Subject: {subject}")
-        logger.info(f"  Body length: {len(body)} characters")
-        logger.info(f"  CC: {cc if cc else 'None'}")
+        logger.info(
+            "Sending email", to=to, subject=subject, body_length=len(body), cc=cc
+        )
 
         try:
-            logger.debug("Constructing email message...")
-
             # Create message
             msg = MIMEMultipart()
             msg["From"] = sender_email
             msg["To"] = to
             msg["Subject"] = subject
-            logger.debug(f"  From: {sender_email}")
-            logger.debug(f"  To: {to}")
-            logger.debug(f"  Subject: {subject}")
 
             if cc:
                 msg["Cc"] = cc
-                logger.debug(f"  CC: {cc}")
 
             # Attach body as plain text
             msg.attach(MIMEText(body, "plain"))
-            logger.debug(f"  Body attached ({len(body)} chars)")
 
             # Send email
-            logger.info(f"Connecting to SMTP server {host}:{port}...")
+            logger.debug("Connecting to SMTP server", host=host, port=port)
             with smtplib.SMTP(host, port) as server:
-                logger.debug("SMTP connection established")
-
                 if use_tls:
-                    logger.debug("Upgrading connection to TLS...")
+                    logger.trace("Upgrading to TLS")
                     server.starttls()
-                    logger.debug("TLS upgrade successful")
 
-                logger.debug(f"Authenticating with username: {username}")
+                logger.trace("Authenticating", username=username)
                 server.login(username, password)
-                logger.info("SMTP authentication successful")
 
                 # Build recipient list
                 recipients = [to]
                 if cc:
                     cc_addresses = [addr.strip() for addr in cc.split(",")]
                     recipients.extend(cc_addresses)
-                    logger.debug(f"Total recipients: {len(recipients)} ({recipients})")
-                else:
-                    logger.debug(f"Single recipient: {to}")
 
-                logger.info(f"Sending message to {len(recipients)} recipient(s)...")
+                logger.debug("Sending message", recipients_count=len(recipients))
                 server.send_message(msg)
-                logger.info("Message sent successfully via SMTP")
 
             success_msg = f"✓ Email sent successfully to {to}"
             if cc:
                 success_msg += f" (cc: {cc})"
 
-            logger.info(success_msg)
-            logger.info("=== send_email completed successfully ===")
+            logger.success("Email sent successfully", to=to, cc=cc)
             return success_msg
 
         except smtplib.SMTPAuthenticationError as e:
             error_msg = f"✗ SMTP authentication failed: {str(e)}"
-            logger.error(error_msg)
-            logger.error(f"  Server: {host}:{port}")
-            logger.error(f"  Username: {username}")
-            logger.error("=== send_email failed (authentication) ===")
+            logger.error(
+                "SMTP authentication failed",
+                server=f"{host}:{port}",
+                username=username,
+                error=str(e),
+            )
             return error_msg
         except smtplib.SMTPException as e:
             error_msg = f"✗ SMTP error: {str(e)}"
-            logger.error(error_msg)
-            logger.error(f"  Server: {host}:{port}")
-            logger.error("=== send_email failed (SMTP error) ===")
+            logger.error("SMTP error", server=f"{host}:{port}", error=str(e))
             return error_msg
         except Exception as e:
             error_msg = f"✗ Failed to send email: {str(e)}"
-            logger.error(error_msg)
-            logger.error(f"  Error type: {type(e).__name__}")
-            logger.error("=== send_email failed (unexpected error) ===")
+            logger.error(
+                "Failed to send email", error_type=type(e).__name__, error=str(e)
+            )
             return error_msg
 
-    logger.info(f"Tool '{name}' created successfully")
-    logger.info("=== send_email_tool creation complete ===")
+    logger.success("Email tool created", tool_name=name)
     return send_email

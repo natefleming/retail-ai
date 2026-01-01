@@ -1,0 +1,324 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Guardrails Configuration Example
+# =============================================================================
+# This configuration demonstrates how to configure and use guardrails with 
+# DAO AI agents. Guardrails provide quality control, safety checks, and 
+# content filtering for agent responses.
+#
+# Guardrails Types:
+# 1. LLM-based Guardrails - Use an LLM judge to evaluate response quality
+# 2. Content Filters - Deterministic keyword-based blocking
+# 3. Safety Guardrails - Model-based safety evaluation
+#
+# Guardrails can be configured:
+# - At the agent level using the `guardrails` field
+# - At the app level using the `middleware` field (applies to all agents)
+#
+# Key Features:
+# - Automatic response evaluation against custom criteria
+# - Retry with feedback when responses don't meet standards
+# - Configurable retry limits
+# - Content blocking for sensitive keywords
+# - Safety evaluation for harmful content
+# - Can use prompts from MLflow Prompt Registry for consistency
+# =============================================================================
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: nfleming                    # Unity Catalog name
+    schema_name: retail_ai                    # Schema within the catalog
+
+resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS (LLMs)
+  # ---------------------------------------------------------------------------
+  llms:
+    # Primary LLM for agent responses
+    # Claude 3.7 Sonnet produces consistently high-quality responses that typically
+    # pass guardrails on first try. To see retry behavior, try:
+    #   - databricks-claude-sonnet-4 (more likely to make mistakes)
+    #   - Higher temperature values (increases variability)
+    default_llm: &default_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.7
+      max_tokens: 4096
+
+    # LLM optimized for judging/evaluating responses
+    # Often uses higher temperature for diverse evaluation
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.3                        # Lower temp for consistent evaluation
+      max_tokens: 2048
+
+# =============================================================================
+# PROMPTS FOR GUARDRAILS
+# =============================================================================
+# Guardrail prompts define the evaluation criteria for LLM judges.
+# These can be stored in MLflow Prompt Registry for version control.
+
+prompts:
+  # Professional tone guardrail prompt
+  professional_tone_prompt: &professional_tone_prompt
+    schema: *retail_schema
+    name: professional_tone_guardrail
+    description: "Evaluates if agent responses maintain a professional, helpful tone"
+    default_template: |
+      Evaluate if the following response is professional, helpful, and appropriate 
+      for customer service.
+      
+      User Request: {inputs}
+      Agent Response: {outputs}
+      
+      The response should:
+      - Use professional language (no slang or jargon)
+      - Be respectful and courteous
+      - Be clear and easy to understand
+      - Maintain a helpful, service-oriented tone
+      - Avoid being overly casual or too formal
+      
+      Score 1 if the response meets these criteria, 0 if it doesn't.
+      Provide a brief comment explaining your decision.
+    tags:
+      type: guardrail
+      category: tone
+
+
+  # Completeness guardrail prompt
+  completeness_guardrail_prompt: &completeness_guardrail_prompt
+    schema: *retail_schema
+    name: completeness_guardrail
+    description: "Evaluates if responses fully address the user's question"
+    default_template: |
+      Evaluate if the response fully addresses the user's question.
+      
+      User Request: {inputs}
+      Agent Response: {outputs}
+      
+      The response should:
+      - Should be more than one word.
+      - Directly answer the question asked
+      - Provide sufficient detail and context
+      - Not omit important relevant information
+      - Include next steps or follow-up guidance when appropriate
+      - Address all parts of multi-part questions
+      
+      Score 1 if the response is complete and thorough, 0 if it's incomplete,
+      vague, or doesn't fully address the question.
+      Provide specific feedback on what's missing if you score 0.
+    tags:
+      type: guardrail
+      category: completeness
+
+
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# Simple tools for demonstration purposes
+
+tools:
+  # Basic product search tool
+  search_tool: &search_tool
+    name: search
+    function:
+      type: factory
+      name: dao_ai.tools.create_search_tool
+
+  # Simple greeting tool  
+  greeting_tool: &greeting_tool
+    name: greeting
+    function:
+      type: python
+      name: dao_ai.tools.say_hello_tool
+
+
+
+# =============================================================================
+# GUARDRAILS CONFIGURATION
+# =============================================================================
+# Define reusable guardrails here and reference them in agents using YAML anchors.
+# Guardrails provide quality control by evaluating agent responses against criteria.
+
+guardrails:
+
+  
+  # Completeness guardrail - ensures thorough, complete responses
+  completeness_guardrail: &completeness_guardrail
+    name: completeness_check
+    model: *judge_llm
+    prompt: *completeness_guardrail_prompt
+    num_retries: 2
+  
+  # Tone guardrail - ensures professional, appropriate tone
+  tone_guardrail: &tone_guardrail
+    name: tone_check
+    model: *judge_llm
+    prompt: *professional_tone_prompt
+    num_retries: 2
+
+
+
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+
+agents:
+  # ---------------------------------------------------------------------------
+  # GENERAL PURPOSE AGENT - Comprehensive Guardrails
+  # ---------------------------------------------------------------------------
+  # This agent demonstrates a production-ready configuration with:
+  # - Multiple LLM-based guardrails (tone, accuracy, completeness)
+  # - All available tools (search, greeting, time)
+  # - Professional, helpful persona
+  general_agent: &general_agent
+    name: assistant
+    description: "General purpose assistant with comprehensive quality guardrails"
+    model: *default_llm
+    
+    # All available tools
+    tools:
+      - *search_tool
+      - *greeting_tool
+
+    
+    # Comprehensive guardrails for quality responses
+    guardrails:
+      - *tone_guardrail
+      - *completeness_guardrail
+    
+    prompt: |
+      You are a helpful, knowledgeable assistant designed to provide accurate and 
+      professional responses to a wide range of user inquiries.
+      
+      Your capabilities:
+      - Answer questions on various topics with accuracy and completeness
+      - Use search tools when you need current information or specific facts
+      - Greet users warmly and check the current time when needed
+      - Maintain a professional, courteous tone in all interactions
+      
+      Guidelines:
+      - Always maintain a professional, helpful, and respectful tone
+      - Never make up information - use search tools or acknowledge limitations
+      - Ensure your responses fully address the user's question
+      - Be clear, thorough, and easy to understand
+      - When uncertain, explicitly state what you don't know
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+
+app:
+  name: guardrails_basic_dao
+  description: "General purpose assistant with comprehensive guardrails"
+  log_level: DEBUG
+  
+  registered_model:
+    schema: *retail_schema
+    name: guardrails_example_agent
+  
+  agents:
+    - *general_agent
+  
+  # Single agent - no orchestration needed
+  # The agent handles all requests directly
+  
+  # Example input for testing
+  input_example:
+    input:
+      - role: user
+        content: How can I help you today?
+    custom_inputs:
+      configurable:
+        user_id: test_user
+
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+#
+# This configuration demonstrates a production-ready general purpose assistant
+# with comprehensive guardrails for quality assurance.
+#
+# 1. GUARDRAILS
+#    The agent uses three LLM-based guardrails:
+#    
+#    a) Tone Guardrail (tone_check)
+#       - Ensures professional, helpful, courteous responses
+#       - Max 2 retries with feedback
+#       - Uses professional_tone_prompt from registry
+#    
+#    b) Accuracy Guardrail (accuracy_check)
+#       - Prevents speculation and made-up information
+#       - Max 3 retries with feedback
+#       - Uses accuracy_guardrail_prompt from registry
+#    
+#    c) Completeness Guardrail (completeness_check)
+#       - Ensures responses fully address user questions
+#       - Max 2 retries with feedback
+#       - Uses completeness_guardrail_prompt from registry
+#
+# 2. HOW GUARDRAILS WORK
+#    - Run after the agent's LLM generates a response
+#    - Use a separate "judge" LLM to evaluate response quality
+#    - If evaluation fails, provide feedback to the agent
+#    - Agent retries with the feedback until passing or max retries reached
+#    - Transparent to the user (retries happen before final response)
+#
+# 3. TOOLS AVAILABLE
+#    - search_tool: DuckDuckGo web search for current information
+#    - say_hello_tool: Greet users by name (uses ToolRuntime context)
+#    - current_time_tool: Get current date/time
+#
+# 4. PROMPT TEMPLATES
+#    - Guardrail prompts are stored in MLflow Prompt Registry
+#    - All prompts include {inputs} and {outputs} placeholders
+#    - Prompts can be versioned and updated without config changes
+#    - Use default_template as fallback if registry unavailable
+#
+# 5. BEST PRACTICES
+#    - Monitor guardrail trigger rates (how often they request retries)
+#    - Adjust num_retries based on quality vs latency tradeoffs
+#    - Use DEBUG log level to see guardrail evaluation details
+#    - Test with edge cases that should trigger each guardrail
+#    - Update prompts in registry to refine evaluation criteria
+#
+# 6. ADDING MORE GUARDRAILS
+#    To add additional guardrails:
+#    - Define the guardrail in the `guardrails:` section (with anchor)
+#    - Reference it in the agent's `guardrails:` list
+#    - Create the prompt template with {inputs} and {outputs}
+#    - Test thoroughly before deploying
+#
+# 7. TESTING GUARDRAILS
+#    
+#    a) With Claude 3.7 Sonnet (default):
+#       Claude produces high-quality responses that typically pass all guardrails.
+#       This is good - it means the base model meets quality standards.
+#       
+#       echo "What is Python?" | dao-ai chat --config guardrails.yaml
+#    
+#    b) To see retry behavior, use Llama 3.3 70B:
+#       Change default_llm to: databricks-claude-sonnet-4
+#       Llama is more likely to make mistakes that trigger guardrail retries.
+#       
+#       echo "What's your refund policy?" | dao-ai chat --config guardrails.yaml
+#       
+#       You'll see warnings like:
+#       "Guardrail 'accuracy_check' requested improvements (retry 1/3)"
+#       "Judge's critique: The agent has fabricated specific details..."
+#    
+#    c) Monitor guardrail behavior:
+#       Use --log-level DEBUG to see detailed evaluation:
+#       
+#       dao-ai chat --config guardrails.yaml --log-level DEBUG
+#       
+#       Look for:
+#       - "Guardrail 'X' evaluating: input_length=Y, output_length=Z"
+#       - "Response approved by guardrail 'X'" (passed)
+#       - "Guardrail 'X' requested improvements (retry N/M)" (failed, retrying)
+#       - "Judge's critique: ..." (feedback for retry)
+#
+# =============================================================================
+

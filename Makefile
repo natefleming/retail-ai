@@ -27,7 +27,7 @@ FIND := $(shell which find)
 RM := rm -rf
 CD := cd
 
-.PHONY: all clean distclean dist check format publish help 
+.PHONY: all clean distclean dist check format publish help test unit integration 
 
 all: dist
 
@@ -66,13 +66,19 @@ schema: depends
 test: 
 	$(PYTEST) -ra --tb=short $(TEST_DIR)
 
+unit: 
+	$(PYTEST) -ra --tb=short -m unit $(TEST_DIR)
+
+integration: 
+	$(PYTEST) -ra --tb=short -m integration $(TEST_DIR)
+
 help:
 	$(info TOP_DIR: $(TOP_DIR))
 	$(info SRC_DIR: $(SRC_DIR))
 	$(info TEST_DIR: $(TEST_DIR))
 	$(info DIST_DIR: $(DIST_DIR))
 	$(info )
-	$(info $$> make [all|dist|install|clean|distclean|format|depends|publish|schema|test|help])
+	$(info $$> make [all|dist|install|clean|distclean|format|depends|publish|schema|test|unit|integration|help])
 	$(info )
 	$(info       all          - build library: [$(LIB)]. This is the default)
 	$(info       dist         - build library: [$(LIB)])
@@ -84,7 +90,9 @@ help:
 	$(info       depends      - installs library dependencies)
 	$(info       publish      - publish library)
 	$(info       schema       - print JSON schema for AppConfig)
-	$(info       test         - run tests)
+	$(info       test         - run all tests)
+	$(info       unit         - run unit tests only)
+	$(info       integration  - run integration tests only)
 	$(info       help         - show this help message)
 	@true
 

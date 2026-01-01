@@ -82,7 +82,9 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 log_level: str = config.app.log_level
 
-logger.add(sys.stderr, level=log_level)
+from dao_ai.logging import configure_logging
+
+configure_logging(level=log_level)
 
 graph: CompiledStateGraph = create_dao_ai_graph(config=config)
 
@@ -266,6 +268,12 @@ if config.evaluation.guidelines:
     custom_scorers = [Guidelines(name=guideline.name, guidelines=guideline.guidelines) for guideline in config.evaluation.guidelines]
 
 scorers += custom_scorers
+
+# Get the experiment ID from the model's run and set it as the current experiment
+# This is necessary because mlflow.genai.evaluate() internally searches for traces
+# in the current experiment context, which must match the run's experiment
+model_run = mlflow_client.get_run(model_version.run_id)
+mlflow.set_experiment(experiment_id=model_run.info.experiment_id)
 
 with mlflow.start_run(run_id=model_version.run_id):
   eval_results = mlflow.genai.evaluate(

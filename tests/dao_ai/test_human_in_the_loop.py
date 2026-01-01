@@ -255,8 +255,8 @@ class TestHitlMiddlewareFromToolModels:
 
         create_hitl_middleware_from_tool_models(tool_models)
 
-        # Verify debug logging occurred
-        assert mock_logger.debug.called
+        # Verify trace logging occurred (structured logging uses trace for tool configuration)
+        assert mock_logger.trace.called
 
 
 class TestHitlMiddlewareIntegration:

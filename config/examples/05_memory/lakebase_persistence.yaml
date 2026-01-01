@@ -1,0 +1,133 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Lakebase Persistence Example
+# =============================================================================
+# This configuration demonstrates persistent conversation state using Databricks
+# Lakebase (managed PostgreSQL service).
+#
+# Features:
+# - Fully managed by Databricks
+# - Automatic scaling and backups
+# - Native integration with Unity Catalog
+# - OAuth2 service principal authentication
+# - Conversation state persists across sessions
+#
+# Use cases:
+# - Production applications requiring conversation history
+# - Multi-session conversations with state resume
+# - Audit trails and conversation analytics
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  demo_schema: &demo_schema
+    catalog_name: main
+    schema_name: default
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.7
+      max_tokens: 4096
+    
+    # Optional: Separate model for summarization (more cost-effective)
+    summary_llm: &summary_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 512
+
+  # ---------------------------------------------------------------------------
+  # LAKEBASE DATABASE CONFIGURATION
+  # ---------------------------------------------------------------------------
+  databases:
+    lakebase_db: &lakebase_db
+      name: "my-lakebase-instance"           # Your Lakebase database name
+      instance_name: "my-lakebase-instance"  # Must match the name above
+      description: "Databricks Lakebase for conversation persistence"
+      # Authentication is automatically provided via instance_name (Databricks Lakebase)
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# Configure persistent memory with checkpointer and optional chat history summarization
+memory:
+  checkpointer:
+    name: lakebase_checkpointer
+    database: *lakebase_db
+
+# Optional: Chat history with automatic summarization
+# Uncomment to enable conversation summarization when it gets too long
+# chat_history:
+#   model: *summary_llm                    # Model to use for summarization
+#   max_tokens: 2048                       # Keep this many tokens after summarization
+#   max_tokens_before_summary: 8192        # Trigger summarization at this threshold
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  persistent_agent: &persistent_agent
+    name: persistent_agent
+    description: "Chat agent with Lakebase persistence"
+    model: *default_llm
+    prompt: |
+      You are a helpful assistant with persistent memory. Your conversation
+      history is saved to a database, so you can resume conversations even
+      after restarts.
+      
+      When users return, you can reference previous conversations and maintain
+      context across sessions. Be natural and reference past interactions when
+      appropriate.
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: lakebase_persistence_dao
+  description: "Chat agent with Lakebase persistence"
+  log_level: INFO
+  
+  registered_model:
+    name: lakebase_persistence_dao
+  
+  agents:
+    - *persistent_agent
+  
+  input_example:
+    messages:
+      - role: user
+        content: "Remember that I prefer technical explanations with code examples"
+    custom_inputs:
+      configurable:
+        # Thread ID for conversation grouping - same thread_id resumes conversation
+        thread_id: "user_123_conversation_1"
+
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+# 
+# To use this configuration:
+#
+# 1. Create a Lakebase instance in your Databricks workspace:
+#    - Navigate to Compute > Lakebase
+#    - Create new instance (takes ~10 minutes)
+#    - Note the instance name
+#
+# 2. Set up service principal authentication:
+#    export DATABRICKS_HOST="https://your-workspace.databricks.com"
+#    export DATABRICKS_CLIENT_ID="your-service-principal-id"
+#    export DATABRICKS_CLIENT_SECRET="your-service-principal-secret"
+#
+# 3. Run the agent:
+#    dao-ai chat -c config/examples/04_memory/lakebase_persistence.yaml
+#
+# 4. Resume a conversation:
+#    - Use the same thread_id in custom_inputs to continue where you left off
+#    - Each unique thread_id creates a separate conversation thread
+

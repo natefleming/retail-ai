@@ -25,7 +25,7 @@ def create_hooks(
     Returns:
         Sequence of callable functions
     """
-    logger.debug(f"Creating hooks from: {function_hooks}")
+    logger.trace("Creating hooks", function_hooks=function_hooks)
     hooks: list[Callable[..., Any]] = []
     if not function_hooks:
         return []
@@ -35,21 +35,21 @@ def create_hooks(
         if isinstance(function_hook, str):
             function_hook = PythonFunctionModel(name=function_hook)
         hooks.extend(function_hook.as_tools())
-    logger.debug(f"Created hooks: {hooks}")
+    logger.trace("Created hooks", hooks_count=len(hooks))
     return hooks
 
 
 def null_hook(state: dict[str, Any], config: Any) -> dict[str, Any]:
     """A no-op hook that returns an empty dict."""
-    logger.debug("Executing null hook")
+    logger.trace("Executing null hook")
     return {}
 
 
 def null_initialization_hook(config: AppConfig) -> None:
     """A no-op initialization hook."""
-    logger.debug("Executing null initialization hook")
+    logger.trace("Executing null initialization hook")
 
 
 def null_shutdown_hook(config: AppConfig) -> None:
     """A no-op shutdown hook."""
-    logger.debug("Executing null shutdown hook")
+    logger.trace("Executing null shutdown hook")

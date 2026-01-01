@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# In-Memory Configuration Example
+# =============================================================================
+# This configuration demonstrates in-memory conversation state management.
+# 
+# Features:
+# - No external database required
+# - State persists only during the session
+# - Fastest performance (no I/O overhead)
+# - Ideal for: development, testing, stateless applications
+#
+# Limitations:
+# - State is lost when process terminates
+# - Cannot resume conversations after restart
+# - Not suitable for production long-term conversations
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.7
+      max_tokens: 4096
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  chat_agent: &chat_agent
+    name: chat_agent
+    description: "Simple chat agent with in-memory state"
+    model: *default_llm
+    prompt: |
+      You are a helpful assistant. You can remember context from earlier in the
+      conversation, but your memory is ephemeral - it won't persist after the
+      session ends.
+      
+      Engage naturally and reference previous parts of the conversation when relevant.
+
+# =============================================================================
+# MEMORY CONFIGURATION
+# =============================================================================
+# In-memory mode: Simply include the agent without memory or chat_history config
+# The conversation state is maintained in memory for the duration of the session
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: in_memory_basic_dao
+  description: "Chat agent with in-memory state (no persistence)"
+  log_level: INFO
+  
+  registered_model:
+    name: in_memory_basic_dao
+
+  
+  agents:
+    - *chat_agent
+  
+  input_example:
+    messages:
+      - role: user
+        content: "My name is Alice. I work as a data engineer."
+      - role: assistant
+        content: "Nice to meet you, Alice! As a data engineer, you must work with databases and data pipelines. How can I help you today?"
+      - role: user
+        content: "What's my name?"
+

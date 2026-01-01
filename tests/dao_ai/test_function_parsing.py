@@ -67,8 +67,13 @@ class TestFunctionModelParsing:
             "name": "uc_tool",
             "function": {
                 "type": "unity_catalog",
-                "name": "my_function",
-                "schema": {"catalog_name": "my_catalog", "schema_name": "my_schema"},
+                "resource": {
+                    "name": "my_function",
+                    "schema": {
+                        "catalog_name": "my_catalog",
+                        "schema_name": "my_schema",
+                    },
+                },
             },
         }
 
@@ -77,10 +82,10 @@ class TestFunctionModelParsing:
         assert tool.name == "uc_tool"
         assert isinstance(tool.function, UnityCatalogFunctionModel)
         assert tool.function.type == FunctionType.UNITY_CATALOG
-        assert tool.function.name == "my_function"
-        assert tool.function.schema_model is not None
-        assert tool.function.schema_model.catalog_name == "my_catalog"
-        assert tool.function.schema_model.schema_name == "my_schema"
+        assert tool.function.resource.name == "my_function"
+        assert tool.function.resource.schema_model is not None
+        assert tool.function.resource.schema_model.catalog_name == "my_catalog"
+        assert tool.function.resource.schema_model.schema_name == "my_schema"
 
     @pytest.mark.unit
     def test_mcp_function_parsing_stdio(self):
@@ -89,7 +94,6 @@ class TestFunctionModelParsing:
             "name": "mcp_tool",
             "function": {
                 "type": "mcp",
-                "name": "mcp_function",
                 "transport": "stdio",
                 "command": "python",
                 "args": ["-m", "some_mcp_server"],
@@ -101,7 +105,6 @@ class TestFunctionModelParsing:
         assert tool.name == "mcp_tool"
         assert isinstance(tool.function, McpFunctionModel)
         assert tool.function.type == FunctionType.MCP
-        assert tool.function.name == "mcp_function"
         assert tool.function.transport == TransportType.STDIO
         assert tool.function.command == "python"
         assert tool.function.args == ["-m", "some_mcp_server"]
@@ -113,7 +116,6 @@ class TestFunctionModelParsing:
             "name": "mcp_http_tool",
             "function": {
                 "type": "mcp",
-                "name": "http_mcp_function",
                 "transport": "streamable_http",
                 "url": "http://localhost:8000/mcp",
             },
@@ -124,7 +126,6 @@ class TestFunctionModelParsing:
         assert tool.name == "mcp_http_tool"
         assert isinstance(tool.function, McpFunctionModel)
         assert tool.function.type == FunctionType.MCP
-        assert tool.function.name == "http_mcp_function"
         assert tool.function.transport == TransportType.STREAMABLE_HTTP
         assert tool.function.url == "http://localhost:8000/mcp"
 
@@ -174,7 +175,6 @@ class TestFunctionModelParsing:
             "name": "invalid_mcp_tool",
             "function": {
                 "type": "mcp",
-                "name": "mcp_function",
                 "transport": "streamable_http",
                 # Missing required 'url' field
             },
@@ -284,11 +284,13 @@ class TestFunctionModelFromYAML:
             name="uc_tool",
             function={
                 "type": "unity_catalog",
-                "name": "my_function",
-                "schema": {"catalog_name": "catalog", "schema_name": "schema"},
+                "resource": {
+                    "name": "my_function",
+                    "schema": {"catalog_name": "catalog", "schema_name": "schema"},
+                },
             },
         )
-        assert uc_tool.function.full_name == "catalog.schema.my_function"
+        assert uc_tool.function.resource.full_name == "catalog.schema.my_function"
 
     @pytest.mark.unit
     def test_model_serialization(self):

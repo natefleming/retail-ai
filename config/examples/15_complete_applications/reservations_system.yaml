@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: nfleming                    # Unity Catalog name
+    schema_name: retail_ai                    # Schema within the catalog
+    permissions:                              # Access permissions for the schema
+      - principals: [users]                   # Grant access to all users
+        privileges:
+          - ALL_PRIVILEGES                    # Full permissions for demo purposes
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+      temperature: 0.1                              # Low temperature for consistent responses
+      max_tokens: 8192                              # Maximum tokens per response
+        
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer: 
+    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
+
+
+tools:
+  reservation_tool: &reservation_tool
+    name: reservation_tool
+    function:
+      type: factory                                 # Tool type: factory function
+      name: retail.tools.create_reservation_tool       # Factory function path
+      human_in_the_loop:
+        review_prompt: |
+          Would you like to reserver your reservation?
+          
+
+agents:
+  reservation: &reservation
+    name: reservation                                     # Agent identifier
+    description: "Reservation Agent"
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *reservation_tool
+    prompt: |                                      
+      You are a reservation agent that can book, cancel, and check availability for reservations.
+    handoff_prompt: |                               # Conditions for routing to this agent
+      When asked about reservations, book, or cancel reservations, or check availability
+
+app:
+  name: reservations_system_dao                      # Application name  
+  description: "Multi-agent system that talks to reservation agent"
+  log_level: TRACE                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: reservations_system_dao
+  endpoint_name: reservation_agent                    # Model serving endpoint name
+  agents:                                           # List of agents included in the system
+    - *reservation                                        # Order management agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *default_llm                           # LLM for routing decisions
+    memory: *memory                             # Memory for state persistence
+  input_example:
+      messages:
+        - role: user
+          content: Can create a reservation for me?
+      custom_inputs:
+        configurable:
+          # conversation_id is auto-generated as UUID if not provided
+          user_id: john.smith@databricks.com
+        session: {}
+        
+
+

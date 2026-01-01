@@ -194,11 +194,12 @@ class TestSummarizationMiddleware:
 
         create_summarization_middleware(chat_history)
 
-        # Verify that debug logging was called with the parameters
+        # Verify that debug logging was called with the parameters (structured logging)
         mock_logger.debug.assert_called_with(
-            f"Creating summarization middleware with max_tokens: {max_tokens}, "
-            f"max_tokens_before_summary: {max_tokens_before_summary}, "
-            f"max_messages_before_summary: {max_messages_before_summary}"
+            "Creating summarization middleware",
+            max_tokens=max_tokens,
+            max_tokens_before_summary=max_tokens_before_summary,
+            max_messages_before_summary=max_messages_before_summary,
         )
 
     def test_chat_history_model_rejects_zero_max_tokens(self, mock_llm_model):

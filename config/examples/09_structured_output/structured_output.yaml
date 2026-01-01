@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Simple Structured Output Example
+# This agent extracts contact information and returns it as JSON
+
+schemas:
+  demo_schema: &demo_schema
+    catalog_name: nfleming
+    schema_name: retail_ai
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.0
+
+agents:
+  contact_extractor: &contact_extractor
+    name: contact_extractor
+    model: *default_llm
+    prompt: |
+      Extract contact information from the user's message.
+      Return the name, email, and phone number (if available).
+    
+    response_format:
+      response_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "email": {"type": "string"},
+            "phone": {"type": ["string", "null"]}
+          },
+          "required": ["name", "email"]
+        }
+      use_tool: true
+
+app:
+  name: structured_output_dao
+  log_level: DEBUG
+  registered_model:
+    name: structured_output_dao
+    schema: *demo_schema
+  agents:
+    - *contact_extractor
+
+# Example prompt for testing:
+# "John Doe, john.doe@example.com, (555) 123-4567"

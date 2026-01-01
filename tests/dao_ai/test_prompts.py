@@ -64,7 +64,7 @@ class TestPromptRegistryUnit:
     def test_get_prompt_defaults_to_latest(self):
         """Test that prompt loading falls back to @latest alias when @champion doesn't exist."""
         prompt_model = PromptModel(
-            name="test_prompt", default_template="Default template"
+            name="test_prompt", default_template="Default template", auto_register=True
         )
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
@@ -100,7 +100,7 @@ class TestPromptRegistryUnit:
     def test_get_prompt_prefers_champion_alias(self):
         """Test that prompt loading prefers @champion when it exists."""
         prompt_model = PromptModel(
-            name="test_prompt", default_template="Default template"
+            name="test_prompt", default_template="Default template", auto_register=True
         )
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
@@ -183,7 +183,7 @@ class TestPromptRegistryUnit:
         """Test that default_template is NOT synced when champion alias exists."""
         template_content = "Same content in registry and config"
         prompt_model = PromptModel(
-            name="test_prompt", default_template=template_content
+            name="test_prompt", default_template=template_content, auto_register=True
         )
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())
@@ -331,6 +331,7 @@ class TestPromptRegistryUnit:
             name="test_prompt",
             default_template="Fallback template content",
             description="Test prompt for hardware store",
+            auto_register=True,
         )
 
         provider = DatabricksProvider(w=Mock(), vsc=Mock())

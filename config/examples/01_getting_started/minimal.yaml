@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: hardware_store                    # Schema within the catalog
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      source_table:                                 # Table containing source data
+        schema: *retail_schema
+        name: products
+      embedding_source_column: description          # Column to create embeddings from
+
+
+  genie_rooms:
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"                  # Human-readable name
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_genie_tool          # Factory function path
+      args:                                         # Arguments passed to factory
+        name: my_genie_tool
+        description: My Answers questions about genie
+        genie_room: *retail_genie_room              # Reference to Genie room config
+
+  vector_search_tool: &vector_search_tool
+    name: vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        vector_store: *products_vector_store
+        name: product_search
+        description: Product Search
+
+agents:
+  simple_agent: &simple_agent
+    name: simple_agent                                     # Agent identifier
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *genie_tool
+      - *vector_search_tool
+    prompt: |                                       # System prompt defining agent behavior
+      You are a helpful retail assistant. Answer questions about products and inventory using your available tools.
+
+
+
+app:
+  name: minimal_dao             # Application name  
+  log_level: TRACE                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: minimal_dao             # Model name in MLflow registry
+  agents:                                           # List of agents included in the system
+    - *simple_agent                                       # Order management agent

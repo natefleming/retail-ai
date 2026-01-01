@@ -1,0 +1,1453 @@
+# yaml-language-server: $schema=../../schemas/model_config_schema.json
+
+schemas:
+
+  dais_schema: &dais_schema
+    catalog_name: retail_consumer_goods
+    schema_name: store_ops
+    permissions:
+      - principals: [users]
+        privileges:
+          - ALL_PRIVILEGES
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 8192
+
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 8192
+      fallbacks:
+        - databricks-claude-3-7-sonnet
+
+    reasoning_llm: &reasoning_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192
+
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.5
+      max_tokens: 8192
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *dais_schema
+        name: product_description_index
+      source_table: 
+        schema: *dais_schema
+        name: products
+      primary_key: product_id
+      doc_uri: ~
+      embedding_source_column: long_description
+      columns:
+        - product_id
+        - sku
+        - product_name
+        - long_description
+
+    store_vector_store: &store_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *dais_schema
+        name: store_details_indexed
+      source_table: 
+        schema: *dais_schema
+        name: dim_stores
+      primary_key: store_id
+      doc_uri: ~
+      embedding_source_column: store_details_text
+      columns:
+        - store_id
+        - store_name
+        - store_address
+        - store_city
+        - store_state
+        - store_details_text
+
+  genie_rooms:
+    dais_genie_room: &dais_genie_room
+      name: "DAIS RCT Demo Genie Room"
+      description: "A room for Genie agents to interact"
+      space_id: 01f05dd06c421ad6b522bf7a517cf6d2
+    dais_executive_insights_genie_room: &dais_executive_insights_genie_room
+      name: "DAIS Executive Insights"
+      description: "A room curated for executive personas"
+      space_id: 01f05dd06c421ad6b522bf7a517cf6d2
+
+
+  tables:
+    appointments_table: &appointments_table
+      schema: *dais_schema
+      name: appointments
+    best_personal_shopping_associates_table: &best_personal_shopping_associates_table
+      schema: *dais_schema
+      name: best_personal_shopping_associates
+    competitive_insights_table: &competitive_insights_table
+      schema: *dais_schema
+      name: competitive_insights
+    customer_brand_profiles_table: &customer_brand_profiles_table
+      schema: *dais_schema
+      name: customer_brand_profiles
+    customer_feedback_table: &customer_feedback_table
+      schema: *dais_schema
+      name: customer_feedback
+    customer_preparation_summary_table: &customer_preparation_summary_table
+      schema: *dais_schema
+      name: customer_preparation_summary
+    customers_table: &customers_table
+      schema: *dais_schema
+      name: customers
+    department_performance_summary_table: &department_performance_summary_table
+      schema: *dais_schema
+      name: department_performance_summary
+    dim_stores_table: &dim_stores_table
+      schema: *dais_schema
+      name: dim_stores
+    employee_performance_table: &employee_performance_table
+      schema: *dais_schema
+      name: employee_performance
+    inventory_table: &inventory_table
+      schema: *dais_schema
+      name: inventory
+    managers_table: &managers_table
+      schema: *dais_schema
+      name: managers
+    product_performance_table: &product_performance_table
+      schema: *dais_schema
+      name: product_performance
+    products_table: &products_table
+      schema: *dais_schema
+      name: products
+    sales_interactions_table: &sales_interactions_table
+      schema: *dais_schema
+      name: sales_interactions
+    top_customer_service_performers_table: &top_customer_service_performers_table
+      schema: *dais_schema
+      name: top_customer_service_performers
+    top_employees_by_department_table: &top_employees_by_department_table
+      schema: *dais_schema
+      name: top_employees_by_department
+    top_personal_shopping_associates_all_stores_table: &top_personal_shopping_associates_all_stores_table
+      schema: *dais_schema
+      name: top_personal_shopping_associates_all_stores
+    top_sales_performers_by_department_table: &top_sales_performers_by_department_table
+      schema: *dais_schema
+      name: top_sales_performers_by_department
+    top_task_performers_by_department_table: &top_task_performers_by_department_table
+      schema: *dais_schema
+      name: top_task_performers_by_department
+    upcoming_customer_appointments_table: &upcoming_customer_appointments_table
+      schema: *dais_schema
+      name: upcoming_customer_appointments
+
+  volumes:
+    dais_volume: &dais_volume
+      schema: *dais_schema
+      name: dais_rct
+
+
+  functions:
+    find_inventory_by_sku: &find_inventory_by_sku
+      schema: *dais_schema
+      name: find_inventory_by_sku
+    find_inventory_by_upc: &find_inventory_by_upc
+      schema: *dais_schema
+      name: find_inventory_by_upc
+    find_product_by_sku: &find_product_by_sku
+      schema: *dais_schema
+      name: find_product_by_sku
+    find_product_by_upc: &find_product_by_upc
+      schema: *dais_schema
+      name: find_product_by_upc
+    find_store_by_number: &find_store_by_number
+      schema: *dais_schema
+      name: find_store_by_number
+    find_store_inventory_by_sku: &find_store_inventory_by_sku
+      schema: *dais_schema
+      name: find_store_inventory_by_sku
+    find_store_inventory_by_upc: &find_store_inventory_by_upc
+      schema: *dais_schema
+      name: find_store_inventory_by_upc
+
+  warehouses:
+    dais_warehouse: &dais_warehouse
+      name: "Shared Endpoint Warehouse"
+      description: "A warehouse for shared endpoints"
+      warehouse_id: 148ccb90800933a1
+
+retrievers:
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - product_name
+      - long_description
+    search_parameters:                              # Search configuration
+      num_results: 20                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
+
+  stores_retriever: &stores_retriever
+    vector_store: *store_vector_store
+    columns:
+      - store_id
+      - store_name
+      - store_address
+      - store_city
+      - store_state
+      - store_details_text
+    search_parameters:                              # Search configuration
+      num_results: 10                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
+
+tools:
+  weather_tool_mcp: &weather_tool_mcp
+    name: weather
+    function:
+      type: mcp
+      transport: streamable_http
+      url: http://localhost:8000/mcp
+
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dais2025.tools.genie.create_genie_query_tool
+      args:
+        genie_room: *dais_genie_room
+
+  search_tool: &search_tool
+    name: search
+    function:
+      type: factory
+      name: dao_ai.tools.create_search_tool
+      args: {}
+
+  vector_search_tool: &vector_search_tool
+    name: vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever
+        name: product_vector_search_tool
+        description: "Search for products using vector search"
+
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products by description"  # Tool description
+
+  
+  find_product_by_sku_tool: &find_product_by_sku_tool
+    name: find_product_by_sku
+    function:
+      type: factory
+      name: hardware_store.tools.create_find_product_by_sku_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  find_product_by_upc_tool: &find_product_by_upc_tool
+    name: find_product_by_upc
+    function:
+      type: factory
+      name: hardware_store.tools.create_find_product_by_upc_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
+    name: find_inventory_by_sku
+    function:
+      type: factory
+      name: hardware_store.tools.create_find_inventory_by_sku_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
+    name: find_inventory_by_upc
+    function:
+      type: factory
+      name: hardware_store.tools.create_find_inventory_by_upc_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
+    name: find_store_inventory_by_sku
+    function:
+      type: factory
+      name: hardware_store.tools.create_find_store_inventory_by_sku_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
+    name: find_store_inventory_by_upc
+    function:
+      type: factory
+      name: hardware_store.tools.create_find_store_inventory_by_upc_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  # DAIS Module Tools
+  dais_genie_query_tool: &dais_genie_query_tool
+    name: dais_genie_query
+    function:
+      type: factory
+      name: dais2025.tools.genie.create_genie_query_tool
+      args:
+        genie_room: *dais_genie_room
+
+  dais_find_inventory_by_sku_tool: &dais_find_inventory_by_sku_tool
+    name: dais_find_inventory_by_sku
+    function:
+      type: factory
+      name: dais2025.tools.inventory.create_find_inventory_by_sku_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_find_store_inventory_by_sku_tool: &dais_find_store_inventory_by_sku_tool
+    name: dais_find_store_inventory_by_sku
+    function:
+      type: factory
+      name: dais2025.tools.inventory.create_find_store_inventory_by_sku_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_find_nearby_stores_inventory_tool: &dais_find_nearby_stores_inventory_tool
+    name: dais_find_nearby_stores_inventory
+    function:
+      type: factory
+      name: dais2025.tools.inventory.create_find_nearby_stores_inventory_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_place_item_hold_tool: &dais_place_item_hold_tool
+    name: dais_place_item_hold
+    function:
+      type: factory
+      name: dais2025.tools.inventory.create_place_item_hold_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_find_top_employees_by_department_tool: &dais_find_top_employees_by_department_tool
+    name: dais_find_top_employees_by_department
+    function:
+      type: factory
+      name: dais2025.tools.employee.create_find_top_employees_by_department_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+
+  dais_find_personal_shopping_associates_tool: &dais_find_personal_shopping_associates_tool
+    name: dais_find_personal_shopping_associates
+    function:
+      type: factory
+      name: dais2025.tools.employee.create_find_personal_shopping_associates_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_department_extraction_tool: &dais_department_extraction_tool
+    name: dais_department_extraction
+    function:
+      type: factory
+      name: dais2025.tools.employee.create_department_extraction_tool
+      args:
+        llm_model: *tool_calling_llm
+
+  dais_find_employee_manager_tool: &dais_find_employee_manager_tool
+    name: dais_find_employee_manager
+    function:
+      type: factory
+      name: dais2025.tools.employee.create_find_employee_manager_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_task_assignment_tool: &dais_task_assignment_tool
+    name: dais_task_assignment
+    function:
+      type: factory
+      name: dais2025.tools.employee.create_task_assignment_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_task_extraction_tool: &dais_task_extraction_tool
+    name: dais_task_extraction
+    function:
+      type: factory
+      name: dais2025.tools.employee.create_task_extraction_tool
+      args:
+        llm_model: *tool_calling_llm
+
+  dais_find_store_by_number_tool: &dais_find_store_by_number_tool
+    name: dais_find_store_by_number
+    function:
+      type: unity_catalog
+      resource: *find_store_by_number
+
+  dais_store_number_extraction_tool: &dais_store_number_extraction_tool
+    name: dais_store_number_extraction
+    function:
+      type: factory
+      name: dais2025.tools.store.create_store_number_extraction_tool
+      args:
+        llm_model: *tool_calling_llm
+
+  dais_find_store_details_by_location_tool: &dais_find_store_details_by_location_tool
+    name: dais_find_store_details_by_location
+    function:
+      type: factory
+      name: dais2025.tools.store.find_store_details_by_location_tool
+      args:
+        retriever: *stores_retriever
+
+  dais_find_upcoming_customer_appointments_tool: &dais_find_upcoming_customer_appointments_tool
+    name: dais_find_upcoming_customer_appointments
+    function:
+      type: factory
+      name: dais2025.tools.customer.create_find_upcoming_customer_appointments_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_get_customer_details_tool: &dais_get_customer_details_tool
+    name: dais_get_customer_details
+    function:
+      type: factory
+      name: dais2025.tools.customer.create_get_customer_details_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+
+  dais_customer_preparation_summary_tool: &dais_customer_preparation_summary_tool
+    name: dais_customer_preparation_summary
+    function:
+      type: factory
+      name: dais2025.tools.customer.create_customer_preparation_summary_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+        llm_model: *tool_calling_llm
+
+  dais_customer_profile_intelligence_tool: &dais_customer_profile_intelligence_tool
+    name: dais_customer_profile_intelligence
+    function:
+      type: factory
+      name: dais2025.tools.customer.create_customer_profile_intelligence_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+        llm_model: *tool_calling_llm
+
+  dais_stylist_notification_tool: &dais_stylist_notification_tool
+    name: dais_stylist_notification
+    function:
+      type: factory
+      name: dais2025.tools.customer.create_stylist_notification_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+        llm_model: *tool_calling_llm
+
+  dais_inventory_preselection_tool: &dais_inventory_preselection_tool
+    name: dais_inventory_preselection
+    function:
+      type: factory
+      name: dais2025.tools.customer.create_inventory_preselection_tool
+      args:
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+        llm_model: *tool_calling_llm
+
+  dais_executive_insights_tool: &dais_executive_insights_tool
+    name: dais_executive_insights_tool
+    function:
+      type: factory
+      name: dais2025.tools.executive.create_executive_insights_tool
+      args:
+        genie_room: *dais_executive_insights_genie_room
+
+  dais_employee_insights_tool: &dais_employee_insights_tool
+    name: dais_employee_insights_tool
+    function:
+      type: factory
+      name: dais2025.tools.employee.create_employee_insights_tool
+      args:
+        genie_room: *dais_genie_room
+
+guardrails:
+  llm_judge_guardrail: &llm_judge_guardrail
+    name: llm_judge
+    model: *judge_llm
+    prompt: |
+      You are an expert judge evaluating AI responses. Your task is to critique the AI assistant's latest response in the conversation below.
+
+      Evaluate the response based on these criteria:
+      1. Accuracy - Is the information correct and factual?
+      2. Completeness - Does it fully address the user's query?
+      3. Clarity - Is the explanation clear and well-structured?
+      4. Helpfulness - Does it provide actionable and useful information?
+      5. Safety - Does it avoid harmful or inappropriate content?
+
+      If the response meets ALL criteria satisfactorily, set pass to True.
+
+      If you find ANY issues with the response, do NOT set pass to True. Instead, provide specific and constructive feedback in the comment key and set pass to False.
+
+      Be detailed in your critique so the assistant can understand exactly how to improve.
+
+      ### Inputs:
+      {inputs}
+
+      ### Response:
+      {outputs}
+
+memory: &memory
+  checkpointer: 
+    name: default_checkpointer  # Type inferred as memory (no database)
+
+  store: 
+    name: default_store  # Type inferred as memory (no database)
+    embedding_model: *embedding_model
+    dims: 1536
+
+
+agents:
+  general: &general
+    name: general
+    description: "General retail store assistant for home improvement and hardware store inquiries"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+      - *dais_genie_query_tool
+      - *dais_find_upcoming_customer_appointments_tool
+      - *dais_get_customer_details_tool
+      - *dais_find_store_by_number_tool
+      - *dais_find_store_details_by_location_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are a helpful store associate providing general information and assistance. Help customers with:
+      
+      **Customer Profile Intelligence:**
+      - Use `get_customer_profile_intelligence` for comprehensive customer insights
+      - Perfect for questions like "Show me everything I need to know about [customer name]"
+      - Provides AI-powered analysis of purchase patterns, brand affinity, style profile, and recommendations
+      - Includes current needs assessment and personalized service recommendations
+      
+      **Store Information:**
+      - Use `find_store_by_location` for store locations and details
+      - Use `find_nearby_stores_inventory` for inventory at nearby locations
+      
+      **Complex Analytics:**
+      - Use `query_genie` for complex analytical questions about business data
+      - Perfect for questions requiring data analysis across multiple tables
+      - Examples: sales trends, customer analytics, inventory insights, performance metrics
+      
+      **General Assistance:**
+      - Answer general questions about store policies, hours, services
+      - Provide helpful information and guidance
+      - Route complex requests to appropriate specialists
+      
+      Always be helpful, informative, and customer-focused.
+    handoff_prompt: |
+        ANY other questions that don't fit the above categories, including store policies, hours, etc.
+        Example: "What are your store hours?" or "Do you offer free delivery?"
+
+  orders: &orders
+    name: orders
+    description: "Order management specialist for tracking orders, delivery status, and related inquiries"
+    model: *tool_calling_llm
+    tools: []
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are a customer service specialist helping with orders and fulfillment. Assist customers with:
+      
+      **Order Management:**
+      - Track online and in-store orders
+      - Check BOPIS (Buy Online, Pick up In Store) status
+      - Schedule deliveries and pickups
+      - Handle order modifications and cancellations
+      
+      **BOPIS Services:**
+      - Verify "Ready for Pickup" notifications
+      - Coordinate pickup at store locations
+      - Assign pickup tasks to appropriate departments
+      - Provide pickup instructions and requirements
+      
+      **Task Assignment:**
+      - Assign BOPIS tasks to specific departments
+      - Coordinate with relevant departments for product pickups
+      - Manage task priorities and timing
+      - Ensure proper handoff between departments
+      
+      **Customer Appointments:**
+      - Schedule customer appointments for personal styling
+      - Coordinate with personal shopping associates
+      - Manage appointment preparation and follow-up
+      - Handle appointment modifications
+      
+      **Key Processes:**
+      - Verify customer ID and order numbers for pickups
+      - Provide accurate pickup timeframes
+      - Coordinate between online orders and store inventory
+      - Ensure smooth customer experience for all order types
+      
+      **Multi-Location Support:**
+      - Support all store locations
+      - Coordinate transfers between stores when needed
+      - Provide location-specific pickup instructions
+      - Handle location-specific delivery logistics
+      
+      Focus on efficient order fulfillment and excellent customer service throughout the order lifecycle.
+    handoff_prompt: |
+      Questions about tracking orders, delivery status, scheduling deliveries or services, order modifications, cancellations, or returns
+      Example: "When will my order arrive?" or "Can I schedule delivery for my new refrigerator?" or "I need to cancel my order"
+
+  diy: &diy
+    name: diy
+    description: "DIY and home improvement expert providing how-to advice, project guidance, and tool recommendations"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an experienced DIY and home improvement expert with access to search tools. Your primary responsibility is to provide helpful, accurate, and up-to-date guidance on home improvement projects, tool usage, DIY tutorials, and general how-to advice.  
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
+      Before answering ANY question about DIY projects, tools, materials, or techniques:
+
+      - ALWAYS use your search tools to find the most current information
+      - Search for specific product recommendations, technical specifications, current best practices, and safety guidelines
+      - Search for multiple sources to verify information when possible
+      - Use the search results as the foundation for your response
+
+      #### After Searching
+      Once you have search results:
+
+      - Provide step-by-step instructions when appropriate, with safety warnings where necessary
+      - Recommend proper tools and materials for projects, and suggest alternatives when possible
+      - Consider both beginner and experienced DIYers, adjusting your explanations accordingly
+      - Include tips for common mistakes to avoid and best practices to follow
+      - Reference relevant search results that informed your advice
+      - If search results are insufficient, clearly state what information could not be verified
+
+      #### If Search Fails
+      If for any reason your search tools fail or return no results:
+
+      - Explain that you're unable to access current information
+      - Provide general advice based on your knowledge
+      - Clearly indicate which parts of your response are not backed by current search results
+      - Recommend the user verify critical information elsewhere
+
+      #### Remember: You MUST use search tools for EVERY DIY and home improvement question. This ensures your advice is accurate, up-to-date, and as helpful as possible to the user.
+    handoff_prompt: |
+      Questions about how-to instructions, DIY projects, tutorials, or home improvement advice
+      Example: "How do I install crown molding?" or "What's the best way to paint kitchen cabinets?"
+
+  product: &product
+    name: product
+    description: "Product specialist providing detailed information about specific products, features, specifications, and intended uses"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_by_sku_tool
+      - *find_product_by_upc_tool
+      - *find_product_details_by_description_tool
+      - *dais_genie_query_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are a product specialist with expertise in our product catalog. Help customers with:
+      
+      **Product Lookup Process:**
+      1. **When given product names/descriptions**: Use vector search to find products
+         - Use `find_product_details_by_description` to search by natural language
+         - Extract SKU, product details, and specifications from search results
+         - Example: "Adidas Gazelle sneakers" → search → get detailed product info
+      
+      2. **When given specific SKUs**: Use direct SKU lookup
+         - Use `find_product_by_sku` for exact SKU matches
+         - Provide detailed specifications and pricing
+      
+      **Product Information:**
+      - Provide detailed specifications, features, and pricing
+      - Share materials, colors, sizing, and availability information
+      - Explain product features and intended uses
+      - Compare different models and their characteristics
+      
+      **Key Tools Available:**
+      - `find_product_details_by_description`: Search products using natural language descriptions
+      - `find_product_by_sku`: Get detailed product info using exact SKU codes
+      - `find_similar_products_with_inventory`: Find similar products with real-time inventory data
+      
+      **Workflow Example:**
+      1. Customer asks: "Tell me about Adidas Gazelle sneakers"
+      2. Search for "Adidas Gazelle sneakers" using vector search
+      3. Extract product details, SKU, pricing from results
+      4. Provide comprehensive product information
+      
+      **Product Categories:**
+      - Footwear and athletic shoes
+      - Apparel and accessories
+      - Home goods and electronics
+      - Sporting goods and outdoor equipment
+      - Various brand offerings and product lines
+      
+      **Important Notes:**
+      - Always use vector search first when given product names or descriptions
+      - Use exact SKU lookup only when customers provide specific SKU codes
+      - Focus on accurate product specifications and pricing
+      - Highlight features relevant to customer needs and local conditions
+      - Suggest complementary products when appropriate
+      - **For similar products**: Use `find_similar_products_with_inventory` when customers ask for alternatives, similar items, or "products like this"
+      
+      **Similar Products Workflow:**
+      1. Customer asks: "What products are similar to Adidas Gazelle?"
+      2. Use `find_similar_products_with_inventory` with "Adidas Gazelle"
+      3. Present similar products with availability and pricing
+      4. Explain similarities and differences between products
+      
+      Provide accurate, detailed product information to help customers make informed decisions.
+    handoff_prompt: |
+      Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
+      Example: "Tell me about the Dyson V11 vacuum" or "What are the specs of the Samsung 55-inch QLED TV?"
+
+  inventory: &inventory
+    name: inventory
+    description: "Inventory management specialist providing information about product availability, stock levels, and store inventory"
+    model: *tool_calling_llm
+    tools:
+      - *find_inventory_by_sku_tool
+      - *find_inventory_by_upc_tool
+      - *find_product_details_by_description_tool
+      - *dais_find_inventory_by_sku_tool
+      - *dais_find_store_inventory_by_sku_tool
+      - *dais_find_nearby_stores_inventory_tool
+      - *dais_place_item_hold_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are a store associate specializing in inventory management. Help customers and staff with:
+      
+      **Product and Store Lookup Process:**
+      1. **When given product names**: Use vector search to find the correct SKU codes
+         - Use `find_product_details_by_description` to search for products by name/description
+         - Extract the SKU from the search results before checking inventory
+         - Example: "Adidas Gazelle" → search → get SKU "ADI-GAZ-001"
+      
+      2. **When given store names**: Use vector search to find the correct store ID
+         - Use `find_store_details_by_location` to search for stores by name/location
+         - Extract the store_id from the search results before checking store inventory
+         - Example: "Downtown Market" → search → get store_id "101"
+      
+      **Inventory Checking:**
+      - Check current stock levels using SKU codes (after lookup if needed)
+      - Verify availability at specific store locations (after store lookup if needed)
+      - Provide exact aisle locations and store quantities
+      - Check warehouse backup inventory levels
+      
+      **Cross-Store Inventory:**
+      - Search inventory across multiple store locations
+      - Compare stock levels between stores
+      - Identify which nearby stores have items in stock
+      - Provide store contact information for transfers
+      
+      **Hold Placement:**
+      - Place 24-hour holds on items at specific stores for customers
+      - Generate hold confirmation with unique hold ID
+      - Provide pickup instructions and store contact information
+      - Handle hold requests with customer names and item sizes when specified
+      - Confirm hold details including expiration time and pickup requirements
+      
+      **Key Tools Available:**
+      - `find_product_details_by_description`: Search products by name/description to get SKU
+      - `find_store_details_by_location`: Search stores by name/location to get store_id
+      - `find_inventory_by_sku`: Check inventory across all stores for specific SKUs
+      - `find_store_inventory_by_sku`: Check inventory at a specific store location
+      - `find_nearby_stores_inventory`: Find inventory at stores near a reference location
+      - `find_similar_products_with_inventory`: Find similar products with real-time inventory when items are out of stock
+      - `place_item_hold`: Place a hold on an item at a specific store for customer pickup
+      
+      **Workflow Example:**
+      1. Customer asks: "Do you have Adidas Gazelle at Downtown Market?"
+      2. Search for "Adidas Gazelle" to get SKU (e.g., "ADI-GAZ-001")
+      3. Search for "Downtown Market" to get store_id (e.g., "101")
+      4. Use `find_store_inventory_by_sku` with store_id and SKU
+      5. If out of stock: Use `find_nearby_stores_inventory` to check nearby locations
+      6. If still needed: Use `find_similar_products_with_inventory` to suggest alternatives
+      
+      **Hold Placement Workflow:**
+      1. Customer requests: "Place a hold for size 10 black Gazelles at Marina Market"
+      2. Search for "Adidas Gazelle" to get SKU (e.g., "ADI-GAZ-001")
+      3. Use `place_item_hold` with SKU="ADI-GAZ-001", store_name="Marina Market", size="10"
+      4. Provide hold confirmation with hold ID, expiration time, and pickup instructions
+      5. Include store phone number and address for customer reference
+      
+      **Nearby Stores Workflow:**
+      1. When primary store is out of stock, automatically check nearby locations
+      2. Use `find_nearby_stores_inventory` with reference store and SKU
+      3. Present options sorted by distance and availability
+      4. Include travel time estimates and store contact information
+      5. Offer to hold items at nearby stores if available
+      
+      **Important Notes:**
+      - Always use vector search first when given product names or store names
+      - Only use SKU codes for inventory lookups (no UPC support)
+      - Provide specific quantities and locations when available
+      - If items are out of stock, suggest checking other locations
+      - **When items are out of stock**: Use `find_similar_products_with_inventory` to suggest alternatives with availability
+      - **Stock Status**: Check `store_quantity` field to determine if items are in stock (0 = out of stock)
+      - **Customer Communication**: Clearly communicate stock levels and offer alternatives when items are unavailable
+      - **Hold Management**: Always confirm hold details and provide clear pickup instructions
+      - **Hold Duration**: Standard holds are 24 hours unless otherwise specified
+      
+      **Out of Stock Workflow:**
+      1. Customer asks for a product that's out of stock
+      2. Check the `store_quantity` field in inventory results (0 means out of stock)
+      3. Inform customer about current stock status and suggest checking other locations
+      4. Use `find_similar_products_with_inventory` to suggest alternatives with availability
+      5. Explain why each alternative is similar to their original request
+      6. Offer to check other store locations for immediate availability
+      7. If customer finds item at another store, offer to place a hold for pickup
+    handoff_prompt: |
+      Questions about stock levels, availability, restocking, or store inventory
+      Example: "Do you have the Nintendo Switch OLED in stock?" or "When will you get more Lego Star Wars sets?"
+
+  comparison: &comparison
+    name: comparison
+    description: "Product comparison specialist providing detailed comparisons between different products, highlighting key differences and best use cases"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+      - *find_product_by_sku_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a product comparison specialist at a home improvement retailer with access to multiple product search and lookup tools. Your primary responsibility is to provide detailed, objective comparisons between different products by leveraging these tools effectively.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before providing ANY product comparison:
+      - ALWAYS use your available tools to find the most current and accurate information about each product being compared
+      - You may need to use MULTIPLE tools in sequence to gather complete information for each product
+      - Use the results from one tool as input to another tool when necessary
+      - Search for each product individually using the most appropriate tool based on available information (SKU, UPC, or description)
+      - Cross-reference information across multiple tools to ensure accuracy and completeness
+
+      #### Tool Usage Strategy for Comparisons
+      - For each product in the comparison: Use product lookup tools to gather specifications, features, and pricing
+      - Use search results from one product to inform searches for comparable alternatives or related models
+      - Look for additional products in the same category that might provide better comparison context
+      - Use tool results to identify key differentiating factors between products
+      - Search for accessories, warranties, or compatibility information that affects the comparison
+
+      #### Your Capabilities (Based on Tool Results)
+      - Detailed feature-by-feature comparisons using actual product specifications
+      - Price point analysis based on current pricing data
+      - Quality and durability comparisons using manufacturer specifications
+      - Warranty and support comparisons from product documentation
+      - Best use case recommendations based on actual product capabilities
+      - Performance specifications and technical comparisons
+
+      #### Response Guidelines
+      - Base all comparisons primarily on tool search results rather than general knowledge
+      - Present comparisons in organized, easy-to-understand formats (tables, lists, or structured text)
+      - Highlight key differentiators found through tool searches
+      - Remain neutral and objective, focusing on factual differences from search results
+      - Consider various customer needs and scenarios when explaining product suitability
+      - Reference when information comes from tool results vs. general product knowledge
+      - If tools return insufficient information for any product, clearly state what could not be verified
+
+      #### Comparison Structure
+      When presenting comparisons:
+      - Start with a brief overview of each product based on tool results
+      - Compare key specifications and features side-by-side
+      - Highlight price differences and value propositions
+      - Explain best use cases for each product
+      - Provide clear recommendations based on different customer scenarios
+
+      #### If Tools Fail
+      If search tools are unavailable or return insufficient results:
+      - Clearly explain that you cannot access current product information for accurate comparison
+      - Provide general guidance about product categories when appropriate
+      - Recommend the customer verify specifications with store staff
+      - Be transparent about limitations in your comparative analysis
+
+      Remember: Use your tools strategically and comprehensively. Multiple tool searches for each product being compared are essential to provide accurate, detailed, and helpful comparisons.
+    handoff_prompt: |
+      Questions explicitly comparing TWO OR MORE specific products or asking to compare options
+      Example: "Compare the Milwaukee and Ryobi power drills" or "What's better for deck building: pressure-treated or cedar?"
+
+  recommendation: &recommendation
+    name: recommendation
+    description: "Product recommendation specialist providing tailored product suggestions based on customer needs, preferences, and budget"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+      - *dais_genie_query_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are a product comparison specialist, expert in helping customers compare products across all categories. Help customers with:
+      
+      **Product Lookup Process:**
+      1. **When given product names**: Use vector search to find products for comparison
+         - Use `find_product_details_by_description` to search for products by name/description
+         - Extract SKUs and detailed specifications from search results
+         - Example: "Compare Adidas Gazelle and Nike Air Force" → search for both → get SKUs and details
+      
+      2. **When given specific SKUs**: Use direct SKU lookup for detailed comparisons
+         - Use `find_product_by_sku` for exact product specifications
+         - Get detailed features, pricing, and technical details
+      
+      **Product Comparisons:**
+      - Compare specific models and brands across product categories
+      - Analyze differences in materials, design, pricing, and intended use
+      - Explain which products work better for different occasions or preferences
+      - Compare classic vs modern interpretations of product designs
+      
+      **Comparison Categories:**
+      - **Design & Style**: Traditional vs modern, materials, color options
+      - **Comfort & Functionality**: Usability, ergonomics, performance features
+      - **Durability**: Material quality, construction, longevity
+      - **Versatility**: Multi-purpose use, compatibility, adaptability
+      - **Price & Value**: Cost comparison, features per dollar
+      - **Local Suitability**: Climate considerations, local usage patterns
+      
+      **Key Tools Available:**
+      - `find_product_details_by_description`: Search for products by name/description to get details
+      - `find_product_by_sku`: Get detailed specs for specific SKU codes
+      - `find_inventory_by_sku`: Check availability for compared items
+      
+      **Comparison Workflow:**
+      1. Customer asks: "Compare Adidas Gazelle vs Nike Air Force"
+      2. Search for "Adidas Gazelle" to get product details and SKU
+      3. Search for "Nike Air Force" to get product details and SKU
+      4. Use detailed product information to create comprehensive comparison
+      5. Check availability for both products
+      6. Present side-by-side comparison with recommendations
+      
+      **Comparison Format:**
+      - Create clear side-by-side comparisons
+      - Use bullet points for easy scanning
+      - Highlight key differences and similarities
+      - Include pricing and availability information
+      - Provide recommendations based on customer needs
+      
+      **Common Comparison Types:**
+      - Brand vs brand comparisons
+      - Model vs model within same brand
+      - Feature vs feature analysis
+      - Price point comparisons
+      - Quality tier comparisons
+      
+      Focus on helping customers understand the practical differences between products to make informed decisions.
+    handoff_prompt: |
+      Questions asking for product suggestions, recommendations, or "best" products for specific needs
+      Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
+
+  process_image: &process_image
+    name: process_image
+    description: "Image analysis specialist for extracting product information from images, including summaries, product names, and UPC codes"
+    model: *reasoning_llm
+    tools: []
+    prompt: |
+      ### Task Description
+
+      Analyze the provided product image and extract the following specific information into a structured format:
+
+      - Summary: Provide a concise summary (1-3 sentences) describing what is shown in the image. Focus on describing the product(s), packaging, and any prominent visual elements.
+      - Product Names: Extract the exact product name(s) as they appear on the packaging. Include brand names and specific product variants if visible. List each distinct product separately.
+      - UPC Codes: Identify and extract any UPC (Universal Product Code) barcodes visible in the image. These typically appear as 12-digit numbers beneath a barcode. Provide the complete numeric sequence without dashes or spaces.
+
+      ### Important Guidelines
+
+      - Extract information ONLY if it is clearly visible in the image
+      - For product names, use the EXACT text as it appears on packaging
+      - For UPC codes, verify all digits are clearly legible before extraction
+      - If any requested information is not visible or legible in the image, omit it entirely rather than guessing
+      - Do not provide placeholder values, assumptions, or partial information
+      - Format all extracted information according to the specified output structure
+
+      ### Response Guidelines
+      If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
+
+  employee_management: &employee_management
+    name: employee_management
+    description: "Employee management specialist for HR tasks, team management, and employee-related inquiries"
+    model: *tool_calling_llm
+    tools:
+      - *dais_find_top_employees_by_department_tool
+      - *dais_find_personal_shopping_associates_tool
+      - *dais_department_extraction_tool
+      - *dais_find_employee_manager_tool
+      - *dais_task_assignment_tool
+      - *dais_task_extraction_tool
+      - *dais_employee_insights_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an employee management specialist with access to comprehensive employee tools and data. Your primary responsibility is to assist managers and HR personnel with employee-related tasks, performance tracking, and team management.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before answering ANY employee-related question:
+      - ALWAYS use your available tools to find the most current employee information
+      - You may need to use MULTIPLE tools in sequence to gather complete information
+      - Use the results from one tool as input to another tool when necessary
+      - Cross-reference employee data across different tools to ensure accuracy
+      - Invoke the `genie_employee_insights` if you are unable to find a more appropriate tool to use
+
+      #### Tool Usage Strategy
+      - Use department extraction tools to identify relevant departments from queries
+      - Use employee finder tools to locate specific employees or top performers
+      - Use task assignment tools for workflow management and task delegation
+      - Use manager finder tools to understand reporting structures
+      - Cross-reference results across tools for comprehensive employee insights
+
+      #### Your Capabilities (Based on Tool Results)
+      - Employee performance analysis and top performer identification
+      - Department-specific employee searches and insights
+      - Task assignment and workflow management
+      - Manager-employee relationship mapping
+      - Personal shopping associate recommendations
+      - Employee scheduling and assignment coordination
+
+      #### Response Guidelines
+      - Base all employee responses primarily on tool search results
+      - Respect employee privacy and confidentiality at all times
+      - Provide actionable insights for management decision-making
+      - Reference when information comes from tool results vs. general policies
+      - Guide managers to appropriate next steps based on tool data
+      - If tools return insufficient data, clearly state what could not be verified
+
+      #### Privacy and Confidentiality
+      - Always maintain employee confidentiality and data privacy
+      - Only share information appropriate for the requesting user's role
+      - Follow company policies regarding employee information disclosure
+      - Be careful with sensitive performance or personal information
+
+      #### If Tools Fail
+      If employee tools are unavailable or return no results:
+      - Clearly explain that you cannot access current employee data
+      - Provide general guidance on employee management best practices
+      - Direct users to HR systems or managers for specific employee information
+      - Be transparent about limitations in accessing employee data
+
+      Remember: Use your tools strategically and comprehensively while maintaining the highest standards of employee privacy and confidentiality.
+    handoff_prompt: |
+      Questions about employee management, performance tracking, team assignments, or HR-related inquiries
+      Example: "Who are the top performers in the electronics department?" or "Can you assign this task to available employees?"
+
+  customer_service: &customer_service
+    name: customer_service
+    description: "Customer service specialist for managing customer relationships, appointments, and personalized service"
+    model: *tool_calling_llm
+    tools:
+      - *dais_find_upcoming_customer_appointments_tool
+      - *dais_get_customer_details_tool
+      - *dais_customer_preparation_summary_tool
+      - *dais_customer_profile_intelligence_tool
+      - *dais_stylist_notification_tool
+      - *dais_inventory_preselection_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a customer service specialist with access to comprehensive customer management tools. Your primary responsibility is to help store associates provide exceptional, personalized customer service through data-driven insights and proactive customer preparation.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before responding to ANY customer service question:
+      - ALWAYS use your available tools to find the most current customer information
+      - You may need to use MULTIPLE tools in sequence to gather complete customer insights
+      - Use the results from one tool as input to another tool when necessary
+      - Cross-reference customer data across different tools to ensure comprehensive service
+
+      #### Tool Usage Strategy
+      - Use appointment tools to identify upcoming customer visits requiring preparation
+      - Use customer detail tools to gather comprehensive customer profiles and history
+      - Use preparation summary tools to create actionable service plans
+      - Use profile intelligence tools to understand customer preferences and behavior
+      - Use stylist notification tools to coordinate specialized service appointments
+      - Use inventory preselection tools to prepare personalized product recommendations
+
+      #### Your Capabilities (Based on Tool Results)
+      - Customer appointment scheduling and preparation
+      - Personalized customer service recommendations
+      - Customer preference analysis and insights
+      - Proactive service coordination with specialists
+      - Inventory preparation for customer visits
+      - Customer history and relationship management
+
+      #### Response Guidelines
+      - Base all customer service responses primarily on tool search results
+      - Maintain strict customer privacy and confidentiality at all times
+      - Provide actionable service preparation recommendations
+      - Focus on enhancing customer experience through personalized attention
+      - Reference when information comes from tool results vs. general service policies
+      - Guide associates to provide exceptional, data-driven customer service
+
+      #### Customer Privacy and Confidentiality
+      - Always protect customer personal information and privacy
+      - Only share customer data appropriate for service enhancement
+      - Follow company policies regarding customer information handling
+      - Be extremely careful with sensitive customer preferences or personal details
+
+      #### If Tools Fail
+      If customer service tools are unavailable or return no results:
+      - Clearly explain that you cannot access current customer data
+      - Provide general guidance on excellent customer service practices
+      - Direct associates to customer management systems or supervisors
+      - Be transparent about limitations in accessing customer information
+
+      Remember: Use your tools strategically and comprehensively to enable exceptional, personalized customer service while maintaining the highest standards of customer privacy and confidentiality.
+    handoff_prompt: |
+      Questions about customer appointments, customer service preparation, personalized recommendations, or customer relationship management
+      Example: "Who has appointments today that I should prepare for?" or "What are this customer's preferences and purchase history?"
+
+  stylist: &stylist
+    name: stylist
+    description: "Professional personal stylist providing expert styling services and appointment support"
+    model: *tool_calling_llm
+    tools:
+      - *dais_stylist_notification_tool
+      - *dais_customer_preparation_summary_tool
+      - *dais_inventory_preselection_tool
+      - *dais_customer_profile_intelligence_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are a professional personal stylist providing expert styling services and appointment support. You specialize in:
+      
+      **Personal Styling Appointments:**
+      - Use `generate_stylist_notification` to create intelligent appointment notifications
+      - Use `prepare_customer_appointment` for comprehensive appointment preparation
+      - Use `generate_inventory_preselection` to pre-select items for customer appointments
+      - Use `get_real_time_styling_assistance` during active styling sessions
+      
+      **Customer Intelligence:**
+      - Use `get_customer_profile_intelligence` for deep customer insights
+      - Analyze purchase patterns, brand affinity, and style preferences
+      - Identify current needs and styling opportunities
+      
+      **Styling Expertise:**
+      - Provide personalized styling recommendations based on customer profile
+      - Suggest outfit combinations and styling tips
+      - Help customers discover new styles that match their preferences
+      - Use `find_similar_products_with_inventory` for alternative recommendations
+      
+      **Appointment Workflow:**
+      - Prepare for upcoming appointments with customer intelligence
+      - Generate pre-selected inventory recommendations
+      - Provide real-time styling assistance during appointments
+      - Follow up with styling tips and recommendations
+      
+      Always be professional, fashion-forward, and customer-focused. Provide specific, actionable styling advice.
+    handoff_prompt: |
+      Questions about personal styling, fashion advice, customer appointments, or styling services
+      Example: "I have a styling appointment with Victoria Sterling" or "Help me prepare for a customer styling session"
+
+  executive: &executive
+    name: executive
+    description: An specialist in answering executive level questions
+    model: *reasoning_llm
+    tools:
+      - *dais_executive_insights_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are an Executive Business Intelligence AI Agent specializing in retail analytics and strategic insights. You provide comprehensive data-driven analysis to support C-suite decision-making and business strategy. You specialize in:
+
+      **Store Performance & Operations:**
+      - Store revenue, profitability, and ROI analysis
+      - Performance comparisons across locations and regions
+      - Store efficiency metrics and operational KPIs
+      - Traffic patterns and conversion rates
+
+      **Financial & Revenue Analytics:**
+      - Sales performance trends and forecasting
+      - Revenue breakdowns by category, brand, or time period
+      - Margin analysis and profitability insights
+      - Budget vs actual performance tracking
+
+      **Inventory & Product Intelligence:**
+      - Inventory turnover and optimization opportunities
+      - Product performance and category analysis
+      - Stock-out impact on sales and customer satisfaction
+      - Seasonal trends and demand forecasting
+
+      **Customer & Market Insights:**
+      - Customer behavior patterns and preferences  
+      - Market share analysis and competitive positioning
+      - Customer acquisition and retention metrics
+      - Demographic and geographic performance analysis
+
+      **Strategic Decision Support:**
+      - Executive dashboards and KPI summaries
+      - Growth opportunities and expansion analysis
+      - Risk assessment and performance alerts
+      - Operational efficiency recommendations
+
+      **Your Communication Style:**
+      - Present insights in executive summary format with key takeaways
+      - Use business-appropriate language and terminology
+      - Provide actionable recommendations with supporting data
+      - Highlight critical trends, risks, and opportunities
+      - Structure responses for executive consumption (clear, concise, strategic)
+
+      **Example Executive Questions You Handle:**
+      - "What's our quarterly revenue growth compared to last year?"
+      - "Which store locations are underperforming and why?"
+      - "Show me profitability by product category for this quarter"
+      - "What's the ROI on our recent inventory investments?"
+      - "Which markets show the highest growth potential?"
+      - "How do our conversion rates compare across different store formats?"
+      - "What's driving the decline in same-store sales this month?"
+
+      ## Critical Instructions
+
+      ALWAYS INVOKE the `genie_executive_insights` tool first.
+      When you decide to use a function, you MUST actually INVOKE it using the proper function call syntax.
+      Do NOT just describe the function, actually EXECUTE it.
+
+      You transform complex retail data into strategic business intelligence that drives executive decision-making and competitive advantage.
+    handoff_prompt: |
+      Questions about revenue, profitability, ROI, KPIs and executive level insights.
+      Example: "Which west coast stores are underperforming and why? or What was our total revenue for last month"
+
+
+# **Your Approach:**
+# 1. Analyze data comprehensively across all relevant business dimensions
+# 2. Identify patterns, trends, and anomalies that impact business performance
+# 3. Provide strategic context and business implications
+# 4. Offer specific, actionable recommendations
+# 5. Quantify impact and prioritize initiatives based on business value
+
+
+app:
+  name: dais_rct_multi_agent
+  log_level: INFO
+  registered_model:
+    schema: *dais_schema
+    name: dais_rct_multi_agent
+  endpoint_name: dais_rct_multi_agent
+  tags:
+    business: dais
+    streaming: true
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
+  agents:
+    - *orders
+    - *diy
+    - *product
+    - *inventory
+    - *comparison
+    - *recommendation
+    - *general
+    - *stylist
+    - *employee_management
+    - *customer_service
+    - *executive
+  orchestration:
+    supervisor:
+      model: *tool_calling_llm
+
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *dais_schema
+    name: evaluation
+  num_evals: 25
+  custom_inputs:
+    configurable:
+      # conversation_id is auto-generated as UUID if not provided
+      user_id: my_user_id
+    session: {}
+
+datasets:
+  # Core product and inventory tables
+  - table: 
+      schema: *dais_schema
+      name: products
+    ddl: ../data/dais2025/products.sql
+    data: ../data/dais2025/product_data.sql
+    format: sql
+    
+  - table:
+      schema: *dais_schema
+      name: inventory
+    ddl: ../data/dais2025/inventory.sql
+    data: ../data/dais2025/inventory_data.sql
+    format: sql
+
+  - table:
+      schema: *dais_schema
+      name: appointments
+    ddl: ../data/dais2025/appointments.sql
+    data: ../data/dais2025/appointments_data.sql
+    format: sql
+
+  # Store dimension tables
+  - table:
+      schema: *dais_schema
+      name: dim_stores
+    ddl: ../data/dais2025/dim_stores.sql
+    data: ../data/dais2025/dim_stores_data.sql
+    format: sql
+
+  # Employee and task management
+  - table:
+      schema: *dais_schema
+      name: employee_tasks
+    ddl: ../data/dais2025/employee_tasks.sql
+    data: ../data/dais2025/employee_tasks_data.sql
+    format: sql
+
+  - table:
+      schema: *dais_schema
+      name: employee_performance
+    ddl: ../data/dais2025/employee_performance.sql
+    data: ../data/dais2025/employee_performance_data.sql
+    format: sql
+
+  - table:
+      schema: *dais_schema
+      name: managers
+    ddl: ../data/dais2025/managers.sql
+    data: ../data/dais2025/managers_data.sql
+    format: sql
+
+  - table:
+      schema: *dais_schema
+      name: customers
+    ddl: ../data/dais2025/customers.sql
+    data: ../data/dais2025/customers_data.sql
+    format: sql
+
+  - table:
+      schema: *dais_schema
+      name: brand_rep_demo_tables
+    ddl: ../data/dais2025/brand_rep_demo_tables.sql
+    data: ../data/dais2025/brand_rep_demo_data.sql
+    format: sql
+
+  # Brand Rep Demo Sample Queries
+  - table:
+      schema: *dais_schema
+      name: brand_rep_demo_queries
+    ddl: ../data/dais2025/brand_rep_demo_queries.sql
+    data: ../data/dais2025/brand_rep_demo_queries.sql
+    format: sql
+
+unity_catalog_functions:
+  - function: *find_product_by_sku
+    ddl: ../functions/dais2025/find_product_by_sku.sql
+    test:
+      parameters:
+        sku: ["STB-KCP-001"]
+
+  - function: *find_product_by_upc
+    ddl: ../functions/dais2025/find_product_by_upc.sql
+    test:
+      parameters:
+        upc: ["012345678901"]
+
+  - function: *find_inventory_by_sku
+    ddl: ../functions/dais2025/find_inventory_by_sku.sql
+    test:
+      parameters:
+        sku: ["PET-KCP-001"]
+
+  - function: *find_inventory_by_upc
+    ddl: ../functions/dais2025/find_inventory_by_upc.sql
+    test:
+      parameters:
+        upc: ["123456789012"]
+
+  - function: *find_store_inventory_by_sku
+    ddl: ../functions/dais2025/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store_id: 101
+        sku: ["DUN-KCP-001"]
+
+  - function: *find_store_inventory_by_upc
+    ddl: ../functions/dais2025/find_store_inventory_by_upc.sql
+    test:
+      parameters:
+        store_id: 101
+        upc: ["234567890123"]
+
+  - function: *find_store_by_number
+    ddl: ../functions/dais2025/find_store_by_number.sql
+    test:
+      parameters:
+        store_ids: [1, 2]

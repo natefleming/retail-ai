@@ -20,7 +20,7 @@ def current_time_tool() -> str:
     """
 
     time_now: str = datetime.now().isoformat()
-    logger.debug(f"Current time: {time_now}")
+    logger.trace("Current time retrieved", time=time_now)
     return time_now
 
 
@@ -38,7 +38,9 @@ def time_in_timezone_tool(timezone_name: str) -> str:
     try:
         tz = pytz.timezone(timezone_name)
         time_in_tz = datetime.now(tz)
-        logger.debug(f"Time in {timezone_name}: {time_in_tz}")
+        logger.trace(
+            "Time in timezone retrieved", timezone=timezone_name, time=str(time_in_tz)
+        )
         return f"{time_in_tz.strftime('%Y-%m-%d %H:%M:%S %Z')} ({timezone_name})"
     except Exception:
         return f"Error: Invalid timezone '{timezone_name}'. Use format like 'US/Eastern' or 'Europe/London'"
@@ -77,7 +79,12 @@ def time_difference_tool(datetime1: str, datetime2: str) -> str:
             parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
 
         result = ", ".join(parts) if parts else "0 seconds"
-        logger.debug(f"Time difference between {datetime1} and {datetime2}: {result}")
+        logger.trace(
+            "Time difference calculated",
+            datetime1=datetime1,
+            datetime2=datetime2,
+            result=result,
+        )
         return result
 
     except Exception as e:
@@ -112,7 +119,14 @@ def add_time_tool(
         new_dt = base_dt + timedelta(days=days, hours=hours, minutes=minutes)
 
         result = new_dt.isoformat()
-        logger.debug(f"Added {days}d {hours}h {minutes}m to {base_datetime}: {result}")
+        logger.trace(
+            "Time added to datetime",
+            base_datetime=base_datetime,
+            days=days,
+            hours=hours,
+            minutes=minutes,
+            result=result,
+        )
         return result
 
     except Exception as e:
@@ -164,7 +178,7 @@ def is_business_hours_tool(
         elif not is_work_hours:
             result += " (Outside 9 AM - 5 PM)"
 
-        logger.debug(f"Business hours check: {result}")
+        logger.trace("Business hours check completed", result=result)
         return result
 
     except Exception as e:
@@ -199,7 +213,12 @@ def format_time_tool(datetime_str: str, format_type: str = "readable") -> str:
             return f"Error: Unknown format type. Use: {', '.join(formats.keys())}"
 
         result = dt.strftime(formats[format_type])
-        logger.debug(f"Formatted {datetime_str} as {format_type}: {result}")
+        logger.trace(
+            "Datetime formatted",
+            datetime_str=datetime_str,
+            format_type=format_type,
+            result=result,
+        )
         return result
 
     except Exception as e:
@@ -266,7 +285,11 @@ def time_until_tool(target_datetime: str) -> str:
                 else "Less than 1 minute remaining"
             )
 
-        logger.debug(f"Time until {target_datetime}: {result}")
+        logger.trace(
+            "Time until target calculated",
+            target_datetime=target_datetime,
+            result=result,
+        )
         return result
 
     except Exception as e:

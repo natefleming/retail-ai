@@ -5,7 +5,13 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from conftest import add_databricks_resource_attrs
 
-from dao_ai.config import RerankParametersModel, RetrieverModel, VectorStoreModel
+from dao_ai.config import (
+    RerankParametersModel,
+    RetrieverModel,
+    SchemaModel,
+    TableModel,
+    VectorStoreModel,
+)
 from dao_ai.tools.vector_search import create_vector_search_tool
 
 
@@ -19,7 +25,7 @@ class TestReRankParametersModel:
 
         assert rerank.model == "ms-marco-MiniLM-L-12-v2"
         assert rerank.top_n is None
-        assert rerank.cache_dir == "/tmp/flashrank_cache"
+        assert rerank.cache_dir == "~/.dao_ai/cache/flashrank"
 
     def test_custom_values(self) -> None:
         """Test ReRankParametersModel with custom values."""
@@ -100,10 +106,7 @@ class TestVectorSearchToolCreation:
     """Unit tests for vector search tool creation using @tool decorator pattern."""
 
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
-    @patch("mlflow.models.set_retriever_schema")
-    def test_creates_tool_without_reranker(
-        self, mock_set_schema: MagicMock, mock_vector_search: MagicMock
-    ) -> None:
+    def test_creates_tool_without_reranker(self, mock_vector_search: MagicMock) -> None:
         """Test that tool is created without reranker when not configured."""
         # Create mock retriever config without reranking
         retriever_config = Mock(spec=RetrieverModel)
@@ -133,13 +136,75 @@ class TestVectorSearchToolCreation:
         assert hasattr(tool, "invoke")
         assert tool.name == "test_tool"
         assert tool.description == "Test description"
-        assert mock_set_schema.called
+
+    @patch("dao_ai.providers.databricks.DatabricksProvider")
+    @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
+    def test_creates_tool_from_vector_store_directly(
+        self,
+        mock_vector_search: MagicMock,
+        mock_provider_class: MagicMock,
+    ) -> None:
+        """Test that tool can be created from VectorStoreModel directly with defaults."""
+        # Mock the provider to avoid actual Databricks calls
+        mock_provider = MagicMock()
+        mock_provider.find_primary_key.return_value = ["id"]
+        mock_provider.find_endpoint_for_index.return_value = "test_endpoint"
+        mock_provider_class.return_value = mock_provider
+
+        # Create a real VectorStoreModel (not a mock)
+        schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
+        table = TableModel(schema=schema, name="test_table")
+        vector_store = VectorStoreModel(
+            source_table=table,
+            embedding_source_column="text",
+            columns=["text", "metadata"],
+            doc_uri="https://docs.example.com",
+        )
+
+        # Create tool directly from vector store using vector_store parameter
+        tool = create_vector_search_tool(
+            vector_store=vector_store,
+            name="test_tool",
+            description="Test description",
+        )
+
+        # Verify tool was created
+        assert hasattr(tool, "invoke")
+        assert tool.name == "test_tool"
+        assert tool.description == "Test description"
+
+        # Verify DatabricksVectorSearch was called with expected columns
+        mock_vector_search.assert_called_once()
+        call_kwargs = mock_vector_search.call_args[1]
+        assert "test_table_index" in call_kwargs["index_name"]
+        assert call_kwargs["columns"] == ["text", "metadata"]
+
+    def test_validation_requires_one_parameter(self) -> None:
+        """Test that validation fails when neither retriever nor vector_store is provided."""
+        with pytest.raises(
+            ValueError, match="Must provide either 'retriever' or 'vector_store'"
+        ):
+            create_vector_search_tool()
 
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     @patch("mlflow.models.set_retriever_schema")
-    def test_creates_tool_with_reranker(
+    def test_validation_rejects_both_parameters(
         self, mock_set_schema: MagicMock, mock_vector_search: MagicMock
     ) -> None:
+        """Test that validation fails when both retriever and vector_store are provided."""
+        # Create mock retriever and vector store
+        retriever_config = Mock(spec=RetrieverModel)
+        vector_store_config = Mock(spec=VectorStoreModel)
+
+        with pytest.raises(
+            ValueError, match="Cannot provide both 'retriever' and 'vector_store'"
+        ):
+            create_vector_search_tool(
+                retriever=retriever_config, vector_store=vector_store_config
+            )
+
+    @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
+    def test_creates_tool_with_reranker(self, mock_vector_search: MagicMock) -> None:
         """Test that tool is created with reranker when configured."""
         # Create mock retriever config with reranking
         reranker_config = RerankParametersModel(
@@ -173,7 +238,6 @@ class TestVectorSearchToolCreation:
         assert hasattr(tool, "invoke")
         assert tool.name == "reranking_tool"
         assert tool.description == "Reranking test"
-        assert mock_set_schema.called
 
 
 @pytest.mark.integration

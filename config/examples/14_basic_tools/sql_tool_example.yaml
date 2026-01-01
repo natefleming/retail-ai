@@ -1,0 +1,141 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Example configuration demonstrating the SQL execution tool
+# This tool executes pre-configured SQL statements against a Databricks SQL warehouse
+
+schemas:
+  hardware_store_schema: &hardware_store_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: hardware_store                            # Schema within the catalog
+
+resources:
+  # Define the warehouse to execute SQL against
+  warehouses:
+    analytics_warehouse: &analytics_warehouse
+      name: analytics_warehouse
+      warehouse_id:
+        env: DATABRICKS_WAREHOUSE_ID
+
+  # Define the LLM for the agent
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+
+# Define SQL execution tools
+tools:
+  # Tool to count total products
+  get_product_count: &get_product_count
+    name: get_product_count
+    function:
+      type: factory
+      name: dao_ai.tools.sql.create_execute_statement_tool
+      args:
+        warehouse: *analytics_warehouse
+        statement: |
+          SELECT COUNT(*) as product_count
+          FROM retail_consumer_goods.hardware_store.products
+        description: "Get the total number of products in the catalog"
+
+  # Tool to get products by department
+  get_products_by_department: &get_products_by_department
+    name: get_products_by_department
+    function:
+      type: factory
+      name: dao_ai.tools.sql.create_execute_statement_tool
+      args:
+        warehouse: *analytics_warehouse
+        statement: |
+          SELECT 
+            i.department,
+            COUNT(DISTINCT p.product_id) as product_count,
+            SUM(i.store_quantity + i.warehouse_quantity) as total_quantity,
+            ROUND(AVG(i.retail_amount), 2) as avg_price
+          FROM retail_consumer_goods.hardware_store.products p
+          INNER JOIN retail_consumer_goods.hardware_store.inventory i ON p.product_id = i.product_id
+          GROUP BY i.department
+          ORDER BY product_count DESC
+        description: "Get product counts and inventory statistics grouped by department"
+
+  # Tool to check low inventory items
+  check_low_inventory: &check_low_inventory
+    name: check_low_inventory
+    function:
+      type: factory
+      name: dao_ai.tools.sql.create_execute_statement_tool
+      args:
+        warehouse: *analytics_warehouse
+        statement: |
+          SELECT 
+            p.sku,
+            p.product_name,
+            i.store,
+            i.store_quantity,
+            i.warehouse_quantity,
+            (i.store_quantity + i.warehouse_quantity) as total_quantity,
+            i.department
+          FROM retail_consumer_goods.hardware_store.products p
+          INNER JOIN retail_consumer_goods.hardware_store.inventory i ON p.product_id = i.product_id
+          WHERE (i.store_quantity + i.warehouse_quantity) < 10
+          ORDER BY total_quantity ASC
+          LIMIT 20
+        description: "Check for products with low inventory (less than 10 total units) that may need reordering"
+
+  # Tool to get popular products
+  get_popular_products: &get_popular_products
+    name: get_popular_products
+    function:
+      type: factory
+      name: dao_ai.tools.sql.create_execute_statement_tool
+      args:
+        warehouse: *analytics_warehouse
+        statement: |
+          SELECT 
+            p.sku,
+            p.brand_name,
+            p.product_name,
+            i.popularity_rating,
+            i.retail_amount,
+            (i.store_quantity + i.warehouse_quantity) as total_quantity,
+            i.department
+          FROM retail_consumer_goods.hardware_store.products p
+          INNER JOIN retail_consumer_goods.hardware_store.inventory i ON p.product_id = i.product_id
+          WHERE i.popularity_rating = 'high'
+          ORDER BY i.retail_amount DESC
+          LIMIT 20
+        description: "Get the most popular products with high popularity rating"
+
+agents:
+  inventory_analyst: &inventory_analyst
+    name: inventory_analyst
+    model: *default_llm
+    tools:
+      - *get_product_count
+      - *get_products_by_department
+      - *check_low_inventory
+      - *get_popular_products
+    prompt: |
+      You are a helpful inventory analyst assistant for a hardware store.
+      
+      You have access to SQL tools that can query the product catalog and inventory database.
+      Use these tools to help answer questions about:
+      - Product counts and availability
+      - Inventory levels across stores and warehouses
+      - Department-level statistics
+      - Popular products and pricing
+      - Low stock alerts
+      
+      When presenting data:
+      - Format numbers clearly (use commas for thousands)
+      - Highlight important findings
+      - Provide actionable insights when relevant
+      
+      Be concise but informative in your responses.
+
+app:
+  name: sql_tool_example
+  log_level: INFO
+  registered_model:
+    schema: *hardware_store_schema
+    name: sql_tool_example_agent
+  agents:
+    - *inventory_analyst

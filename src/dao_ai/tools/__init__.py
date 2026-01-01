@@ -9,6 +9,7 @@ from dao_ai.tools.memory import create_search_memory_tool
 from dao_ai.tools.python import create_factory_tool, create_python_tool
 from dao_ai.tools.search import create_search_tool
 from dao_ai.tools.slack import create_send_slack_message_tool
+from dao_ai.tools.sql import create_execute_statement_tool
 from dao_ai.tools.time import (
     add_time_tool,
     current_time_tool,
@@ -24,6 +25,7 @@ from dao_ai.tools.vector_search import create_vector_search_tool
 __all__ = [
     "add_time_tool",
     "create_agent_endpoint_tool",
+    "create_execute_statement_tool",
     "create_factory_tool",
     "create_genie_tool",
     "create_hooks",

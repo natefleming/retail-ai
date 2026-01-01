@@ -267,8 +267,8 @@ class TestContextConversion:
         assert context.thread_id == "override_conv"
         assert context.user_id == "override_user"
 
-    def test_custom_fields_in_custom_dict(self) -> None:
-        """Test that custom fields go into context.custom."""
+    def test_custom_fields_as_top_level_attributes(self) -> None:
+        """Test that custom fields are added as top-level context attributes."""
         agent = self._create_agent()
 
         request = ResponsesAgentRequest(
@@ -285,8 +285,8 @@ class TestContextConversion:
 
         context = agent._convert_request_to_context(request)
 
-        assert context.custom["store_num"] == "87887"
-        assert context.custom["custom_field"] == "custom_value"
+        assert context.store_num == "87887"
+        assert context.custom_field == "custom_value"
 
     def test_generates_thread_id_if_not_provided(self) -> None:
         """Test that a thread_id is generated if not provided."""
@@ -405,7 +405,7 @@ class TestCustomOutputs:
         context = Context(
             user_id="test_user",
             thread_id="conv_123",
-            custom={"store_num": "87887"},
+            store_num="87887",
         )
 
         # Run async method in sync test
@@ -441,7 +441,7 @@ class TestCustomOutputs:
         context = Context(
             user_id="test_user",
             thread_id="conv_123",
-            custom={"store_num": "87887"},
+            store_num="87887",
         )
 
         # Generate outputs
@@ -463,4 +463,4 @@ class TestCustomOutputs:
 
         assert new_context.thread_id == "conv_123"
         assert new_context.user_id == "test_user"
-        assert new_context.custom["store_num"] == "87887"
+        assert new_context.store_num == "87887"

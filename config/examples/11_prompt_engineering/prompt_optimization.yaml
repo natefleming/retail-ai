@@ -1,0 +1,482 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Multi-Agent AI Orchestration Framework Configuration
+# =============================================================================
+# This configuration file demonstrates the complete setup for a multi-agent system
+# including schemas, resources, tools, agents, and orchestration patterns.
+#
+# NEW FEATURE: MLflow Prompt Registry Integration
+# ================================================
+# This example showcases how to use MLflow Prompt Registry for centralized
+# prompt management. Key benefits:
+#
+# 1. Version Control: Track prompt changes over time with versioning
+# 2. Centralized Management: Store prompts in MLflow instead of config files
+# 3. External Updates: Prompt engineers can update prompts without code changes
+# 4. Environment Management: Use aliases (production, staging) for different environments
+# 5. A/B Testing: Easily switch between prompt versions for testing
+#
+# Prompts can be:
+# - Loaded from MLflow Prompt Registry (preferred)
+# - Fall back to default_template if registry unavailable
+# - Pinned to specific versions for stability
+# - Referenced using aliases for flexibility
+#
+# See the "PROMPTS CONFIGURATION" section below for detailed examples.
+# =============================================================================
+
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+# Define Unity Catalog schemas where data and functions will be stored
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: hardware_store                    # Schema within the catalog
+
+# =============================================================================
+# RESOURCES CONFIGURATION
+# =============================================================================
+# Define all resources needed by the multi-agent system including LLMs,
+# vector stores, databases, tables, and other Databricks resources
+
+resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS (LLMs)
+  # ---------------------------------------------------------------------------
+  # Configure different LLMs for various purposes in the agent system
+  llms:
+
+    # LLM optimized for tool calling and function execution
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-3-7-sonnet 
+      temperature: 0.1
+      max_tokens: 8192
+      fallbacks:                                     # Fallback models if primary fails
+        - databricks-claude-sonnet-4
+
+
+    # LLM for evaluating and judging responses (guardrails)
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.5                              # Higher temperature for diverse judgments
+      max_tokens: 8192
+
+    # Embedding model for vector search and semantic similarity
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en                 # Text embedding model
+
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES
+  # ---------------------------------------------------------------------------
+  # Configure vector databases for semantic search and retrieval
+  vector_stores:
+    # Product information vector store for similarity search
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model             # Reference to embedding model above
+      endpoint:                                     # Vector search endpoint configuration
+        name: dbdemos_vs_endpoint            # Databricks vector search endpoint
+        type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
+      index:                                        # Vector search index configuration
+        schema: *retail_schema                      # Unity Catalog schema for the index
+        name: products_index                        # Index name
+      source_table:                                 # Table containing source data
+        schema: *retail_schema
+        name: products
+      primary_key: product_id                       # Primary key column
+      doc_uri: ~                                    # Optional document URI column (null in this case)
+      embedding_source_column: description          # Column to create embeddings from
+      columns:                                      # Columns to include in vector store
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
+
+
+# =============================================================================
+# RETRIEVERS CONFIGURATION
+# =============================================================================
+# Configure retrieval systems for semantic search and information retrieval
+
+retrievers:
+  # Product information retriever using vector search
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store            # Reference to vector store defined above
+    columns:                                        # Columns to return in search results
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:                              # Search configuration
+      num_results: 10                               # Maximum number of results to return
+      filters: {}                                   # Additional filters (empty in this case)
+      query_type: ANN                               # Approximate Nearest Neighbor search
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# Define tools that agents can use to perform various tasks
+# Tools can be of different types: python, factory, unity_catalog, or mcp
+
+tools:
+
+
+  # Product details search by description
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever              # Reference to retriever config
+        name: product_vector_search_tool            # Tool instance name
+        description: "Search for products by description"  # Tool description
+
+
+
+# ==============================================================================
+# PROMPTS CONFIGURATION
+# ==============================================================================
+# Define reusable prompts that can be stored in MLflow Prompt Registry
+# 
+# Prompts support:
+# - default_template: Fallback template when registry is unavailable
+# - description: Used as commit message when syncing to registry
+# - alias: Reference specific versions (e.g., "production", "staging")
+# - version: Pin to specific version number
+# - tags: Metadata and organization
+#
+# Priority: Registry > default_template (registry is source of truth)
+# ==============================================================================
+
+prompts:
+  # ---------------------------------------------------------------------------
+  # DIY Agent Prompt
+  # ---------------------------------------------------------------------------
+  diy_prompt: &diy_prompt
+    schema: *retail_schema
+    name: diy_prompt
+    description: "DIY and home improvement expert prompt providing how-to advice, project guidance, and safety recommendations"
+    
+    # Optional: Specify which version/alias to optimize
+    # Three URI schemes are supported:
+    # 1. version: 1  # Optimize specific version: "prompts:/qa/1"
+    # 2. alias: "champion"  # Optimize aliased version: "prompts:/qa@champion"
+    # 3. (default) no version/alias  # Optimize latest: "prompts:/qa@latest"
+    # 
+    # When optimization completes, the specified alias will be updated to point to the new version
+    # If no alias specified, defaults to "latest"
+    # alias: "champion"  # Uncomment to use a custom alias
+    
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an experienced DIY and home improvement expert with access to search tools.
+    tags:
+      environment: production
+      agent_type: diy
+
+
+
+agents:
+  # ---------------------------------------------------------------------------
+  # DIY AGENT
+  # ---------------------------------------------------------------------------
+  # Provides DIY advice, tutorials, and project guidance
+  # This agent demonstrates how to use a prompt reference that can be optimized
+  diy: &diy
+    name: diy
+    description: "DIY and home improvement expert providing how-to advice, project guidance, and tool recommendations"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool   # Can search for tools and materials
+    prompt: *diy_prompt
+
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+# Define the main application settings, registered model, endpoint configuration,
+# and agent orchestration patterns for the multi-agent system
+
+app:
+  name: prompt_optimization_dao                      # Application name  
+  description: "Multi-agent system for retail customer service and product assistance"
+  log_level: DEBUG                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *retail_schema                          # Schema where model will be registered
+    name: prompt_optimization_dao
+  endpoint_name: prompt_optimization_agent                    # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    business: rcg                                   # Business unit identifier
+    streaming: true                                 # Indicates streaming capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_QUERY                                # Full management permissions
+  agents:                                           # List of agents included in the system
+    - *diy                                          # DIY and tutorials agent
+  input_example:
+      input:
+        - role: user
+          content: Can you recommend a lamp to match my oak side tables?
+      custom_inputs:
+        configurable:
+          # conversation_id is auto-generated as UUID if not provided
+          user_id: my_user_id
+          store_num: 87887
+    # swarm:
+    #   model: *tool_calling_llm
+    #   default_agent: *general
+
+
+
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *retail_schema
+    name: evaluation
+  num_evals: 25
+  custom_inputs:
+    configurable:
+      # conversation_id is auto-generated as UUID if not provided
+      user_id: nate.fleming
+      store_num: 87887
+
+# =============================================================================
+# DATASETS CONFIGURATION
+# =============================================================================
+# Define source datasets for the system including table schemas, DDL files,
+# and data files for initial population of Unity Catalog tables
+
+datasets:
+  - table: 
+      schema: *retail_schema
+      name: products
+    ddl: ../data/hardware_store/products.sql
+    data: ../data/hardware_store/products.snappy.parquet
+    format: parquet
+  - table: 
+      schema: *retail_schema
+      name: inventory
+    ddl: ../data/hardware_store/inventory.sql
+    data: ../data/hardware_store/inventory.snappy.parquet
+    format: parquet
+
+
+optimizations:
+  # Define training datasets (optional - can also reference existing datasets by name)
+  training_datasets:
+    # Example dataset with inline data
+    hardware_store_diy_dataset: &hardware_store_diy_dataset
+      # Optional: Specify schema for full catalog.schema.table name
+      schema: *retail_schema
+      name: hardware_store_diy_dataset
+      overwrite: true
+      data:
+        - inputs:
+            messages: 
+              - role: user
+                content: "What's the best drill for home use?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "The best drill for home use is the Dewalt DCD777B 18V Cordless Drill/Driver with a 1/2-inch hex chuck."
+              - "The Dewalt DCD777B 18V Cordless Drill/Driver is a popular drill for home use."
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I install a ceiling fan?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Turn off power at the circuit breaker before starting any electrical work"
+              - "You'll need a ceiling fan mounting bracket and electrical box rated for fan weight"
+              - "Connect the wiring: black to black (hot), white to white (neutral), green to copper (ground)"
+              - "Ensure the electrical box is securely mounted to a ceiling joist or use a fan brace"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What type of paint should I use for my bathroom?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Use moisture-resistant or mildew-resistant paint for bathrooms"
+              - "Semi-gloss or satin finish paints work best in bathrooms due to humidity"
+              - "Look for paints specifically labeled as 'bathroom paint' or with anti-microbial properties"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I fix a leaky faucet?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Turn off the water supply before starting repairs"
+              - "Common causes include worn washers, O-rings, or valve seats"
+              - "You'll typically need an adjustable wrench, screwdriver, and replacement parts"
+              - "Identify your faucet type (compression, cartridge, ball, or ceramic disk) for proper repair"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What tools do I need to hang drywall?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Essential tools include a drywall saw, utility knife, T-square, and screw gun"
+              - "You'll need drywall screws, joint compound, and tape for finishing"
+              - "A drywall lift can be helpful for ceiling installation"
+              - "Sandpaper or sanding screen is needed for finishing joints"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I install laminate flooring?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Start by ensuring the subfloor is clean, level, and dry"
+              - "Install underlayment before laying laminate planks"
+              - "Leave a 1/4-inch expansion gap around the perimeter"
+              - "Most laminate flooring uses a click-lock installation system"
+              - "Acclimate the flooring to room temperature for 48 hours before installation"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What's the difference between a nail gun and a hammer?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "A nail gun drives nails much faster and with less physical effort than a hammer"
+              - "Nail guns are powered by compressed air, electricity, or fuel cells"
+              - "Hammers provide more control for precision work and don't require power"
+              - "Nail guns are better for large projects like framing or decking"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I properly prepare a surface for painting?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Clean the surface to remove dirt, grease, and loose paint"
+              - "Sand the surface to create a smooth base and improve paint adhesion"
+              - "Fill holes and cracks with spackling compound or wood filler"
+              - "Apply primer, especially on bare wood or patched areas"
+              - "Allow proper drying time between prep steps"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What safety equipment do I need for woodworking?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Safety glasses or goggles are essential to protect your eyes from debris"
+              - "Hearing protection is important when using power tools"
+              - "A dust mask or respirator protects against sawdust and fumes"
+              - "Work gloves protect hands but should not be worn near rotating tools"
+              - "Closed-toe shoes with good traction are recommended"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "How do I choose the right sandpaper grit?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "Coarse grit (40-60) is for heavy material removal and rough shaping"
+              - "Medium grit (80-120) is for general sanding and smoothing"
+              - "Fine grit (150-220) is for final sanding before finishing"
+              - "Start with coarser grit and progress to finer grits for best results"
+        
+        - inputs:
+            messages:
+              - role: user
+                content: "What's the best way to cut PVC pipe?"
+            custom_inputs:
+              configurable:
+                user_id: my_user_id
+                store_num: 87887
+          expectations:
+            expected_facts:
+              - "A PVC pipe cutter or ratcheting cutter provides the cleanest cuts"
+              - "A hacksaw or miter saw can also be used for cutting PVC"
+              - "Mark the cut line completely around the pipe for a straight cut"
+              - "Deburr the inside and outside edges after cutting"
+              - "Ensure cuts are square to the pipe for proper fittings"
+
+  prompt_optimizations:
+    # Optimize the DIY agent prompt for improved responses
+    optimize_diy_prompt:
+      name: optimize_diy_prompt
+      prompt: *diy_prompt
+      agent: *diy
+      
+      # Dataset reference - can be:
+      # 1. String name referencing training_datasets (above)
+      # 2. String name of existing dataset in MLflow
+      # 3. Inline EvaluationDatasetModel with data
+      dataset: *hardware_store_diy_dataset
+      
+      # Option 3: Inline dataset (alternative to referencing training_datasets)
+      # dataset:
+      #   name: inline_dataset
+      #   data:
+      #     - inputs:
+      #         text: "Example"  # Must match prompt template variables
+      #       expectations:
+      #         expected_response: "positive"
+      
+      # Optional: Specify reflection model (defaults to agent's model)
+      # Can be LLMModel reference or string model name
+      reflection_model: "openai:/gpt-5"
+      # Or use string: reflection_model: "databricks-claude-sonnet-4-5"
+      
+      # Optional: Optimization parameters
+      num_candidates: 5  # Number of candidate prompts to generate

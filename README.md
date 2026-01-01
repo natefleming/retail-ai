@@ -46,7 +46,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Architecture](docs/architecture.md)** - Understand how DAO works under the hood
 
 ### Core Concepts
-- **[Key Capabilities](docs/key-capabilities.md)** - Explore 13 powerful features for production agents
+- **[Key Capabilities](docs/key-capabilities.md)** - Explore 14 powerful features for production agents
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
 
@@ -265,6 +265,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | **Prompt Registry** | Version and manage prompts in MLflow |
 | **Prompt Optimization** | Automated tuning with GEPA (Generative Evolution of Prompts and Agents) |
 | **Guardrails** | Content filters, safety checks, validation |
+| **Middleware** | Input validation, logging, performance monitoring, audit trails |
 | **Conversation Summarization** | Handle long conversations automatically |
 | **Structured Output** | JSON schema for predictable responses |
 | **Custom I/O** | Flexible input/output with runtime state |
@@ -314,15 +315,16 @@ graph TB
 
 ## Example Configurations
 
-The `config/examples/` directory contains ready-to-use configurations for common patterns:
+The `config/examples/` directory contains ready-to-use configurations organized in a **progressive learning path**:
 
-- `minimal.yaml` - Simplest possible agent
-- `genie_with_semantic_cache.yaml` - NL-to-SQL with two-tier caching
-- `vector_search_with_reranking.yaml` - RAG with improved accuracy
-- `human_in_the_loop.yaml` - Approval workflows
-- `conversation_summarization.yaml` - Long conversation handling
+- `01_getting_started/minimal.yaml` - Simplest possible agent
+- `02_tools/vector_search_with_reranking.yaml` - RAG with improved accuracy
+- `04_genie/genie_semantic_cache.yaml` - NL-to-SQL with two-tier caching
+- `05_memory/conversation_summarization.yaml` - Long conversation handling
+- `06_on_behalf_of_user/obo_basic.yaml` - User-level access control
+- `07_human_in_the_loop/human_in_the_loop.yaml` - Approval workflows
 
-And many more! See the full list in [Examples Documentation](docs/examples.md).
+And many more! Follow the numbered path or jump to what you need. See the full guide in [Examples Documentation](docs/examples.md).
 
 ---
 

@@ -10,5 +10,5 @@ def create_search_tool() -> RunnableLike:
     Returns:
         RunnableLike: A DuckDuckGo search tool that returns results as a list
     """
-    logger.debug("Creating DuckDuckGo search tool")
+    logger.trace("Creating DuckDuckGo search tool")
     return DuckDuckGoSearchRun(output_format="list")

@@ -126,11 +126,11 @@ async def get_state_snapshot_async(
     Returns:
         StateSnapshot if found, None otherwise
     """
-    logger.debug(f"Retrieving state snapshot for thread_id: {thread_id}")
+    logger.trace("Retrieving state snapshot", thread_id=thread_id)
     try:
         # Check if graph has a checkpointer
         if graph.checkpointer is None:
-            logger.debug("No checkpointer available in graph")
+            logger.trace("No checkpointer available in graph")
             return None
 
         # Get the current state from the checkpointer (use async version)
@@ -138,13 +138,15 @@ async def get_state_snapshot_async(
         state_snapshot: Optional[StateSnapshot] = await graph.aget_state(config)
 
         if state_snapshot is None:
-            logger.debug(f"No state found for thread_id: {thread_id}")
+            logger.trace("No state found for thread", thread_id=thread_id)
             return None
 
         return state_snapshot
 
     except Exception as e:
-        logger.warning(f"Error retrieving state snapshot for thread {thread_id}: {e}")
+        logger.warning(
+            "Error retrieving state snapshot", thread_id=thread_id, error=str(e)
+        )
         return None
 
 
@@ -175,7 +177,7 @@ def get_state_snapshot(
     try:
         return loop.run_until_complete(get_state_snapshot_async(graph, thread_id))
     except Exception as e:
-        logger.warning(f"Error in synchronous state snapshot retrieval: {e}")
+        logger.warning("Error in synchronous state snapshot retrieval", error=str(e))
         return None
 
 
@@ -207,13 +209,17 @@ def get_genie_conversation_ids_from_state(
         )
 
         if genie_conversation_ids:
-            logger.debug(f"Retrieved genie_conversation_ids: {genie_conversation_ids}")
+            logger.trace(
+                "Retrieved genie conversation IDs", count=len(genie_conversation_ids)
+            )
             return genie_conversation_ids
 
         return {}
 
     except Exception as e:
-        logger.warning(f"Error extracting genie_conversation_ids from state: {e}")
+        logger.warning(
+            "Error extracting genie conversation IDs from state", error=str(e)
+        )
         return {}
 
 
@@ -333,7 +339,11 @@ class LanggraphChatModel(ChatModel):
     def predict(
         self, context, messages: list[ChatMessage], params: Optional[ChatParams] = None
     ) -> ChatCompletionResponse:
-        logger.debug(f"messages: {messages}, params: {params}")
+        logger.trace(
+            "Predict called",
+            messages_count=len(messages),
+            has_params=params is not None,
+        )
         if not messages:
             raise ValueError("Message list is empty.")
 
@@ -355,7 +365,10 @@ class LanggraphChatModel(ChatModel):
             _async_invoke()
         )
 
-        logger.trace(f"response: {response}")
+        logger.trace(
+            "Predict response received",
+            messages_count=len(response.get("messages", [])),
+        )
 
         last_message: BaseMessage = response["messages"][-1]
 
@@ -393,20 +406,21 @@ class LanggraphChatModel(ChatModel):
         if not thread_id:
             thread_id = str(uuid.uuid4())
 
-        # All remaining configurable values go into custom dict
-        custom: dict[str, Any] = configurable
-
-        context: Context = Context(
+        # All remaining configurable values become top-level context attributes
+        return Context(
             user_id=user_id,
             thread_id=thread_id,
-            custom=custom,
+            **configurable,  # Extra fields become top-level attributes
         )
-        return context
 
     def predict_stream(
         self, context, messages: list[ChatMessage], params: ChatParams
     ) -> Generator[ChatCompletionChunk, None, None]:
-        logger.debug(f"messages: {messages}, params: {params}")
+        logger.trace(
+            "Predict stream called",
+            messages_count=len(messages),
+            has_params=params is not None,
+        )
         if not messages:
             raise ValueError("Message list is empty.")
 
@@ -430,7 +444,10 @@ class LanggraphChatModel(ChatModel):
                 stream_mode: str
                 messages_batch: Sequence[BaseMessage]
                 logger.trace(
-                    f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {messages_batch}"
+                    "Stream batch received",
+                    nodes=nodes,
+                    stream_mode=stream_mode,
+                    messages_count=len(messages_batch),
                 )
                 for message in messages_batch:
                     if (
@@ -675,7 +692,7 @@ def handle_interrupt_response(
     user_message_obj: Optional[HumanMessage] = last_human_message(messages)
 
     if not user_message_obj:
-        logger.warning("handle_interrupt_response called but no human message found")
+        logger.warning("HITL: No human message found in interrupt response")
         return {
             "is_valid": False,
             "validation_message": "No user message found. Please provide a response to the pending action(s).",
@@ -683,7 +700,9 @@ def handle_interrupt_response(
         }
 
     user_message: str = str(user_message_obj.content)
-    logger.info(f"HITL: Parsing user message with LLM: {user_message[:100]}")
+    logger.info(
+        "HITL: Parsing user interrupt response", message_preview=user_message[:100]
+    )
 
     if not model:
         model = ChatDatabricks(
@@ -693,7 +712,7 @@ def handle_interrupt_response(
 
     # Extract interrupt data
     if not snapshot.interrupts:
-        logger.warning("handle_interrupt_response called but no interrupts in snapshot")
+        logger.warning("HITL: No interrupts found in snapshot")
         return {"decisions": []}
 
     interrupt_data: list[HITLRequest] = [
@@ -707,7 +726,7 @@ def handle_interrupt_response(
         all_actions.extend(hitl_request.get("action_requests", []))
 
     if not all_actions:
-        logger.warning("handle_interrupt_response called but no actions in interrupts")
+        logger.warning("HITL: No actions found in interrupts")
         return {"decisions": []}
 
     # Create dynamic schema
@@ -767,7 +786,7 @@ FLEXIBILITY:
 
         if not is_valid:
             logger.warning(
-                f"HITL: Invalid user response. Reason: {validation_message or 'Unknown'}"
+                "HITL: Invalid user response", reason=validation_message or "Unknown"
             )
             return {
                 "is_valid": False,
@@ -779,11 +798,11 @@ FLEXIBILITY:
         # Convert to Decision format
         decisions: list[Decision] = _convert_schema_to_decisions(parsed, interrupt_data)
 
-        logger.info(f"Parsed {len(decisions)} decisions from user message")
+        logger.info("HITL: Parsed interrupt decisions", decisions_count=len(decisions))
         return {"is_valid": True, "validation_message": None, "decisions": decisions}
 
     except Exception as e:
-        logger.error(f"Failed to parse interrupt response: {e}")
+        logger.error("HITL: Failed to parse interrupt response", error=str(e))
         # Return invalid response on parsing failure
         return {
             "is_valid": False,
@@ -840,7 +859,33 @@ class LanggraphResponsesAgent(ResponsesAgent):
                   arguments: {...}
                   description: "..."
         """
-        logger.debug(f"ResponsesAgent request: {request}")
+        # Extract conversation_id for logging (from context or custom_inputs)
+        conversation_id_for_log: str | None = None
+        if request.context and hasattr(request.context, "conversation_id"):
+            conversation_id_for_log = request.context.conversation_id
+        elif request.custom_inputs:
+            # Check configurable or session for conversation_id
+            if "configurable" in request.custom_inputs and isinstance(
+                request.custom_inputs["configurable"], dict
+            ):
+                conversation_id_for_log = request.custom_inputs["configurable"].get(
+                    "conversation_id"
+                )
+            if (
+                conversation_id_for_log is None
+                and "session" in request.custom_inputs
+                and isinstance(request.custom_inputs["session"], dict)
+            ):
+                conversation_id_for_log = request.custom_inputs["session"].get(
+                    "conversation_id"
+                )
+
+        logger.debug(
+            "ResponsesAgent predict called",
+            conversation_id=conversation_id_for_log
+            if conversation_id_for_log
+            else "new",
+        )
 
         # Convert ResponsesAgent input to LangChain messages
         messages: list[dict[str, Any]] = self._convert_request_to_langchain_messages(
@@ -870,7 +915,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     # Explicit structured decisions
                     decisions: list[Decision] = request.custom_inputs["decisions"]
                     logger.info(
-                        f"HITL: Resuming with {len(decisions)} explicit decision(s)"
+                        "HITL: Resuming with explicit decisions",
+                        decisions_count=len(decisions),
                     )
 
                     # Resume interrupted graph with decisions
@@ -888,7 +934,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     )
                     if is_interrupted(snapshot):
                         logger.info(
-                            "HITL: Graph is interrupted, checking for user response"
+                            "HITL: Graph interrupted, checking for user response"
                         )
 
                         # Convert message dicts to BaseMessage objects
@@ -910,7 +956,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 "Your response was unclear. Please provide a clear decision for each action.",
                             )
                             logger.warning(
-                                f"HITL: Invalid response - {validation_message}"
+                                "HITL: Invalid response from user",
+                                validation_message=validation_message,
                             )
 
                             # Return error message to user instead of resuming
@@ -925,7 +972,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
                         decisions: list[Decision] = parsed_result.get("decisions", [])
                         logger.info(
-                            f"HITL: LLM parsed {len(decisions)} valid decision(s) from user message"
+                            "HITL: LLM parsed valid decisions from user message",
+                            decisions_count=len(decisions),
                         )
 
                         # Resume interrupted graph with parsed decisions
@@ -941,15 +989,16 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     graph_input["genie_conversation_ids"] = session_input[
                         "genie_conversation_ids"
                     ]
-                    logger.debug(
-                        f"Including genie_conversation_ids in graph input: {graph_input['genie_conversation_ids']}"
+                    logger.trace(
+                        "Including genie conversation IDs in graph input",
+                        count=len(graph_input["genie_conversation_ids"]),
                     )
 
                 return await self.graph.ainvoke(
                     graph_input, context=context, config=custom_inputs
                 )
             except Exception as e:
-                logger.error(f"Error in graph.ainvoke: {e}")
+                logger.error("Error in graph invocation", error=str(e))
                 raise
 
         try:
@@ -963,7 +1012,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 _async_invoke()
             )
         except Exception as e:
-            logger.error(f"Error in async execution: {e}")
+            logger.error("Error in async execution", error=str(e))
             raise
 
         # Convert response to ResponsesAgent format
@@ -983,7 +1032,10 @@ class LanggraphResponsesAgent(ResponsesAgent):
             from pydantic import BaseModel
 
             structured_response = response["structured_response"]
-            logger.debug(f"Processing structured_response: {type(structured_response)}")
+            logger.trace(
+                "Processing structured response",
+                response_type=type(structured_response).__name__,
+            )
 
             # Serialize to dict for JSON compatibility using type hints
             if isinstance(structured_response, BaseModel):
@@ -1010,7 +1062,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
             output_item = self.create_text_output_item(
                 text=structured_text, id=f"msg_{uuid.uuid4().hex[:8]}"
             )
-            logger.debug("Placed structured_response in message content")
+            logger.trace("Structured response placed in message content")
         else:
             # No structured response, use text content
             output_item = self.create_text_output_item(
@@ -1020,7 +1072,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # Include interrupt structure if HITL occurred (following LangChain pattern)
         if "__interrupt__" in response:
             interrupts: list[Interrupt] = response["__interrupt__"]
-            logger.info(f"HITL: {len(interrupts)} interrupt(s) detected")
+            logger.info("HITL: Interrupts detected", interrupts_count=len(interrupts))
 
             # Extract HITLRequest structures from interrupts (deduplicate by ID)
             seen_interrupt_ids: set[str] = set()
@@ -1031,11 +1083,14 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 if interrupt.id not in seen_interrupt_ids:
                     seen_interrupt_ids.add(interrupt.id)
                     interrupt_data.append(_extract_interrupt_value(interrupt))
-                    logger.debug(f"HITL: Added interrupt {interrupt.id} to response")
+                    logger.trace(
+                        "HITL: Added interrupt to response", interrupt_id=interrupt.id
+                    )
 
             custom_outputs["interrupts"] = interrupt_data
             logger.debug(
-                f"HITL: Included {len(interrupt_data)} interrupt(s) in response"
+                "HITL: Included interrupts in response",
+                interrupts_count=len(interrupt_data),
             )
 
             # Add user-facing message about the pending actions
@@ -1058,7 +1113,33 @@ class LanggraphResponsesAgent(ResponsesAgent):
         Uses same input/output structure as predict() for consistency.
         Supports Human-in-the-Loop (HITL) interrupts.
         """
-        logger.debug(f"ResponsesAgent stream request: {request}")
+        # Extract conversation_id for logging (from context or custom_inputs)
+        conversation_id_for_log: str | None = None
+        if request.context and hasattr(request.context, "conversation_id"):
+            conversation_id_for_log = request.context.conversation_id
+        elif request.custom_inputs:
+            # Check configurable or session for conversation_id
+            if "configurable" in request.custom_inputs and isinstance(
+                request.custom_inputs["configurable"], dict
+            ):
+                conversation_id_for_log = request.custom_inputs["configurable"].get(
+                    "conversation_id"
+                )
+            if (
+                conversation_id_for_log is None
+                and "session" in request.custom_inputs
+                and isinstance(request.custom_inputs["session"], dict)
+            ):
+                conversation_id_for_log = request.custom_inputs["session"].get(
+                    "conversation_id"
+                )
+
+        logger.debug(
+            "ResponsesAgent predict_stream called",
+            conversation_id=conversation_id_for_log
+            if conversation_id_for_log
+            else "new",
+        )
 
         # Convert ResponsesAgent input to LangChain messages
         messages: list[dict[str, Any]] = self._convert_request_to_langchain_messages(
@@ -1094,7 +1175,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     # Explicit structured decisions
                     decisions: list[Decision] = request.custom_inputs["decisions"]
                     logger.info(
-                        f"HITL: Resuming with {len(decisions)} explicit decision(s)"
+                        "HITL: Resuming stream with explicit decisions",
+                        decisions_count=len(decisions),
                     )
                     stream_input: Command | dict[str, Any] = Command(
                         resume={"decisions": decisions}
@@ -1107,7 +1189,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     )
                     if is_interrupted(snapshot):
                         logger.info(
-                            "HITL: Graph is interrupted, checking for user response"
+                            "HITL: Graph interrupted, checking for user response in stream"
                         )
 
                         # Convert message dicts to BaseMessage objects
@@ -1129,7 +1211,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 "Your response was unclear. Please provide a clear decision for each action.",
                             )
                             logger.warning(
-                                f"HITL: Invalid response - {validation_message}"
+                                "HITL: Invalid response from user in stream",
+                                validation_message=validation_message,
                             )
 
                             # Build custom_outputs before returning
@@ -1156,7 +1239,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
                         decisions: list[Decision] = parsed_result.get("decisions", [])
                         logger.info(
-                            f"HITL: LLM parsed {len(decisions)} valid decision(s) from user message"
+                            "HITL: LLM parsed valid decisions from user message in stream",
+                            decisions_count=len(decisions),
                         )
 
                         # Resume interrupted graph with parsed decisions
@@ -1226,7 +1310,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
                             if source == "__interrupt__":
                                 interrupts: list[Interrupt] = update
                                 logger.info(
-                                    f"HITL: {len(interrupts)} interrupt(s) detected during streaming"
+                                    "HITL: Interrupts detected during streaming",
+                                    interrupts_count=len(interrupts),
                                 )
 
                                 # Extract interrupt values (deduplicate by ID)
@@ -1238,8 +1323,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                         interrupt_data.append(
                                             _extract_interrupt_value(interrupt)
                                         )
-                                        logger.debug(
-                                            f"HITL: Added interrupt {interrupt.id} to response"
+                                        logger.trace(
+                                            "HITL: Added interrupt to response",
+                                            interrupt_id=interrupt.id,
                                         )
                             elif (
                                 isinstance(update, dict)
@@ -1247,8 +1333,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
                             ):
                                 # Capture structured_response from stream updates
                                 structured_response = update["structured_response"]
-                                logger.debug(
-                                    f"Captured structured_response from stream: {type(structured_response)}"
+                                logger.trace(
+                                    "Captured structured response from stream",
+                                    response_type=type(structured_response).__name__,
                                 )
 
                 # Get final state to extract structured_response (only if checkpointer available)
@@ -1276,8 +1363,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
                     from pydantic import BaseModel
 
-                    logger.debug(
-                        f"Processing structured_response in streaming: {type(structured_response)}"
+                    logger.trace(
+                        "Processing structured response in streaming",
+                        response_type=type(structured_response).__name__,
                     )
 
                     # Serialize to dict for JSON compatibility using type hints
@@ -1320,13 +1408,14 @@ class LanggraphResponsesAgent(ResponsesAgent):
                         )
                         output_text = structured_text
 
-                    logger.debug("Streamed structured_response in message content")
+                    logger.trace("Streamed structured response in message content")
 
                 # Include interrupt structure if HITL occurred
                 if interrupt_data:
                     custom_outputs["interrupts"] = interrupt_data
                     logger.info(
-                        f"HITL: Included {len(interrupt_data)} interrupt(s) in streaming response"
+                        "HITL: Included interrupts in streaming response",
+                        interrupts_count=len(interrupt_data),
                     )
 
                     # Add user-facing message about the pending actions
@@ -1361,7 +1450,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     custom_outputs=custom_outputs,
                 )
             except Exception as e:
-                logger.error(f"Error in graph.astream: {e}")
+                logger.error("Error in graph streaming", error=str(e))
                 raise
 
         # Convert async generator to sync generator
@@ -1381,13 +1470,13 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 except StopAsyncIteration:
                     break
                 except Exception as e:
-                    logger.error(f"Error in streaming: {e}")
+                    logger.error("Error in streaming", error=str(e))
                     raise
         finally:
             try:
                 loop.run_until_complete(async_gen.aclose())
             except Exception as e:
-                logger.warning(f"Error closing async generator: {e}")
+                logger.warning("Error closing async generator", error=str(e))
 
     def _extract_text_from_content(
         self,
@@ -1462,8 +1551,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
         conversation_id can be provided in either configurable or session.
         Normalizes user_id (replaces . with _) for memory namespace compatibility.
         """
-        logger.debug(f"request.context: {request.context}")
-        logger.debug(f"request.custom_inputs: {request.custom_inputs}")
+        logger.trace(
+            "Converting request to context",
+            has_context=request.context is not None,
+            has_custom_inputs=request.custom_inputs is not None,
+        )
 
         configurable: dict[str, Any] = {}
         session: dict[str, Any] = {}
@@ -1521,17 +1613,18 @@ class LanggraphResponsesAgent(ResponsesAgent):
             # Generate new thread_id if neither provided
             thread_id = str(uuid.uuid4())
 
-        # All remaining configurable values go into custom dict
-        custom: dict[str, Any] = configurable
-
-        logger.debug(
-            f"Creating context with user_id={user_id_value}, thread_id={thread_id}, custom={custom}"
+        # All remaining configurable values become top-level context attributes
+        logger.trace(
+            "Creating context",
+            user_id=user_id_value,
+            thread_id=thread_id,
+            extra_keys=list(configurable.keys()) if configurable else [],
         )
 
         return Context(
             user_id=user_id_value,
             thread_id=thread_id,
-            custom=custom,
+            **configurable,  # Pass remaining configurable values as context attributes
         )
 
     def _extract_session_from_request(
@@ -1621,8 +1714,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
         if context.user_id:
             configurable["user_id"] = context.user_id
 
-        # Include all custom fields from context
-        configurable.update(context.custom)
+        # Include all extra fields from context (beyond user_id and thread_id)
+        context_dict = context.model_dump()
+        for key, value in context_dict.items():
+            if key not in {"user_id", "thread_id"} and value is not None:
+                configurable[key] = value
 
         # Build session section with accumulated state
         # Note: conversation_id is included here as an alias of thread_id
@@ -1726,11 +1822,11 @@ def _configurable_to_context(configurable: dict[str, Any]) -> Context:
     if not thread_id:
         thread_id = str(uuid.uuid4())
 
-    # All remaining values go into custom dict
+    # All remaining values become top-level context attributes
     return Context(
         user_id=user_id,
         thread_id=thread_id,
-        custom=configurable,
+        **configurable,  # Extra fields become top-level attributes
     )
 
 
@@ -1745,7 +1841,11 @@ def _process_langchain_messages_stream(
     if isinstance(app, LanggraphChatModel):
         app = app.graph
 
-    logger.debug(f"Processing messages: {messages}, custom_inputs: {custom_inputs}")
+    logger.trace(
+        "Processing messages for stream",
+        messages_count=len(messages),
+        has_custom_inputs=custom_inputs is not None,
+    )
 
     configurable = (custom_inputs or {}).get("configurable", custom_inputs or {})
     context: Context = _configurable_to_context(configurable)
@@ -1763,7 +1863,10 @@ def _process_langchain_messages_stream(
             stream_mode: str
             stream_messages: Sequence[BaseMessage]
             logger.trace(
-                f"nodes: {nodes}, stream_mode: {stream_mode}, messages: {stream_messages}"
+                "Stream batch received",
+                nodes=nodes,
+                stream_mode=stream_mode,
+                messages_count=len(stream_messages),
             )
             for message in stream_messages:
                 if (

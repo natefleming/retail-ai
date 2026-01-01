@@ -1,11 +1,9 @@
-import sys
-
 import mlflow
-from loguru import logger
 from mlflow.models import ModelConfig
 from mlflow.pyfunc import ResponsesAgent
 
 from dao_ai.config import AppConfig
+from dao_ai.logging import configure_logging
 
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_tracking_uri("databricks")
@@ -17,8 +15,7 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 
 log_level: str = config.app.log_level
 
-logger.remove()
-logger.add(sys.stderr, level=log_level)
+configure_logging(level=log_level)
 
 app: ResponsesAgent = config.as_responses_agent()
 
