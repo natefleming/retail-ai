@@ -321,7 +321,8 @@ The `config/examples/` directory contains ready-to-use configurations organized 
 - `02_tools/vector_search_with_reranking.yaml` - RAG with improved accuracy
 - `04_genie/genie_semantic_cache.yaml` - NL-to-SQL with two-tier caching
 - `05_memory/conversation_summarization.yaml` - Long conversation handling
-- `06_human_in_the_loop/human_in_the_loop.yaml` - Approval workflows
+- `06_on_behalf_of_user/obo_basic.yaml` - User-level access control
+- `07_human_in_the_loop/human_in_the_loop.yaml` - Approval workflows
 
 And many more! Follow the numbered path or jump to what you need. See the full guide in [Examples Documentation](docs/examples.md).
 

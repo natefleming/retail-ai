@@ -269,6 +269,12 @@ if config.evaluation.guidelines:
 
 scorers += custom_scorers
 
+# Get the experiment ID from the model's run and set it as the current experiment
+# This is necessary because mlflow.genai.evaluate() internally searches for traces
+# in the current experiment context, which must match the run's experiment
+model_run = mlflow_client.get_run(model_version.run_id)
+mlflow.set_experiment(experiment_id=model_run.info.experiment_id)
+
 with mlflow.start_run(run_id=model_version.run_id):
   eval_results = mlflow.genai.evaluate(
       data=eval_df,
