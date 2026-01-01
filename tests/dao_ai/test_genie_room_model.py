@@ -15,9 +15,23 @@ from dao_ai.config import FunctionModel, GenieRoomModel, TableModel
 
 @pytest.fixture
 def mock_workspace_client():
-    """Create a mock WorkspaceClient for testing."""
+    """Create a mock WorkspaceClient for testing.
+
+    By default, all tables and functions are configured to exist.
+    Use the tables.get.side_effect or functions.get.side_effect
+    to customize which resources exist.
+    """
+
     mock_client = Mock()
     mock_client.genie = Mock()
+
+    # By default, all tables and functions exist (return a mock for any name)
+    mock_client.tables = Mock()
+    mock_client.tables.get = Mock(return_value=Mock())
+
+    mock_client.functions = Mock()
+    mock_client.functions.get = Mock(return_value=Mock())
+
     return mock_client
 
 
@@ -641,6 +655,142 @@ class TestGenieRoomModelSerialization:
             assert warehouse is not None
             assert warehouse.name == "test-warehouse"
             assert warehouse.warehouse_id == "test-warehouse"
+
+    def test_tables_filters_nonexistent_tables(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that tables property filters out tables that don't exist in Unity Catalog."""
+        from databricks.sdk.errors.platform import NotFound
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Configure tables.get to raise NotFound for one table
+            def table_exists_side_effect(full_name: str):
+                if full_name == "catalog.schema.table2":
+                    raise NotFound("Table not found")
+                return Mock()
+
+            mock_workspace_client.tables.get.side_effect = table_exists_side_effect
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            # Test tables extraction - should exclude the non-existent table
+            tables = genie_room.tables
+            assert len(tables) == 2  # Only 2 of 3 tables should be returned
+            table_names = [t.name for t in tables]
+            assert "catalog.schema.table1" in table_names
+            assert "catalog.schema.table2" not in table_names  # This one doesn't exist
+            assert "catalog.schema.table3" in table_names
+
+    def test_functions_filters_nonexistent_functions(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that functions property filters out functions that don't exist in Unity Catalog."""
+        from databricks.sdk.errors.platform import NotFound
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Configure functions.get to raise NotFound for one function
+            def function_exists_side_effect(name: str):
+                if name == "catalog.schema.function1":
+                    raise NotFound("Function not found")
+                return Mock()
+
+            mock_workspace_client.functions.get.side_effect = (
+                function_exists_side_effect
+            )
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            # Test functions extraction - should exclude the non-existent function
+            functions = genie_room.functions
+            assert len(functions) == 1  # Only 1 of 2 functions should be returned
+            function_names = [f.name for f in functions]
+            assert (
+                "catalog.schema.function1" not in function_names
+            )  # This one doesn't exist
+            assert "catalog.schema.function2" in function_names
+
+    def test_tables_all_nonexistent_returns_empty(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that tables property returns empty list if no tables exist."""
+        from databricks.sdk.errors.platform import NotFound
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # All tables don't exist
+            mock_workspace_client.tables.get.side_effect = NotFound("Table not found")
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            tables = genie_room.tables
+            assert len(tables) == 0
+
+    def test_functions_all_nonexistent_returns_empty(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that functions property returns empty list if no functions exist."""
+        from databricks.sdk.errors.platform import NotFound
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # All functions don't exist
+            mock_workspace_client.functions.get.side_effect = NotFound(
+                "Function not found"
+            )
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            functions = genie_room.functions
+            assert len(functions) == 0
+
+    def test_tables_handles_api_errors_gracefully(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that tables property handles generic API errors gracefully."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # One table has an API error (not NotFound)
+            def table_exists_side_effect(full_name: str):
+                if full_name == "catalog.schema.table2":
+                    raise Exception("API Error: Connection timeout")
+                return Mock()
+
+            mock_workspace_client.tables.get.side_effect = table_exists_side_effect
+
+            genie_room = GenieRoomModel(
+                name="test-genie-room", space_id="test-space-123"
+            )
+
+            # Should exclude the table with API error
+            tables = genie_room.tables
+            assert len(tables) == 2
+            table_names = [t.name for t in tables]
+            assert "catalog.schema.table2" not in table_names
 
 
 @pytest.mark.skipif(

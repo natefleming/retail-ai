@@ -23,6 +23,7 @@ from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
     ModelServingUserCredentials,
 )
+from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieSpace
 from databricks.sdk.service.database import DatabaseInstance
@@ -451,6 +452,22 @@ class TableModel(IsDatabricksResource, HasFullName):
     def api_scopes(self) -> Sequence[str]:
         return []
 
+    def exists(self) -> bool:
+        """Check if the table exists in Unity Catalog.
+
+        Returns:
+            True if the table exists, False otherwise.
+        """
+        try:
+            self.workspace_client.tables.get(full_name=self.full_name)
+            return True
+        except NotFound:
+            logger.debug(f"Table not found: {self.full_name}")
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking table existence for {self.full_name}: {e}")
+            return False
+
     def as_resources(self) -> Sequence[DatabricksResource]:
         resources: list[DatabricksResource] = []
 
@@ -630,6 +647,24 @@ class FunctionModel(IsDatabricksResource, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
         return self.name
 
+    def exists(self) -> bool:
+        """Check if the function exists in Unity Catalog.
+
+        Returns:
+            True if the function exists, False otherwise.
+        """
+        try:
+            self.workspace_client.functions.get(name=self.full_name)
+            return True
+        except NotFound:
+            logger.debug(f"Function not found: {self.full_name}")
+            return False
+        except Exception as e:
+            logger.warning(
+                f"Error checking function existence for {self.full_name}: {e}"
+            )
+            return False
+
     def as_resources(self) -> Sequence[DatabricksResource]:
         resources: list[DatabricksResource] = []
         if self.name:
@@ -764,6 +799,7 @@ class GenieRoomModel(IsDatabricksResource):
         """Extract tables from the serialized Genie space.
 
         Databricks Genie stores tables in: data_sources.tables[].identifier
+        Only includes tables that actually exist in Unity Catalog.
         """
         parsed_space = self._parse_serialized_space()
         tables_list: list[TableModel] = []
@@ -775,30 +811,18 @@ class GenieRoomModel(IsDatabricksResource):
                 tables_data = data_sources["tables"]
                 if isinstance(tables_data, list):
                     for table_item in tables_data:
+                        table_name: str | None = None
                         if isinstance(table_item, dict):
                             # Standard Databricks structure uses 'identifier'
                             table_name = table_item.get("identifier") or table_item.get(
                                 "name"
                             )
-                            if table_name:
-                                table_model = TableModel(
-                                    name=table_name,
-                                    on_behalf_of_user=self.on_behalf_of_user,
-                                    service_principal=self.service_principal,
-                                    client_id=self.client_id,
-                                    client_secret=self.client_secret,
-                                    workspace_host=self.workspace_host,
-                                    pat=self.pat,
-                                )
-                                # Share the cached workspace client if available
-                                if self._workspace_client is not None:
-                                    table_model._workspace_client = (
-                                        self._workspace_client
-                                    )
-                                tables_list.append(table_model)
                         elif isinstance(table_item, str):
+                            table_name = table_item
+
+                        if table_name:
                             table_model = TableModel(
-                                name=table_item,
+                                name=table_name,
                                 on_behalf_of_user=self.on_behalf_of_user,
                                 service_principal=self.service_principal,
                                 client_id=self.client_id,
@@ -809,6 +833,11 @@ class GenieRoomModel(IsDatabricksResource):
                             # Share the cached workspace client if available
                             if self._workspace_client is not None:
                                 table_model._workspace_client = self._workspace_client
+
+                            # Verify the table exists before adding
+                            if not table_model.exists():
+                                continue
+
                             tables_list.append(table_model)
 
         return tables_list
@@ -820,10 +849,36 @@ class GenieRoomModel(IsDatabricksResource):
         Databricks Genie stores functions in multiple locations:
         - instructions.sql_functions[].identifier (SQL functions)
         - data_sources.functions[].identifier (other functions)
-        Note: Functions may not always be present in the serialized space.
+        Only includes functions that actually exist in Unity Catalog.
         """
         parsed_space = self._parse_serialized_space()
         functions_list: list[FunctionModel] = []
+        seen_functions: set[str] = set()
+
+        def add_function_if_exists(function_name: str) -> None:
+            """Helper to add a function if it exists and hasn't been added."""
+            if function_name in seen_functions:
+                return
+
+            seen_functions.add(function_name)
+            function_model = FunctionModel(
+                name=function_name,
+                on_behalf_of_user=self.on_behalf_of_user,
+                service_principal=self.service_principal,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                workspace_host=self.workspace_host,
+                pat=self.pat,
+            )
+            # Share the cached workspace client if available
+            if self._workspace_client is not None:
+                function_model._workspace_client = self._workspace_client
+
+            # Verify the function exists before adding
+            if not function_model.exists():
+                return
+
+            functions_list.append(function_model)
 
         # Primary structure: instructions.sql_functions with 'identifier' field
         if "instructions" in parsed_space:
@@ -838,21 +893,7 @@ class GenieRoomModel(IsDatabricksResource):
                                 "identifier"
                             ) or function_item.get("name")
                             if function_name:
-                                function_model = FunctionModel(
-                                    name=function_name,
-                                    on_behalf_of_user=self.on_behalf_of_user,
-                                    service_principal=self.service_principal,
-                                    client_id=self.client_id,
-                                    client_secret=self.client_secret,
-                                    workspace_host=self.workspace_host,
-                                    pat=self.pat,
-                                )
-                                # Share the cached workspace client if available
-                                if self._workspace_client is not None:
-                                    function_model._workspace_client = (
-                                        self._workspace_client
-                                    )
-                                functions_list.append(function_model)
+                                add_function_if_exists(function_name)
 
         # Secondary structure: data_sources.functions with 'identifier' field
         if "data_sources" in parsed_space:
@@ -861,43 +902,17 @@ class GenieRoomModel(IsDatabricksResource):
                 functions_data = data_sources["functions"]
                 if isinstance(functions_data, list):
                     for function_item in functions_data:
+                        function_name: str | None = None
                         if isinstance(function_item, dict):
                             # Standard Databricks structure uses 'identifier'
                             function_name = function_item.get(
                                 "identifier"
                             ) or function_item.get("name")
-                            if function_name:
-                                function_model = FunctionModel(
-                                    name=function_name,
-                                    on_behalf_of_user=self.on_behalf_of_user,
-                                    service_principal=self.service_principal,
-                                    client_id=self.client_id,
-                                    client_secret=self.client_secret,
-                                    workspace_host=self.workspace_host,
-                                    pat=self.pat,
-                                )
-                                # Share the cached workspace client if available
-                                if self._workspace_client is not None:
-                                    function_model._workspace_client = (
-                                        self._workspace_client
-                                    )
-                                functions_list.append(function_model)
                         elif isinstance(function_item, str):
-                            function_model = FunctionModel(
-                                name=function_item,
-                                on_behalf_of_user=self.on_behalf_of_user,
-                                service_principal=self.service_principal,
-                                client_id=self.client_id,
-                                client_secret=self.client_secret,
-                                workspace_host=self.workspace_host,
-                                pat=self.pat,
-                            )
-                            # Share the cached workspace client if available
-                            if self._workspace_client is not None:
-                                function_model._workspace_client = (
-                                    self._workspace_client
-                                )
-                            functions_list.append(function_model)
+                            function_name = function_item
+
+                        if function_name:
+                            add_function_if_exists(function_name)
 
         return functions_list
 
