@@ -1714,6 +1714,7 @@
       "type": "object"
     },
     "FunctionModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -4162,6 +4163,9 @@
             },
             {
               "$ref": "#/$defs/McpFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FunctionModel"
             },
             {
               "type": "string"

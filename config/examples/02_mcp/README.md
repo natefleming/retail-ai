@@ -9,9 +9,9 @@ This category demonstrates how to connect your agents to various tools and servi
 | File | Description | Prerequisites |
 |------|-------------|---------------|
 | `slack_integration.yaml` | Slack messaging integration | Slack workspace, bot token |
-| `jira_integration.yaml` | JIRA issue tracking | JIRA instance, API token |
-| `mcp_basic.yaml` | Model Context Protocol integration | MCP server |
-| `mcp_with_uc_connection.yaml` | MCP with Unity Catalog connections | Unity Catalog, MCP connection |
+| `custom_mcp.yaml` | Custom MCP integration (JIRA example) | JIRA instance, API token |
+| `managed_mcp.yaml` | Managed Model Context Protocol integration | MCP server |
+| `external_mcp.yaml` | External MCP with Unity Catalog connections | Unity Catalog, MCP connection |
 | `genie_with_conversation_id.yaml` | Genie with conversation tracking | Genie space |
 
 ## What You'll Learn
@@ -62,14 +62,14 @@ Example: *"Find documentation about configuring agents"*
 - Bot token with appropriate scopes
 - Channel access for the bot
 
-### For JIRA (`jira_integration.yaml`)
+### For Custom MCP (`custom_mcp.yaml`)
 - JIRA instance URL
 - API token or OAuth credentials
 - Project permissions
 
-### For MCP (`mcp_basic.yaml`, `mcp_with_uc_connection.yaml`)
+### For MCP (`managed_mcp.yaml`, `external_mcp.yaml`)
 - MCP server running and accessible
-- For UC connections: Unity Catalog connection configured
+- For external MCP: Unity Catalog connection configured
 
 - Databricks Vector Search index configured
 - Embedding model endpoint

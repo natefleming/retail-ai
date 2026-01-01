@@ -7,9 +7,9 @@ The `config/examples/` directory contains ready-to-use configurations organized 
 The examples follow a natural progression:
 
 ```
-01_getting_started → 02_tools → 04_genie → 05_memory 
-    → 06_human_in_the_loop → 09_prompt_engineering 
-    → 10_middleware → 11_orchestration → 12_complete_applications
+01_getting_started → 02_mcp → 04_genie → 05_memory 
+    → 06_human_in_the_loop → 09_agent_integrations → 10_prompt_engineering 
+    → 11_middleware → 12_orchestration → 13_complete_applications
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -23,7 +23,8 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 
 ### 🔧 Need Specific Tools?
 **Explore:**
-- [`02_tools/`](../config/examples/02_tools/) - Genie, Vector Search, Slack, JIRA, MCP integrations
+- [`02_mcp/`](../config/examples/02_mcp/) - Genie, Vector Search, Slack, JIRA, MCP integrations
+- [`09_agent_integrations/`](../config/examples/09_agent_integrations/) - Agent Bricks, Kasal, external agent platforms
 
 ### ⚡ Optimizing Performance?
 **Check out:**
@@ -36,15 +37,15 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 ### 🛡️ Production Ready?
 **Essential patterns:**
 - [`06_human_in_the_loop/`](../config/examples/06_human_in_the_loop/) - Guardrails, HITL, structured output
-- [`09_prompt_engineering/`](../config/examples/09_prompt_engineering/) - Prompt management and optimization
+- [`10_prompt_engineering/`](../config/examples/10_prompt_engineering/) - Prompt management and optimization
 
 ### 🛡️ Need Validation & Monitoring?
 **Middleware patterns:**
-- [`10_middleware/`](../config/examples/10_middleware/) - Input validation, logging, performance monitoring
+- [`11_middleware/`](../config/examples/11_middleware/) - Input validation, logging, performance monitoring
 
 ### 🏗️ Complete Solutions?
 **Full applications:**
-- [`12_complete_applications/`](../config/examples/12_complete_applications/) - Executive assistant, research agent, reservation system
+- [`13_complete_applications/`](../config/examples/13_complete_applications/) - Executive assistant, research agent, reservation system
 
 ---
 
@@ -95,9 +96,9 @@ Integrate with external services and Databricks capabilities.
 | Example | Description |
 |---------|-------------|
 | `slack_integration.yaml` | Slack messaging integration |
-| `jira_integration.yaml` | JIRA issue tracking integration |
-| `mcp_basic.yaml` | Model Context Protocol integration |
-| `mcp_with_uc_connection.yaml` | MCP with Unity Catalog connections |
+| `custom_mcp.yaml` | Custom MCP integration (JIRA example) |
+| `managed_mcp.yaml` | Managed Model Context Protocol integration |
+| `external_mcp.yaml` | External MCP with Unity Catalog connections |
 | `vector_search_with_reranking.yaml` | RAG with FlashRank reranking |
 | `genie_with_conversation_id.yaml` | Genie with conversation tracking |
 
@@ -158,11 +159,121 @@ Prompt versioning, management, and automated optimization.
 | `prompt_optimization.yaml` | Automated prompt tuning with GEPA |
 
 **Prerequisites:** MLflow prompt registry, training dataset for optimization  
-**Next:** Scale with orchestration in `10_orchestration/`
+**Next:** Learn agent integrations in `09_agent_integrations/`
 
 ---
 
-### 07. Middleware [📖 README](../config/examples/10_middleware/README.md)
+### 07. Agent Integrations [📖 README](../config/examples/09_agent_integrations/README.md)
+
+Integrate with external agent platforms like Agent Bricks and Kasal using agent endpoint tools.
+
+| Example | Description |
+|---------|-------------|
+| `agent_bricks.yaml` | Agent Bricks integration with customer support and product expert agents |
+| `kasal.yaml` | Kasal enterprise agents with financial, compliance, and privacy specialists |
+
+**What You'll Learn:**
+- **Agent Endpoint Tools**: Call external agents as tools within your DAO-AI agents
+- **Multi-Agent Orchestration**: Coordinate between specialized external agents
+- **Delegation Patterns**: Route tasks to purpose-built specialist agents
+- **Enterprise Integration**: Leverage existing agent infrastructure with governance
+
+**Key Concepts:**
+- **Hub-and-Spoke Pattern**: One orchestrator routes to multiple specialists
+- **Sequential Workflows**: Chain specialist agents for compliance and validation
+- **Parallel Consultation**: Consult multiple agents simultaneously for multi-perspective analysis
+
+**Common Patterns:**
+```yaml
+resources:
+  llms:
+    # External agent endpoint configuration
+    specialist_agent: &specialist_agent
+      name: external-agent-endpoint-name
+      description: "Agent capabilities"
+      temperature: 0.1
+      max_tokens: 1000
+
+tools:
+  specialist_tool: &specialist_tool
+    name: specialist_agent
+    function:
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *specialist_agent
+        name: specialist
+        description: |
+          Detailed description of when to use this agent.
+          
+agents:
+  orchestrator:
+    name: main_agent
+    tools:
+      - *specialist_tool
+    prompt: |
+      You coordinate tasks and delegate to specialist agents.
+      Use the specialist tool for X, Y, Z tasks.
+```
+
+**Use Cases:**
+- **Customer Service**: Route queries to specialized support, product, and escalation agents
+- **Financial Services**: Financial analysis with compliance validation and risk assessment
+- **Healthcare**: Clinical guidance with HIPAA compliance and privacy validation
+- **Enterprise IT**: Multi-domain technical support with security and access control
+
+**Real-World Examples:**
+
+**Agent Bricks** - Customer service automation:
+```yaml
+# Customer support agent for handling complaints
+customer_support_tool:
+  function:
+    name: dao_ai.tools.create_agent_endpoint_tool
+    args:
+      llm: *agent_bricks_customer_support
+      description: "Handle customer complaints, returns, and issues"
+
+# Product expert for technical questions
+product_expert_tool:
+  function:
+    name: dao_ai.tools.create_agent_endpoint_tool
+    args:
+      llm: *agent_bricks_product_expert
+      description: "Technical specs, compatibility, recommendations"
+
+# Main agent routes to specialists
+orchestrator:
+  tools: [customer_support_tool, product_expert_tool]
+```
+
+**Kasal** - Enterprise governance workflows:
+```yaml
+# Financial analyst with compliance checks
+enterprise_coordinator:
+  tools:
+    - financial_analyst_tool      # Data analysis and forecasting
+    - compliance_checker_tool     # Regulatory validation
+    - privacy_specialist_tool     # PII and data privacy
+  prompt: |
+    IMPORTANT: For financial decisions, ALWAYS check with 
+    compliance validator before providing recommendations.
+    For customer data, ALWAYS consult privacy specialist.
+```
+
+**Best Practices:**
+- **Clear Agent Responsibilities**: Give each agent a specific, well-defined role
+- **Effective Prompting**: Provide complete context when calling specialist agents
+- **Error Handling**: Handle agent timeout and failure scenarios gracefully
+- **Compliance First**: Use compliance validators before making regulatory decisions
+- **Performance**: Cache agent responses when appropriate, use parallel calls
+
+**Prerequisites:** Understanding of agent tools and multi-agent concepts  
+**Next:** Learn middleware patterns in `11_middleware/`
+
+---
+
+### 08. Middleware [📖 README](../config/examples/11_middleware/README.md)
 
 Cross-cutting concerns for production agents: validation, logging, and monitoring.
 
@@ -203,11 +314,11 @@ agents:
 The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`12_complete_applications/hardware_store.yaml`](../config/examples/12_complete_applications/hardware_store.yaml).
 
 **Prerequisites:** Basic understanding of agents and prompts  
-**Next:** Learn multi-agent coordination in `11_orchestration/`
+**Next:** Learn multi-agent coordination in `12_orchestration/`
 
 ---
 
-### 08. Orchestration [📖 README](../config/examples/11_orchestration/README.md)
+### 09. Orchestration [📖 README](../config/examples/12_orchestration/README.md)
 
 Multi-agent coordination patterns.
 
@@ -216,11 +327,11 @@ Multi-agent coordination patterns.
 | *(Coming soon)* | Supervisor and swarm orchestration patterns |
 
 **Prerequisites:** Understanding of multi-agent systems  
-**Next:** See complete applications in `12_complete_applications/`
+**Next:** See complete applications in `13_complete_applications/`
 
 ---
 
-### 09. Complete Applications [📖 README](../config/examples/12_complete_applications/README.md)
+### 10. Complete Applications [📖 README](../config/examples/13_complete_applications/README.md)
 
 Full-featured, production-ready agent applications.
 
@@ -257,7 +368,7 @@ Adding a new example? Follow this guide:
 
 1. **Choose the right category** based on the primary feature demonstrated
 2. **Use descriptive names**: `tool_name_variant.yaml` (e.g., `slack_with_approval.yaml`)
-3. **Add to the appropriate category** (`01_getting_started` through `11_complete_applications`)
+3. **Add to the appropriate category** (`01_getting_started` through `13_complete_applications`)
 4. **Update this file** with a table entry
 5. **Test thoroughly** before submitting
 

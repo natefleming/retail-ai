@@ -47,10 +47,10 @@ agents:
       
       
 app:
-  name: jira_integration_dao                                # Application name  
+  name: custom_mcp_dao                                # Application name  
   log_level: DEBUG                               # Logging level for the application
   registered_model:                              # MLflow registered model configuration
-    name: jira_integration_dao
+    name: custom_mcp_dao
     schema: *retail_consumer_goods_schema                       # Schema where model will be registered
   agents:                                        # List of agents included in the system
     - *jira_agent                                 # MCP agent

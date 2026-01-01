@@ -59,43 +59,7 @@ resources:
       name: "Conversation Summarization Database"
       instance_name: "retail-consumer-goods"
       description: "PostgreSQL database for conversation checkpoints and memory"
-      
-      # Database connection via environment variables
-      # Set these in your environment or Databricks secrets:
-      #   PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
-      # Or use OAuth2 client credentials for Databricks Lakehouse
-      
-      # Option 1: Direct PostgreSQL connection (uncomment to use)
-      # host:
-      #   env: PGHOST
-      #   default_value: localhost
-      # port:
-      #   env: PGPORT
-      #   default_value: 5432
-      # database:
-      #   env: PGDATABASE
-      #   default_value: conversations
-      # user:
-      #   env: PGUSER
-      # password:
-      #   env: PGPASSWORD
-
-      # Option 2: Databricks Lakehouse with OAuth2 (recommended)
-      client_id:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-          - scope: retail_consumer_goods
-            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      client_secret:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-          - scope: retail_consumer_goods
-            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      workspace_host:
-        options:
-          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-          - scope: retail_consumer_goods
-            secret: RETAIL_AI_DATABRICKS_HOST
+      # Authentication is automatically provided via instance_name (Databricks Lakebase)
 
 # =============================================================================
 # MEMORY CONFIGURATION

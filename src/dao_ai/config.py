@@ -609,7 +609,7 @@ class IndexModel(IsDatabricksResource, HasFullName):
 
 
 class FunctionModel(IsDatabricksResource, HasFullName):
-    model_config = ConfigDict()
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: Optional[str] = None
 
@@ -1929,6 +1929,7 @@ AnyTool: TypeAlias = (
         FactoryFunctionModel,
         UnityCatalogFunctionModel,
         McpFunctionModel,
+        FunctionModel,
     ]
     | str
 )

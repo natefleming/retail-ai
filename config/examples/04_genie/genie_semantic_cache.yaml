@@ -8,33 +8,6 @@
 # On cache hit, the cached SQL is re-executed against the warehouse for fresh data.
 
 
-# =============================================================================
-# VARIABLES
-# =============================================================================
-# Reusable credential variables for OAuth2 authentication with Databricks
-# These can be referenced throughout the configuration using YAML anchors
-
-variables:
-  # OAuth2 client credentials for Databricks Lakebase authentication
-  databricks_client_id: &databricks_client_id
-    options:
-      - env: RETAIL_AI_DATABRICKS_CLIENT_ID           # Service principal client ID
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-
-  databricks_client_secret: &databricks_client_secret
-    options:
-      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET       # Service principal secret
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-
-  databricks_workspace_host: &databricks_workspace_host
-    options:
-      - env: RETAIL_AI_DATABRICKS_HOST                # Databricks workspace URL
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_HOST
-
-
 schemas:
 
   quick_serve_restaurant_schema: &quick_serve_restaurant_schema
@@ -65,14 +38,11 @@ resources:
 
   databases:
     # Lakebase (PostgreSQL) database for semantic cache storage
-    # Uses OAuth2 client credentials for Databricks authentication
+    # Authentication is automatically provided via instance_name (Databricks Lakebase)
     semantic_cache_db: &semantic_cache_db
       name: "Retail and Consumer Goods Database"
       instance_name: "retail-consumer-goods"        # Databricks Lakebase instance name
       description: "PostgreSQL database for semantic cache"
-      client_id: *databricks_client_id              # Reference to variable
-      client_secret: *databricks_client_secret      # Reference to variable
-      workspace_host: *databricks_workspace_host    # Reference to variable
 
   genie_rooms:
     # Genie space for retail data queries

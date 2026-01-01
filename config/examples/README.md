@@ -10,7 +10,7 @@ Follow the numbered directories from 01 to 11 for a structured learning experien
 01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
     → 06_human_in_the_loop → 07_guardrails → 08_structured_output 
     → 09_agent_integrations → 10_prompt_engineering → 11_middleware → 12_orchestration
-    → 13_complete_applications
+    → 13_complete_applications → 14_on_behalf_of_user
 ```
 
 Or jump directly to the category that matches your current need.
@@ -150,6 +150,17 @@ Or jump directly to the category that matches your current need.
 
 ---
 
+### [14. On-Behalf-Of User](14_on_behalf_of_user/)
+**User-level authentication and access control**
+- OBO with UC Functions
+- OBO with Genie Spaces
+- User permission inheritance
+- Multi-tenant patterns
+
+👉 Enable user-level access control and audit trails
+
+---
+
 ## 🚀 Quick Start
 
 ### Validate a Configuration
@@ -210,6 +221,9 @@ dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_th
 
 **...see complete, production-ready examples**  
 → Explore [`13_complete_applications/`](13_complete_applications/)
+
+**...implement user-level access control**  
+→ Review [`14_on_behalf_of_user/`](14_on_behalf_of_user/)
 
 ---
 
@@ -332,7 +346,7 @@ Examples:
 - minimal.yaml                (foundational example)
 - genie_lru_cache.yaml        (specific caching variant)
 - slack_integration.yaml      (integration example)
-- mcp_with_uc_connection.yaml (variant with specific feature)
+- external_mcp.yaml           (variant with specific feature)
 ```
 
 ---

@@ -5,6 +5,7 @@ This module provides a tool factory for creating semantic search tools
 with dynamic filter schemas based on table columns and FlashRank reranking support.
 """
 
+import json
 import os
 from typing import Any, Optional
 
@@ -250,39 +251,43 @@ def create_vector_search_tool(
             logger.warning("Failed to initialize FlashRank ranker", error=str(e))
             rerank_config = None
 
-    # Build client_args
+    # Build client_args for VectorSearchClient
+    # Use getattr to safely access attributes that may not exist (e.g., in mocks)
     client_args: dict[str, Any] = {}
     has_explicit_auth = any(
         [
             os.environ.get("DATABRICKS_TOKEN"),
             os.environ.get("DATABRICKS_CLIENT_ID"),
-            vector_store.pat,
-            vector_store.client_id,
-            vector_store.on_behalf_of_user,
+            getattr(vector_store, "pat", None),
+            getattr(vector_store, "client_id", None),
+            getattr(vector_store, "on_behalf_of_user", None),
         ]
     )
 
     if has_explicit_auth:
         databricks_host = os.environ.get("DATABRICKS_HOST")
-        if not databricks_host and vector_store._workspace_client is not None:
+        if (
+            not databricks_host
+            and getattr(vector_store, "_workspace_client", None) is not None
+        ):
             databricks_host = vector_store.workspace_client.config.host
         if databricks_host:
             client_args["workspace_url"] = normalize_host(databricks_host)
 
         token = os.environ.get("DATABRICKS_TOKEN")
-        if not token and vector_store.pat:
+        if not token and getattr(vector_store, "pat", None):
             token = value_of(vector_store.pat)
         if token:
             client_args["personal_access_token"] = token
 
         client_id = os.environ.get("DATABRICKS_CLIENT_ID")
-        if not client_id and vector_store.client_id:
+        if not client_id and getattr(vector_store, "client_id", None):
             client_id = value_of(vector_store.client_id)
         if client_id:
             client_args["service_principal_client_id"] = client_id
 
         client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET")
-        if not client_secret and vector_store.client_secret:
+        if not client_secret and getattr(vector_store, "client_secret", None):
             client_secret = value_of(vector_store.client_secret)
         if client_secret:
             client_args["service_principal_client_secret"] = client_secret
@@ -321,7 +326,7 @@ def create_vector_search_tool(
     # Define the tool function
     def vector_search_func(
         query: str, filters: Optional[list[FilterItem]] = None
-    ) -> list[Document]:
+    ) -> str:
         """Search for relevant documents using vector similarity."""
         # Convert FilterItem Pydantic models to dict format for DatabricksVectorSearch
         filters_dict: dict[str, Any] = {}
@@ -349,8 +354,30 @@ def create_vector_search_tool(
             logger.debug("Applying FlashRank reranking")
             documents = _rerank_documents(query, documents, ranker, rerank_config)
 
-        # Format results as list of Document objects (LangChain handles serialization)
-        return documents
+        # Serialize documents to JSON format for LLM consumption
+        # Convert Document objects to dicts with page_content and metadata
+        # Need to handle numpy types in metadata (e.g., float32, int64)
+        serialized_docs: list[dict[str, Any]] = []
+        for doc in documents:
+            doc: Document
+            # Convert metadata values to JSON-serializable types
+            metadata_serializable: dict[str, Any] = {}
+            for key, value in doc.metadata.items():
+                # Handle numpy types
+                if hasattr(value, "item"):  # numpy scalar
+                    metadata_serializable[key] = value.item()
+                else:
+                    metadata_serializable[key] = value
+
+            serialized_docs.append(
+                {
+                    "page_content": doc.page_content,
+                    "metadata": metadata_serializable,
+                }
+            )
+
+        # Return as JSON string
+        return json.dumps(serialized_docs)
 
     # Create the StructuredTool
     tool: StructuredTool = StructuredTool.from_function(

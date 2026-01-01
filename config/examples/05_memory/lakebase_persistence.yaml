@@ -50,15 +50,7 @@ resources:
       name: "my-lakebase-instance"           # Your Lakebase database name
       instance_name: "my-lakebase-instance"  # Must match the name above
       description: "Databricks Lakebase for conversation persistence"
-      
-      # Authentication via service principal (recommended for production)
-      # Set these environment variables or use Databricks secrets:
-      client_id:
-        env: DATABRICKS_CLIENT_ID
-      client_secret:
-        env: DATABRICKS_CLIENT_SECRET
-      workspace_host:
-        env: DATABRICKS_HOST
+      # Authentication is automatically provided via instance_name (Databricks Lakebase)
 
 # =============================================================================
 # MEMORY CONFIGURATION

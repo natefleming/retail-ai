@@ -11,7 +11,8 @@ DAO supports four types of tools, each suited for different use cases:
 | Tool Type | Use Case | Example |
 |-----------|----------|---------|
 | **Python** | Custom business logic | `dao_ai.tools.current_time_tool` |
-| **Factory** | Complex initialization with config | `create_vector_search_tool(retriever=...)`, `create_agent_endpoint_tool(llm=...)` |
+| **Factory** | Complex initialization with config | `create_vector_search_tool(retriever=...)`, `create_genie_tool(genie_room=...)` |
+| **Agent Endpoint** | Call external agents as tools | `create_agent_endpoint_tool(llm=...)` for Agent Bricks, Kasal |
 | **Unity Catalog** | Governed SQL functions | `catalog.schema.find_product_by_sku` |
 | **MCP** | External services via Model Context Protocol | GitHub, Slack, custom APIs |
 
@@ -30,6 +31,16 @@ tools:
       name: dao_ai.tools.create_vector_search_tool
       args:
         retriever: *products_retriever
+
+  # Agent Endpoint - call external agents
+  specialist_agent:
+    function:
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *external_agent_endpoint
+        name: specialist
+        description: "Delegate to external specialist agent"
 
   # Unity Catalog - governed SQL function
   sku_lookup:

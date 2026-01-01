@@ -51,16 +51,7 @@ resources:
         name: products_index                      # Vector search index name
 
 tools:
-  # Example 1: Using direct URL (generic approach - works with any MCP server)
-  generic_mcp: &generic_mcp                      # Generic MCP tool with direct URL
-    name: generic_mcp
-    function:
-      type: mcp                                  # MCP function type
-      name: generic_mcp
-      url: https://adb-984752964297111.11.azuredatabricks.net/api/2.0/mcp/vector-search/retail_consumer_goods/hardware_store
-      client_id: *client_id
-      client_secret: *client_secret
-      workspace_host: *workspace_host
+
 
   # Example 2: Using convenience object (recommended - automatic URL generation)
   vector_search_mcp: &vector_search_mcp          # Vector search MCP tool configuration
@@ -110,7 +101,6 @@ agents:
     tools:                                       # Tools available to this agent
       # Note: generic_mcp and vector_search_mcp both point to vector search
       # Only one should be used in practice (shown here for demonstration)
-      - *generic_mcp                             # Example: Direct URL approach
       - *vector_search_mcp                       # Example: Convenience object approach
       - *sql_mcp
       - *functions_mcp
@@ -121,7 +111,7 @@ agents:
       questions and perform tasks. You may need to use the tools in combination to achieve complex tasks.
       
 app:
-  name: mcp_basic_dao                                # Application name  
+  name: managed_mcp_dao                                # Application name  
   log_level: DEBUG                               # Logging level for the application
   registered_model:                              # MLflow registered model configuration
     schema: *retail_schema                       # Schema where model will be registered
