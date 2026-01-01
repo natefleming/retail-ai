@@ -223,7 +223,6 @@ tools:
     name: weather
     function:
       type: mcp
-      name: weather
       transport: streamable_http
       url: http://localhost:8000/mcp
 
@@ -428,7 +427,7 @@ tools:
     name: dais_find_store_by_number
     function:
       type: unity_catalog
-      <<: *find_store_by_number
+      resource: *find_store_by_number
 
   dais_store_number_extraction_tool: &dais_store_number_extraction_tool
     name: dais_store_number_extraction
@@ -1457,59 +1456,45 @@ datasets:
     format: sql
 
 unity_catalog_functions:
-  - function:
-      schema: *dais_schema
-      name: find_product_by_sku
+  - function: *find_product_by_sku
     ddl: ../functions/dais2025/find_product_by_sku.sql
     test:
       parameters:
         sku: ["STB-KCP-001"]
 
-  - function:
-      schema: *dais_schema
-      name: find_product_by_upc
+  - function: *find_product_by_upc
     ddl: ../functions/dais2025/find_product_by_upc.sql
     test:
       parameters:
         upc: ["012345678901"]
 
-  - function:
-      schema: *dais_schema
-      name: find_inventory_by_sku
+  - function: *find_inventory_by_sku
     ddl: ../functions/dais2025/find_inventory_by_sku.sql
     test:
       parameters:
         sku: ["PET-KCP-001"]
 
-  - function:
-      schema: *dais_schema
-      name: find_inventory_by_upc
+  - function: *find_inventory_by_upc
     ddl: ../functions/dais2025/find_inventory_by_upc.sql
     test:
       parameters:
         upc: ["123456789012"]
 
-  - function:
-      schema: *dais_schema
-      name: find_store_inventory_by_sku
+  - function: *find_store_inventory_by_sku
     ddl: ../functions/dais2025/find_store_inventory_by_sku.sql
     test:
       parameters:
         store_id: 101
         sku: ["DUN-KCP-001"]
 
-  - function:
-      schema: *dais_schema
-      name: find_store_inventory_by_upc
+  - function: *find_store_inventory_by_upc
     ddl: ../functions/dais2025/find_store_inventory_by_upc.sql
     test:
       parameters:
         store_id: 101
         upc: ["234567890123"]
 
-  - function:
-      schema: *dais_schema
-      name: find_store_by_number
+  - function: *find_store_by_number
     ddl: ../functions/dais2025/find_store_by_number.sql
     test:
       parameters:

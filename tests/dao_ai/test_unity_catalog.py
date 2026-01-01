@@ -9,6 +9,7 @@ from langchain_core.tools import StructuredTool
 
 from dao_ai.config import (
     CompositeVariableModel,
+    FunctionModel,
     FunctionType,
     PrimitiveVariableModel,
     SchemaModel,
@@ -41,11 +42,16 @@ def test_create_uc_tools_with_partial_args() -> None:
         ),
     }
 
+    # Create FunctionModel resource (using alias 'schema' instead of 'schema_model')
+    function_resource = FunctionModel(
+        schema=schema,
+        name="insert_coffee_order",
+    )
+
     # Create Unity Catalog function with partial_args
     uc_function = UnityCatalogFunctionModel(
-        name="insert_coffee_order",
         type=FunctionType.UNITY_CATALOG,
-        schema=schema,
+        resource=function_resource,
         partial_args=partial_args,
     )
 
@@ -161,11 +167,16 @@ def test_create_uc_tools_with_partial_args_real_execution() -> None:
         ),
     }
 
+    # Create FunctionModel resource (using alias 'schema' instead of 'schema_model')
+    function_resource = FunctionModel(
+        schema=schema,
+        name="insert_coffee_order",
+    )
+
     # Create Unity Catalog function with partial_args
     uc_function = UnityCatalogFunctionModel(
-        name="insert_coffee_order",
         type=FunctionType.UNITY_CATALOG,
-        schema=schema,
+        resource=function_resource,
         partial_args=partial_args,
     )
 

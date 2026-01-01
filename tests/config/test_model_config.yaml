@@ -286,7 +286,6 @@ tools:
     name: weather                                   # Tool name for agent reference
     function:
       type: mcp                                     # Tool type: MCP server
-      name: weather                                 # MCP function name
       transport: streamable_http                    # Transport protocol
       url: http://localhost:8000/mcp                # MCP server URL
 
@@ -333,39 +332,39 @@ tools:
     name: find_product_by_sku_uc
     function:
       type: unity_catalog                           # Tool type: Unity Catalog function
-      <<: *find_product_by_sku                      # Merge function configuration
+      resource: *find_product_by_sku                      # Reference to function configuration
 
   find_product_by_upc_uc_tool: &find_product_by_upc_uc_tool
     name: find_product_by_upc_uc
     function:
       type: unity_catalog
-      <<: *find_product_by_upc
+      resource: *find_product_by_upc
 
   # Inventory lookup tools using Unity Catalog functions
   find_inventory_by_sku_uc_tool: &find_inventory_by_sku_uc_tool
     name: find_inventory_by_sku_uc
     function:
       type: unity_catalog
-      <<: *find_inventory_by_sku
+      resource: *find_inventory_by_sku
 
   find_inventory_by_upc_uc_tool: &find_inventory_by_upc_uc_tool
     name: find_inventory_by_upc_uc
     function:
       type: unity_catalog
-      <<: *find_inventory_by_upc
+      resource: *find_inventory_by_upc
 
   # Store-specific inventory tools using Unity Catalog functions
   find_store_inventory_by_sku_uc_tool: &find_store_inventory_by_sku_uc_tool
     name: find_store_inventory_by_sku_uc
     function:
       type: unity_catalog
-      <<: *find_store_inventory_by_sku
+      resource: *find_store_inventory_by_sku
 
   find_store_inventory_by_upc_uc_tool: &find_store_inventory_by_upc_uc_tool
     name: find_store_inventory_by_upc_uc
     function:
       type: unity_catalog
-      <<: *find_store_inventory_by_upc
+      resource: *find_store_inventory_by_upc
 
   # ---------------------------------------------------------------------------
   # FACTORY TOOLS FOR DATA ACCESS
@@ -377,57 +376,39 @@ tools:
     name: find_product_by_sku
     function:
       type: factory
-      name: hardware_store.tools.create_find_product_by_sku_tool
-      args:
-        schema: *retail_schema                      # Reference to schema configuration
-        warehouse: *shared_endpoint_warehouse       # Reference to warehouse configuration
+      name: dao_ai.tools.time.current_time_tool
 
   find_product_by_upc_tool: &find_product_by_upc_tool
     name: find_product_by_upc
     function:
       type: factory
-      name: hardware_store.tools.create_find_product_by_upc_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
+      name: dao_ai.tools.time.current_time_tool
 
   # Inventory lookup tools with enhanced functionality
   find_inventory_by_sku_tool: &find_inventory_by_sku_tool
     name: find_inventory_by_sku
     function:
       type: factory
-      name: hardware_store.tools.create_find_inventory_by_sku_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
+      name: dao_ai.tools.time.current_time_tool
 
   find_inventory_by_upc_tool: &find_inventory_by_upc_tool
     name: find_inventory_by_upc
     function:
       type: factory
-      name: hardware_store.tools.create_find_inventory_by_upc_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
+      name: dao_ai.tools.time.current_time_tool
 
   # Store-specific inventory tools with enhanced functionality
   find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
     name: find_store_inventory_by_sku
     function:
       type: factory
-      name: hardware_store.tools.create_find_store_inventory_by_sku_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
+      name: dao_ai.tools.time.current_time_tool
 
   find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
     name: find_store_inventory_by_upc
     function:
       type: factory
-      name: hardware_store.tools.create_find_store_inventory_by_upc_tool
-      args:
-        schema: *retail_schema
-        warehouse: *shared_endpoint_warehouse
+      name: dao_ai.tools.time.current_time_tool
 
 # =============================================================================
 # GUARDRAILS CONFIGURATION
@@ -1004,45 +985,33 @@ app:
 # These functions provide data access capabilities for the agent tools
 
 unity_catalog_functions:
-  - function:
-      schema: *retail_schema
-      name: find_inventory_by_sku
+  - function: *find_inventory_by_sku
     ddl: ../functions/retail/find_inventory_by_sku.sql
     test:
       parameters:
         sku: ["00176279"] 
-  - function:
-      schema: *retail_schema
-      name: find_inventory_by_upc
+  - function: *find_inventory_by_upc
     ddl: ../functions/retail/find_inventory_by_upc.sql
     test:
       parameters:
         upc: ["0017627748017"]
-  - function:
-      schema: *retail_schema
-      name: find_product_by_sku
+  - function: *find_product_by_sku
     ddl: ../functions/retail/find_product_by_sku.sql
     test:
       parameters:
         sku: ["00176279"]
-  - function:
-      schema: *retail_schema
-      name: find_product_by_upc
+  - function: *find_product_by_upc
     ddl: ../functions/retail/find_product_by_upc.sql
     test:
       parameters:
         upc: ["0017627748017"] 
-  - function:
-      schema: *retail_schema
-      name: find_store_inventory_by_sku
+  - function: *find_store_inventory_by_sku
     ddl: ../functions/retail/find_store_inventory_by_sku.sql
     test:
       parameters:
         store: "35048"
         sku: ["00176279"]
-  - function:
-      schema: *retail_schema
-      name: find_store_inventory_by_upc
+  - function: *find_store_inventory_by_upc
     ddl: ../functions/retail/find_store_inventory_by_upc.sql
     test:
       parameters:

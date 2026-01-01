@@ -210,7 +210,7 @@ tools:
     name: insert_coffee_order_tool_uc
     function:
       type: unity_catalog
-      <<: *insert_coffee_order
+      resource: *insert_coffee_order
       partial_args:
         host: *workspace_host_var
         client_id: *client_id_var
@@ -220,19 +220,19 @@ tools:
     name: match_item_by_description_and_price_uc
     function:
       type: unity_catalog
-      <<: *match_item_by_description_and_price
+      resource: *match_item_by_description_and_price
 
   match_historical_item_order_by_date_tool: &match_historical_item_order_by_date_tool
     name: match_historical_item_order_by_date_uc
     function:
       type: unity_catalog
-      <<: *match_historical_item_order_by_date
+      resource: *match_historical_item_order_by_date
 
   lookup_items_by_descriptions_tool: &lookup_items_by_descriptions_tool
     name: lookup_items_by_descriptions_uc
     function:
       type: unity_catalog
-      <<: *lookup_items_by_descriptions
+      resource: *lookup_items_by_descriptions
 
 
   current_time_tool: &current_time_tool
@@ -371,7 +371,7 @@ agents:
 app:
   name: quick_serve_restaurant_dao                      # Application name  
   description: "Multi-agent system for coffee shop order management and customer service"
-  log_level: DEBUG                                   # Logging level for the application
+  log_level: TRACE                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *qsr_schema                          # Schema where model will be registered
     name: quick_serve_restaurant_dao
@@ -414,24 +414,16 @@ app:
 # These functions provide data access capabilities for the agent tools
 
 unity_catalog_functions:
-  - function:
-      schema: *qsr_schema
-      name: lookup_items_by_descriptions
+  - function: *lookup_items_by_descriptions
     ddl: ../functions/quick_serve_restaurant/lookup_items_by_descriptions.sql
     # test:
     #   parameters:
     #     sku: ["00176279"] 
-  - function:
-      schema: *qsr_schema
-      name: match_historical_item_order_by_date
+  - function: *match_historical_item_order_by_date
     ddl: ../functions/quick_serve_restaurant/match_historical_item_order_by_date.sql
-  - function:
-      schema: *qsr_schema
-      name: match_item_by_description_and_price
+  - function: *match_item_by_description_and_price
     ddl: ../functions/quick_serve_restaurant/match_item_by_description_and_price.sql
-  - function:
-      schema: *qsr_schema
-      name: insert_coffee_order
+  - function: *insert_coffee_order
     ddl: ../functions/quick_serve_restaurant/insert_coffee_order.sql
 
 # =============================================================================

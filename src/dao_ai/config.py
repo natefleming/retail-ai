@@ -614,7 +614,7 @@ class FunctionModel(IsDatabricksResource, HasFullName):
     name: Optional[str] = None
 
     @model_validator(mode="after")
-    def validate_name_or_schema_required(self) -> "FunctionModel":
+    def validate_name_or_schema_required(self) -> Self:
         if not self.name and not self.schema_model:
             raise ValueError(
                 "Either 'name' or 'schema_model' must be provided for FunctionModel"
@@ -1643,7 +1643,6 @@ class BaseFunctionModel(ABC, BaseModel):
         discriminator="type",
     )
     type: FunctionType
-    name: str
     human_in_the_loop: Optional[HumanInTheLoopModel] = None
 
     @abstractmethod
@@ -1660,6 +1659,7 @@ class BaseFunctionModel(ABC, BaseModel):
 class PythonFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     type: Literal[FunctionType.PYTHON] = FunctionType.PYTHON
+    name: str
 
     @property
     def full_name(self) -> str:
@@ -1673,8 +1673,9 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    args: Optional[dict[str, Any]] = Field(default_factory=dict)
     type: Literal[FunctionType.FACTORY] = FunctionType.FACTORY
+    name: str
+    args: Optional[dict[str, Any]] = Field(default_factory=dict)
 
     @property
     def full_name(self) -> str:
@@ -1697,7 +1698,7 @@ class TransportType(str, Enum):
     STDIO = "stdio"
 
 
-class McpFunctionModel(BaseFunctionModel, IsDatabricksResource, HasFullName):
+class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     """
     MCP Function Model with authentication inherited from IsDatabricksResource.
 
@@ -1735,10 +1736,6 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource, HasFullName):
     def as_resources(self) -> Sequence[DatabricksResource]:
         """MCP functions don't declare static resources."""
         return []
-
-    @property
-    def full_name(self) -> str:
-        return self.name
 
     def _get_workspace_host(self) -> str:
         """
@@ -1905,17 +1902,11 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource, HasFullName):
         return create_mcp_tools(self)
 
 
-class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
+class UnityCatalogFunctionModel(BaseFunctionModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    partial_args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
     type: Literal[FunctionType.UNITY_CATALOG] = FunctionType.UNITY_CATALOG
-
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
+    resource: FunctionModel
+    partial_args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_uc_tools
@@ -1929,7 +1920,6 @@ AnyTool: TypeAlias = (
         FactoryFunctionModel,
         UnityCatalogFunctionModel,
         McpFunctionModel,
-        FunctionModel,
     ]
     | str
 )
@@ -2879,7 +2869,7 @@ class UnityCatalogFunctionSqlTestModel(BaseModel):
 
 class UnityCatalogFunctionSqlModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    function: UnityCatalogFunctionModel
+    function: FunctionModel
     ddl: str
     parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
     test: Optional[UnityCatalogFunctionSqlTestModel] = None

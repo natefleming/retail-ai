@@ -20,7 +20,6 @@ tools:
     name: github_mcp                                # Tool name for agent reference
     function:
       type: mcp                                     # Tool type: MCP server
-      name: github_mcp                              # MCP function name
       connection: *github_connection                # Reference to UC Connection (provides OAuth auth)
       # Note: URL is auto-generated from connection, no need to specify
 

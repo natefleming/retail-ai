@@ -22,11 +22,10 @@ def test_should_invoke_mcp_function_tool():
     )
 
     mcp_function_model: McpFunctionModel = McpFunctionModel(
-        name="databricks-mcp-server",
         url=f"{os.getenv('DATABRICKS_HOST')}/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
     )
 
-    print(f"MCP Function Model: {mcp_function_model.full_name}")
+    # MCP Function Model no longer has name attribute
     print(f"URL: {mcp_function_model.url}")
     print(f"Headers: {mcp_function_model.headers}")
 
@@ -78,12 +77,11 @@ def test_mcp_function_model_creation():
     )
 
     mcp_function_model: McpFunctionModel = McpFunctionModel(
-        name="databricks-mcp-server",
         url=f"{os.getenv('DATABRICKS_HOST')}/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
     )
 
     # Verify the model was created correctly
-    assert mcp_function_model.name == "databricks-mcp-server"
+    # name attribute removed from McpFunctionModel
     assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
     assert mcp_function_model.url is not None
 
@@ -109,7 +107,6 @@ def test_mcp_function_tool_through_agent_context():
     )
 
     mcp_function_model: McpFunctionModel = McpFunctionModel(
-        name="databricks-mcp-server",
         url=f"{os.getenv('DATABRICKS_HOST')}/api/2.0/mcp/functions/{schema.catalog_name}/{schema.schema_name}",
     )
 
@@ -154,13 +151,12 @@ def test_mcp_function_with_uc_connection():
     # Create MCP function model using only the connection
     # URL is automatically generated from connection name
     mcp_function_model = McpFunctionModel(
-        name="github-mcp-server",
         connection=connection,
         workspace_host="https://workspace.databricks.com",
     )
 
     # Verify the model was created correctly
-    assert mcp_function_model.name == "github-mcp-server"
+    # name attribute removed from McpFunctionModel
     assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
     assert mcp_function_model.connection is not None
     assert mcp_function_model.connection.name == "github_u2m_connection"
@@ -188,7 +184,6 @@ def test_mcp_function_with_url_and_connection():
     # URL and connection are now mutually exclusive
     with pytest.raises(ValidationError, match="only one URL source can be provided"):
         McpFunctionModel(
-            name="test-mcp",
             url="https://example.com/mcp",
             connection=connection,
         )
@@ -203,7 +198,6 @@ def test_mcp_function_validation_requires_url_or_connection():
         match="exactly one of the following must be provided: url, connection, genie_room, sql, vector_search, or functions",
     ):
         McpFunctionModel(
-            name="test-mcp",
             transport=TransportType.STREAMABLE_HTTP,
         )
 
@@ -217,12 +211,11 @@ def test_mcp_function_with_connection_only():
     # Create MCP function model using only the connection
     # URL will be auto-constructed: {workspace_host}/api/2.0/mcp/external/{connection_name}
     mcp_function_model = McpFunctionModel(
-        name="github-mcp-server",
         connection=connection,
     )
 
     # Verify the model was created correctly
-    assert mcp_function_model.name == "github-mcp-server"
+    # name attribute removed from McpFunctionModel
     assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
     assert mcp_function_model.connection is not None
     assert mcp_function_model.connection.name == "github_u2m_connection"

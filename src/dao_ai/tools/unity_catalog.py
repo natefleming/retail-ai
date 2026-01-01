@@ -1,17 +1,17 @@
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Set
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.catalog import PermissionsChange, Privilege
+from databricks.sdk.service.catalog import FunctionInfo, PermissionsChange, Privilege
 from databricks_langchain import DatabricksFunctionClient, UCFunctionToolkit
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import StructuredTool
 from loguru import logger
+from pydantic import BaseModel
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
 from dao_ai.config import (
     AnyVariable,
     CompositeVariableModel,
-    ToolModel,
     UnityCatalogFunctionModel,
     value_of,
 )
@@ -34,30 +34,32 @@ def create_uc_tools(
     Returns:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
-    original_function_model = None
+    original_function_model: UnityCatalogFunctionModel | None = None
+    workspace_client: WorkspaceClient | None = None
+    function_name: str
+
     if isinstance(function, UnityCatalogFunctionModel):
         original_function_model = function
-        function_name = function.full_name
+        function_name = function.resource.full_name
+        workspace_client = function.resource.workspace_client
     else:
         function_name = function
 
     logger.trace("Creating UC tools", function_name=function_name)
 
     # Determine which tools to create
+    tools: list[RunnableLike]
     if original_function_model and original_function_model.partial_args:
         logger.debug(
             "Creating custom tool with partial arguments", function_name=function_name
         )
-        # Create a ToolModel wrapper for the with_partial_args function
-        tool_model = ToolModel(
-            name=original_function_model.name, function=original_function_model
-        )
-
-        # Use with_partial_args to create the authenticated tool
-        tools = [with_partial_args(tool_model, original_function_model.partial_args)]
+        # Use with_partial_args directly with UnityCatalogFunctionModel
+        tools = [with_partial_args(original_function_model)]
     else:
         # Fallback to standard UC toolkit approach
-        client: DatabricksFunctionClient = DatabricksFunctionClient()
+        client: DatabricksFunctionClient = DatabricksFunctionClient(
+            client=workspace_client
+        )
 
         toolkit: UCFunctionToolkit = UCFunctionToolkit(
             function_names=[function_name], client=client
@@ -73,7 +75,7 @@ def create_uc_tools(
 def _execute_uc_function(
     client: DatabricksFunctionClient,
     function_name: str,
-    partial_args: Dict[str, str] = None,
+    partial_args: Optional[Dict[str, str]] = None,
     **kwargs: Any,
 ) -> str:
     """Execute Unity Catalog function with partial args and provided parameters."""
@@ -127,10 +129,12 @@ def _grant_function_permissions(
     """
     try:
         # Initialize workspace client
-        workspace_client = WorkspaceClient(host=host) if host else WorkspaceClient()
+        workspace_client: WorkspaceClient = (
+            WorkspaceClient(host=host) if host else WorkspaceClient()
+        )
 
         # Parse the function name to get catalog and schema
-        parts = function_name.split(".")
+        parts: list[str] = function_name.split(".")
         if len(parts) != 3:
             logger.warning(
                 "Invalid function name format, expected catalog.schema.function",
@@ -138,8 +142,11 @@ def _grant_function_permissions(
             )
             return
 
+        catalog_name: str
+        schema_name: str
+        func_name: str
         catalog_name, schema_name, func_name = parts
-        schema_full_name = f"{catalog_name}.{schema_name}"
+        schema_full_name: str = f"{catalog_name}.{schema_name}"
 
         logger.debug(
             "Granting comprehensive permissions",
@@ -223,7 +230,7 @@ def _grant_function_permissions(
         pass
 
 
-def _create_filtered_schema(original_schema: type, exclude_fields: set[str]) -> type:
+def _create_filtered_schema(original_schema: type, exclude_fields: Set[str]) -> type:
     """
     Create a new Pydantic model that excludes specified fields from the original schema.
 
@@ -234,23 +241,27 @@ def _create_filtered_schema(original_schema: type, exclude_fields: set[str]) -> 
     Returns:
         A new Pydantic model class with the specified fields removed
     """
-    from pydantic import BaseModel, Field, create_model
-    from pydantic.fields import PydanticUndefined
+    from pydantic import Field, create_model
+    from pydantic.fields import FieldInfo, PydanticUndefined
 
     try:
         # Get the original model's fields (Pydantic v2)
-        original_fields = original_schema.model_fields
-        filtered_field_definitions = {}
+        original_fields: dict[str, FieldInfo] = original_schema.model_fields
+        filtered_field_definitions: dict[str, tuple[type, FieldInfo]] = {}
 
-        for name, field in original_fields.items():
-            if name not in exclude_fields:
+        field_name: str
+        field: FieldInfo
+        for field_name, field in original_fields.items():
+            if field_name not in exclude_fields:
                 # Reconstruct the field definition for create_model
-                field_type = field.annotation
-                field_default = (
+                field_type: type = field.annotation
+                field_default: Any = (
                     field.default if field.default is not PydanticUndefined else ...
                 )
-                field_info = Field(default=field_default, description=field.description)
-                filtered_field_definitions[name] = (field_type, field_info)
+                field_info: FieldInfo = Field(
+                    default=field_default, description=field.description
+                )
+                filtered_field_definitions[field_name] = (field_type, field_info)
 
         # If no fields remain after filtering, return a generic empty schema
         if not filtered_field_definitions:
@@ -263,12 +274,12 @@ def _create_filtered_schema(original_schema: type, exclude_fields: set[str]) -> 
             return EmptySchema
 
         # Create the new model dynamically
-        model_name = f"Filtered{original_schema.__name__}"
-        docstring = getattr(
+        model_name: str = f"Filtered{original_schema.__name__}"
+        docstring: str = getattr(
             original_schema, "__doc__", "Filtered Unity Catalog function parameters."
         )
 
-        filtered_model = create_model(
+        filtered_model: type[BaseModel] = create_model(
             model_name, __doc__=docstring, **filtered_field_definitions
         )
         return filtered_model
@@ -286,8 +297,7 @@ def _create_filtered_schema(original_schema: type, exclude_fields: set[str]) -> 
 
 
 def with_partial_args(
-    tool: Union[ToolModel, Dict[str, Any]],
-    partial_args: dict[str, AnyVariable] = {},
+    uc_function: UnityCatalogFunctionModel,
 ) -> StructuredTool:
     """
     Create a Unity Catalog tool with partial arguments pre-filled.
@@ -296,12 +306,8 @@ def with_partial_args(
     already resolved, so the caller only needs to provide the remaining parameters.
 
     Args:
-        tool: ToolModel containing the Unity Catalog function configuration
-        partial_args: Dictionary of arguments to pre-fill in the tool.
-            Supports:
-            - client_id, client_secret: OAuth credentials directly
-            - service_principal: ServicePrincipalModel with client_id and client_secret
-            - host or workspace_host: Databricks workspace host
+        uc_function: UnityCatalogFunctionModel containing the function configuration
+            and partial_args to pre-fill.
 
     Returns:
         StructuredTool: A LangChain tool with partial arguments pre-filled
@@ -310,8 +316,12 @@ def with_partial_args(
 
     from dao_ai.config import ServicePrincipalModel
 
+    partial_args: dict[str, AnyVariable] = uc_function.partial_args or {}
+
     # Convert dict-based variables to CompositeVariableModel and resolve their values
     resolved_args: dict[str, Any] = {}
+    k: str
+    v: AnyVariable
     for k, v in partial_args.items():
         if isinstance(v, dict):
             resolved_args[k] = value_of(CompositeVariableModel(**v))
@@ -320,7 +330,7 @@ def with_partial_args(
 
     # Handle service_principal - expand into client_id and client_secret
     if "service_principal" in resolved_args:
-        sp = resolved_args.pop("service_principal")
+        sp: Any = resolved_args.pop("service_principal")
         if isinstance(sp, dict):
             sp = ServicePrincipalModel(**sp)
         if isinstance(sp, ServicePrincipalModel):
@@ -343,17 +353,15 @@ def with_partial_args(
         if host:
             resolved_args["host"] = host
 
-    if isinstance(tool, dict):
-        tool = ToolModel(**tool)
+    # Get function info from the resource
+    function_name: str = uc_function.resource.full_name
+    tool_name: str = uc_function.resource.name or function_name.replace(".", "_")
+    workspace_client: WorkspaceClient = uc_function.resource.workspace_client
 
-    unity_catalog_function = tool.function
-    if isinstance(unity_catalog_function, dict):
-        unity_catalog_function = UnityCatalogFunctionModel(**unity_catalog_function)
-
-    function_name: str = unity_catalog_function.full_name
     logger.debug(
         "Creating UC tool with partial args",
         function_name=function_name,
+        tool_name=tool_name,
         partial_args=list(resolved_args.keys()),
     )
 
@@ -368,12 +376,14 @@ def with_partial_args(
                 "Failed to grant permissions", function_name=function_name, error=str(e)
             )
 
-    # Create the client for function execution
-    client: DatabricksFunctionClient = DatabricksFunctionClient()
+    # Create the client for function execution using the resource's workspace client
+    client: DatabricksFunctionClient = DatabricksFunctionClient(client=workspace_client)
 
     # Try to get the function schema for better tool definition
+    schema_model: type[BaseModel]
+    tool_description: str
     try:
-        function_info = client.get_function(function_name)
+        function_info: FunctionInfo = client.get_function(function_name)
         schema_info = generate_function_input_params_schema(function_info)
         tool_description = (
             function_info.comment or f"Unity Catalog function: {function_name}"
@@ -386,7 +396,7 @@ def with_partial_args(
         )
 
         # Create a modified schema that excludes partial args
-        original_schema = schema_info.pydantic_model
+        original_schema: type = schema_info.pydantic_model
         schema_model = _create_filtered_schema(original_schema, resolved_args.keys())
         logger.trace(
             "Filtered schema to exclude partial args",
@@ -398,9 +408,8 @@ def with_partial_args(
         logger.warning(
             "Could not introspect function", function_name=function_name, error=str(e)
         )
-        # Fallback to a generic schema
-        from pydantic import BaseModel
 
+        # Fallback to a generic schema
         class GenericUCParams(BaseModel):
             """Generic parameters for Unity Catalog function."""
 
@@ -420,14 +429,12 @@ def with_partial_args(
         )
 
     # Set the function name for the decorator
-    uc_function_wrapper.__name__ = tool.name or function_name.replace(".", "_")
+    uc_function_wrapper.__name__ = tool_name
 
     # Create the tool using LangChain's StructuredTool
-    from langchain_core.tools import StructuredTool
-
-    partial_tool = StructuredTool.from_function(
+    partial_tool: StructuredTool = StructuredTool.from_function(
         func=uc_function_wrapper,
-        name=tool.name or function_name.replace(".", "_"),
+        name=tool_name,
         description=tool_description,
         args_schema=schema_model,
     )

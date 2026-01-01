@@ -1679,10 +1679,6 @@
           "title": "Type",
           "type": "string"
         },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
         "human_in_the_loop": {
           "anyOf": [
             {
@@ -1693,6 +1689,10 @@
             }
           ],
           "default": null
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
         },
         "args": {
           "anyOf": [
@@ -2810,10 +2810,6 @@
           "title": "Type",
           "type": "string"
         },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
         "human_in_the_loop": {
           "anyOf": [
             {
@@ -2970,9 +2966,6 @@
           "default": null
         }
       },
-      "required": [
-        "name"
-      ],
       "title": "McpFunctionModel",
       "type": "object"
     },
@@ -3360,10 +3353,6 @@
           "title": "Type",
           "type": "string"
         },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
         "human_in_the_loop": {
           "anyOf": [
             {
@@ -3374,6 +3363,10 @@
             }
           ],
           "default": null
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
         }
       },
       "required": [
@@ -4165,9 +4158,6 @@
               "$ref": "#/$defs/McpFunctionModel"
             },
             {
-              "$ref": "#/$defs/FunctionModel"
-            },
-            {
               "type": "string"
             }
           ],
@@ -4198,10 +4188,6 @@
           "title": "Type",
           "type": "string"
         },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
         "human_in_the_loop": {
           "anyOf": [
             {
@@ -4213,16 +4199,8 @@
           ],
           "default": null
         },
-        "schema": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SchemaModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+        "resource": {
+          "$ref": "#/$defs/FunctionModel"
         },
         "partial_args": {
           "anyOf": [
@@ -4265,7 +4243,7 @@
         }
       },
       "required": [
-        "name"
+        "resource"
       ],
       "title": "UnityCatalogFunctionModel",
       "type": "object"
@@ -4274,7 +4252,7 @@
       "additionalProperties": false,
       "properties": {
         "function": {
-          "$ref": "#/$defs/UnityCatalogFunctionModel"
+          "$ref": "#/$defs/FunctionModel"
         },
         "ddl": {
           "title": "Ddl",

@@ -58,7 +58,6 @@ tools:
     name: vector_search_mcp                                  
     function:
       type: mcp                                  # MCP function type
-      name: vector_search_mcp                              
       vector_search: *retail_vector_store        # Use vector search convenience object
       client_id: *client_id
       client_secret: *client_secret
@@ -68,7 +67,6 @@ tools:
     name: sql_mcp
     function:
       type: mcp                                  # MCP function type
-      name: sql_mcp
       sql: true                                  # Use serverless DBSQL MCP server (no warehouse needed)
       client_id: *client_id
       client_secret: *client_secret
@@ -78,7 +76,6 @@ tools:
     name: functions_mcp                                  
     function:
       type: mcp                                  # MCP function type
-      name: functions_mcp                              
       functions: *retail_schema                  # Use functions (UC Functions) convenience object
       client_id: *client_id
       client_secret: *client_secret
@@ -88,7 +85,6 @@ tools:
     name: genie_mcp                                  
     function:
       type: mcp                                  # MCP function type
-      name: genie_mcp                              
       genie_room: *retail_genie_room             # Use genie_room convenience object
       client_id: *client_id
       client_secret: *client_secret

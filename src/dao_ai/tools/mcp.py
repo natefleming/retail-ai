@@ -29,7 +29,7 @@ def create_mcp_tools(
     """
     # Get MCP URL - handles all convenience objects (connection, genie_room, warehouse, etc.)
     mcp_url = function.mcp_url
-    logger.debug("Creating MCP tools", function_name=function.name, mcp_url=mcp_url)
+    logger.debug("Creating MCP tools", mcp_url=mcp_url)
 
     # Check if using UC Connection or direct MCP connection
     if function.connection:
@@ -68,7 +68,7 @@ def create_mcp_tools(
                 error=str(e),
             )
             raise RuntimeError(
-                f"Failed to list MCP tools for function '{function.name}' via UC Connection '{function.connection.name}': {e}"
+                f"Failed to list MCP tools via UC Connection '{function.connection.name}': {e}"
             )
 
         # Create wrapper tools with fresh session per invocation
@@ -107,11 +107,11 @@ def create_mcp_tools(
 
     else:
         # Use direct MCP connection with MultiServerMCPClient
-        logger.debug("Using direct MCP connection", function_name=function.name)
+        logger.debug("Using direct MCP connection")
 
         def _create_fresh_connection() -> dict[str, Any]:
             """Create connection config with fresh authentication headers."""
-            logger.trace("Creating fresh MCP connection", function_name=function.name)
+            logger.trace("Creating fresh MCP connection")
 
             if function.transport == TransportType.STDIO:
                 return {
@@ -125,7 +125,7 @@ def create_mcp_tools(
 
             if "Authorization" not in headers:
                 logger.trace(
-                    "Generating fresh authentication token", function_name=function.name
+                    "Generating fresh authentication token",
                 )
 
                 from dao_ai.config import value_of
@@ -141,17 +141,15 @@ def create_mcp_tools(
                     headers["Authorization"] = f"Bearer {provider.create_token()}"
                     logger.trace(
                         "Generated fresh authentication token",
-                        function_name=function.name,
                     )
                 except Exception as e:
                     logger.error(
                         "Failed to create fresh token",
-                        function_name=function.name,
                         error=str(e),
                     )
             else:
                 logger.trace(
-                    "Using existing authentication token", function_name=function.name
+                    "Using existing authentication token",
                 )
 
             return {
@@ -163,15 +161,14 @@ def create_mcp_tools(
         # Get available tools from MCP server
         async def _list_mcp_tools():
             connection = _create_fresh_connection()
-            client = MultiServerMCPClient({function.name: connection})
+            client = MultiServerMCPClient({"mcp_function": connection})
 
             try:
-                async with client.session(function.name) as session:
+                async with client.session("mcp_function") as session:
                     return await session.list_tools()
             except Exception as e:
                 logger.error(
                     "Failed to list MCP tools",
-                    function_name=function.name,
                     error=str(e),
                 )
                 return []
@@ -185,18 +182,16 @@ def create_mcp_tools(
 
             logger.debug(
                 "Retrieved MCP tools",
-                function_name=function.name,
                 tools_count=len(mcp_tools),
             )
         except Exception as e:
             logger.error(
                 "Failed to get tools from MCP server",
-                function_name=function.name,
                 transport=function.transport,
                 error=str(e),
             )
             raise RuntimeError(
-                f"Failed to list MCP tools for function '{function.name}' with transport '{function.transport}' and URL '{function.url}': {e}"
+                f"Failed to list MCP tools with transport '{function.transport}' and URL '{function.url}': {e}"
             )
 
         # Create wrapper tools with fresh session per invocation
@@ -213,10 +208,10 @@ def create_mcp_tools(
                 )
 
                 connection = _create_fresh_connection()
-                client = MultiServerMCPClient({function.name: connection})
+                client = MultiServerMCPClient({"mcp_function": connection})
 
                 try:
-                    async with client.session(function.name) as session:
+                    async with client.session("mcp_function") as session:
                         return await session.call_tool(mcp_tool.name, kwargs)
                 except Exception as e:
                     logger.error(

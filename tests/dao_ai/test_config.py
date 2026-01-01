@@ -67,7 +67,6 @@ def test_app_config_should_shutdown(config: AppConfig) -> None:
 def test_mcp_function_model_validate_bearer_header_preserves_existing_prefix() -> None:
     """Test that validate_bearer_header preserves existing 'Bearer ' prefix."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         headers={"Authorization": "Bearer abc123token"},
@@ -85,7 +84,6 @@ def test_mcp_function_model_validate_bearer_header_with_composite_variable() -> 
     )
 
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         headers={"Authorization": token_variable},
@@ -106,7 +104,6 @@ def test_mcp_function_model_validate_bearer_header_with_composite_variable_exist
     )
 
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         headers={"Authorization": token_variable},
@@ -119,7 +116,6 @@ def test_mcp_function_model_validate_bearer_header_with_composite_variable_exist
 def test_mcp_function_model_validate_bearer_header_no_authorization_header() -> None:
     """Test that model creation doesn't add Authorization header - auth is per-invocation."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         headers={"Content-Type": "application/json"},
@@ -135,7 +131,6 @@ def test_mcp_function_model_validate_bearer_header_no_authorization_header() -> 
 def test_mcp_function_model_validate_bearer_header_empty_headers() -> None:
     """Test that model creation with empty headers stays empty - auth is per-invocation."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         headers={},
@@ -150,7 +145,6 @@ def test_mcp_function_model_validate_bearer_header_empty_headers() -> None:
 def test_mcp_function_model_validate_bearer_header_with_other_headers() -> None:
     """Test that validate_bearer_header only modifies Authorization header."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         headers={
@@ -171,7 +165,6 @@ def test_mcp_function_model_validate_bearer_header_with_other_headers() -> None:
 def test_mcp_function_model_oauth_authentication() -> None:
     """Test OAuth authentication configuration is stored but not applied at creation time."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         workspace_host="https://test.databricks.com",
@@ -192,7 +185,6 @@ def test_mcp_function_model_oauth_authentication() -> None:
 def test_mcp_function_model_pat_authentication() -> None:
     """Test PAT authentication configuration is stored but not applied at creation time."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         pat="test_pat",
@@ -211,7 +203,6 @@ def test_mcp_function_model_pat_authentication() -> None:
 def test_mcp_function_model_no_authentication() -> None:
     """Test that when no authentication is provided, model stores None values for per-invocation auth."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
     )
@@ -230,7 +221,6 @@ def test_mcp_function_model_no_authentication() -> None:
 def test_mcp_function_model_authentication_with_environment_variables() -> None:
     """Test authentication using environment variables stores config for per-invocation auth."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         workspace_host=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_HOST"),
@@ -259,7 +249,6 @@ def test_mcp_function_model_mixed_auth_methods_error() -> None:
         ValueError, match="Cannot use both OAuth and user authentication methods"
     ):
         McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com",
             workspace_host="https://test.databricks.com",
@@ -274,7 +263,6 @@ def test_mcp_function_model_partial_oauth_credentials() -> None:
     """Test that partial OAuth credentials are stored for per-invocation authentication."""
     # Only provide client_id and client_secret, with workspace_host
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         client_id="test_client_id",
@@ -297,7 +285,6 @@ def test_mcp_function_model_existing_authorization_header() -> None:
     """Test that existing Authorization header is preserved and authentication is skipped."""
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mcp_function = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com",
             headers={"Authorization": "Bearer existing_token"},
@@ -316,7 +303,6 @@ def test_mcp_function_model_existing_authorization_header() -> None:
 def test_mcp_function_model_authentication_failure() -> None:
     """Test that authentication credentials are stored even if they might fail during invocation."""
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         pat="invalid_pat",
@@ -339,7 +325,6 @@ def test_mcp_function_model_real_authentication() -> None:
     """Integration test with real Retail AI environment variables."""
 
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         workspace_host=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_HOST"),
@@ -366,7 +351,6 @@ def test_mcp_function_model_real_pat_authentication() -> None:
     """Integration test with real PAT authentication."""
 
     mcp_function = McpFunctionModel(
-        name="test_mcp",
         transport=TransportType.STREAMABLE_HTTP,
         url="https://example.com",
         pat=EnvironmentVariableModel(env="RETAIL_AI_DATABRICKS_TOKEN"),

@@ -85,19 +85,27 @@ tools:
   # UC Functions tools - execute functions as the end user
   product_sku_lookup: &product_sku_lookup
     name: product_sku_lookup
-    function: *find_product_sku
+    function:
+      type: unity_catalog
+      resource: *find_product_sku
   
   product_upc_lookup: &product_upc_lookup
     name: product_upc_lookup
-    function: *find_product_upc
+    function: 
+      type: unity_catalog
+      resource: *find_product_upc
   
   inventory_sku_lookup: &inventory_sku_lookup
     name: inventory_sku_lookup
-    function: *find_inventory_sku
+    function: 
+      type: unity_catalog
+      resource: *find_inventory_sku
   
   inventory_upc_lookup: &inventory_upc_lookup
     name: inventory_upc_lookup
-    function: *find_inventory_upc
+    function: 
+      type: unity_catalog
+      resource: *find_inventory_upc
 
   # Genie tool - queries execute as the end user
   retail_data_query: &retail_data_query

@@ -111,7 +111,6 @@ tools:
     name: genie_mcp                                  
     function:
       type: mcp                                  # MCP function type
-      name: genie_mcp                              
       genie_room: *retail_genie_room             # Use genie_room convenience object
       client_id: *client_id
       client_secret: *client_secret

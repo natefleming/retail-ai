@@ -140,10 +140,10 @@ resources:
       name: find_inventory_by_upc                   # Function to find inventory by UPC
     
     # Store-specific inventory functions
-    find_store_inventory_by_upc:
+    find_store_inventory_by_upc: &find_store_inventory_by_upc
       schema: *retail_schema
       name: find_store_inventory_by_upc             # Store-specific UPC inventory lookup
-    find_store_inventory_by_sku: 
+    find_store_inventory_by_sku: &find_store_inventory_by_sku
       schema: *retail_schema
       name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
 
@@ -217,26 +217,26 @@ tools:
     name: find_product_by_sku_uc
     function:
       type: unity_catalog                           # Tool type: Unity Catalog function
-      <<: *find_product_by_sku                      # Merge function configuration
+      resource: *find_product_by_sku                # Reference to function definition
 
   find_product_by_upc_tool: &find_product_by_upc_tool
     name: find_product_by_upc_uc
     function:
       type: unity_catalog
-      <<: *find_product_by_upc
+      resource: *find_product_by_upc
 
   # Inventory lookup tools using Unity Catalog functions
   find_inventory_by_sku_tool: &find_inventory_by_sku_tool
     name: find_inventory_by_sku_uc
     function:
       type: unity_catalog
-      <<: *find_inventory_by_sku
+      resource: *find_inventory_by_sku
 
   find_inventory_by_upc_tool: &find_inventory_by_upc_tool
     name: find_inventory_by_upc_uc
     function:
       type: unity_catalog
-      <<: *find_inventory_by_upc
+      resource: *find_inventory_by_upc
 
 
 
@@ -889,45 +889,33 @@ app:
 # These functions provide data access capabilities for the agent tools
 
 unity_catalog_functions:
-  - function:
-      schema: *retail_schema
-      name: find_inventory_by_sku
+  - function: *find_inventory_by_sku
     ddl: ../functions/hardware_store/find_inventory_by_sku.sql
     test:
       parameters:
         sku: ["00176279"] 
-  - function:
-      schema: *retail_schema
-      name: find_inventory_by_upc
+  - function: *find_inventory_by_upc
     ddl: ../functions/hardware_store/find_inventory_by_upc.sql
     test:
       parameters:
         upc: ["0017627748017"]
-  - function:
-      schema: *retail_schema
-      name: find_product_by_sku
+  - function: *find_product_by_sku
     ddl: ../functions/hardware_store/find_product_by_sku.sql
     test:
       parameters:
         sku: ["00176279"]
-  - function:
-      schema: *retail_schema
-      name: find_product_by_upc
+  - function: *find_product_by_upc
     ddl: ../functions/hardware_store/find_product_by_upc.sql
     test:
       parameters:
         upc: ["0017627748017"] 
-  - function:
-      schema: *retail_schema
-      name: find_store_inventory_by_sku
+  - function: *find_store_inventory_by_sku
     ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
     test:
       parameters:
         store: "35048"
         sku: ["00176279"]
-  - function:
-      schema: *retail_schema
-      name: find_store_inventory_by_upc
+  - function: *find_store_inventory_by_upc
     ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
     test:
       parameters:

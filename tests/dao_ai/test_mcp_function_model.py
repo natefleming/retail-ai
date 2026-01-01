@@ -25,7 +25,6 @@ class TestMcpFunctionModelValidation:
             ValidationError, match="exactly one of the following must be provided"
         ):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STREAMABLE_HTTP,
             )
 
@@ -35,7 +34,6 @@ class TestMcpFunctionModelValidation:
             ValidationError, match="only one URL source can be provided"
         ):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STREAMABLE_HTTP,
                 url="https://example.com/mcp",
                 genie_room=GenieRoomModel(
@@ -51,7 +49,6 @@ class TestMcpFunctionModelValidation:
             ValidationError, match="only one URL source can be provided"
         ):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STREAMABLE_HTTP,
                 url="https://example.com/mcp",
                 connection=ConnectionModel(name="test_connection"),
@@ -63,7 +60,6 @@ class TestMcpFunctionModelValidation:
             ValidationError, match="only one URL source can be provided"
         ):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STREAMABLE_HTTP,
                 genie_room=GenieRoomModel(name="test_genie", space_id="space_123"),
                 sql=True,
@@ -80,7 +76,6 @@ class TestMcpFunctionModelValidation:
             ValidationError, match="only one URL source can be provided"
         ):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STREAMABLE_HTTP,
                 vector_search=VectorStoreModel(
                     source_table=table,
@@ -96,14 +91,12 @@ class TestMcpFunctionModelValidation:
         """Test that STDIO transport requires command and args."""
         with pytest.raises(ValidationError, match="command must be provided"):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STDIO,
                 command=None,
             )
 
         with pytest.raises(ValidationError, match="args must be provided"):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STDIO,
                 command="python",
                 args=[],
@@ -116,7 +109,6 @@ class TestMcpFunctionModelUrlGeneration:
     def test_direct_url_passthrough(self):
         """Test that direct URL is returned as-is."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/api/mcp",
         )
@@ -125,7 +117,6 @@ class TestMcpFunctionModelUrlGeneration:
     def test_genie_room_url_generation(self):
         """Test URL generation for Genie room."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             genie_room=GenieRoomModel(
                 name="test_genie",
@@ -139,7 +130,6 @@ class TestMcpFunctionModelUrlGeneration:
     def test_sql_url_generation(self):
         """Test URL generation for DBSQL MCP server (serverless)."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             sql=True,
             workspace_host="https://adb-123.azuredatabricks.net",
@@ -155,7 +145,6 @@ class TestMcpFunctionModelUrlGeneration:
         index = IndexModel(schema=schema, name="test_index")
 
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             vector_search=VectorStoreModel(
                 source_table=table,
@@ -172,7 +161,6 @@ class TestMcpFunctionModelUrlGeneration:
         """Test URL generation for UC Functions MCP server."""
         schema = SchemaModel(catalog_name="nfleming", schema_name="retail_ai")
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             functions=schema,
             workspace_host="https://adb-123.azuredatabricks.net",
@@ -183,7 +171,6 @@ class TestMcpFunctionModelUrlGeneration:
     def test_connection_url_generation(self):
         """Test URL generation for UC Connection."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             connection=ConnectionModel(name="my_connection"),
             workspace_host="https://adb-123.azuredatabricks.net",
@@ -196,7 +183,6 @@ class TestMcpFunctionModelUrlGeneration:
     def test_trailing_slash_removed_from_workspace_host(self):
         """Test that trailing slash is removed from workspace host."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             genie_room=GenieRoomModel(
                 name="test_genie",
@@ -213,7 +199,6 @@ class TestMcpFunctionModelUrlGeneration:
         # This test validates that the model can be created without workspace_host
         # The actual URL generation will use the default WorkspaceClient in runtime
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             genie_room=GenieRoomModel(
                 name="test_genie",
@@ -223,7 +208,6 @@ class TestMcpFunctionModelUrlGeneration:
         )
 
         # Model should be created successfully
-        assert model.name == "test_mcp"
         assert model.genie_room is not None
         # Note: Actual URL generation requires a configured WorkspaceClient
 
@@ -235,7 +219,6 @@ class TestMcpFunctionModelUrlGeneration:
         index = IndexModel(name="test_index")  # No schema provided
 
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             vector_search=VectorStoreModel(
                 source_table=table,
@@ -255,19 +238,17 @@ class TestMcpFunctionModelUrlGeneration:
 class TestMcpFunctionModelProperties:
     """Test basic properties and serialization."""
 
-    def test_full_name_property(self):
-        """Test full_name property returns name."""
+    def test_type_property(self):
+        """Test that type property is FunctionType.MCP."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/mcp",
         )
-        assert model.full_name == "test_mcp"
+        assert model.type == FunctionType.MCP
 
     def test_function_type_is_mcp(self):
         """Test that type is always MCP."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/mcp",
         )
@@ -276,7 +257,6 @@ class TestMcpFunctionModelProperties:
     def test_transport_serialization(self):
         """Test that transport enum is serialized to string."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/mcp",
         )
@@ -296,7 +276,6 @@ class TestMcpFunctionModelAuthValidation:
             ValidationError, match="Cannot use both OAuth and user authentication"
         ):
             McpFunctionModel(
-                name="test_mcp",
                 transport=TransportType.STREAMABLE_HTTP,
                 url="https://example.com/mcp",
                 client_id="client_id",
@@ -309,7 +288,6 @@ class TestMcpFunctionModelAuthValidation:
         """Test that workspace_host is optional (will be derived from workspace client)."""
         # Should not raise validation error - workspace_host will be derived from workspace client
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/mcp",
             client_id="client_id",
@@ -323,19 +301,17 @@ class TestMcpFunctionModelAuthValidation:
         """Test that OAuth requires both client_id and client_secret."""
         # Only client_id provided - should not trigger OAuth validation
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/mcp",
             client_id="client_id",
             # client_secret missing
         )
         # Should succeed because OAuth is not considered "has_oauth" without both
-        assert model.name == "test_mcp"
+        assert model.client_id == "client_id"
 
     def test_valid_oauth_configuration(self):
         """Test valid OAuth configuration."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/mcp",
             client_id="client_id",
@@ -348,7 +324,6 @@ class TestMcpFunctionModelAuthValidation:
     def test_valid_pat_configuration(self):
         """Test valid PAT configuration."""
         model = McpFunctionModel(
-            name="test_mcp",
             transport=TransportType.STREAMABLE_HTTP,
             url="https://example.com/mcp",
             pat="personal_access_token",

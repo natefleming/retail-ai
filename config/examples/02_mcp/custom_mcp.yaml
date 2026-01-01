@@ -32,7 +32,6 @@ tools:
     name: jira_mcp                                  
     function:
       type: mcp                                  # MCP function type
-      name: jira_mcp                              
       url:  https://mcp-harbor-freight-984752964297111.11.azure.databricksapps.com/mcp/
       client_id: *client_id
       client_secret: *client_secret
