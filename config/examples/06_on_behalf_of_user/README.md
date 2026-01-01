@@ -84,7 +84,7 @@ response = requests.post(
 ### Local Development
 ```bash
 # Uses your personal credentials from databricks-cli
-dao-ai chat -c config/examples/14_on_behalf_of_user/obo_basic.yaml
+dao-ai chat -c config/examples/06_on_behalf_of_user/obo_basic.yaml
 ```
 
 ## 🔒 Access Control Setup
@@ -163,7 +163,7 @@ OBO works with:
 
 - **[01_getting_started](../01_getting_started/)**: Basic agent setup without OBO
 - **[04_genie](../04_genie/)**: More Genie examples
-- **[07_guardrails](../07_guardrails/)**: Combine OBO with guardrails for secure AI
+- **[08_guardrails](../08_guardrails/)**: Combine OBO with guardrails for secure AI
 
 ## 📚 Additional Resources
 

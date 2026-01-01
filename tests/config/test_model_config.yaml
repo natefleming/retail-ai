@@ -375,39 +375,39 @@ tools:
   find_product_by_sku_tool: &find_product_by_sku_tool
     name: find_product_by_sku
     function:
-      type: factory
+      type: python
       name: dao_ai.tools.time.current_time_tool
 
   find_product_by_upc_tool: &find_product_by_upc_tool
     name: find_product_by_upc
     function:
-      type: factory
+      type: python
       name: dao_ai.tools.time.current_time_tool
 
   # Inventory lookup tools with enhanced functionality
   find_inventory_by_sku_tool: &find_inventory_by_sku_tool
     name: find_inventory_by_sku
     function:
-      type: factory
+      type: python
       name: dao_ai.tools.time.current_time_tool
 
   find_inventory_by_upc_tool: &find_inventory_by_upc_tool
     name: find_inventory_by_upc
     function:
-      type: factory
+      type: python
       name: dao_ai.tools.time.current_time_tool
 
   # Store-specific inventory tools with enhanced functionality
   find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
     name: find_store_inventory_by_sku
     function:
-      type: factory
+      type: python
       name: dao_ai.tools.time.current_time_tool
 
   find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
     name: find_store_inventory_by_upc
     function:
-      type: factory
+      type: python
       name: dao_ai.tools.time.current_time_tool
 
 # =============================================================================

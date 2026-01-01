@@ -84,8 +84,6 @@ memory: &memory
   # Long-term memory store for agent context
   store: 
     name: default_store                             # Store identifier
-    #embedding_model: *embedding_model               # Model for semantic memory
-    #dims: 1536                                      # Embedding dimensions
     database: *retail_database                      # Database for persistence (type inferred from presence)
     namespace: "{user_id}"
 

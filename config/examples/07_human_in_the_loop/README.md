@@ -1,4 +1,4 @@
-# 05. Human-in-the-Loop (HITL)
+# 07. Human-in-the-Loop (HITL)
 
 **Approval workflows for sensitive operations**
 
@@ -20,7 +20,7 @@ Pause agent execution to get human approval before executing critical actions li
 ## Quick Start
 
 ```bash
-dao-ai chat -c config/examples/06_human_in_the_loop/human_in_the_loop.yaml
+dao-ai chat -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 Request a sensitive action - the agent will pause and wait for your approval before proceeding.
@@ -140,9 +140,9 @@ When the agent returns an interrupt, respond with:
 
 ## Next Steps
 
-👉 **07_guardrails/** - Automated safety checks  
-👉 **10_orchestration/** - Multi-agent workflows with HITL  
-👉 **11_complete_applications/** - See HITL in production apps
+👉 **08_guardrails/** - Automated safety checks  
+👉 **13_orchestration/** - Multi-agent workflows with HITL  
+👉 **15_complete_applications/** - See HITL in production apps
 
 ## Related Documentation
 

@@ -151,7 +151,7 @@ agents:
 Run your agent with required inputs:
 
 ```bash
-dao-ai chat -c config/examples/11_middleware/custom_field_validation.yaml
+dao-ai chat -c config/examples/12_middleware/custom_field_validation.yaml
 ```
 
 ## 📋 Common Middleware Patterns
@@ -395,9 +395,9 @@ middleware:
 
 ## 📖 Related Documentation
 
-- **Hardware Store Example**: See [`10_complete_applications/hardware_store.yaml`](../10_complete_applications/hardware_store.yaml) for production usage
-- **Human-in-the-Loop**: See [`06_human_in_the_loop/`](../06_human_in_the_loop/) for interrupt handling
-- **Guardrails**: See [`07_guardrails/`](../07_guardrails/) for safety checks
+- **Hardware Store Example**: See [`15_complete_applications/hardware_store.yaml`](../15_complete_applications/hardware_store.yaml) for production usage
+- **Human-in-the-Loop**: See [`07_human_in_the_loop/`](../07_human_in_the_loop/) for interrupt handling
+- **Guardrails**: See [`08_guardrails/`](../08_guardrails/) for safety checks
 
 ## 💡 Common Use Cases
 

@@ -34,10 +34,6 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: hardware_store                    # Schema within the catalog
-    # permissions:                              # Access permissions for the schema
-    #   - principals: [users]                   # Grant access to all users
-    #     privileges:
-    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -706,39 +702,11 @@ agents:
     model: *tool_calling_llm                       # Reference to LLM configuration
     tools:                                          # Tools available to this agent
       - *find_product_details_by_description_tool
-    guardrails:                                     # Quality checks (currently disabled)
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: *general_prompt                        # Reference to prompt (instead of inline)
     handoff_prompt: |                               # Conditions for routing to this agent
       General questions about store information, policies, hours, services, or basic product inquiries that don't require specialized expertise
       Example: "What are your store hours?" or "Do you offer installation services?" or "What's your return policy?"
-
-  # ---------------------------------------------------------------------------
-  # GENERAL AGENT ALTERNATIVE (Inline Prompt - Traditional Approach)
-  # ---------------------------------------------------------------------------
-  # Same agent but using inline prompt string for comparison
-  # Uncomment this to use inline prompts instead of registry
-  # general_inline: &general_inline
-  #   name: general_inline
-  #   description: "General retail store assistant for home improvement and hardware store inquiries"
-  #   model: *tool_calling_llm
-  #   tools:
-  #     - *find_product_details_by_description_tool
-  #   guardrails: []
-  #   prompt: |                                       # Inline system prompt defining agent behavior
-  #     ### User Information
-  #     - **User Id**: {user_id}
-  #     - **Store Number**: {store_num}
-  #
-  #     You are a helpful retail store assistant for a home improvement and hardware store.
-  #     You have access to search tools to find general information which can not be better
-  #     answered by another agent.
-  #
-  #     #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
-  #     Before answering ANY question, use your available search tools to find accurate information.
-  #   handoff_prompt: |
-  #     General questions about store information, policies, hours, services, or basic product inquiries
 
   # ---------------------------------------------------------------------------
   # ORDERS AGENT  
@@ -765,9 +733,7 @@ agents:
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool   # Can search for tools and materials
-    guardrails:
-      []
-      # - *llm_judge_guardrail
+    guardrails: []
     prompt: *diy_prompt
     handoff_prompt: |
       Questions about how-to instructions, DIY projects, tutorials, or home improvement advice
@@ -781,9 +747,7 @@ agents:
       - *find_product_by_sku_tool
       - *find_product_by_upc_tool
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: *product_prompt
     handoff_prompt: |
       Questions about specific product details, features, specifications, pricing, or availability of a SINGLE product
@@ -797,9 +761,7 @@ agents:
       - *find_inventory_by_sku_tool
       - *find_inventory_by_upc_tool
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: *inventory_prompt
     handoff_prompt: |
       Questions about stock levels, availability, restocking, or store inventory
@@ -812,9 +774,7 @@ agents:
     tools:
       - *find_product_details_by_description_tool
       - *find_product_by_sku_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: *comparison_prompt
     handoff_prompt: |
       Questions explicitly comparing TWO OR MORE specific products or asking to compare options
@@ -826,9 +786,7 @@ agents:
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: *recommendation_prompt
     handoff_prompt: |
       Questions asking for product suggestions, recommendations, or "best" products for specific needs

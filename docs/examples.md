@@ -7,9 +7,10 @@ The `config/examples/` directory contains ready-to-use configurations organized 
 The examples follow a natural progression:
 
 ```
-01_getting_started → 02_mcp → 04_genie → 05_memory 
-    → 06_human_in_the_loop → 09_agent_integrations → 10_prompt_engineering 
-    → 11_middleware → 12_orchestration → 13_complete_applications
+01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
+    → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output
+    → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
+    → 14_basic_tools → 15_complete_applications
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -23,8 +24,9 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 
 ### 🔧 Need Specific Tools?
 **Explore:**
-- [`02_mcp/`](../config/examples/02_mcp/) - Genie, Vector Search, Slack, JIRA, MCP integrations
-- [`09_agent_integrations/`](../config/examples/09_agent_integrations/) - Agent Bricks, Kasal, external agent platforms
+- [`02_mcp/`](../config/examples/02_mcp/) - Slack, JIRA, MCP integrations
+- [`10_agent_integrations/`](../config/examples/10_agent_integrations/) - Agent Bricks, Kasal, external agent platforms
+- [`14_basic_tools/`](../config/examples/14_basic_tools/) - SQL execution and basic tool patterns
 
 ### ⚡ Optimizing Performance?
 **Check out:**
@@ -36,16 +38,19 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 
 ### 🛡️ Production Ready?
 **Essential patterns:**
-- [`06_human_in_the_loop/`](../config/examples/06_human_in_the_loop/) - Guardrails, HITL, structured output
-- [`10_prompt_engineering/`](../config/examples/10_prompt_engineering/) - Prompt management and optimization
+- [`06_on_behalf_of_user/`](../config/examples/06_on_behalf_of_user/) - User-level authentication and access control
+- [`07_human_in_the_loop/`](../config/examples/07_human_in_the_loop/) - Approval workflows
+- [`08_guardrails/`](../config/examples/08_guardrails/) - Safety and compliance
+- [`09_structured_output/`](../config/examples/09_structured_output/) - Enforce JSON schemas
+- [`11_prompt_engineering/`](../config/examples/11_prompt_engineering/) - Prompt management and optimization
 
 ### 🛡️ Need Validation & Monitoring?
 **Middleware patterns:**
-- [`11_middleware/`](../config/examples/11_middleware/) - Input validation, logging, performance monitoring
+- [`12_middleware/`](../config/examples/12_middleware/) - Input validation, logging, performance monitoring
 
 ### 🏗️ Complete Solutions?
 **Full applications:**
-- [`13_complete_applications/`](../config/examples/13_complete_applications/) - Executive assistant, research agent, reservation system
+- [`15_complete_applications/`](../config/examples/15_complete_applications/) - Executive assistant, research agent, reservation system
 
 ---
 
@@ -68,7 +73,7 @@ dao-ai chat -c config/examples/02_tools/slack_integration.yaml
 
 ### Deploy to Databricks
 ```bash
-dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_the_loop.yaml
+dao-ai bundle --deploy --run -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 ---
@@ -130,40 +135,63 @@ Persistent state management for multi-turn conversations.
 | `conversation_summarization.yaml` | Long conversation summarization with PostgreSQL |
 
 **Prerequisites:** PostgreSQL or Lakebase database  
-**Next:** Add safety with `06_human_in_the_loop/`
+**Next:** User-level access control in `06_on_behalf_of_user/`
 
 ---
 
-### 05. Quality Control [📖 README](../config/examples/06_human_in_the_loop/README.md)
+### 06. On-Behalf-Of User [📖 README](../config/examples/06_on_behalf_of_user/README.md)
 
-Production-grade safety, validation, and approval workflows.
+User-level authentication and access control with Unity Catalog.
+
+| Example | Description |
+|---------|-------------|
+| `obo_basic.yaml` | OBO with UC Functions and Genie Spaces |
+
+**Prerequisites:** Unity Catalog, user credentials  
+**Next:** Add approval workflows in `07_human_in_the_loop/`
+
+---
+
+### 07. Human-in-the-Loop [📖 README](../config/examples/07_human_in_the_loop/README.md)
+
+Approval workflows for sensitive operations.
+
+| Example | Description |
+|---------|-------------|
+| `human_in_the_loop.yaml` | Tool approval workflows and HITL patterns |
+
+**Prerequisites:** MLflow for HITL checkpointing  
+**Next:** Add safety guardrails in `08_guardrails/`
+
+---
+
+### 08. Guardrails [📖 README](../config/examples/08_guardrails/README.md)
+
+Automated safety and validation.
 
 | Example | Description |
 |---------|-------------|
 | `guardrails_basic.yaml` | Content filtering and safety guardrails |
-| `human_in_the_loop.yaml` | Tool approval workflows and HITL patterns |
-| `structured_output.yaml` | Enforce response format with JSON schema |
 
-**Prerequisites:** MLflow for HITL, guardrail services (optional)  
-**Next:** Optimize prompts in `09_prompt_engineering/`
+**Prerequisites:** Guardrail services (optional)  
+**Next:** Enforce schemas in `09_structured_output/`
 
 ---
 
-### 06. Prompt Engineering [📖 README](../config/examples/09_prompt_engineering/README.md)
+### 09. Structured Output [📖 README](../config/examples/09_structured_output/README.md)
 
-Prompt versioning, management, and automated optimization.
+Enforce response format with JSON schema.
 
 | Example | Description |
 |---------|-------------|
-| `prompt_registry.yaml` | MLflow prompt registry integration |
-| `prompt_optimization.yaml` | Automated prompt tuning with GEPA |
+| `structured_output.yaml` | Type-safe API responses with automatic validation |
 
-**Prerequisites:** MLflow prompt registry, training dataset for optimization  
-**Next:** Learn agent integrations in `09_agent_integrations/`
+**Prerequisites:** Basic understanding of JSON schemas  
+**Next:** External agents in `10_agent_integrations/`
 
 ---
 
-### 07. Agent Integrations [📖 README](../config/examples/09_agent_integrations/README.md)
+### 10. Agent Integrations [📖 README](../config/examples/10_agent_integrations/README.md)
 
 Integrate with external agent platforms like Agent Bricks and Kasal using agent endpoint tools.
 
@@ -182,6 +210,23 @@ Integrate with external agent platforms like Agent Bricks and Kasal using agent 
 - **Hub-and-Spoke Pattern**: One orchestrator routes to multiple specialists
 - **Sequential Workflows**: Chain specialist agents for compliance and validation
 - **Parallel Consultation**: Consult multiple agents simultaneously for multi-perspective analysis
+
+**Prerequisites:** Agent Bricks or Kasal endpoints configured  
+**Next:** Optimize prompts in `11_prompt_engineering/`
+
+---
+
+### 11. Prompt Engineering [📖 README](../config/examples/11_prompt_engineering/README.md)
+
+Prompt versioning, management, and automated optimization.
+
+| Example | Description |
+|---------|-------------|
+| `prompt_registry.yaml` | MLflow prompt registry integration |
+| `prompt_optimization.yaml` | Automated prompt tuning with GEPA |
+
+**Prerequisites:** MLflow prompt registry, training dataset for optimization  
+**Next:** Add validation and monitoring in `12_middleware/`
 
 **Common Patterns:**
 ```yaml
@@ -268,12 +313,9 @@ enterprise_coordinator:
 - **Compliance First**: Use compliance validators before making regulatory decisions
 - **Performance**: Cache agent responses when appropriate, use parallel calls
 
-**Prerequisites:** Understanding of agent tools and multi-agent concepts  
-**Next:** Learn middleware patterns in `11_middleware/`
-
 ---
 
-### 08. Middleware [📖 README](../config/examples/11_middleware/README.md)
+### 12. Middleware [📖 README](../config/examples/12_middleware/README.md)
 
 Cross-cutting concerns for production agents: validation, logging, and monitoring.
 
@@ -311,27 +353,41 @@ agents:
 ```
 
 **Real-World Example:**  
-The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`12_complete_applications/hardware_store.yaml`](../config/examples/12_complete_applications/hardware_store.yaml).
+The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml).
 
 **Prerequisites:** Basic understanding of agents and prompts  
-**Next:** Learn multi-agent coordination in `12_orchestration/`
+**Next:** Learn multi-agent coordination in `13_orchestration/`
 
 ---
 
-### 09. Orchestration [📖 README](../config/examples/12_orchestration/README.md)
+### 13. Orchestration [📖 README](../config/examples/13_orchestration/README.md)
 
 Multi-agent coordination patterns.
 
 | Example | Description |
 |---------|-------------|
-| *(Coming soon)* | Supervisor and swarm orchestration patterns |
+| `supervisor_pattern.yaml` | Supervisor orchestration pattern |
+| `swarm_pattern.yaml` | Swarm orchestration pattern |
 
 **Prerequisites:** Understanding of multi-agent systems  
-**Next:** See complete applications in `13_complete_applications/`
+**Next:** Try basic tools in `14_basic_tools/`
 
 ---
 
-### 10. Complete Applications [📖 README](../config/examples/13_complete_applications/README.md)
+### 14. Basic Tools [📖 README](../config/examples/14_basic_tools/README.md)
+
+Simple tool integrations for SQL and data operations.
+
+| Example | Description |
+|---------|-------------|
+| `sql_tool_example.yaml` | Pre-configured SQL execution tools for inventory analysis |
+
+**Prerequisites:** Databricks SQL warehouse  
+**Next:** See complete applications in `15_complete_applications/`
+
+---
+
+### 15. Complete Applications [📖 README](../config/examples/15_complete_applications/README.md)
 
 Full-featured, production-ready agent applications.
 

@@ -414,15 +414,6 @@ tools:
       args:
         llm_model: *tool_calling_llm
 
-  # dais_find_store_by_number_tool: &dais_find_store_by_number_tool
-  #   name: dais_find_store_by_number
-  #   function:
-  #     type: factory
-  #     name: dais2025.tools.store.create_find_store_by_number_tool
-  #     args:
-  #       schema: *dais_schema
-  #       warehouse: *dais_warehouse
-
   dais_find_store_by_number_tool: &dais_find_store_by_number_tool
     name: dais_find_store_by_number
     function:
@@ -518,15 +509,6 @@ tools:
       name: dais2025.tools.employee.create_employee_insights_tool
       args:
         genie_room: *dais_genie_room
-
-  # dais_find_similar_products_with_inventory_tool:
-  #   &dais_find_similar_products_with_inventory_tool
-  #   name: dais_find_similar_products_with_inventory
-  #   function:
-  #     type: factory
-  #     name: dais2025.tools.find_similar_products_with_inventory_tool
-  #     args:
-  #       retriever: *products_retriever
 
 guardrails:
   llm_judge_guardrail: &llm_judge_guardrail
@@ -1192,7 +1174,6 @@ agents:
       - *dais_customer_preparation_summary_tool
       - *dais_inventory_preselection_tool
       - *dais_customer_profile_intelligence_tool
-    #  - *dais_find_similar_products_with_inventory_tool
     guardrails: []
     prompt: |
       ### User Information
@@ -1338,9 +1319,6 @@ app:
   orchestration:
     supervisor:
       model: *tool_calling_llm
-    # swarm:
-    #   model: *tool_calling_llm
-    #   default_agent: *general
 
 evaluation:
   model: *judge_llm
@@ -1407,32 +1385,6 @@ datasets:
     data: ../data/dais2025/managers_data.sql
     format: sql
 
-
-  # Additional product categories
-  # - table:
-  #     schema: *dais_schema
-  #     name: grill_products
-  #   ddl: ../data/dais2025/grill_products.sql
-  #   data: ../data/dais2025/grill_products.sql
-  #   format: sql
-
-  # Complete table definitions (includes all schemas)
-  # - table:
-  #     schema: *dais_schema
-  #     name: all_tables
-  #   ddl: ../data/dais2025/tables.sql
-  #   data: ../data/dais2025/tables.sql
-  #   format: sql
-
-  # Demo and presentation materials
-  # - table:
-  #     schema: *dais_schema
-  #     name: demo_script
-  #   ddl: ../data/dais2025/demo_script.md
-  #   data: ../data/dais2025/demo_script.md
-  #   format: markdown
-
-  # Customer management
   - table:
       schema: *dais_schema
       name: customers
@@ -1499,11 +1451,3 @@ unity_catalog_functions:
     test:
       parameters:
         store_ids: [1, 2]
-
-  # - function:
-  #     schema: *dais_schema
-  #     name: extract_store_numbers
-  #   ddl: ../functions/dais2025/extract_store_numbers.sql
-  #   test:
-  #     parameters:
-  #       input_text: "I need help with store 001 and also check inventory at store 002"

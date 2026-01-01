@@ -52,7 +52,7 @@ Once you're comfortable with these basics:
 
 👉 **02_mcp/** - Explore more tool integrations (Slack, JIRA, Vector Search, MCP)  
 👉 **04_genie/** - Learn to optimize performance with caching  
-👉 **06_human_in_the_loop/** - Add production safety features
+👉 **07_human_in_the_loop/** - Add production safety features
 
 ## Troubleshooting
 

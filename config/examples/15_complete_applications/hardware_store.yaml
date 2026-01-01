@@ -14,10 +14,6 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: hardware_store                    # Schema within the catalog
-    # permissions:                              # Access permissions for the schema
-    #   - principals: [users]                   # Grant access to all users
-    #     privileges:
-    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -39,15 +35,7 @@ resources:
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-3-7-sonnet
-      temperature: 0.1
-      max_tokens: 8192
-      fallbacks:                                     # Fallback models if primary fails
-        - databricks-claude-3-7-sonnet
-
-    # LLM for complex reasoning tasks
-    reasoning_llm: &reasoning_llm
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-3-7-sonnet 
       temperature: 0.1
       max_tokens: 8192
 
@@ -90,45 +78,6 @@ resources:
         - merchandise_class
         - class_cd
         - description
-      on_behalf_of_user: False
-
-  # ---------------------------------------------------------------------------
-  # GENIE ROOMS
-  # ---------------------------------------------------------------------------
-  # Configure Databricks Genie spaces for natural language querying
-  genie_rooms:
-    # Genie space for retail data queries
-    retail_genie_room: &retail_genie_room
-      name: "Retail AI Genie Room"                  # Human-readable name
-      description: "A room for Genie agents to interact"  # Description
-      space_id:
-        env: RETAIL_AI_GENIE_SPACE_ID
-        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
-
-  # ---------------------------------------------------------------------------
-  # TABLES
-  # ---------------------------------------------------------------------------
-  # Define Unity Catalog tables used by the system
-  tables:
-    # Product catalog table
-    product_table: &product_table
-      schema: *retail_schema                        # Reference to schema defined above
-      name: products                                # Table name
-    
-    # Inventory tracking table
-    inventory_table: &inventory_table
-      schema: *retail_schema
-      name: inventory
-
-  # ---------------------------------------------------------------------------
-  # VOLUMES
-  # ---------------------------------------------------------------------------
-  # Define Unity Catalog volumes for file storage
-  volumes:
-    # Volume for retail AI assets and files
-    retail_volume: &retail_volume
-      schema: *retail_schema
-      name: retail_ai
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -159,66 +108,6 @@ resources:
       schema: *retail_schema
       name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
 
-  # ---------------------------------------------------------------------------
-  # WAREHOUSES
-  # ---------------------------------------------------------------------------
-  # Define SQL warehouses for query execution
-  warehouses:
-    # Shared warehouse for general query execution
-    shared_endpoint_warehouse: 
-      name: "Shared Endpoint Warehouse"             # Human-readable name
-      description: "A warehouse for shared endpoints"  # Description
-      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
-
-
-
-
-      # Traditional PostgreSQL authentication (commented out)
-      # Uncomment and configure if using direct database auth instead of OAuth2
-      # user: 
-      #   default_value: postgres
-      #   options:
-      #   - env: PGUSER 
-      #   - scope: retail_ai
-      #     secret: PGUSER
-      # password: 
-      #   default_value: postgres
-      #   options:
-      #   - env: PGPASSWORD 
-      #   - scope: retail_ai
-      #     secret: PGPASSWORD
-
-      # OAuth2 client credentials for Databricks authentication
-      # Used to generate access tokens for database connections
-      # This approach is recommended for Databricks environments
-      client_id:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      client_secret:
-        options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      workspace_host:
-        options:
-          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_HOST
-          
-      # Optional: Additional PostgreSQL connection parameters
-      # Uncomment and modify as needed for your specific setup
-      # connection_kwargs:                            # Additional connection parameters
-      #   autocommit: True                            # Enable autocommit mode
-      #   prepare_threshold: 0                        # Disable prepared statements
-      #   sslmode: require                            # Require SSL connection
-      #   connect_timeout: 10                         # Connection timeout in seconds
-      
-      # Optional: Connection pool configuration
-      # max_pool_size: 20                             # Maximum connections in pool
-      # timeout: 5                                    # Connection timeout in seconds
-
 # =============================================================================
 # RETRIEVERS CONFIGURATION
 # =============================================================================
@@ -238,9 +127,15 @@ retrievers:
       - class_cd
       - description
     search_parameters:                              # Search configuration
-      num_results: 10                               # Maximum number of results to return
+      num_results: 50                               # Maximum number of results to return
       filters: {}                                   # Additional filters (empty in this case)
       query_type: ANN                               # Approximate Nearest Neighbor search
+    rerank:
+      top_n: 10
+      columns:
+        - merchandise_class
+        - product_name
+        - brand_name
 
 # =============================================================================
 # TOOLS CONFIGURATION
@@ -255,16 +150,15 @@ tools:
   # Tools created by factory functions - configured at runtime
   
   # Vector search tool for product similarity
-  find_product_details_by_description_tool:
-    &find_product_details_by_description_tool
-    name: find_product_details_by_description
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: vector_search
     function:
       type: factory
       name: dao_ai.tools.create_vector_search_tool
       args:
         retriever: *products_retriever              # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name
-        description: "Search for products using vector search"  # Tool description
+        description: "Search for products by description"  # Tool description
 
   # ---------------------------------------------------------------------------
   # UNITY CATALOG TOOLS
@@ -297,9 +191,7 @@ tools:
       type: unity_catalog
       resource: *find_inventory_by_upc
 
-
       
-
 # =============================================================================
 # GUARDRAILS CONFIGURATION
 # =============================================================================
@@ -333,28 +225,23 @@ guardrails:
       {outputs}
 
 # =============================================================================
-# MEMORY CONFIGURATION
-# =============================================================================
-# Configure persistent storage for agent conversations and context
-
-memory: &memory
-  # Conversation checkpointing for state persistence
-  checkpointer: 
-    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
-    #database: *retail_database                     # Reference to database configuration
-
-  # Long-term memory store for agent context
-  store: 
-    name: default_store                             # Store identifier (type inferred as memory - no database)
-    embedding_model: *embedding_model               # Model for semantic memory
-    dims: 1536                                      # Embedding dimensions
-    #database: *retail_database                     # Database for persistence (if provided, type inferred as postgres)
-    namespace: "{user_id}"
-
-# =============================================================================
 # MIDDLEWARE CONFIGURATION
 # =============================================================================
-# Define middleware components for input validation and processing
+# Define reusable middleware that can be applied to agents or the supervisor.
+# Middleware is defined here at the AppConfig level and can be referenced
+# using YAML anchors (&name) in agent or supervisor configurations.
+#
+# Usage:
+#   middleware:
+#     my_middleware: &my_middleware       # Define with anchor
+#       name: path.to.middleware_factory  # Factory function path
+#       args:                             # Arguments passed to factory
+#         key: value
+#
+#   agents:
+#     my_agent:
+#       middleware:
+#         - *my_middleware                # Reference the middleware
 
 middleware:
   # Input validation middleware - validates required fields in custom context
@@ -389,10 +276,9 @@ agents:
     name: general                                   # Agent identifier
     description: "General retail store assistant for home improvement and hardware store inquiries"
     model: *tool_calling_llm                       # Reference to LLM configuration
-    tools: []                                      # Tools available to this agent
-    guardrails:                                     # Quality checks (currently disabled)
-      []
-      #- *llm_judge_guardrail
+    tools:                                          # Tools available to this agent
+      - *find_product_details_by_description_tool
+    guardrails: []
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
       - **User Id**: {user_id}
@@ -502,9 +388,7 @@ agents:
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool   # Can search for tools and materials
-    guardrails:
-      []
-      # - *llm_judge_guardrail
+    guardrails: []
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -551,9 +435,7 @@ agents:
       - *find_product_by_sku_tool
       - *find_product_by_upc_tool
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -614,9 +496,7 @@ agents:
       - *find_inventory_by_sku_tool
       - *find_inventory_by_upc_tool
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -675,9 +555,7 @@ agents:
     tools:
       - *find_product_details_by_description_tool
       - *find_product_by_sku_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -743,9 +621,7 @@ agents:
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+    guardrails: []
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -806,32 +682,7 @@ agents:
       Questions asking for product suggestions, recommendations, or "best" products for specific needs
       Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
 
-  process_image: &process_image
-    name: process_image
-    description: "Image analysis specialist for extracting product information from images, including summaries, product names, and UPC codes"
-    model: *reasoning_llm
-    tools: []
-    prompt: |
-      ### Task Description
-
-      Analyze the provided product image and extract the following specific information into a structured format:
-
-      - Summary: Provide a concise summary (1-3 sentences) describing what is shown in the image. Focus on describing the product(s), packaging, and any prominent visual elements.
-      - Product Names: Extract the exact product name(s) as they appear on the packaging. Include brand names and specific product variants if visible. List each distinct product separately.
-      - UPC Codes: Identify and extract any UPC (Universal Product Code) barcodes visible in the image. These typically appear as 12-digit numbers beneath a barcode. Provide the complete numeric sequence without dashes or spaces.
-
-      ### Important Guidelines
-
-      - Extract information ONLY if it is clearly visible in the image
-      - For product names, use the EXACT text as it appears on packaging
-      - For UPC codes, verify all digits are clearly legible before extraction
-      - If any requested information is not visible or legible in the image, omit it entirely rather than guessing
-      - Do not provide placeholder values, assumptions, or partial information
-      - Format all extracted information according to the specified output structure
-
-      ### Response Guidelines
-      If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
-
+ 
 # =============================================================================
 # APPLICATION CONFIGURATION
 # =============================================================================
@@ -839,13 +690,13 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: hardware_store_swarm_dao                      # Application name  
+  name: hardware_store_dao                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
   log_level: TRACE                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
-    name: hardware_store_swarm_dao
-  endpoint_name: hardware_store_swarm                    # Model serving endpoint name
+    name: hardware_store_dao
+  endpoint_name: hardware_store_supervisor                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
@@ -861,8 +712,13 @@ app:
     - *comparison                                   # Product comparison agent
     - *recommendation                               # Product recommendation agent
     - *general                                      # General purpose agent
+  orchestration:                                    # Agent orchestration configuration
+    supervisor:                                     # Supervisor orchestration pattern
+      model: *tool_calling_llm                      # LLM for routing decisions
+      middleware:                                   # Reference middleware defined above
+        - *store_validation                         # Validates store_num is provided
   input_example:
-      messages:
+      input:
         - role: user
           content: Can you recommend a lamp to match my oak side tables?
       custom_inputs:
@@ -871,72 +727,6 @@ app:
           user_id: my_user_id
           store_num: 87887
         session: {}
-  orchestration:                                    # Agent orchestration configuration
-    memory: *memory                     # Reference to memory configuration for state persistence
-    # supervisor:                                     # Supervisor orchestration pattern
-    #   model: *tool_calling_llm                      # LLM for routing decisions
-    #   default_agent: *general                       # Default agent when no specific match
-    # SWARM ORCHESTRATION PATTERN
-    # ========================================================================
-    # Swarm orchestration enables agents to collaborate directly through 
-    # handoff tools, creating a more flexible agent-to-agent communication
-    # pattern compared to the supervisor model.
-    #
-    # Key Differences from Supervisor Pattern:
-    # - No central supervisor making routing decisions
-    # - Agents can directly hand off conversations to other agents
-    # - Each agent gets handoff tools based on the handoffs configuration
-    # - More autonomous agent behavior and peer-to-peer collaboration
-    #
-    # Implementation Details (see retail_ai/graph.py):
-    # - Uses LangGraph's create_swarm() function for orchestration
-    # - Each agent receives handoff tools via _handoffs_for_agent()
-    # - Handoff tools use each target agent's handoff_prompt as description
-    # - If no specific handoffs defined, agent can hand off to any agent
-    # ========================================================================
-    swarm:
-      # LLM used for swarm coordination and agent decision-making
-      # This model powers the underlying swarm orchestration logic
-      model: *tool_calling_llm
-      
-      # Starting agent for new conversations - acts as the entry point
-      # Users initially interact with this agent before potential handoffs
-      default_agent: *general
-      
-      # Swarm-level middleware applied to ALL agents
-      # This ensures consistent validation across the entire swarm
-      middleware:
-        - *store_validation                           # Validate required custom fields for all agents
-      
-      # Handoff configuration: defines which agents can transfer to which other agents
-      # Structure: {agent_name: [list_of_target_agents_or_null]}
-      # 
-      # Special Values:
-      # - ~ (null): Agent can hand off to ANY agent in the system
-      # - []: Empty list means agent has no specific handoff capabilities  
-      # - ["agent1", "agent2"]: Agent can only hand off to specified agents
-      #
-      # How Handoffs Work:
-      # 1. Each agent gets handoff tools created based on this configuration
-      # 2. Handoff tools use the target agent's handoff_prompt to describe when to transfer
-      # 3. Agents can invoke handoff tools to transfer conversations seamlessly
-      # 4. The receiving agent continues the conversation with full context
-      handoffs:
-        # General agent can hand off to any agent (~ means null/any)
-        # This makes general agent the universal router for initial triage
-        general: ~ 
-        
-        # DIY agent can hand off to specific product and recommendation agents
-        # This creates a focused workflow: DIY -> Product Info -> Inventory -> Recommendations
-        diy: 
-          - "product"      # String reference to product agent
-          - *inventory     # YAML anchor reference to inventory agent  
-          - *recommendation # YAML anchor reference to recommendation agent
-        
-        # Inventory agent has no outbound handoffs (empty list)
-        # This makes inventory a "terminal" agent that completes conversations
-        # Users would need to start new conversations or other agents hand off elsewhere
-        inventory: []
 
 # =============================================================================
 # UNITY CATALOG FUNCTIONS DEPLOYMENT

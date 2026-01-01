@@ -8,9 +8,9 @@ Follow the numbered directories from 01 to 11 for a structured learning experien
 
 ```
 01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
-    → 06_human_in_the_loop → 07_guardrails → 08_structured_output 
-    → 09_agent_integrations → 10_prompt_engineering → 11_middleware → 12_orchestration
-    → 13_complete_applications → 14_on_behalf_of_user
+    → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output 
+    → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
+    → 14_basic_tools → 15_complete_applications
 ```
 
 Or jump directly to the category that matches your current need.
@@ -68,7 +68,18 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [06. Human-in-the-Loop](06_human_in_the_loop/)
+### [06. On-Behalf-Of User](06_on_behalf_of_user/)
+**User-level authentication and access control**
+- OBO with UC Functions
+- OBO with Genie Spaces
+- User permission inheritance
+- Multi-tenant patterns
+
+👉 Enable user-level access control and audit trails
+
+---
+
+### [07. Human-in-the-Loop](07_human_in_the_loop/)
 **Approval workflows for sensitive operations**
 - Tool approval workflows
 - Review prompts and decision handling
@@ -78,7 +89,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [07. Guardrails](07_guardrails/)
+### [08. Guardrails](08_guardrails/)
 **Automated safety and validation**
 - PII detection and content filtering
 - Toxicity and bias detection
@@ -88,7 +99,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [08. Structured Output](08_structured_output/)
+### [09. Structured Output](09_structured_output/)
 **Enforce JSON schema responses**
 - Type-safe API responses
 - Data extraction patterns
@@ -98,7 +109,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [09. Agent Integrations](09_agent_integrations/)
+### [10. Agent Integrations](10_agent_integrations/)
 **Integrate with external agent platforms**
 - Agent Bricks integration
 - Kasal enterprise agents
@@ -108,7 +119,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [10. Prompt Engineering](10_prompt_engineering/)
+### [11. Prompt Engineering](11_prompt_engineering/)
 **Prompt management and optimization**
 - MLflow prompt registry
 - GEPA automated optimization
@@ -118,7 +129,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [11. Middleware](11_middleware/)
+### [12. Middleware](12_middleware/)
 **Cross-cutting concerns for agents**
 - Custom input validation (store numbers, tenant IDs, API keys)
 - Request logging and audit trails
@@ -129,7 +140,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [12. Orchestration](12_orchestration/)
+### [13. Orchestration](13_orchestration/)
 **Multi-agent coordination**
 - Supervisor pattern (coming soon)
 - Swarm pattern (coming soon)
@@ -139,7 +150,18 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [13. Complete Applications](13_complete_applications/)
+### [14. Basic Tools](14_basic_tools/)
+**Simple tool integrations for common operations**
+- SQL execution tools
+- Pre-configured database queries
+- Single-agent utility patterns
+- Data analysis tools
+
+👉 Build simple single-agent apps with SQL and other basic tools
+
+---
+
+### [15. Complete Applications](15_complete_applications/)
 **Production-ready systems**
 - Executive assistant
 - Deep research agent
@@ -147,17 +169,6 @@ Or jump directly to the category that matches your current need.
 - Hybrid Genie + Vector Search
 
 👉 Reference implementations for real-world applications
-
----
-
-### [14. On-Behalf-Of User](14_on_behalf_of_user/)
-**User-level authentication and access control**
-- OBO with UC Functions
-- OBO with Genie Spaces
-- User permission inheritance
-- Multi-tenant patterns
-
-👉 Enable user-level access control and audit trails
 
 ---
 
@@ -180,7 +191,7 @@ dao-ai chat -c config/examples/02_mcp/slack_integration.yaml
 
 ### Deploy to Databricks
 ```bash
-dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_the_loop.yaml
+dao-ai bundle --deploy --run -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 ---
@@ -204,26 +215,29 @@ dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_th
 **...add conversation memory**  
 → See [`05_memory/`](05_memory/)
 
+**...implement user-level access control**  
+→ Review [`06_on_behalf_of_user/`](06_on_behalf_of_user/)
+
 **...add approval workflows for sensitive actions**  
-→ Review [`06_human_in_the_loop/`](06_human_in_the_loop/)
+→ Review [`07_human_in_the_loop/`](07_human_in_the_loop/)
 
 **...add safety and compliance guardrails**  
-→ Check [`07_guardrails/`](07_guardrails/)
+→ Check [`08_guardrails/`](08_guardrails/)
 
 **...manage and optimize prompts**  
-→ Learn from [`10_prompt_engineering/`](10_prompt_engineering/)
+→ Learn from [`11_prompt_engineering/`](11_prompt_engineering/)
 
 **...add validation, logging, or monitoring**  
-→ Check [`11_middleware/`](11_middleware/)
+→ Check [`12_middleware/`](12_middleware/)
 
 **...coordinate multiple agents**  
-→ Study [`12_orchestration/`](12_orchestration/)
+→ Study [`13_orchestration/`](13_orchestration/)
+
+**...execute SQL queries or use basic data tools**  
+→ Check [`14_basic_tools/`](14_basic_tools/)
 
 **...see complete, production-ready examples**  
-→ Explore [`13_complete_applications/`](13_complete_applications/)
-
-**...implement user-level access control**  
-→ Review [`14_on_behalf_of_user/`](14_on_behalf_of_user/)
+→ Explore [`15_complete_applications/`](15_complete_applications/)
 
 ---
 
@@ -315,13 +329,16 @@ Use MLflow to track agent performance and costs.
 | 03_reranking | ⭐⭐ | 1 hr | Vector search setup |
 | 04_genie | ⭐⭐ | 1 hr | Category 02 |
 | 05_memory | ⭐⭐⭐ | 2 hrs | Database setup |
-| 06_human_in_the_loop | ⭐⭐⭐ | 2 hrs | Checkpointer setup |
-| 07_guardrails | ⭐⭐⭐ | 2-3 hrs | Production mindset |
-| 09_agent_integrations | ⭐⭐⭐ | 2-3 hrs | Agent endpoints |
-| 10_prompt_engineering | ⭐⭐⭐⭐ | 3-4 hrs | MLflow setup |
-| 11_middleware | ⭐⭐ | 1-2 hrs | Category 01 |
-| 12_orchestration | ⭐⭐⭐⭐ | 4-6 hrs | Multi-agent concepts |
-| 13_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
+| 06_on_behalf_of_user | ⭐⭐⭐ | 2-3 hrs | Unity Catalog setup |
+| 07_human_in_the_loop | ⭐⭐⭐ | 2 hrs | Checkpointer setup |
+| 08_guardrails | ⭐⭐⭐ | 2-3 hrs | Production mindset |
+| 09_structured_output | ⭐⭐ | 1 hr | Category 01 |
+| 10_agent_integrations | ⭐⭐⭐ | 2-3 hrs | Agent endpoints |
+| 11_prompt_engineering | ⭐⭐⭐⭐ | 3-4 hrs | MLflow setup |
+| 12_middleware | ⭐⭐ | 1-2 hrs | Category 01 |
+| 13_orchestration | ⭐⭐⭐⭐ | 4-6 hrs | Multi-agent concepts |
+| 14_basic_tools | ⭐ | 30-60 min | SQL warehouse |
+| 15_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
 
 ---
 
@@ -361,19 +378,22 @@ Examples:
 ### Week 2: Performance & State
 - Day 1: `04_genie/` - Performance optimization
 - Day 2-3: `05_memory/` - State management
-- Day 4: `06_human_in_the_loop/` - Approval workflows
-- Day 5: `07_guardrails/` - Safety and validation
+- Day 4: `06_on_behalf_of_user/` - User-level access control
+- Day 5: `07_human_in_the_loop/` - Approval workflows
 
-### Week 3: Advanced Patterns
-- Day 1: `09_agent_integrations/` - External agent platforms
-- Day 2-3: `10_prompt_engineering/` - Prompt management
-- Day 4: `11_middleware/` - Validation and monitoring
-- Day 5: `12_orchestration/` - Multi-agent coordination
+### Week 3: Safety & Advanced Patterns
+- Day 1: `08_guardrails/` - Safety and validation
+- Day 2: `09_structured_output/` - Enforce response schemas
+- Day 3: `10_agent_integrations/` - External agent platforms
+- Day 4-5: `11_prompt_engineering/` - Prompt management
 
-### Week 4: Production
-- Day 1-5: `13_complete_applications/` - Full systems
+### Week 4: Production Patterns
+- Day 1: `12_middleware/` - Validation and monitoring
+- Day 2-3: `13_orchestration/` - Multi-agent coordination
+- Day 4: `14_basic_tools/` - Simple tool patterns
+- Day 5: `15_complete_applications/` - Full systems (start)
 
-### Week 4: Build Your Own
+### Week 5: Build Your Own
 - Apply learned patterns to your use case
 - Deploy to production
 - Monitor and iterate

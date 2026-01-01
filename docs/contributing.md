@@ -275,10 +275,16 @@ pytest --cov=dao_ai --cov-report=html tests/
    - `02_tools/` - Tool integrations (Genie, Vector Search, Slack, MCP, etc.)
    - `04_genie/` - Performance optimization strategies
    - `05_memory/` - State management and persistence
-   - `06_human_in_the_loop/ and 07_guardrails/` - Safety, validation, approval workflows
-   - `09_prompt_engineering/` - Prompt management and optimization
-   - `10_orchestration/` - Multi-agent coordination patterns
-   - `11_complete_applications/` - Full-featured, production-ready applications
+   - `06_on_behalf_of_user/` - User-level authentication and access control
+   - `07_human_in_the_loop/` - Approval workflows
+   - `08_guardrails/` - Safety and validation
+   - `09_structured_output/` - Enforce JSON schemas
+   - `10_agent_integrations/` - External agent platforms
+   - `11_prompt_engineering/` - Prompt management and optimization
+   - `12_middleware/` - Validation, logging, monitoring
+   - `13_orchestration/` - Multi-agent coordination patterns
+   - `14_basic_tools/` - Simple tool patterns
+   - `15_complete_applications/` - Full-featured, production-ready applications
 
 2. **Use descriptive file names**: `tool_name_variant.yaml` (e.g., `slack_with_threads.yaml`)
 

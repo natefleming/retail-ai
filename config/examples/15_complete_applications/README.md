@@ -1,4 +1,4 @@
-# 08. Complete Applications
+# 15. Complete Applications
 
 **Full-featured, production-ready agent applications**
 
@@ -270,7 +270,7 @@ agents:
 - Set token limits
 
 ### Low Accuracy
-- Improve prompts (06_prompt_engineering)
+- Improve prompts (11_prompt_engineering)
 - Add examples to prompts
 - Use more capable models
 - Add validation and guardrails

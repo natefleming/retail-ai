@@ -11,25 +11,15 @@ schemas:
 
 resources:
   llms:
-
     default_llm: &default_llm
       name: databricks-claude-sonnet-4  # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
-
-    reasoning_llm: &reasoning_llm
-      name: databricks-claude-3-7-sonnet
-      temperature: 0.1
-      max_tokens: 8192
         
 memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
     name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
-
-  # store: 
-  #   name: default_store                             # Store identifier (type inferred as memory - no database)
-  #   namespace: "{user_id}"
 
 
 tools:

@@ -50,10 +50,6 @@ schemas:
   qsr_schema: &qsr_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: quick_serve_restaurant                    # Schema within the catalog
-    # permissions:                              # Access permissions for the schema
-    #   - principals: [users]                   # Grant access to all users
-    #     privileges:
-    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -325,14 +321,12 @@ memory: &memory
   # Conversation checkpointing for state persistence
   checkpointer: 
     name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
-    #database: *qsr_database                     # Reference to database configuration (if uncommented, type inferred as postgres)
 
   # Long-term memory store for agent context
   store: 
     name: default_store                             # Store identifier (type inferred as memory - no database)
     embedding_model: *embedding_model               # Model for semantic memory
     dims: 1536                                      # Embedding dimensions
-    #database: *qsr_database                      # Database for persistence (if uncommented, type inferred as postgres)
     namespace: "{user_id}"
 
 # =============================================================================
@@ -403,9 +397,6 @@ app:
           # conversation_id is auto-generated as UUID if not provided
           user_id: my_user_id
         session: {}
-    # swarm:
-    #   model: *tool_calling_llm
-    #   default_agent: *general
 
 # =============================================================================
 # UNITY CATALOG FUNCTIONS DEPLOYMENT
@@ -416,9 +407,6 @@ app:
 unity_catalog_functions:
   - function: *lookup_items_by_descriptions
     ddl: ../functions/quick_serve_restaurant/lookup_items_by_descriptions.sql
-    # test:
-    #   parameters:
-    #     sku: ["00176279"] 
   - function: *match_historical_item_order_by_date
     ddl: ../functions/quick_serve_restaurant/match_historical_item_order_by_date.sql
   - function: *match_item_by_description_and_price

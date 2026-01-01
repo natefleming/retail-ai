@@ -108,7 +108,7 @@ agents:
       
 app:
   name: managed_mcp_dao                                # Application name  
-  log_level: DEBUG                               # Logging level for the application
+  log_level: TRACE                               # Logging level for the application
   registered_model:                              # MLflow registered model configuration
     schema: *retail_schema                       # Schema where model will be registered
     name: mcp_agent                              # Model name in MLflow registry

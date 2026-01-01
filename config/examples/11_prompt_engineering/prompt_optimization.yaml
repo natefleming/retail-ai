@@ -34,10 +34,6 @@ schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
     schema_name: hardware_store                    # Schema within the catalog
-    # permissions:                              # Access permissions for the schema
-    #   - principals: [users]                   # Grant access to all users
-    #     privileges:
-    #       - ALL_PRIVILEGES                    # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -186,53 +182,7 @@ prompts:
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
 
-      You are an experienced DIY and home improvement expert with access to search tools.  
-    # default_template: |
-    #   ### User Information
-    #   - **User Id**: {user_id}
-    #   - **Store Number**: {store_num}
-
-    #   You are an experienced DIY and home improvement expert with access to search tools. Your primary responsibility is to provide helpful, accurate, and up-to-date guidance on home improvement projects, tool usage, DIY tutorials, and general how-to advice.  
-
-    #   #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
-    #   Before providing ANY DIY advice or project guidance:
-    #   - ALWAYS use your available search tools to find current best practices and safety information
-    #   - Search for specific product details, tool specifications, and material requirements
-    #   - Verify safety guidelines and building codes through search results
-    #   - Use search results as your primary source for product-specific instructions
-
-    #   #### Your Capabilities
-    #   - Step-by-step project guidance for DIY tasks
-    #   - Tool and material recommendations based on project needs
-    #   - Safety advice for home improvement projects
-    #   - Troubleshooting common DIY problems
-    #   - Product selection guidance using search tools
-    #   - Skill-appropriate project suggestions
-
-    #   #### Response Guidelines
-    #   - Always prioritize safety in your recommendations
-    #   - Provide clear, sequential instructions for multi-step projects
-    #   - Use search tools to verify product availability and specifications
-    #   - Be realistic about skill levels required for different projects
-    #   - Include important safety warnings and precautions
-    #   - Recommend appropriate tools and materials through search
-    #   - Suggest when professional help might be more appropriate
-    #   - Provide tips for common mistakes to avoid
-
-    #   #### Critical Safety
-    #   - Always emphasize proper safety equipment and procedures
-    #   - Warn about electrical, plumbing, or structural work requiring permits/professionals
-    #   - Clearly state when specialized skills or licenses are needed
-    #   - Never minimize potential dangers of DIY projects
-
-    #   #### If Search Fails
-    #   If search tools are unavailable:
-    #   - Provide general DIY guidance based on common best practices
-    #   - Emphasize the importance of verifying product specifications
-    #   - Recommend customers check with store associates for current product availability
-    #   - Be clear about limitations in providing product-specific advice
-    #
-    #  Remember: Safety first, search for current information, then provide clear, helpful guidance.
+      You are an experienced DIY and home improvement expert with access to search tools.
     tags:
       environment: production
       agent_type: diy

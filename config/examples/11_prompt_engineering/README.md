@@ -1,4 +1,4 @@
-# 06. Prompt Engineering
+# 11. Prompt Engineering
 
 **Prompt versioning, management, and automated optimization**
 
@@ -23,14 +23,14 @@ Advanced prompt management for production agents with version control and automa
 
 ### Use prompt registry
 ```bash
-dao-ai chat -c config/examples/10_prompt_engineering/prompt_registry.yaml
+dao-ai chat -c config/examples/11_prompt_engineering/prompt_registry.yaml
 ```
 
 Prompts are loaded from MLflow registry, not hardcoded in YAML.
 
 ### Run prompt optimization
 ```bash
-dao-ai chat -c config/examples/10_prompt_engineering/prompt_optimization.yaml
+dao-ai chat -c config/examples/11_prompt_engineering/prompt_optimization.yaml
 ```
 
 GEPA will iteratively improve prompts based on evaluation data.
@@ -142,8 +142,8 @@ agents:
 
 ## Next Steps
 
-👉 **10_orchestration/** - Multi-agent prompt coordination  
-👉 **11_complete_applications/** - Production prompt management
+👉 **13_orchestration/** - Multi-agent prompt coordination  
+👉 **15_complete_applications/** - Production prompt management
 
 ## Troubleshooting
 

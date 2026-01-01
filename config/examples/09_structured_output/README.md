@@ -1,4 +1,4 @@
-# 08. Structured Output
+# 09. Structured Output
 
 **Enforce JSON schema responses from LLMs**
 
@@ -20,7 +20,7 @@ Force agents to return responses in a specific JSON structure. This is essential
 ## Quick Start
 
 ```bash
-dao-ai chat -c config/examples/08_structured_output/structured_output.yaml
+dao-ai chat -c config/examples/09_structured_output/structured_output.yaml
 ```
 
 The agent will always return responses matching your defined schema.
@@ -87,8 +87,8 @@ Categorize inputs with confidence scores
 
 ## Next Steps
 
-👉 **10_prompt_engineering/** - Optimize prompts for better structured output  
-👉 **11_complete_applications/** - See structured output in production apps
+👉 **11_prompt_engineering/** - Optimize prompts for better structured output  
+👉 **15_complete_applications/** - See structured output in production apps
 
 ## Related Documentation
 

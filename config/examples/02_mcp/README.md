@@ -105,7 +105,7 @@ After mastering tool integrations:
 
 👉 **04_genie/** - Optimize tool calls with caching  
 👉 **05_memory/** - Add conversation persistence  
-👉 **06_human_in_the_loop/** - Add approval workflows for sensitive operations
+👉 **07_human_in_the_loop/** - Add approval workflows for sensitive operations
 
 ## Troubleshooting
 

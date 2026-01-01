@@ -738,7 +738,7 @@ Agent returns:
 - `response_schema`: Can be a JSON schema string, Pydantic model type, or fully qualified class name
 - `use_tool`: `true` (function calling), `false` (native), or `null` (auto-detect)
 
-See `config/examples/08_structured_output/structured_output.yaml` for a complete example.
+See `config/examples/09_structured_output/structured_output.yaml` for a complete example.
 
 ---
 
@@ -1030,8 +1030,8 @@ agents:
 6. **Security first**: Mask PII and sensitive data in logs
 
 **Example configurations:**
-- See [`config/examples/10_middleware/`](../config/examples/10_middleware/) for complete examples
-- See [`config/examples/12_complete_applications/hardware_store.yaml`](../config/examples/12_complete_applications/hardware_store.yaml) for production usage
+- See [`config/examples/12_middleware/`](../config/examples/12_middleware/) for complete examples
+- See [`config/examples/15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml) for production usage
 
 ---
 

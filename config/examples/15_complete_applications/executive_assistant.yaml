@@ -14,104 +14,12 @@ schemas:
 
 resources:
   llms:
-
-    fast_llm: &fast_llm
-      name: databricks-meta-llama-3-1-8b-instruct 
-      temperature: 0.1                              
-      max_tokens: 8192                             
-
-    tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-3-7-sonnet
-      temperature: 0.1
-      max_tokens: 8192
-      fallbacks:                                   
-        - databricks-claude-sonnet-4
-
     # LLM for complex reasoning tasks
     reasoning_llm: &reasoning_llm
       name: databricks-claude-3-7-sonnet
       temperature: 0.1
-      max_tokens: 8192
+      max_tokens: 8192              
 
-    deep_reasoning_llm: &deep_reasoning_llm
-      name: databricks-claude-sonnet-4
-      temperature: 0.1
-      max_tokens: 8192
-      fallbacks: 
-        - databricks-claude-3-7-sonnet
-
-    judge_llm: &judge_llm
-      name: databricks-claude-3-7-sonnet
-      temperature: 0.5                            
-      max_tokens: 8192
-
-    embedding_model: &embedding_model
-      name: databricks-gte-large-en              
-
-
-  tables:
-    all_tables:
-      schema: *executive_assistant_schema                        
-    #   name: employee_performance                              
-    
-    # products:
-    #   schema: *executive_assistant_schema
-    #   name: products
-
-    # inventory: 
-    #   schema: *executive_assistant_schema
-    #   name: inventory
-
-    # customers: 
-    #   schema: *executive_assistant_schema
-    #   name: customers
-
-    # managers:
-    #   schema: *executive_assistant_schema
-    #   name: managers
-
-    # employee_tasks: 
-    #   schema: *executive_assistant_schema
-    #   name: employee_tasks
-
-    # appointments: 
-    #   schema: *executive_assistant_schema
-    #   name: appointments
-
-    # evaluation: 
-    #   schema: *executive_assistant_schema
-    #   name: evaluation
-
-
-  functions:
-
-    all_functions: 
-      schema: *executive_assistant_schema
-    #   name: find_inventory_by_sku
-
-    # find_inventory_by_upc: &find_inventory_by_upc
-    #   schema: *executive_assistant_schema
-    #   name: find_inventory_by_upc     
-    
-    # find_product_by_sku: &find_product_by_sku
-    #   schema: *executive_assistant_schema
-    #   name: find_product_by_sku     
-
-    # find_product_by_upc: &find_product_by_upc
-    #   schema: *executive_assistant_schema
-    #   name: find_product_by_upc     
-
-    # find_store_by_number: &find_store_by_number
-    #   schema: *executive_assistant_schema
-    #   name: find_store_by_number     
-    
-    # find_store_inventory_by_sku: &find_store_inventory_by_sku
-    #   schema: *executive_assistant_schema
-    #   name: find_store_inventory_by_sku     
-
-    # find_store_inventory_by_upc: &find_store_inventory_by_upc
-    #   schema: *executive_assistant_schema
-    #   name: find_store_inventory_by_upc
 
   genie_rooms:
     executive_assistant_genie_room: &executive_assistant_genie_room

@@ -8,6 +8,7 @@ from dao_ai.tools import create_tools
 excluded_tools: Sequence[str] = [
     "vector_search",
     "genie",
+    "weather",  # MCP tool that requires external server
 ]
 
 

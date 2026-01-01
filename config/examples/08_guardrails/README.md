@@ -1,4 +1,4 @@
-# 07. Guardrails
+# 08. Guardrails
 
 **Automated safety, validation, and compliance checks**
 
@@ -22,7 +22,7 @@ Protect your agents with always-on content filtering, PII detection, and custom 
 ### Test guardrails
 
 ```bash
-dao-ai chat -c config/examples/07_guardrails/guardrails_basic.yaml
+dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml
 ```
 
 Try inputs with PII (like "My SSN is 123-45-6789") - they'll be detected and handled appropriately.
@@ -190,9 +190,9 @@ agents:
 
 ## Next Steps
 
-👉 **08_structured_output/** - Enforce JSON schema responses  
-👉 **10_prompt_engineering/** - Optimize prompts for safety and compliance  
-👉 **11_complete_applications/** - See guardrails in production
+👉 **09_structured_output/** - Enforce JSON schema responses  
+👉 **11_prompt_engineering/** - Optimize prompts for safety and compliance  
+👉 **15_complete_applications/** - See guardrails in production
 
 ## Related Documentation
 

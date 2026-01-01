@@ -1,4 +1,4 @@
-# 09. Agent Integrations
+# 10. Agent Integrations
 
 **Integrate with external agent platforms like Agent Bricks and Kasal**
 
@@ -98,7 +98,7 @@ export AGENT_BRICKS_CUSTOMER_SUPPORT_ENDPOINT="agent-bricks-customer-support"
 export AGENT_BRICKS_PRODUCT_EXPERT_ENDPOINT="agent-bricks-product-expert"
 
 # Run the agent
-dao-ai chat -c config/examples/09_agent_integrations/agent_bricks.yaml
+dao-ai chat -c config/examples/10_agent_integrations/agent_bricks.yaml
 ```
 
 **Try asking:**
@@ -115,7 +115,7 @@ export KASAL_COMPLIANCE_ENDPOINT="kasal-compliance-checker"
 export KASAL_PRIVACY_ENDPOINT="kasal-privacy-specialist"
 
 # Run the agent
-dao-ai chat -c config/examples/09_agent_integrations/kasal.yaml
+dao-ai chat -c config/examples/10_agent_integrations/kasal.yaml
 ```
 
 **Try asking:**
@@ -423,16 +423,16 @@ When using agent integrations for regulated industries:
 
 ## 📚 Related Examples
 
-👉 **12_orchestration/** - Advanced multi-agent patterns  
+👉 **13_orchestration/** - Advanced multi-agent patterns  
 👉 **02_mcp/** - Alternative tool integration approaches  
-👉 **13_complete_applications/** - Full production systems  
+👉 **15_complete_applications/** - Full production systems  
 
 ---
 
 ## 🔗 Additional Resources
 
 - [Agent Endpoint Tools Documentation](../../../docs/key-capabilities.md#agent-tools)
-- [Multi-Agent Orchestration Guide](../12_orchestration/)
+- [Multi-Agent Orchestration Guide](../13_orchestration/)
 - [Production Deployment Best Practices](../../../docs/contributing.md)
 
 ---
@@ -441,9 +441,9 @@ When using agent integrations for regulated industries:
 
 After mastering agent integrations:
 
-1. **Explore Orchestration**: Learn advanced patterns in `12_orchestration/`
-2. **Add Middleware**: Implement cross-cutting concerns from `11_middleware/`
-3. **Deploy Production**: See complete systems in `13_complete_applications/`
+1. **Explore Orchestration**: Learn advanced patterns in `13_orchestration/`
+2. **Add Middleware**: Implement cross-cutting concerns from `12_middleware/`
+3. **Deploy Production**: See complete systems in `15_complete_applications/`
 
 ---
 

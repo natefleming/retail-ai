@@ -1,4 +1,4 @@
-# 07. Orchestration
+# 13. Orchestration
 
 **Multi-agent coordination patterns**
 
@@ -139,16 +139,16 @@ Log all agent interactions for debugging.
 
 ```bash
 # Validate the supervisor pattern
-dao-ai validate -c config/examples/10_orchestration/supervisor_pattern.yaml
+dao-ai validate -c config/examples/13_orchestration/supervisor_pattern.yaml
 
 # Validate the swarm pattern  
-dao-ai validate -c config/examples/10_orchestration/swarm_pattern.yaml
+dao-ai validate -c config/examples/13_orchestration/swarm_pattern.yaml
 
 # Visualize the supervisor architecture
-dao-ai graph -c config/examples/10_orchestration/supervisor_pattern.yaml -o supervisor_graph.png
+dao-ai graph -c config/examples/13_orchestration/supervisor_pattern.yaml -o supervisor_graph.png
 
 # Visualize the swarm architecture
-dao-ai graph -c config/examples/10_orchestration/swarm_pattern.yaml -o swarm_graph.png
+dao-ai graph -c config/examples/13_orchestration/swarm_pattern.yaml -o swarm_graph.png
 ```
 
 ## Real-World Examples
