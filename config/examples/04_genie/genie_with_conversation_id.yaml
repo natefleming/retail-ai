@@ -20,7 +20,7 @@ resources:
       on_behalf_of_user: False
       fallbacks:                                  # Fallback LLMs in case of issues
         - databricks-claude-sonnet-4
-        - databricks-meta-llama-3-3-70b-instruct
+        - databricks-claude-sonnet-4
 
   databases:
     # PostgreSQL database for agent memory and checkpoints

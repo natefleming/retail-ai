@@ -284,12 +284,12 @@ reranker:
 ## Next Steps
 
 👉 **04_genie/** - Cache reranked results for performance  
-👉 **02_tools/** - Combine with other tool integrations  
+👉 **02_mcp/** - Combine with other tool integrations  
 👉 **11_complete_applications/** - See reranking in production
 
 ## Related Documentation
 
-- [Vector Search](../02_tools/README.md#vector-search)
+- [Vector Search](../02_mcp/README.md#vector-search)
 - [Caching Strategies](../04_genie/README.md)
 - [Performance Optimization](../../../docs/key-capabilities.md#performance)
 

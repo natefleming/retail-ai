@@ -38,7 +38,7 @@ resources:
     # Primary LLM for agent responses
     # Claude 3.7 Sonnet produces consistently high-quality responses that typically
     # pass guardrails on first try. To see retry behavior, try:
-    #   - databricks-meta-llama-3-3-70b-instruct (more likely to make mistakes)
+    #   - databricks-claude-sonnet-4 (more likely to make mistakes)
     #   - Higher temperature values (increases variability)
     default_llm: &default_llm
       name: databricks-claude-3-7-sonnet
@@ -300,7 +300,7 @@ app:
 #       echo "What is Python?" | dao-ai chat --config guardrails.yaml
 #    
 #    b) To see retry behavior, use Llama 3.3 70B:
-#       Change default_llm to: databricks-meta-llama-3-3-70b-instruct
+#       Change default_llm to: databricks-claude-sonnet-4
 #       Llama is more likely to make mistakes that trigger guardrail retries.
 #       
 #       echo "What's your refund policy?" | dao-ai chat --config guardrails.yaml

@@ -107,7 +107,7 @@ chat_history:
 ## Next Steps
 
 👉 **06_human_in_the_loop/** - Add safety and validation  
-👉 **09_prompt_engineering/** - Optimize prompts for summarization
+👉 **10_prompt_engineering/** - Optimize prompts for summarization
 
 ## Troubleshooting
 

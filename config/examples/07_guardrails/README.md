@@ -191,7 +191,7 @@ agents:
 ## Next Steps
 
 👉 **08_structured_output/** - Enforce JSON schema responses  
-👉 **09_prompt_engineering/** - Optimize prompts for safety and compliance  
+👉 **10_prompt_engineering/** - Optimize prompts for safety and compliance  
 👉 **11_complete_applications/** - See guardrails in production
 
 ## Related Documentation

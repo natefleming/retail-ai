@@ -50,7 +50,7 @@ Before using these examples:
 
 Once you're comfortable with these basics:
 
-👉 **02_tools/** - Explore more tool integrations (Slack, JIRA, Vector Search, MCP)  
+👉 **02_mcp/** - Explore more tool integrations (Slack, JIRA, Vector Search, MCP)  
 👉 **04_genie/** - Learn to optimize performance with caching  
 👉 **06_human_in_the_loop/** - Add production safety features
 
@@ -59,7 +59,7 @@ Once you're comfortable with these basics:
 **"Model endpoint not found"**
 - Verify your model endpoint name in the YAML
 - Check you have access to the endpoint
-- Try using FMAPI models (e.g., `databricks-meta-llama-3-3-70b-instruct`)
+- Try using FMAPI models (e.g., `databricks-claude-sonnet-4`)
 
 **"Genie space not accessible"**
 - Confirm you have the correct Genie space ID

@@ -7,10 +7,10 @@ Welcome to the DAO AI examples! This directory contains ready-to-use configurati
 Follow the numbered directories from 01 to 11 for a structured learning experience:
 
 ```
-01_getting_started → 02_tools → 03_reranking → 04_genie → 05_memory 
+01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
     → 06_human_in_the_loop → 07_guardrails → 08_structured_output 
-    → 09_prompt_engineering → 10_middleware → 11_orchestration
-    → 12_complete_applications
+    → 09_agent_integrations → 10_prompt_engineering → 11_middleware → 12_orchestration
+    → 13_complete_applications
 ```
 
 Or jump directly to the category that matches your current need.
@@ -27,7 +27,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [02. Tools](02_tools/)
+### [02. MCP](02_mcp/)
 **Integrate with external services**
 - Slack, JIRA integrations
 - Model Context Protocol (MCP)
@@ -98,7 +98,17 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [09. Prompt Engineering](09_prompt_engineering/)
+### [09. Agent Integrations](09_agent_integrations/)
+**Integrate with external agent platforms**
+- Agent Bricks integration
+- Kasal enterprise agents
+- Multi-agent orchestration with specialists
+
+👉 Delegate to purpose-built external agents
+
+---
+
+### [10. Prompt Engineering](10_prompt_engineering/)
 **Prompt management and optimization**
 - MLflow prompt registry
 - GEPA automated optimization
@@ -108,7 +118,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [10. Middleware](10_middleware/)
+### [11. Middleware](11_middleware/)
 **Cross-cutting concerns for agents**
 - Custom input validation (store numbers, tenant IDs, API keys)
 - Request logging and audit trails
@@ -119,7 +129,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [11. Orchestration](11_orchestration/)
+### [12. Orchestration](12_orchestration/)
 **Multi-agent coordination**
 - Supervisor pattern (coming soon)
 - Swarm pattern (coming soon)
@@ -129,7 +139,7 @@ Or jump directly to the category that matches your current need.
 
 ---
 
-### [12. Complete Applications](12_complete_applications/)
+### [13. Complete Applications](13_complete_applications/)
 **Production-ready systems**
 - Executive assistant
 - Deep research agent
@@ -149,12 +159,12 @@ dao-ai validate -c config/examples/01_getting_started/minimal.yaml
 
 ### Visualize the Agent Workflow
 ```bash
-dao-ai graph -c config/examples/02_tools/slack_integration.yaml -o agent_graph.png
+dao-ai graph -c config/examples/02_mcp/slack_integration.yaml -o agent_graph.png
 ```
 
 ### Chat with an Agent
 ```bash
-dao-ai chat -c config/examples/02_tools/slack_integration.yaml
+dao-ai chat -c config/examples/02_mcp/slack_integration.yaml
 ```
 
 ### Deploy to Databricks
@@ -172,7 +182,7 @@ dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_th
 → Start with [`01_getting_started/`](01_getting_started/)
 
 **...connect to Slack/JIRA/other services**  
-→ Check [`02_tools/`](02_tools/)
+→ Check [`02_mcp/`](02_mcp/)
 
 **...improve search result quality**  
 → See [`03_reranking/`](03_reranking/)
@@ -190,16 +200,16 @@ dao-ai bundle --deploy --run -c config/examples/06_human_in_the_loop/human_in_th
 → Check [`07_guardrails/`](07_guardrails/)
 
 **...manage and optimize prompts**  
-→ Learn from [`09_prompt_engineering/`](09_prompt_engineering/)
+→ Learn from [`10_prompt_engineering/`](10_prompt_engineering/)
 
 **...add validation, logging, or monitoring**  
-→ Check [`10_middleware/`](10_middleware/)
+→ Check [`11_middleware/`](11_middleware/)
 
 **...coordinate multiple agents**  
-→ Study [`11_orchestration/`](11_orchestration/)
+→ Study [`12_orchestration/`](12_orchestration/)
 
 **...see complete, production-ready examples**  
-→ Explore [`12_complete_applications/`](12_complete_applications/)
+→ Explore [`13_complete_applications/`](13_complete_applications/)
 
 ---
 
@@ -287,16 +297,17 @@ Use MLflow to track agent performance and costs.
 | Category | Complexity | Time to Learn | Prerequisites |
 |----------|------------|---------------|---------------|
 | 01_getting_started | ⭐ | 30 min | Basic YAML |
-| 02_tools | ⭐⭐ | 1-2 hrs | Category 01 |
+| 02_mcp | ⭐⭐ | 1-2 hrs | Category 01 |
 | 03_reranking | ⭐⭐ | 1 hr | Vector search setup |
 | 04_genie | ⭐⭐ | 1 hr | Category 02 |
 | 05_memory | ⭐⭐⭐ | 2 hrs | Database setup |
 | 06_human_in_the_loop | ⭐⭐⭐ | 2 hrs | Checkpointer setup |
 | 07_guardrails | ⭐⭐⭐ | 2-3 hrs | Production mindset |
-| 09_prompt_engineering | ⭐⭐⭐⭐ | 3-4 hrs | MLflow setup |
-| 10_middleware | ⭐⭐ | 1-2 hrs | Category 01 |
-| 11_orchestration | ⭐⭐⭐⭐ | 4-6 hrs | Multi-agent concepts |
-| 12_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
+| 09_agent_integrations | ⭐⭐⭐ | 2-3 hrs | Agent endpoints |
+| 10_prompt_engineering | ⭐⭐⭐⭐ | 3-4 hrs | MLflow setup |
+| 11_middleware | ⭐⭐ | 1-2 hrs | Category 01 |
+| 12_orchestration | ⭐⭐⭐⭐ | 4-6 hrs | Multi-agent concepts |
+| 13_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
 
 ---
 
@@ -330,7 +341,7 @@ Examples:
 
 ### Week 1: Foundations
 - Day 1-2: `01_getting_started/` - Basic concepts
-- Day 3-4: `02_tools/` - Tool integrations
+- Day 3-4: `02_mcp/` - Tool integrations
 - Day 5: `03_reranking/` - Search optimization
 
 ### Week 2: Performance & State
@@ -340,10 +351,13 @@ Examples:
 - Day 5: `07_guardrails/` - Safety and validation
 
 ### Week 3: Advanced Patterns
-- Day 1-2: `09_prompt_engineering/` - Prompt management
-- Day 3: `10_middleware/` - Validation and monitoring
-- Day 4: `11_orchestration/` - Multi-agent coordination
-- Day 5: `12_complete_applications/` - Full systems
+- Day 1: `09_agent_integrations/` - External agent platforms
+- Day 2-3: `10_prompt_engineering/` - Prompt management
+- Day 4: `11_middleware/` - Validation and monitoring
+- Day 5: `12_orchestration/` - Multi-agent coordination
+
+### Week 4: Production
+- Day 1-5: `13_complete_applications/` - Full systems
 
 ### Week 4: Build Your Own
 - Apply learned patterns to your use case

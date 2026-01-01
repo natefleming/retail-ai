@@ -30,7 +30,7 @@ This category demonstrates how to connect your agents to various tools and servi
 # Set your Slack token
 export SLACK_BOT_TOKEN="xoxb-your-token"
 
-dao-ai chat -c config/examples/02_tools/slack_integration.yaml
+dao-ai chat -c config/examples/02_mcp/slack_integration.yaml
 ```
 
 Example: *"Send a message to #general saying 'Hello from DAO AI!'"*

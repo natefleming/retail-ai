@@ -13,12 +13,12 @@ schemas:
 resources:
   llms:
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-claude-sonnet-4
       temperature: 0.1
       max_tokens: 8192
 
     tool_calling_llm: &tool_calling_llm
-      name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-claude-sonnet-4
       temperature: 0.1
       max_tokens: 8192
       fallbacks:

@@ -1,0 +1,159 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# Kasal Integration Example
+# ==============================================================================
+# This example demonstrates how to integrate with Kasal agents using agent
+# endpoint tools. Kasal provides enterprise-grade AI agents with built-in
+# compliance, security, and governance features.
+#
+# Use Case: Building a multi-agent system with Kasal-powered specialist agents
+# ==============================================================================
+
+schemas:
+  enterprise_schema: &enterprise_schema
+    catalog_name: enterprise_data
+    schema_name: operations
+
+resources:
+  llms:
+    # Main coordinator LLM
+    coordinator_llm: &coordinator_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 2000
+
+    # Kasal Financial Analyst Agent
+    kasal_financial_agent: &kasal_financial_agent
+      name: kasal-financial-analyst-endpoint
+      temperature: 0.0  # Deterministic for financial calculations
+      max_tokens: 1500
+
+    # Kasal Compliance Agent
+    kasal_compliance_agent: &kasal_compliance_agent
+      name: kasal-compliance-checker-endpoint
+      temperature: 0.0
+      max_tokens: 1000
+
+    # Kasal Data Privacy Agent
+    kasal_privacy_agent: &kasal_privacy_agent
+      name: kasal-privacy-specialist-endpoint
+      temperature: 0.1
+      max_tokens: 800
+
+tools:
+  # Kasal Financial Analysis Tool
+  financial_analyst_tool: &financial_analyst_tool
+    name: financial_analyst
+    function:
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *kasal_financial_agent
+        name: kasal_financial_expert
+        description: |
+          Access a Kasal financial analyst agent for financial queries and analysis.
+          
+          Capabilities:
+          - Revenue and profit analysis
+          - Financial forecasting and projections
+          - Budget planning and variance analysis
+          - Cost optimization recommendations
+          - Financial report generation
+          
+          The agent has access to financial data and follows GAAP standards.
+          Provide your financial question or analysis request as the prompt.
+
+  # Kasal Compliance Tool
+  compliance_checker_tool: &compliance_checker_tool
+    name: compliance_checker
+    function:
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *kasal_compliance_agent
+        name: kasal_compliance_validator
+        description: |
+          Consult with a Kasal compliance agent to validate regulatory adherence.
+          
+          Use this for:
+          - Regulatory requirement validation
+          - Policy compliance checks
+          - Audit trail generation
+          - Risk assessment
+          - Industry standards verification (SOC2, HIPAA, GDPR, etc.)
+          
+          This agent ensures all recommendations and decisions meet regulatory requirements.
+          Describe the action or decision you need validated.
+
+  # Kasal Data Privacy Tool
+  privacy_specialist_tool: &privacy_specialist_tool
+    name: privacy_specialist
+    function:
+      type: factory
+      name: dao_ai.tools.create_agent_endpoint_tool
+      args:
+        llm: *kasal_privacy_agent
+        name: kasal_privacy_expert
+        description: |
+          Engage with a Kasal data privacy specialist for PII and data handling guidance.
+          
+          Capabilities:
+          - PII detection and classification
+          - Data retention policy guidance
+          - Privacy impact assessments
+          - GDPR/CCPA compliance validation
+          - Data anonymization strategies
+          
+          The agent helps ensure data privacy best practices are followed.
+          Ask your data privacy or PII-related question.
+
+agents:
+  # Enterprise coordinator agent with Kasal specialist agents
+  enterprise_coordinator: &enterprise_coordinator
+    name: enterprise_ai_coordinator
+    model: *coordinator_llm
+    tools:
+      - *financial_analyst_tool
+      - *compliance_checker_tool
+      - *privacy_specialist_tool
+    prompt: |
+      You are an enterprise AI coordinator for a large organization.
+      
+      Your mission is to help users with complex business queries that require
+      specialized expertise and strict governance. You have access to three
+      Kasal-powered specialist agents:
+      
+      1. Financial Expert (kasal_financial_expert):
+         - Use for any financial analysis, forecasting, or reporting questions
+         - Provides data-driven financial insights
+      
+      2. Compliance Validator (kasal_compliance_validator):
+         - Consult before making recommendations that could have regulatory implications
+         - Validates that proposed actions meet industry standards and regulations
+      
+      3. Privacy Expert (kasal_privacy_expert):
+         - Consult when dealing with customer data or PII
+         - Ensures data handling follows privacy regulations and best practices
+      
+      IMPORTANT: For questions involving financial decisions, ALWAYS check with the
+      compliance validator before providing a final recommendation. For queries
+      involving customer data, ALWAYS consult the privacy specialist.
+      
+      When using these tools:
+      - Provide complete context and specific questions
+      - Wait for responses before proceeding
+      - Synthesize multiple agent responses when needed
+      - Clearly communicate any compliance or privacy concerns to the user
+      
+      Your responses should be professional, accurate, and demonstrate that
+      appropriate governance and compliance checks have been performed.
+
+app:
+  name: kasal_integration
+  log_level: INFO
+  registered_model:
+    schema: *enterprise_schema
+    name: kasal_integration
+  agents:
+    - *enterprise_coordinator

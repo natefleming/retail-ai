@@ -87,7 +87,7 @@ Categorize inputs with confidence scores
 
 ## Next Steps
 
-👉 **09_prompt_engineering/** - Optimize prompts for better structured output  
+👉 **10_prompt_engineering/** - Optimize prompts for better structured output  
 👉 **11_complete_applications/** - See structured output in production apps
 
 ## Related Documentation

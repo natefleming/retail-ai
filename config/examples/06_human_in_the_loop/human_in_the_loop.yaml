@@ -20,18 +20,7 @@
 # Define reusable variables that can be referenced throughout the config
 # using YAML anchors (&variable_name) and aliases (*variable_name)
 
-variables:
-  # SMTP credentials from environment variables with defaults
-  # These can be reused across multiple tools or resources
-  smtp_username: &smtp_username
-    env: SMTP_USER
-  
-  smtp_password: &smtp_password
-    env: SMTP_PASSWORD
 
-  smtp_sender_email: &smtp_sender_email
-    env: SMTP_SENDER_EMAIL
-  
   # Other variable types supported:
   # - Secrets: { type: secret, scope: my_scope, key: my_key }
   # - Composite: { type: composite, options: [${VAR1}, ${VAR2}, default] }
@@ -45,7 +34,7 @@ schemas:
 resources:
   llms:
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct 
+      name: databricks-claude-sonnet-4 
       temperature: 0.1
       max_tokens: 8192
 

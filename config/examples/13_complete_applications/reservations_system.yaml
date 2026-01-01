@@ -13,7 +13,7 @@ resources:
   llms:
 
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 

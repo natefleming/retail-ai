@@ -9,7 +9,7 @@ resources:
   llms:
     # Primary LLM for Slack agent
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
       temperature: 0.7                              # Temperature for more natural responses
       max_tokens: 4096                              # Maximum tokens per response
       on_behalf_of_user: false

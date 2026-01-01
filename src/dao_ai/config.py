@@ -497,6 +497,7 @@ class TableModel(IsDatabricksResource, HasFullName):
 class LLMModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
+    description: Optional[str] = None
     temperature: Optional[float] = 0.1
     max_tokens: Optional[int] = 8192
     fallbacks: Optional[list[Union[str, "LLMModel"]]] = Field(default_factory=list)

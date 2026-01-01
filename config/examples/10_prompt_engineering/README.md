@@ -23,14 +23,14 @@ Advanced prompt management for production agents with version control and automa
 
 ### Use prompt registry
 ```bash
-dao-ai chat -c config/examples/09_prompt_engineering/prompt_registry.yaml
+dao-ai chat -c config/examples/10_prompt_engineering/prompt_registry.yaml
 ```
 
 Prompts are loaded from MLflow registry, not hardcoded in YAML.
 
 ### Run prompt optimization
 ```bash
-dao-ai chat -c config/examples/09_prompt_engineering/prompt_optimization.yaml
+dao-ai chat -c config/examples/10_prompt_engineering/prompt_optimization.yaml
 ```
 
 GEPA will iteratively improve prompts based on evaluation data.

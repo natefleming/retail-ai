@@ -27,7 +27,7 @@ resources:
   llms:
     
     fast_llm: &fast_llm
-      name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-claude-sonnet-4
       on_behalf_of_user: False
 
     tool_calling_llm: &tool_calling_llm

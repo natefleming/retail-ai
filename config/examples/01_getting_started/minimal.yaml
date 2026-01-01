@@ -8,7 +8,7 @@ schemas:
 resources:
   llms:
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct  # Databricks serving endpoint name
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
 
   vector_stores:
     products_vector_store: &products_vector_store
