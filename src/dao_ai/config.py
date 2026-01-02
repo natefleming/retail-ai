@@ -1009,27 +1009,92 @@ class VolumePathModel(BaseModel, HasFullName):
 
 
 class VectorStoreModel(IsDatabricksResource):
+    """
+    Configuration model for a Databricks Vector Search store.
+
+    Supports two modes:
+    1. **Use Existing Index**: Provide only `index` (fully qualified name).
+       Used for querying an existing vector search index at runtime.
+    2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.
+       Used for creating a new vector search index.
+
+    Examples:
+        Minimal configuration (use existing index):
+        ```yaml
+        vector_stores:
+          products_search:
+            index:
+              name: catalog.schema.my_index
+        ```
+
+        Full provisioning configuration:
+        ```yaml
+        vector_stores:
+          products_search:
+            source_table:
+              schema: *my_schema
+              name: products
+            embedding_source_column: description
+            endpoint:
+              name: my_endpoint
+        ```
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    embedding_model: Optional[LLMModel] = None
+
+    # RUNTIME: Only index is truly required for querying existing indexes
     index: Optional[IndexModel] = None
+
+    # PROVISIONING ONLY: Required when creating a new index
+    source_table: Optional[TableModel] = None
+    embedding_source_column: Optional[str] = None
+    embedding_model: Optional[LLMModel] = None
     endpoint: Optional[VectorSearchEndpoint] = None
-    source_table: TableModel
+
+    # OPTIONAL: For both modes
     source_path: Optional[VolumePathModel] = None
     checkpoint_path: Optional[VolumePathModel] = None
     primary_key: Optional[str] = None
     columns: Optional[list[str]] = Field(default_factory=list)
     doc_uri: Optional[str] = None
-    embedding_source_column: str
+
+    @model_validator(mode="after")
+    def validate_configuration_mode(self) -> Self:
+        """
+        Validate that configuration is valid for either:
+        - Use existing mode: index is provided
+        - Provisioning mode: source_table + embedding_source_column provided
+        """
+        has_index = self.index is not None
+        has_source_table = self.source_table is not None
+        has_embedding_col = self.embedding_source_column is not None
+
+        # Must have at least index OR source_table
+        if not has_index and not has_source_table:
+            raise ValueError(
+                "Either 'index' (for existing indexes) or 'source_table' "
+                "(for provisioning) must be provided"
+            )
+
+        # If provisioning mode, need embedding_source_column
+        if has_source_table and not has_embedding_col:
+            raise ValueError(
+                "embedding_source_column is required when source_table is provided (provisioning mode)"
+            )
+
+        return self
 
     @model_validator(mode="after")
     def set_default_embedding_model(self) -> Self:
-        if not self.embedding_model:
+        # Only set default embedding model in provisioning mode
+        if self.source_table is not None and not self.embedding_model:
             self.embedding_model = LLMModel(name="databricks-gte-large-en")
         return self
 
     @model_validator(mode="after")
     def set_default_primary_key(self) -> Self:
-        if self.primary_key is None:
+        # Only auto-discover primary key in provisioning mode
+        if self.primary_key is None and self.source_table is not None:
             from dao_ai.providers.databricks import DatabricksProvider
 
             provider: DatabricksProvider = DatabricksProvider()
@@ -1050,14 +1115,16 @@ class VectorStoreModel(IsDatabricksResource):
 
     @model_validator(mode="after")
     def set_default_index(self) -> Self:
-        if self.index is None:
+        # Only generate index from source_table in provisioning mode
+        if self.index is None and self.source_table is not None:
             name: str = f"{self.source_table.name}_index"
             self.index = IndexModel(schema=self.source_table.schema_model, name=name)
         return self
 
     @model_validator(mode="after")
     def set_default_endpoint(self) -> Self:
-        if self.endpoint is None:
+        # Only find/create endpoint in provisioning mode
+        if self.endpoint is None and self.source_table is not None:
             from dao_ai.providers.databricks import (
                 DatabricksProvider,
                 with_available_indexes,

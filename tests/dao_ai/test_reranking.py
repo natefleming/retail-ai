@@ -54,7 +54,11 @@ def create_mock_vector_store() -> Mock:
     vector_store.embedding_model = None
     vector_store.primary_key = "id"
     vector_store.index = Mock()
+    vector_store.index.full_name = "catalog.schema.test_index"
     vector_store.endpoint = Mock()
+    # New optional fields for VectorStoreModel
+    vector_store.source_table = None  # Use existing index mode
+    vector_store.embedding_source_column = None
     add_databricks_resource_attrs(vector_store)
     return vector_store
 
