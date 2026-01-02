@@ -3402,7 +3402,7 @@
     },
     "RerankParametersModel": {
       "additionalProperties": false,
-      "description": "Configuration for reranking retrieved documents using FlashRank.\n\nFlashRank provides fast, local reranking without API calls using lightweight\ncross-encoder models. Reranking improves retrieval quality by reordering results\nbased on semantic relevance to the query.\n\nTypical workflow:\n1. Retrieve more documents than needed (e.g., 50 via num_results)\n2. Rerank all retrieved documents\n3. Return top_n best matches (e.g., 5)\n\nExample:\n    ```yaml\n    retriever:\n      search_parameters:\n        num_results: 50  # Retrieve more candidates\n      rerank:\n        model: ms-marco-MiniLM-L-12-v2\n        top_n: 5  # Return top 5 after reranking\n    ```\n\nAvailable models (from fastest to most accurate):\n- \"ms-marco-TinyBERT-L-2-v2\" (fastest, smallest)\n- \"ms-marco-MiniLM-L-6-v2\"\n- \"ms-marco-MiniLM-L-12-v2\" (default, good balance)\n- \"rank-T5-flan\" (most accurate, slower)",
+      "description": "Configuration for reranking retrieved documents using FlashRank.\n\nFlashRank provides fast, local reranking without API calls using lightweight\ncross-encoder models. Reranking improves retrieval quality by reordering results\nbased on semantic relevance to the query.\n\nTypical workflow:\n1. Retrieve more documents than needed (e.g., 50 via num_results)\n2. Rerank all retrieved documents\n3. Return top_n best matches (e.g., 5)\n\nExample:\n    ```yaml\n    retriever:\n      search_parameters:\n        num_results: 50  # Retrieve more candidates\n      rerank:\n        model: ms-marco-MiniLM-L-12-v2\n        top_n: 5  # Return top 5 after reranking\n    ```\n\nAvailable models (see https://github.com/PrithivirajDamodaran/FlashRank):\n- \"ms-marco-TinyBERT-L-2-v2\" (~4MB, fastest)\n- \"ms-marco-MiniLM-L-12-v2\" (~34MB, best cross-encoder, default)\n- \"rank-T5-flan\" (~110MB, best non cross-encoder)\n- \"ms-marco-MultiBERT-L-12\" (~150MB, multilingual 100+ languages)\n- \"ce-esci-MiniLM-L12-v2\" (e-commerce optimized, Amazon ESCI)\n- \"miniReranker_arabic_v1\" (Arabic language)",
       "properties": {
         "model": {
           "default": "ms-marco-MiniLM-L-12-v2",
@@ -4336,6 +4336,7 @@
     },
     "VectorStoreModel": {
       "additionalProperties": false,
+      "description": "Configuration model for a Databricks Vector Search store.\n\nSupports two modes:\n1. **Use Existing Index**: Provide only `index` (fully qualified name).\n   Used for querying an existing vector search index at runtime.\n2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.\n   Used for creating a new vector search index.\n\nExamples:\n    Minimal configuration (use existing index):\n    ```yaml\n    vector_stores:\n      products_search:\n        index:\n          name: catalog.schema.my_index\n    ```\n\n    Full provisioning configuration:\n    ```yaml\n    vector_stores:\n      products_search:\n        source_table:\n          schema: *my_schema\n          name: products\n        embedding_source_column: description\n        endpoint:\n          name: my_endpoint\n    ```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -4492,10 +4493,10 @@
           "default": null,
           "title": "Pat"
         },
-        "embedding_model": {
+        "index": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/IndexModel"
             },
             {
               "type": "null"
@@ -4503,10 +4504,33 @@
           ],
           "default": null
         },
-        "index": {
+        "source_table": {
           "anyOf": [
             {
-              "$ref": "#/$defs/IndexModel"
+              "$ref": "#/$defs/TableModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "embedding_source_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Embedding Source Column"
+        },
+        "embedding_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
             },
             {
               "type": "null"
@@ -4524,9 +4548,6 @@
             }
           ],
           "default": null
-        },
-        "source_table": {
-          "$ref": "#/$defs/TableModel"
         },
         "source_path": {
           "anyOf": [
@@ -4587,16 +4608,8 @@
           ],
           "default": null,
           "title": "Doc Uri"
-        },
-        "embedding_source_column": {
-          "title": "Embedding Source Column",
-          "type": "string"
         }
       },
-      "required": [
-        "source_table",
-        "embedding_source_column"
-      ],
       "title": "VectorStoreModel",
       "type": "object"
     },

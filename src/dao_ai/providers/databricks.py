@@ -625,6 +625,22 @@ class DatabricksProvider(ServiceProvider):
                 df.write.mode("overwrite").saveAsTable(table)
 
     def create_vector_store(self, vector_store: VectorStoreModel) -> None:
+        # Validate that this is a provisioning-mode config
+        if vector_store.source_table is None:
+            raise ValueError(
+                "Cannot create vector store: source_table is required for provisioning. "
+                "This VectorStoreModel appears to be configured for 'use existing index' mode. "
+                "To provision a new vector store, provide source_table and embedding_source_column."
+            )
+        if vector_store.embedding_source_column is None:
+            raise ValueError(
+                "Cannot create vector store: embedding_source_column is required for provisioning."
+            )
+        if vector_store.endpoint is None:
+            raise ValueError(
+                "Cannot create vector store: endpoint is required for provisioning."
+            )
+
         if not endpoint_exists(self.vsc, vector_store.endpoint.name):
             self.vsc.create_endpoint_and_wait(
                 name=vector_store.endpoint.name,

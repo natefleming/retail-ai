@@ -10,8 +10,10 @@ from dao_ai.config import (
     AppConfig,
     DatabaseModel,
     FunctionModel,
+    IndexModel,
     SchemaModel,
     TableModel,
+    VectorStoreModel,
 )
 from dao_ai.providers.databricks import DatabricksProvider
 
@@ -1442,3 +1444,188 @@ def test_create_lakebase_instance_role_with_composite_variable():
     mock_workspace_client.database.get_database_instance_role.assert_called_once()
     call_args = mock_workspace_client.database.get_database_instance_role.call_args
     assert call_args.kwargs["name"] == "test-client-id-456"
+
+
+# ==================== VectorStoreModel Tests ====================
+
+
+@pytest.mark.unit
+def test_vector_store_model_use_existing_index_minimal():
+    """Test VectorStoreModel with minimal config for existing index (use existing mode)."""
+    # Create VectorStoreModel with just an index - this is the minimal config
+    vector_store = VectorStoreModel(
+        index=IndexModel(name="catalog.schema.my_index"),
+    )
+
+    assert vector_store.index is not None
+    assert vector_store.index.full_name == "catalog.schema.my_index"
+    # Provisioning fields should be None
+    assert vector_store.source_table is None
+    assert vector_store.embedding_source_column is None
+    # Endpoint should NOT be auto-discovered (only in provisioning mode)
+    assert vector_store.endpoint is None
+    # Embedding model should NOT be set (only in provisioning mode)
+    assert vector_store.embedding_model is None
+
+
+@pytest.mark.unit
+def test_vector_store_model_use_existing_index_with_optional_fields():
+    """Test VectorStoreModel with existing index and optional fields."""
+    vector_store = VectorStoreModel(
+        index=IndexModel(name="catalog.schema.my_index"),
+        columns=["id", "name", "description"],
+        primary_key="id",
+        doc_uri="https://docs.example.com",
+    )
+
+    assert vector_store.index.full_name == "catalog.schema.my_index"
+    assert vector_store.columns == ["id", "name", "description"]
+    assert vector_store.primary_key == "id"
+    assert vector_store.doc_uri == "https://docs.example.com"
+    # Provisioning fields remain None
+    assert vector_store.source_table is None
+    assert vector_store.embedding_source_column is None
+
+
+@pytest.mark.unit
+def test_vector_store_model_validation_requires_index_or_source_table():
+    """Test that VectorStoreModel fails without either index or source_table."""
+    with pytest.raises(ValueError) as exc_info:
+        VectorStoreModel()
+
+    assert "Either 'index' (for existing indexes) or 'source_table'" in str(
+        exc_info.value
+    )
+
+
+@pytest.mark.unit
+def test_vector_store_model_provisioning_requires_embedding_source_column():
+    """Test that provisioning mode requires embedding_source_column."""
+    schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
+    table = TableModel(schema=schema, name="test_table")
+
+    with pytest.raises(ValueError) as exc_info:
+        VectorStoreModel(source_table=table)
+
+    assert "embedding_source_column is required when source_table is provided" in str(
+        exc_info.value
+    )
+
+
+@pytest.mark.unit
+def test_vector_store_model_provisioning_mode():
+    """Test VectorStoreModel in provisioning mode (source_table + embedding_source_column)."""
+    schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
+    table = TableModel(schema=schema, name="test_table")
+
+    # Mock the DatabricksProvider to avoid actual API calls
+    # The import happens inside the validators, so we patch the providers module
+    with patch(
+        "dao_ai.providers.databricks.DatabricksProvider"
+    ) as mock_provider_class:
+        mock_provider = MagicMock()
+        mock_provider.find_primary_key.return_value = ["id"]
+        mock_provider.find_endpoint_for_index.return_value = "test_endpoint"
+        mock_provider_class.return_value = mock_provider
+
+        vector_store = VectorStoreModel(
+            source_table=table,
+            embedding_source_column="description",
+        )
+
+        # Index should be auto-generated
+        assert vector_store.index is not None
+        assert vector_store.index.name == "test_table_index"
+        assert (
+            vector_store.index.full_name == "test_catalog.test_schema.test_table_index"
+        )
+
+        # Default embedding model should be set in provisioning mode
+        assert vector_store.embedding_model is not None
+        assert vector_store.embedding_model.name == "databricks-gte-large-en"
+
+        # Primary key should be auto-discovered
+        assert vector_store.primary_key == "id"
+
+        # Endpoint should be auto-discovered in provisioning mode
+        assert vector_store.endpoint is not None
+        assert vector_store.endpoint.name == "test_endpoint"
+
+
+@pytest.mark.unit
+def test_vector_store_model_provisioning_with_explicit_index():
+    """Test that explicit index is respected in provisioning mode."""
+    schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
+    table = TableModel(schema=schema, name="test_table")
+
+    with patch(
+        "dao_ai.providers.databricks.DatabricksProvider"
+    ) as mock_provider_class:
+        mock_provider = MagicMock()
+        mock_provider.find_primary_key.return_value = ["id"]
+        mock_provider.find_endpoint_for_index.return_value = "test_endpoint"
+        mock_provider_class.return_value = mock_provider
+
+        vector_store = VectorStoreModel(
+            source_table=table,
+            embedding_source_column="description",
+            index=IndexModel(schema=schema, name="custom_index"),
+        )
+
+        # Explicit index should be preserved
+        assert vector_store.index.name == "custom_index"
+        assert vector_store.index.full_name == "test_catalog.test_schema.custom_index"
+
+
+@pytest.mark.unit
+def test_vector_store_model_use_existing_no_auto_discovery():
+    """Test that use existing mode does not trigger expensive auto-discovery."""
+    # This test ensures no DatabricksProvider calls happen in "use existing" mode
+    with patch(
+        "dao_ai.providers.databricks.DatabricksProvider"
+    ) as mock_provider_class:
+        mock_provider = MagicMock()
+        mock_provider_class.return_value = mock_provider
+
+        vector_store = VectorStoreModel(
+            index=IndexModel(name="catalog.schema.existing_index"),
+        )
+
+        # In use existing mode, no provider methods should be called
+        mock_provider.find_primary_key.assert_not_called()
+        mock_provider.find_endpoint_for_index.assert_not_called()
+        mock_provider.find_vector_search_endpoint.assert_not_called()
+
+        # Verify the model is correctly created
+        assert vector_store.index.full_name == "catalog.schema.existing_index"
+
+
+@pytest.mark.unit
+def test_vector_store_model_api_scopes():
+    """Test VectorStoreModel API scopes."""
+    vector_store = VectorStoreModel(
+        index=IndexModel(name="catalog.schema.my_index"),
+    )
+
+    api_scopes = vector_store.api_scopes
+    assert "vectorsearch.vector-search-endpoints" in api_scopes
+    assert "serving.serving-endpoints" in api_scopes
+    assert "vectorsearch.vector-search-indexes" in api_scopes
+
+
+@pytest.mark.unit
+def test_create_vector_store_fails_for_use_existing_mode():
+    """Test that create_vector_store raises clear error for use-existing mode config."""
+    # Create a use-existing mode VectorStoreModel
+    vector_store = VectorStoreModel(
+        index=IndexModel(name="catalog.schema.existing_index"),
+    )
+
+    # Try to provision (should fail with clear error)
+    provider = DatabricksProvider(w=MagicMock(), vsc=MagicMock())
+
+    with pytest.raises(ValueError) as exc_info:
+        provider.create_vector_store(vector_store)
+
+    assert "source_table is required for provisioning" in str(exc_info.value)
+    assert "use existing index" in str(exc_info.value).lower()
