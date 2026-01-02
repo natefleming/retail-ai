@@ -715,7 +715,15 @@ def run_databricks_command(
     target: Optional[str] = None,
     dry_run: bool = False,
 ) -> None:
-    """Execute a databricks CLI command with optional profile and target."""
+    """Execute a databricks CLI command with optional profile and target.
+    
+    Args:
+        command: The databricks CLI command to execute (e.g., ["bundle", "deploy"])
+        profile: Optional Databricks CLI profile name
+        config: Optional path to the configuration file
+        target: Optional bundle target name
+        dry_run: If True, print the command without executing
+    """
     config_path = Path(config) if config else None
 
     if config_path and not config_path.exists():
@@ -737,14 +745,16 @@ def run_databricks_command(
         logger.debug(f"Using app-specific target: {target}")
 
     # Build databricks command (no -c flag needed, uses databricks.yaml in current dir)
+    # Note: --profile is a global flag, but --target is a subcommand flag for 'bundle'
     cmd = ["databricks"]
     if profile:
         cmd.extend(["--profile", profile])
 
+    cmd.extend(command)
+
+    # --target must come after the bundle subcommand (it's a subcommand-specific flag)
     if target:
         cmd.extend(["--target", target])
-
-    cmd.extend(command)
 
     # Add config_path variable for notebooks
     if config_path and app_config:

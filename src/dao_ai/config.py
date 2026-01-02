@@ -1549,11 +1549,13 @@ class RerankParametersModel(BaseModel):
             top_n: 5  # Return top 5 after reranking
         ```
 
-    Available models (from fastest to most accurate):
-    - "ms-marco-TinyBERT-L-2-v2" (fastest, smallest)
-    - "ms-marco-MiniLM-L-6-v2"
-    - "ms-marco-MiniLM-L-12-v2" (default, good balance)
-    - "rank-T5-flan" (most accurate, slower)
+    Available models (see https://github.com/PrithivirajDamodaran/FlashRank):
+    - "ms-marco-TinyBERT-L-2-v2" (~4MB, fastest)
+    - "ms-marco-MiniLM-L-12-v2" (~34MB, best cross-encoder, default)
+    - "rank-T5-flan" (~110MB, best non cross-encoder)
+    - "ms-marco-MultiBERT-L-12" (~150MB, multilingual 100+ languages)
+    - "ce-esci-MiniLM-L12-v2" (e-commerce optimized, Amazon ESCI)
+    - "miniReranker_arabic_v1" (Arabic language)
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")

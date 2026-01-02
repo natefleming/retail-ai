@@ -298,12 +298,16 @@ Vector embeddings capture semantic similarity but may rank loosely related docum
 
 ### Available Models
 
-| Model | Speed | Quality | Use Case |
-|-------|-------|---------|----------|
-| `ms-marco-TinyBERT-L-2-v2` | ⚡⚡⚡ Fastest | Good | High-throughput, latency-sensitive |
-| `ms-marco-MiniLM-L-6-v2` | ⚡⚡ Fast | Better | Balanced performance |
-| `ms-marco-MiniLM-L-12-v2` | ⚡ Moderate | Best | Default, recommended |
-| `rank-T5-flan` | Slower | Excellent | Maximum accuracy |
+See [FlashRank](https://github.com/PrithivirajDamodaran/FlashRank) for the full list of supported models.
+
+| Model | Size | Speed | Use Case |
+|-------|------|-------|----------|
+| `ms-marco-TinyBERT-L-2-v2` | ~4MB | ⚡⚡⚡ Fastest | High-throughput, latency-sensitive |
+| `ms-marco-MiniLM-L-12-v2` | ~34MB | ⚡⚡ Fast | Default, best cross-encoder |
+| `rank-T5-flan` | ~110MB | ⚡ Moderate | Best non cross-encoder |
+| `ms-marco-MultiBERT-L-12` | ~150MB | Slower | Multilingual (100+ languages) |
+| `ce-esci-MiniLM-L12-v2` | - | ⚡⚡ Fast | E-commerce optimized |
+| `miniReranker_arabic_v1` | - | ⚡⚡ Fast | Arabic language |
 
 ### Configuration Options
 
@@ -311,11 +315,11 @@ Vector embeddings capture semantic similarity but may rank loosely related docum
 rerank:
   model: ms-marco-MiniLM-L-12-v2    # FlashRank model name
   top_n: 10                          # Documents to return (default: all)
-  cache_dir: /tmp/flashrank_cache    # Model weights cache location
+  cache_dir: ~/.dao_ai/cache/flashrank  # Model weights cache location
   columns: [description, name]       # Columns for Databricks Reranker (optional)
 ```
 
-**Note:** Model weights are downloaded automatically on first use (~20MB for MiniLM-L-12-v2).
+**Note:** Model weights are downloaded automatically on first use (~34MB for MiniLM-L-12-v2).
 
 ## 5. Human-in-the-Loop Approvals
 

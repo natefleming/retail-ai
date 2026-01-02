@@ -83,7 +83,7 @@ retrievers:
       filters: {}
       query_type: ANN
     rerank:                                         # Custom reranking configuration
-      model: ms-marco-MiniLM-L-6-v2                 # Faster, lighter model
+      model: ms-marco-TinyBERT-L-2-v2               # Fastest, smallest model (~4MB)
       top_n: 5                                      # Return top 5 after reranking
       # cache_dir: ~/.dao_ai/cache/flashrank        # Cache directory (default shown)
 
@@ -258,7 +258,7 @@ app:
 #    - Use when: Need better results than standard search
 #
 # 3. Fast Reranking - fast_search_agent
-#    - Uses lighter model (ms-marco-MiniLM-L-6-v2)
+#    - Uses lighter model (ms-marco-TinyBERT-L-2-v2)
 #    - Retrieves 100 candidates, returns top 5
 #    - Faster than default but still improves results
 #    - Use when: High volume, need speed with some accuracy boost
@@ -286,8 +286,10 @@ app:
 #   - More candidates = better reranking but slower
 #   - Cache directory should be on fast storage
 #
-# Model Selection:
-#   - ms-marco-TinyBERT-L-2-v2: Fastest, basic accuracy
-#   - ms-marco-MiniLM-L-6-v2: Fast, good accuracy
-#   - ms-marco-MiniLM-L-12-v2: Balanced (default)
-#   - rank-T5-flan: Most accurate, slowest
+# Model Selection (see https://github.com/PrithivirajDamodaran/FlashRank):
+#   - ms-marco-TinyBERT-L-2-v2: ~4MB, fastest
+#   - ms-marco-MiniLM-L-12-v2: ~34MB, best cross-encoder (default)
+#   - rank-T5-flan: ~110MB, best non cross-encoder
+#   - ms-marco-MultiBERT-L-12: ~150MB, multilingual (100+ languages)
+#   - ce-esci-MiniLM-L12-v2: e-commerce optimized (Amazon ESCI)
+#   - miniReranker_arabic_v1: Arabic language
