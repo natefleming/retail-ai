@@ -97,8 +97,3 @@ targets:
   __APP_NAME__:
     mode: development
     default: true
-
-
-
-
-

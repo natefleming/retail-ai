@@ -72,3 +72,40 @@ def index_exists(
             raise e
     # If we reach here, the index doesn't exist
     return False
+
+
+def find_index(
+    vsc: VectorSearchClient, index_full_name: str
+) -> tuple[bool, str | None]:
+    """
+    Find a Vector Search index across all endpoints.
+
+    Searches all available endpoints to find where the index is located.
+
+    Args:
+        vsc: Databricks Vector Search client instance
+        index_full_name: Fully qualified name of the index (catalog.schema.index)
+
+    Returns:
+        Tuple of (exists: bool, endpoint_name: str | None)
+        - (True, endpoint_name) if index is found
+        - (False, None) if index is not found on any endpoint
+    """
+    try:
+        endpoints = vsc.list_endpoints().get("endpoints", [])
+    except Exception as e:
+        if "REQUEST_LIMIT_EXCEEDED" in str(e):
+            print("WARN: couldn't list endpoints due to REQUEST_LIMIT_EXCEEDED error.")
+            return (False, None)
+        raise e
+
+    for endpoint in endpoints:
+        endpoint_name: str = endpoint["name"]
+        try:
+            vsc.get_index(endpoint_name, index_full_name).describe()
+            return (True, endpoint_name)
+        except Exception:
+            # Index not on this endpoint, try next
+            continue
+
+    return (False, None)

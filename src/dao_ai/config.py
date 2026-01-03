@@ -601,6 +601,8 @@ class VectorSearchEndpoint(BaseModel):
 
 
 class IndexModel(IsDatabricksResource, HasFullName):
+    """Model representing a Databricks Vector Search index."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     name: str
@@ -623,6 +625,22 @@ class IndexModel(IsDatabricksResource, HasFullName):
                 index_name=self.full_name, on_behalf_of_user=self.on_behalf_of_user
             )
         ]
+
+    def exists(self) -> bool:
+        """Check if this vector search index exists.
+
+        Returns:
+            True if the index exists, False otherwise.
+        """
+        try:
+            self.workspace_client.vector_search_indexes.get_index(self.full_name)
+            return True
+        except NotFound:
+            logger.debug(f"Index not found: {self.full_name}")
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking index existence for {self.full_name}: {e}")
+            return False
 
 
 class FunctionModel(IsDatabricksResource, HasFullName):
@@ -1159,18 +1177,60 @@ class VectorStoreModel(IsDatabricksResource):
         return self.index.as_resources()
 
     def as_index(self, vsc: VectorSearchClient | None = None) -> VectorSearchIndex:
-        from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
-        provider: ServiceProvider = DatabricksProvider(vsc=vsc)
+        provider: DatabricksProvider = DatabricksProvider(vsc=vsc)
         index: VectorSearchIndex = provider.get_vector_index(self)
         return index
 
     def create(self, vsc: VectorSearchClient | None = None) -> None:
-        from dao_ai.providers.base import ServiceProvider
+        """
+        Create or validate the vector search index.
+
+        Behavior depends on configuration mode:
+        - **Provisioning Mode** (source_table provided): Creates the index
+        - **Use Existing Mode** (only index provided): Validates the index exists
+
+        Args:
+            vsc: Optional VectorSearchClient instance
+
+        Raises:
+            ValueError: If configuration is invalid or index doesn't exist
+        """
         from dao_ai.providers.databricks import DatabricksProvider
 
-        provider: ServiceProvider = DatabricksProvider(vsc=vsc)
+        provider: DatabricksProvider = DatabricksProvider(vsc=vsc)
+
+        if self.source_table is not None:
+            self._create_new_index(provider)
+        else:
+            self._validate_existing_index(provider)
+
+    def _validate_existing_index(self, provider: Any) -> None:
+        """Validate that an existing index is accessible."""
+        if self.index is None:
+            raise ValueError("index is required for 'use existing' mode")
+
+        if self.index.exists():
+            logger.info(
+                "Vector search index exists and ready",
+                index_name=self.index.full_name,
+            )
+        else:
+            raise ValueError(
+                f"Index '{self.index.full_name}' does not exist. "
+                "Provide 'source_table' to provision it."
+            )
+
+    def _create_new_index(self, provider: Any) -> None:
+        """Create a new vector search index from source table."""
+        if self.embedding_source_column is None:
+            raise ValueError("embedding_source_column is required for provisioning")
+        if self.endpoint is None:
+            raise ValueError("endpoint is required for provisioning")
+        if self.index is None:
+            raise ValueError("index is required for provisioning")
+
         provider.create_vector_store(self)
 
 
