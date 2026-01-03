@@ -2217,6 +2217,7 @@
     },
     "IndexModel": {
       "additionalProperties": false,
+      "description": "Model representing a Databricks Vector Search index.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
