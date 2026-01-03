@@ -214,6 +214,16 @@ This single command:
 3. Deploys it to Databricks
 4. Creates a serving endpoint
 
+**Deploying to a specific workspace:**
+
+```bash
+# Deploy to AWS workspace
+dao-ai bundle --deploy --run -c config/my_agent.yaml --profile aws-field-eng
+
+# Deploy to Azure workspace
+dao-ai bundle --deploy --run -c config/my_agent.yaml --profile azure-retail
+```
+
 **Step 5: Interact with your agent**
 
 Once deployed, you can chat with your agent using Python:
@@ -343,9 +353,33 @@ dao-ai graph -c config/my_config.yaml -o workflow.png
 # Deploy with Databricks Asset Bundles
 dao-ai bundle --deploy --run -c config/my_config.yaml
 
+# Deploy to a specific workspace (multi-cloud support)
+dao-ai bundle --deploy -c config/my_config.yaml --profile aws-field-eng
+dao-ai bundle --deploy -c config/my_config.yaml --profile azure-retail
+
 # Interactive chat with agent
 dao-ai chat -c config/my_config.yaml
 ```
+
+### Multi-Cloud Deployment
+
+DAO AI supports deploying to Azure, AWS, and GCP workspaces with automatic cloud detection:
+
+```bash
+# Deploy to AWS workspace
+dao-ai bundle --deploy -c config/my_config.yaml --profile aws-prod
+
+# Deploy to Azure workspace
+dao-ai bundle --deploy -c config/my_config.yaml --profile azure-prod
+
+# Deploy to GCP workspace
+dao-ai bundle --deploy -c config/my_config.yaml --profile gcp-prod
+```
+
+The CLI automatically:
+- Detects the cloud provider from your profile's workspace URL
+- Selects appropriate compute node types for each cloud
+- Creates isolated deployment state per profile
 
 👉 **Learn more:** [CLI Reference Documentation](docs/cli-reference.md)
 

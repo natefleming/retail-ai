@@ -13,8 +13,9 @@ variables:
   config_path:
     description: Path to the configuration file for the job.
   node_type: 
-    description: The job compute node type
-    default: Standard_D4ads_v5
+    description: The job compute node type (cloud-specific, set per target)
+  cloud:
+    description: Cloud provider (azure, aws, gcp) - auto-detected or set per target
 
 resources:
   jobs:
@@ -93,7 +94,23 @@ resources:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
           
+# Cloud-specific targets with appropriate node types
+# The CLI auto-selects the target based on workspace cloud detection
 targets:
-  __APP_NAME__:
+  azure:
     mode: development
-    default: true
+    variables:
+      cloud: azure
+      node_type: Standard_D4ads_v5
+  
+  aws:
+    mode: development
+    variables:
+      cloud: aws
+      node_type: i3.xlarge
+  
+  gcp:
+    mode: development
+    variables:
+      cloud: gcp
+      node_type: n1-standard-4

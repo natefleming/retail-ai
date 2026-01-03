@@ -47,6 +47,57 @@ def get_default_user_id() -> str:
         return local_user
 
 
+def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
+    """
+    Detect the cloud provider from the Databricks workspace URL.
+    
+    The cloud provider is determined by the workspace URL pattern:
+    - Azure: *.azuredatabricks.net
+    - AWS: *.cloud.databricks.com (without gcp subdomain)
+    - GCP: *.gcp.databricks.com
+    
+    Args:
+        profile: Optional Databricks CLI profile name
+        
+    Returns:
+        Cloud provider string ('azure', 'aws', 'gcp') or None if detection fails
+    """
+    try:
+        from databricks.sdk import WorkspaceClient
+        
+        # Create workspace client with optional profile
+        if profile:
+            w = WorkspaceClient(profile=profile)
+        else:
+            w = WorkspaceClient()
+        
+        # Get the workspace URL from config
+        host = w.config.host
+        if not host:
+            logger.warning("Could not determine workspace URL for cloud detection")
+            return None
+            
+        host_lower = host.lower()
+        
+        if "azuredatabricks.net" in host_lower:
+            logger.debug(f"Detected Azure cloud from workspace URL: {host}")
+            return "azure"
+        elif ".gcp.databricks.com" in host_lower:
+            logger.debug(f"Detected GCP cloud from workspace URL: {host}")
+            return "gcp"
+        elif ".cloud.databricks.com" in host_lower or "databricks.com" in host_lower:
+            # AWS uses *.cloud.databricks.com or regional patterns
+            logger.debug(f"Detected AWS cloud from workspace URL: {host}")
+            return "aws"
+        else:
+            logger.warning(f"Could not determine cloud provider from URL: {host}")
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Could not detect cloud provider: {e}")
+        return None
+
+
 env_path: str = find_dotenv()
 if env_path:
     logger.info(f"Loading environment variables from: {env_path}")
@@ -220,6 +271,13 @@ Examples:
         "-t",
         "--target",
         type=str,
+        help="Bundle target name (default: auto-generated from app name and cloud)",
+    )
+    bundle_parser.add_argument(
+        "--cloud",
+        type=str,
+        choices=["azure", "aws", "gcp"],
+        help="Cloud provider (auto-detected from workspace URL if not specified)",
     )
     bundle_parser.add_argument(
         "--dry-run",
@@ -665,15 +723,21 @@ def setup_logging(verbosity: int) -> None:
     configure_logging(level=level)
 
 
-def generate_bundle_from_template(config_path: Path, app_name: str) -> Path:
+def generate_bundle_from_template(
+    config_path: Path,
+    app_name: str,
+    profile: Optional[str] = None,
+    cloud: Optional[str] = None,
+) -> Path:
     """
     Generate an app-specific databricks.yaml from databricks.yaml.template.
 
     This function:
     1. Reads databricks.yaml.template (permanent template file)
     2. Replaces __APP_NAME__ with the actual app name
-    3. Writes to databricks.yaml (overwrites if exists)
-    4. Returns the path to the generated file
+    3. If a profile is provided, adds a profile-specific target with cloud settings
+    4. Writes to databricks.yaml (overwrites if exists)
+    5. Returns the path to the generated file
 
     The generated databricks.yaml is overwritten on each deployment and is not tracked in git.
     Schema reference remains pointing to ./schemas/bundle_config_schema.json.
@@ -681,6 +745,8 @@ def generate_bundle_from_template(config_path: Path, app_name: str) -> Path:
     Args:
         config_path: Path to the app config file
         app_name: Normalized app name
+        profile: Optional profile name to create a profile-specific target
+        cloud: Optional cloud provider for the profile target
 
     Returns:
         Path to the generated databricks.yaml file
@@ -700,6 +766,28 @@ def generate_bundle_from_template(config_path: Path, app_name: str) -> Path:
     # Replace template variables
     bundle_content = template_content.replace("__APP_NAME__", app_name)
 
+    # If a profile is provided, add a profile-specific target
+    # This allows per-profile isolation with correct cloud settings
+    if profile and cloud:
+        # Get node type based on cloud
+        node_types = {
+            "azure": "Standard_D4ads_v5",
+            "aws": "i3.xlarge",
+            "gcp": "n1-standard-4",
+        }
+        node_type = node_types.get(cloud, "Standard_D4ads_v5")
+        
+        # Add profile-specific target
+        profile_target = f"""
+  # Profile-specific target (auto-generated)
+  {profile}:
+    mode: development
+    variables:
+      cloud: {cloud}
+      node_type: {node_type}
+"""
+        bundle_content = bundle_content.rstrip() + profile_target
+
     # Write generated databricks.yaml (overwrite if exists)
     with open(output_path, "w") as f:
         f.write(bundle_content)
@@ -713,15 +801,17 @@ def run_databricks_command(
     profile: Optional[str] = None,
     config: Optional[str] = None,
     target: Optional[str] = None,
+    cloud: Optional[str] = None,
     dry_run: bool = False,
 ) -> None:
-    """Execute a databricks CLI command with optional profile and target.
+    """Execute a databricks CLI command with optional profile, target, and cloud.
     
     Args:
         command: The databricks CLI command to execute (e.g., ["bundle", "deploy"])
         profile: Optional Databricks CLI profile name
         config: Optional path to the configuration file
-        target: Optional bundle target name
+        target: Optional bundle target name (if not provided, auto-generated from app name and cloud)
+        cloud: Optional cloud provider ('azure', 'aws', 'gcp'). Auto-detected if not specified.
         dry_run: If True, print the command without executing
     """
     config_path = Path(config) if config else None
@@ -730,19 +820,75 @@ def run_databricks_command(
         logger.error(f"Configuration file {config_path} does not exist.")
         sys.exit(1)
 
-    # Load app config and generate bundle from template
+    # Load app config
     app_config: AppConfig = AppConfig.from_file(config_path) if config_path else None
     normalized_name: str = normalize_name(app_config.app.name) if app_config else None
 
-    # Generate app-specific bundle from template (overwrites databricks.yaml temporarily)
-    if config_path and app_config:
-        generate_bundle_from_template(config_path, normalized_name)
+    # If a profile is explicitly provided, unset environment variables that would override it
+    # Environment variables take precedence over profile in the Databricks CLI/SDK
+    # This must happen BEFORE cloud detection so we detect from profile, not .env
+    env_vars_cleared: list[str] = []
+    if profile:
+        databricks_env_vars = [
+            "DATABRICKS_HOST",
+            "DATABRICKS_TOKEN",
+            "DATABRICKS_USERNAME",
+            "DATABRICKS_PASSWORD",
+            "DATABRICKS_CLIENT_ID",
+            "DATABRICKS_CLIENT_SECRET",
+        ]
+        for var in databricks_env_vars:
+            if var in os.environ:
+                env_vars_cleared.append(var)
+                del os.environ[var]
+        
+        if env_vars_cleared:
+            logger.info(
+                f"Cleared environment variables to use profile '{profile}': {', '.join(env_vars_cleared)}"
+            )
 
-    # Use app name as target if not explicitly provided
-    # This ensures each app gets its own Terraform state in .databricks/bundle/<app-name>/
-    if not target and normalized_name:
-        target = normalized_name
-        logger.debug(f"Using app-specific target: {target}")
+    # Auto-detect cloud provider if not specified
+    if not cloud:
+        cloud = detect_cloud_provider(profile)
+        if cloud:
+            logger.info(f"Auto-detected cloud provider: {cloud}")
+        else:
+            logger.warning("Could not detect cloud provider. Defaulting to 'azure'.")
+            cloud = "azure"
+
+    # Generate app-specific bundle from template (overwrites databricks.yaml temporarily)
+    # Pass profile and cloud so a profile-specific target can be added
+    if config_path and app_config:
+        generate_bundle_from_template(config_path, normalized_name, profile, cloud)
+
+    # Determine target:
+    # - If profile is provided, use profile name as target (per-profile isolation)
+    # - Otherwise, use cloud as target
+    # The bundle name (app name) provides app-level isolation
+    # Result: /.bundle/{app_name}/{profile_or_cloud}/files
+    if not target:
+        if profile:
+            target = profile
+            logger.debug(f"Using profile-based target: {target}")
+        else:
+            target = cloud
+            logger.debug(f"Using cloud-based target: {target}")
+
+    # Validate that known cloud targets match the detected cloud provider
+    # This prevents deploying with wrong node types (e.g., Azure nodes on AWS)
+    valid_clouds = ["azure", "aws", "gcp"]
+    if target and target in valid_clouds and target != cloud:
+        logger.error(
+            f"Cloud mismatch detected!\n"
+            f"  - Workspace cloud (from profile): {cloud}\n"
+            f"  - Target: {target}\n\n"
+            f"This will fail because {target} node types don't exist on {cloud}.\n"
+            f"Either:\n"
+            f"  1. Use the correct target: --target {cloud}\n"
+            f"  2. Use a different profile that matches {target}\n"
+            f"  3. Use --cloud {target} to override cloud detection"
+        )
+        sys.exit(1)
 
     # Build databricks command (no -c flag needed, uses databricks.yaml in current dir)
     # Note: --profile is a global flag, but --target is a subcommand flag for 'bundle'
@@ -810,30 +956,38 @@ def handle_bundle_command(options: Namespace) -> None:
     profile: Optional[str] = options.profile
     config: Optional[str] = options.config
     target: Optional[str] = options.target
+    cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
 
     if options.deploy:
         logger.info("Deploying DAO AI asset bundle...")
         run_databricks_command(
-            ["bundle", "deploy"], profile, config, target, dry_run=dry_run
+            ["bundle", "deploy"],
+            profile=profile,
+            config=config,
+            target=target,
+            cloud=cloud,
+            dry_run=dry_run,
         )
     if options.run:
         logger.info("Running DAO AI system with current configuration...")
         # Use static job resource key that matches databricks.yaml (resources.jobs.deploy_job)
         run_databricks_command(
             ["bundle", "run", "deploy_job"],
-            profile,
-            config,
-            target,
+            profile=profile,
+            config=config,
+            target=target,
+            cloud=cloud,
             dry_run=dry_run,
         )
     if options.destroy:
         logger.info("Destroying DAO AI system with current configuration...")
         run_databricks_command(
             ["bundle", "destroy", "--auto-approve"],
-            profile,
-            config,
-            target,
+            profile=profile,
+            config=config,
+            target=target,
+            cloud=cloud,
             dry_run=dry_run,
         )
     else:
