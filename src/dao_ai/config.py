@@ -1393,32 +1393,12 @@ class DatabaseModel(IsDatabricksResource):
 
     @model_validator(mode="after")
     def update_host(self) -> Self:
-        if self.host is not None:
+        # Lakebase uses instance_name directly via databricks_langchain - host not needed
+        if self.is_lakebase:
             return self
 
-        # If instance_name is provided (Lakebase), try to fetch host from existing instance
-        # This may fail for OBO/ambient auth during model logging (before deployment)
-        if self.is_lakebase:
-            try:
-                existing_instance: DatabaseInstance = (
-                    self.workspace_client.database.get_database_instance(
-                        name=self.instance_name
-                    )
-                )
-                self.host = existing_instance.read_write_dns
-            except Exception as e:
-                # For Lakebase with OBO/ambient auth, we can't fetch at config time
-                # The host will need to be provided explicitly or fetched at runtime
-                if self.on_behalf_of_user:
-                    logger.debug(
-                        f"Could not fetch host for database {self.instance_name} "
-                        f"(Lakebase with OBO mode - will be resolved at runtime): {e}"
-                    )
-                else:
-                    raise ValueError(
-                        f"Could not fetch host for database {self.instance_name}. "
-                        f"Please provide the 'host' explicitly or ensure the instance exists: {e}"
-                    )
+        # For standard PostgreSQL, host must be provided by the user
+        # (enforced by validate_connection_type)
         return self
 
     @model_validator(mode="after")
