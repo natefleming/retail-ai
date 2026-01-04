@@ -26,11 +26,9 @@ from dao_ai.config import (
 from dao_ai.middleware.core import create_factory_middleware
 from dao_ai.middleware.guardrails import GuardrailMiddleware
 from dao_ai.middleware.human_in_the_loop import (
-    HumanInTheLoopMiddleware,
     create_hitl_middleware_from_tool_models,
 )
 from dao_ai.middleware.summarization import (
-    LoggingSummarizationMiddleware,
     create_summarization_middleware,
 )
 from dao_ai.prompts import make_prompt
@@ -74,12 +72,13 @@ def _create_middleware_list(
             agent=agent.name,
             middleware_name=middleware_config.name,
         )
-        middleware: AgentMiddleware[AgentState, Context] = create_factory_middleware(
-            function_name=middleware_config.name,
-            args=middleware_config.args,
+        middlewares: list[AgentMiddleware[AgentState, Context]] = (
+            create_factory_middleware(
+                function_name=middleware_config.name,
+                args=middleware_config.args,
+            )
         )
-        if middleware is not None:
-            middleware_list.append(middleware)
+        middleware_list.extend(middlewares)
 
     # Add guardrails as middleware
     if agent.guardrails:
@@ -117,16 +116,12 @@ def _create_middleware_list(
             max_tokens=chat_history.max_tokens,
             summary_model=chat_history.model.name,
         )
-        summarization_middleware: LoggingSummarizationMiddleware = (
-            create_summarization_middleware(chat_history)
-        )
-        middleware_list.append(summarization_middleware)
+        summarization_middlewares = create_summarization_middleware(chat_history)
+        middleware_list.extend(summarization_middlewares)
 
     # Add human-in-the-loop middleware if any tools require it
-    hitl_middleware: HumanInTheLoopMiddleware | None = (
-        create_hitl_middleware_from_tool_models(tool_models)
-    )
-    if hitl_middleware is not None:
+    hitl_middlewares = create_hitl_middleware_from_tool_models(tool_models)
+    if hitl_middlewares:
         # Log which tools require HITL
         hitl_tool_names: list[str] = [
             tool.name
@@ -139,7 +134,7 @@ def _create_middleware_list(
             agent=agent.name,
             hitl_tools=hitl_tool_names,
         )
-        middleware_list.append(hitl_middleware)
+        middleware_list.extend(hitl_middlewares)
 
     logger.info(
         "Middleware summary",

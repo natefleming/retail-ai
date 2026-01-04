@@ -190,6 +190,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     supervisor_tools: list[BaseTool] = list(create_tools(supervisor_config.tools))
 
     # Create middleware from configuration
+    # All middleware factories return list[AgentMiddleware] for composability
     middlewares: list[AgentMiddleware] = []
 
     for middleware_config in supervisor_config.middleware:
@@ -197,15 +198,16 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             "Creating middleware for supervisor",
             middleware_name=middleware_config.name,
         )
-        middleware: LangchainAgentMiddleware = create_factory_middleware(
+        middleware_list: list[LangchainAgentMiddleware] = create_factory_middleware(
             function_name=middleware_config.name,
             args=middleware_config.args,
         )
-        if middleware is not None:
-            middlewares.append(middleware)
-            logger.debug(
-                "Created supervisor middleware", middleware=middleware_config.name
-            )
+        middlewares.extend(middleware_list)
+        logger.debug(
+            "Created supervisor middleware",
+            middleware=middleware_config.name,
+            count=len(middleware_list),
+        )
 
     # Set up memory store and checkpointer
     store: BaseStore | None = create_store(orchestration)

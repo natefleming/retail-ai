@@ -101,17 +101,35 @@ def my_custom_tool(query: str) -> str:
 
 ### Custom Middleware
 
-```python
-from dao_ai.middleware import BaseMiddleware
+All middleware factories in DAO AI return `list[AgentMiddleware]` for composability:
 
-class MyMiddleware(BaseMiddleware):
-    def process_request(self, state):
-        # Process before agent execution
-        return state
+```python
+from langchain.agents import AgentMiddleware
+
+def create_my_middleware(**kwargs) -> list[AgentMiddleware]:
+    """
+    Factory function that creates middleware.
     
-    def process_response(self, state):
-        # Process after agent execution
-        return state
+    Returns a list for composability - factories can return multiple
+    middleware instances when needed (e.g., one per tool).
+    """
+    
+    class MyMiddleware(AgentMiddleware):
+        def process_request(self, state):
+            # Process before agent execution
+            return state
+        
+        def process_response(self, state):
+            # Process after agent execution
+            return state
+    
+    return [MyMiddleware()]
+
+# Combine multiple middleware lists
+all_middleware = (
+    create_my_middleware()
+    + create_other_middleware()
+)
 ```
 
 ### Custom Hooks

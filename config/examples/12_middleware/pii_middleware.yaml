@@ -1,0 +1,384 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: PII (Personally Identifiable Information) Middleware
+#
+# This example demonstrates how to detect and handle sensitive personal
+# information in agent inputs and outputs to protect user privacy.
+#
+# Use cases:
+# - GDPR/CCPA compliance for customer-facing agents
+# - Healthcare applications (HIPAA compliance)
+# - Financial services with sensitive customer data
+# - Enterprise applications handling employee information
+# - Preventing accidental exposure of sensitive data
+#
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail data using natural language
+        genie_room: *retail_genie
+
+  time_tool: &time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# PII middleware detects and handles sensitive personal information.
+#
+# Built-in PII types:
+# - email: Email addresses
+# - phone: Phone numbers
+# - ssn: Social Security Numbers
+# - credit_card: Credit card numbers
+# - address: Physical addresses
+# - name: Personal names
+# - ip_address: IP addresses
+# - date_of_birth: Birth dates
+#
+# Strategies:
+# - redact: Remove PII completely, replace with [REDACTED]
+# - mask: Partially mask PII (e.g., j***@email.com)
+# - hash: Replace with cryptographic hash (reversible with key)
+# - block: Reject the entire message containing PII
+#
+# All middleware factories return list[Middleware] for composability.
+
+middleware:
+  # ---------------------------------------------------------------------------
+  # EMAIL PROTECTION (Redact)
+  # ---------------------------------------------------------------------------
+  email_redact: &email_redact
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: email
+      strategy: redact            # Replace with [REDACTED]
+      apply_to_input: true        # Check user inputs
+      apply_to_output: true       # Check agent responses
+
+  # ---------------------------------------------------------------------------
+  # PHONE NUMBER PROTECTION (Mask)
+  # ---------------------------------------------------------------------------
+  phone_mask: &phone_mask
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: phone
+      strategy: mask              # Partial masking: (555) ***-**89
+      apply_to_input: true
+      apply_to_output: true
+
+  # ---------------------------------------------------------------------------
+  # SSN PROTECTION (Block)
+  # ---------------------------------------------------------------------------
+  # Block any message containing SSN - strictest protection
+  ssn_block: &ssn_block
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: ssn
+      strategy: block             # Reject entire message
+      apply_to_input: true        # Don't allow SSN in inputs
+      apply_to_output: false      # Agent shouldn't generate SSN anyway
+
+  # ---------------------------------------------------------------------------
+  # CREDIT CARD PROTECTION (Hash)
+  # ---------------------------------------------------------------------------
+  credit_card_hash: &credit_card_hash
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: credit_card
+      strategy: hash              # Replace with reversible hash
+      apply_to_input: true
+      apply_to_output: true
+      apply_to_tool_results: true # Also check tool outputs
+
+  # ---------------------------------------------------------------------------
+  # ADDRESS PROTECTION (Redact)
+  # ---------------------------------------------------------------------------
+  address_redact: &address_redact
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: address
+      strategy: redact
+      apply_to_input: false       # Allow in inputs (for location queries)
+      apply_to_output: true       # Don't include in responses
+
+  # ---------------------------------------------------------------------------
+  # INPUT-ONLY PROTECTION
+  # ---------------------------------------------------------------------------
+  # Only check user inputs, not agent outputs
+  input_email_check: &input_email_check
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: email
+      strategy: redact
+      apply_to_input: true
+      apply_to_output: false      # Don't check agent responses
+      apply_to_tool_results: false
+
+  # ---------------------------------------------------------------------------
+  # OUTPUT-ONLY PROTECTION
+  # ---------------------------------------------------------------------------
+  # Only check what the agent produces
+  output_phone_check: &output_phone_check
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: phone
+      strategy: mask
+      apply_to_input: false       # Don't check user inputs
+      apply_to_output: true       # Check agent responses
+      apply_to_tool_results: true # Check tool results
+
+  # ---------------------------------------------------------------------------
+  # TOOL RESULTS PROTECTION
+  # ---------------------------------------------------------------------------
+  # Focus on data returned from tools (databases, APIs)
+  tool_pii_check: &tool_pii_check
+    name: dao_ai.middleware.create_pii_middleware
+    args:
+      pii_type: email
+      strategy: mask
+      apply_to_input: false
+      apply_to_output: false
+      apply_to_tool_results: true # Only check tool outputs
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Customer Service Agent (Comprehensive PII Protection)
+  # ---------------------------------------------------------------------------
+  customer_service_agent: &customer_service_agent
+    name: customer_service
+    description: "Customer service agent with comprehensive PII protection"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *time_tool
+    middleware:
+      # Apply multiple PII protections
+      - *email_redact             # Redact email addresses
+      - *phone_mask               # Mask phone numbers
+      - *ssn_block                # Block SSN entirely
+      - *credit_card_hash         # Hash credit card numbers
+    prompt: |
+      You are a customer service assistant for a retail company.
+      
+      IMPORTANT: For privacy compliance, the system automatically:
+      - Redacts email addresses as [REDACTED]
+      - Masks phone numbers partially
+      - Blocks messages containing Social Security Numbers
+      - Hashes credit card numbers
+      
+      If a customer shares sensitive information, acknowledge that it has
+      been protected and assure them their privacy is maintained.
+      
+      You can help with:
+      - Order status inquiries
+      - Product questions
+      - General customer support
+      
+      Never ask customers for sensitive personal information. Use account
+      lookup tools instead of asking for SSN or credit card numbers.
+    handoff_prompt: |
+      Customer service inquiries that may involve personal information.
+
+  # ---------------------------------------------------------------------------
+  # Healthcare Agent (HIPAA-Style Protection)
+  # ---------------------------------------------------------------------------
+  healthcare_agent: &healthcare_agent
+    name: healthcare_assistant
+    description: "Healthcare assistant with strict PII protection for compliance"
+    model: *default_llm
+    tools:
+      - *time_tool
+    middleware:
+      # Strict protection for healthcare
+      - *email_redact
+      - *phone_mask
+      - *ssn_block
+      - *address_redact
+    prompt: |
+      You are a healthcare information assistant.
+      
+      PRIVACY NOTICE: For HIPAA compliance, this system automatically:
+      - Redacts email addresses
+      - Masks phone numbers
+      - Blocks Social Security Numbers
+      - Redacts physical addresses
+      
+      You can provide general health information, but you cannot:
+      - Access or discuss specific patient records
+      - Store or transmit protected health information
+      - Provide medical diagnoses or treatment recommendations
+      
+      For specific medical concerns, please consult a healthcare provider.
+    handoff_prompt: |
+      General health questions (not specific patient information).
+
+  # ---------------------------------------------------------------------------
+  # Data Analysis Agent (Tool Output Protection)
+  # ---------------------------------------------------------------------------
+  data_analysis_agent: &data_analysis_agent
+    name: data_analyst
+    description: "Data analyst with PII protection on query results"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *tool_pii_check           # Protect PII in database query results
+      - *output_phone_check       # Mask phone numbers in outputs
+    prompt: |
+      You are a data analyst assistant that queries retail databases.
+      
+      The system automatically masks or redacts personally identifiable
+      information in query results to protect customer privacy.
+      
+      When analyzing customer data:
+      - Focus on aggregated metrics and trends
+      - Don't attempt to identify individual customers
+      - Report on patterns rather than specific personal details
+      
+      If query results show masked data like "j***@email.com", this is
+      intentional privacy protection.
+    handoff_prompt: |
+      Data analysis questions that may involve customer data.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: pii_middleware_example
+  description: "Example demonstrating PII protection middleware"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: pii_middleware_dao
+  endpoint_name: pii_middleware_demo
+  agents:
+    - *customer_service_agent
+    - *healthcare_agent
+    - *data_analysis_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  
+  input_example:
+    messages:
+      - role: user
+        content: I need help with my order. My email is john@example.com
+    custom_inputs:
+      configurable:
+        thread_id: "privacy-example-123"
+        user_id: "test_user"
+      session: {}
+
+# =============================================================================
+# PII MIDDLEWARE PARAMETERS REFERENCE
+# =============================================================================
+#
+# pii_type (str, required):
+#   Type of PII to detect. Built-in types:
+#   - email: Email addresses (regex-based detection)
+#   - phone: Phone numbers (various formats)
+#   - ssn: Social Security Numbers (XXX-XX-XXXX format)
+#   - credit_card: Credit card numbers (various formats)
+#   - address: Physical addresses
+#   - name: Personal names (may have false positives)
+#   - ip_address: IP addresses
+#   - date_of_birth: Birth dates
+#
+# strategy (str, default: "redact"):
+#   How to handle detected PII:
+#   - "redact": Replace with [REDACTED_TYPE] (e.g., [REDACTED_EMAIL])
+#   - "mask": Partial masking (j***@email.com, (555) ***-**89)
+#   - "hash": Cryptographic hash (reversible with key)
+#   - "block": Reject entire message containing PII
+#
+# apply_to_input (bool, default: true):
+#   Check and process user input messages.
+#
+# apply_to_output (bool, default: false):
+#   Check and process agent output messages.
+#
+# apply_to_tool_results (bool, default: false):
+#   Check and process tool call results.
+#
+# detector (optional):
+#   Custom PII detector for non-standard types:
+#   - Can be a regex pattern string
+#   - Can be a callable function(text) -> list of matches
+#
+# =============================================================================
+# STRATEGY COMPARISON
+# =============================================================================
+#
+# | Strategy | Privacy | Reversible | User Experience | Use Case |
+# |----------|---------|------------|-----------------|----------|
+# | redact   | High    | No         | Clear indicator | General protection |
+# | mask     | Medium  | No         | Partial visibility | Phone numbers |
+# | hash     | High    | Yes        | Opaque          | Audit/logging |
+# | block    | Highest | N/A        | Disruptive      | Critical PII (SSN) |
+#
+# =============================================================================
+# COMPLIANCE CONSIDERATIONS
+# =============================================================================
+#
+# GDPR (EU):
+# - Use "redact" or "block" for most PII types
+# - Apply to both inputs and outputs
+# - Log detection events for compliance reporting
+#
+# CCPA (California):
+# - Similar to GDPR requirements
+# - Focus on customer-facing applications
+#
+# HIPAA (Healthcare):
+# - Use "block" for SSN and other PHI
+# - Apply strict protection to all channels
+# - Consider additional logging for compliance
+#
+# PCI-DSS (Payment Card):
+# - Use "hash" or "mask" for credit card numbers
+# - Never store full card numbers
+# - Apply to tool results from payment systems
+#
+# =============================================================================

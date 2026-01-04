@@ -50,35 +50,35 @@ def get_default_user_id() -> str:
 def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
     """
     Detect the cloud provider from the Databricks workspace URL.
-    
+
     The cloud provider is determined by the workspace URL pattern:
     - Azure: *.azuredatabricks.net
     - AWS: *.cloud.databricks.com (without gcp subdomain)
     - GCP: *.gcp.databricks.com
-    
+
     Args:
         profile: Optional Databricks CLI profile name
-        
+
     Returns:
         Cloud provider string ('azure', 'aws', 'gcp') or None if detection fails
     """
     try:
         from databricks.sdk import WorkspaceClient
-        
+
         # Create workspace client with optional profile
         if profile:
             w = WorkspaceClient(profile=profile)
         else:
             w = WorkspaceClient()
-        
+
         # Get the workspace URL from config
         host = w.config.host
         if not host:
             logger.warning("Could not determine workspace URL for cloud detection")
             return None
-            
+
         host_lower = host.lower()
-        
+
         if "azuredatabricks.net" in host_lower:
             logger.debug(f"Detected Azure cloud from workspace URL: {host}")
             return "azure"
@@ -92,7 +92,7 @@ def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
         else:
             logger.warning(f"Could not determine cloud provider from URL: {host}")
             return None
-            
+
     except Exception as e:
         logger.warning(f"Could not detect cloud provider: {e}")
         return None
@@ -775,7 +775,7 @@ def run_databricks_command(
     dry_run: bool = False,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
-    
+
     Args:
         command: The databricks CLI command to execute (e.g., ["bundle", "deploy"])
         profile: Optional Databricks CLI profile name

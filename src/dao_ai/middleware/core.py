@@ -17,7 +17,7 @@ from dao_ai.utils import load_function
 def create_factory_middleware(
     function_name: str,
     args: dict[str, Any] | None = None,
-) -> AgentMiddleware[AgentState, Context]:
+) -> list[AgentMiddleware[AgentState, Context]]:
     """
     Create middleware from a factory function.
 
@@ -35,7 +35,9 @@ def create_factory_middleware(
         args: Arguments to pass to the factory function
 
     Returns:
-        An AgentMiddleware instance returned by the factory function
+        List containing the AgentMiddleware instance(s) returned by the factory function.
+        If the factory returns a single middleware, it is wrapped in a list.
+        If the factory returns a list, it is returned as-is.
 
     Raises:
         ImportError: If the function cannot be loaded
@@ -56,12 +58,22 @@ def create_factory_middleware(
 
     logger.trace("Creating factory middleware", function_name=function_name, args=args)
 
-    factory: Callable[..., AgentMiddleware[AgentState, Context]] = load_function(
-        function_name=function_name
-    )
-    middleware: AgentMiddleware[AgentState, Context] = factory(**args)
+    factory: Callable[
+        ...,
+        AgentMiddleware[AgentState, Context]
+        | list[AgentMiddleware[AgentState, Context]],
+    ] = load_function(function_name=function_name)
+    result = factory(**args)
+
+    # Normalize to list
+    if isinstance(result, list):
+        middlewares = result
+    else:
+        middlewares = [result]
 
     logger.trace(
-        "Created middleware from factory", middleware_type=type(middleware).__name__
+        "Created middleware from factory",
+        middleware_count=len(middlewares),
+        middleware_types=[type(m).__name__ for m in middlewares],
     )
-    return middleware
+    return middlewares

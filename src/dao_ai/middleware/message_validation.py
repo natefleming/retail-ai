@@ -493,7 +493,7 @@ class FilterLastHumanMessageMiddleware(AgentMiddleware[AgentState, Context]):
 # =============================================================================
 
 
-def create_user_id_validation_middleware() -> UserIdValidationMiddleware:
+def create_user_id_validation_middleware() -> list[UserIdValidationMiddleware]:
     """
     Create a UserIdValidationMiddleware instance.
 
@@ -501,16 +501,16 @@ def create_user_id_validation_middleware() -> UserIdValidationMiddleware:
     and format of user_id in the runtime context.
 
     Returns:
-        UserIdValidationMiddleware instance
+        List containing UserIdValidationMiddleware instance
 
     Example:
         middleware = create_user_id_validation_middleware()
     """
     logger.trace("Creating user_id validation middleware")
-    return UserIdValidationMiddleware()
+    return [UserIdValidationMiddleware()]
 
 
-def create_thread_id_validation_middleware() -> ThreadIdValidationMiddleware:
+def create_thread_id_validation_middleware() -> list[ThreadIdValidationMiddleware]:
     """
     Create a ThreadIdValidationMiddleware instance.
 
@@ -518,18 +518,18 @@ def create_thread_id_validation_middleware() -> ThreadIdValidationMiddleware:
     of thread_id in the runtime context.
 
     Returns:
-        ThreadIdValidationMiddleware instance
+        List containing ThreadIdValidationMiddleware instance
 
     Example:
         middleware = create_thread_id_validation_middleware()
     """
     logger.trace("Creating thread_id validation middleware")
-    return ThreadIdValidationMiddleware()
+    return [ThreadIdValidationMiddleware()]
 
 
 def create_custom_field_validation_middleware(
     fields: list[dict[str, Any]],
-) -> CustomFieldValidationMiddleware:
+) -> list[CustomFieldValidationMiddleware]:
     """
     Create a CustomFieldValidationMiddleware instance.
 
@@ -550,7 +550,7 @@ def create_custom_field_validation_middleware(
             optionally 'description', 'required', and 'example_value' keys.
 
     Returns:
-        CustomFieldValidationMiddleware configured with the specified fields
+        List containing CustomFieldValidationMiddleware configured with the specified fields
 
     Example:
         middleware = create_custom_field_validation_middleware(
@@ -565,10 +565,12 @@ def create_custom_field_validation_middleware(
     """
     field_names = [f.get("name", "unknown") for f in fields]
     logger.trace("Creating custom field validation middleware", fields=field_names)
-    return CustomFieldValidationMiddleware(fields=fields)
+    return [CustomFieldValidationMiddleware(fields=fields)]
 
 
-def create_filter_last_human_message_middleware() -> FilterLastHumanMessageMiddleware:
+def create_filter_last_human_message_middleware() -> list[
+    FilterLastHumanMessageMiddleware
+]:
     """
     Create a FilterLastHumanMessageMiddleware instance.
 
@@ -577,10 +579,10 @@ def create_filter_last_human_message_middleware() -> FilterLastHumanMessageMiddl
     process only the latest user input without conversation history.
 
     Returns:
-        FilterLastHumanMessageMiddleware instance
+        List containing FilterLastHumanMessageMiddleware instance
 
     Example:
         middleware = create_filter_last_human_message_middleware()
     """
     logger.trace("Creating filter_last_human_message middleware")
-    return FilterLastHumanMessageMiddleware()
+    return [FilterLastHumanMessageMiddleware()]

@@ -113,7 +113,7 @@ def _config_to_interrupt_on_entry(
 def create_human_in_the_loop_middleware(
     interrupt_on: dict[str, HumanInTheLoopModel | bool | dict[str, Any]],
     description_prefix: str = "Tool execution pending approval",
-) -> HumanInTheLoopMiddleware:
+) -> list[HumanInTheLoopMiddleware]:
     """
     Create a HumanInTheLoopMiddleware instance.
 
@@ -132,7 +132,7 @@ def create_human_in_the_loop_middleware(
         description_prefix: Message prefix shown when pausing for review
 
     Returns:
-        HumanInTheLoopMiddleware configured with the specified parameters
+        List containing HumanInTheLoopMiddleware configured with the specified parameters
 
     Example:
         from dao_ai.config import HumanInTheLoopModel
@@ -160,16 +160,18 @@ def create_human_in_the_loop_middleware(
         tools=list(normalized_interrupt_on.keys()),
     )
 
-    return HumanInTheLoopMiddleware(
-        interrupt_on=normalized_interrupt_on,
-        description_prefix=description_prefix,
-    )
+    return [
+        HumanInTheLoopMiddleware(
+            interrupt_on=normalized_interrupt_on,
+            description_prefix=description_prefix,
+        )
+    ]
 
 
 def create_hitl_middleware_from_tool_models(
     tool_models: Sequence[ToolModel],
     description_prefix: str = "Tool execution pending approval",
-) -> HumanInTheLoopMiddleware | None:
+) -> list[HumanInTheLoopMiddleware]:
     """
     Create HumanInTheLoopMiddleware from ToolModel configurations.
 
@@ -182,7 +184,8 @@ def create_hitl_middleware_from_tool_models(
         description_prefix: Message prefix shown when pausing for review
 
     Returns:
-        HumanInTheLoopMiddleware if any tools require approval, None otherwise
+        List containing HumanInTheLoopMiddleware if any tools require approval,
+        empty list otherwise
 
     Example:
         from dao_ai.config import ToolModel, PythonFunctionModel, HumanInTheLoopModel
@@ -223,8 +226,8 @@ def create_hitl_middleware_from_tool_models(
                 logger.trace("Tool configured for HITL", tool_name=tool_name)
 
     if not interrupt_on:
-        logger.trace("No tools require HITL - returning None")
-        return None
+        logger.trace("No tools require HITL - returning empty list")
+        return []
 
     return create_human_in_the_loop_middleware(
         interrupt_on=interrupt_on,

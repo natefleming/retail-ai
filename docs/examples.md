@@ -317,13 +317,17 @@ enterprise_coordinator:
 
 ### 12. Middleware [📖 README](../config/examples/12_middleware/README.md)
 
-Cross-cutting concerns for production agents: validation, logging, and monitoring.
+Cross-cutting concerns for production agents: validation, logging, monitoring, limits, retries, and privacy.
 
 | Example | Description |
 |---------|-------------|
 | `custom_field_validation.yaml` | Input validation patterns (store numbers, tenant IDs, API keys) |
 | `logging_middleware.yaml` | Request logging, performance monitoring, audit trails |
 | `combined_middleware.yaml` | Production-ready middleware stacks |
+| `limit_middleware.yaml` | Tool call and model call limits to prevent runaway loops |
+| `retry_middleware.yaml` | Automatic retry with exponential backoff for transient failures |
+| `context_management.yaml` | Context editing to prevent token limit issues |
+| `pii_middleware.yaml` | PII detection and protection for privacy compliance |
 
 **Key Concepts:**
 - **Input Validation**: Ensure required context fields (store_num, user_id) are provided
@@ -331,6 +335,10 @@ Cross-cutting concerns for production agents: validation, logging, and monitorin
 - **Performance Monitoring**: Identify bottlenecks and slow operations
 - **Audit Trails**: Comprehensive logging for compliance
 - **Middleware Composition**: Combine multiple middleware in the correct order
+- **Tool/Model Limits**: Prevent excessive API calls and runaway loops
+- **Retry Logic**: Automatic retry with backoff for transient failures
+- **Context Management**: Clear older tool outputs to stay within token limits
+- **PII Protection**: Detect and handle sensitive personal information
 
 **Common Patterns:**
 ```yaml

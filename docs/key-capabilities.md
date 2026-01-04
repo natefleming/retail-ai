@@ -595,14 +595,15 @@ from dao_ai.middleware.assertions import (
 )
 
 # Hard constraint: response must be between 100-500 chars
-assert_middleware = create_assert_middleware(
+# Note: All middleware factories return list[Middleware] for composability
+assert_middlewares = create_assert_middleware(
     constraint=LengthConstraint(min_length=100, max_length=500),
     max_retries=3,
     on_failure="fallback",
 )
 
 # Soft constraint: suggest professional tone
-suggest_middleware = create_suggest_middleware(
+suggest_middlewares = create_suggest_middleware(
     constraint=lambda response, ctx: "professional" in response.lower(),
     allow_one_retry=True,
 )
@@ -619,11 +620,14 @@ def quality_score(response: str, ctx: dict) -> float:
         score += 0.2
     return score
 
-refine_middleware = create_refine_middleware(
+refine_middlewares = create_refine_middleware(
     reward_fn=quality_score,
     threshold=0.8,
     max_iterations=3,
 )
+
+# Combine all middlewares into a single list
+all_middlewares = assert_middlewares + suggest_middlewares + refine_middlewares
 ```
 
 ---
@@ -986,27 +990,36 @@ You can create custom middleware by implementing a factory function:
 ```python
 from typing import Callable, Any
 from langgraph.types import StateSnapshot
+from langchain.agents import AgentMiddleware
 
-def create_my_middleware(**kwargs) -> Callable:
-    """Factory function that creates middleware."""
+def create_my_middleware(**kwargs) -> list[AgentMiddleware]:
+    """
+    Factory function that creates middleware.
     
-    def middleware(
-        state: StateSnapshot,
-        next_fn: Callable,
-        config: dict[str, Any]
-    ) -> Any:
-        # Pre-processing logic
-        print(f"Before: {state}")
-        
-        # Call next middleware or agent
-        result = next_fn(state, config)
-        
-        # Post-processing logic
-        print(f"After: {result}")
-        
-        return result
+    Note: All middleware factories return list[AgentMiddleware] for composability.
+    This allows factories to return multiple middleware instances when needed
+    (e.g., one per tool) and enables simple composition with list concatenation.
+    """
     
-    return middleware
+    class MyMiddleware(AgentMiddleware):
+        def __call__(
+            self,
+            state: StateSnapshot,
+            next_fn: Callable,
+            config: dict[str, Any]
+        ) -> Any:
+            # Pre-processing logic
+            print(f"Before: {state}")
+            
+            # Call next middleware or agent
+            result = next_fn(state, config)
+            
+            # Post-processing logic
+            print(f"After: {result}")
+            
+            return result
+    
+    return [MyMiddleware()]
 ```
 
 Then use it in your config:

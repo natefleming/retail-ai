@@ -674,7 +674,7 @@ def create_assert_middleware(
     on_failure: str = "error",
     fallback_message: str = "Unable to generate a valid response.",
     name: Optional[str] = None,
-) -> AssertMiddleware:
+) -> list[AssertMiddleware]:
     """
     Create an AssertMiddleware (hard constraint with retry).
 
@@ -688,7 +688,7 @@ def create_assert_middleware(
         name: Name for function constraints
 
     Returns:
-        AssertMiddleware configured with the constraint
+        List containing AssertMiddleware configured with the constraint
 
     Example:
         # Using a Constraint class
@@ -711,12 +711,14 @@ def create_assert_middleware(
     if callable(constraint) and not isinstance(constraint, Constraint):
         constraint = FunctionConstraint(constraint, name=name)
 
-    return AssertMiddleware(
-        constraint=constraint,
-        max_retries=max_retries,
-        on_failure=on_failure,
-        fallback_message=fallback_message,
-    )
+    return [
+        AssertMiddleware(
+            constraint=constraint,
+            max_retries=max_retries,
+            on_failure=on_failure,
+            fallback_message=fallback_message,
+        )
+    ]
 
 
 def create_suggest_middleware(
@@ -724,7 +726,7 @@ def create_suggest_middleware(
     allow_one_retry: bool = False,
     log_level: str = "warning",
     name: Optional[str] = None,
-) -> SuggestMiddleware:
+) -> list[SuggestMiddleware]:
     """
     Create a SuggestMiddleware (soft constraint with feedback).
 
@@ -737,7 +739,7 @@ def create_suggest_middleware(
         name: Name for function constraints
 
     Returns:
-        SuggestMiddleware configured with the constraint
+        List containing SuggestMiddleware configured with the constraint
 
     Example:
         def is_professional(response: str, ctx: dict) -> ConstraintResult:
@@ -758,11 +760,13 @@ def create_suggest_middleware(
     if callable(constraint) and not isinstance(constraint, Constraint):
         constraint = FunctionConstraint(constraint, name=name)
 
-    return SuggestMiddleware(
-        constraint=constraint,
-        allow_one_retry=allow_one_retry,
-        log_level=log_level,
-    )
+    return [
+        SuggestMiddleware(
+            constraint=constraint,
+            allow_one_retry=allow_one_retry,
+            log_level=log_level,
+        )
+    ]
 
 
 def create_refine_middleware(
@@ -770,7 +774,7 @@ def create_refine_middleware(
     threshold: float = 0.8,
     max_iterations: int = 3,
     select_best: bool = True,
-) -> RefineMiddleware:
+) -> list[RefineMiddleware]:
     """
     Create a RefineMiddleware (iterative improvement).
 
@@ -783,7 +787,7 @@ def create_refine_middleware(
         select_best: Track and return best response across iterations
 
     Returns:
-        RefineMiddleware configured with the reward function
+        List containing RefineMiddleware configured with the reward function
 
     Example:
         def evaluate_completeness(response: str, ctx: dict) -> float:
@@ -798,9 +802,11 @@ def create_refine_middleware(
             max_iterations=3,
         )
     """
-    return RefineMiddleware(
-        reward_fn=reward_fn,
-        threshold=threshold,
-        max_iterations=max_iterations,
-        select_best=select_best,
-    )
+    return [
+        RefineMiddleware(
+            reward_fn=reward_fn,
+            threshold=threshold,
+            max_iterations=max_iterations,
+            select_best=select_best,
+        )
+    ]

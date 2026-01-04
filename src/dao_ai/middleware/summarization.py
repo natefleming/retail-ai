@@ -138,7 +138,7 @@ class LoggingSummarizationMiddleware(SummarizationMiddleware):
 
 def create_summarization_middleware(
     chat_history: ChatHistoryModel,
-) -> LoggingSummarizationMiddleware:
+) -> list[LoggingSummarizationMiddleware]:
     """
     Create a LoggingSummarizationMiddleware from DAO AI ChatHistoryModel configuration.
 
@@ -150,7 +150,7 @@ def create_summarization_middleware(
         chat_history: ChatHistoryModel configuration for summarization
 
     Returns:
-        LoggingSummarizationMiddleware configured with the specified parameters
+        List containing LoggingSummarizationMiddleware configured with the specified parameters
 
     Example:
         from dao_ai.config import ChatHistoryModel, LLMModel
@@ -190,8 +190,10 @@ def create_summarization_middleware(
 
     logger.info("Summarization middleware configured", trigger=trigger, keep=keep)
 
-    return LoggingSummarizationMiddleware(
-        model=model,
-        trigger=trigger,
-        keep=keep,
-    )
+    return [
+        LoggingSummarizationMiddleware(
+            model=model,
+            trigger=trigger,
+            keep=keep,
+        )
+    ]

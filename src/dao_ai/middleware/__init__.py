@@ -3,8 +3,15 @@
 
 # Re-export LangChain built-in middleware
 from langchain.agents.middleware import (
+    ClearToolUsesEdit,
+    ContextEditingMiddleware,
     HumanInTheLoopMiddleware,
+    ModelCallLimitMiddleware,
+    ModelRetryMiddleware,
+    PIIMiddleware,
     SummarizationMiddleware,
+    ToolCallLimitMiddleware,
+    ToolRetryMiddleware,
     after_agent,
     after_model,
     before_agent,
@@ -37,6 +44,10 @@ from dao_ai.middleware.base import (
     ModelRequest,
     ModelResponse,
 )
+from dao_ai.middleware.context_editing import (
+    create_clear_tool_uses_edit,
+    create_context_editing_middleware,
+)
 from dao_ai.middleware.core import create_factory_middleware
 from dao_ai.middleware.guardrails import (
     ContentFilterMiddleware,
@@ -62,10 +73,15 @@ from dao_ai.middleware.message_validation import (
     create_thread_id_validation_middleware,
     create_user_id_validation_middleware,
 )
+from dao_ai.middleware.model_call_limit import create_model_call_limit_middleware
+from dao_ai.middleware.model_retry import create_model_retry_middleware
+from dao_ai.middleware.pii import create_pii_middleware
 from dao_ai.middleware.summarization import (
     LoggingSummarizationMiddleware,
     create_summarization_middleware,
 )
+from dao_ai.middleware.tool_call_limit import create_tool_call_limit_middleware
+from dao_ai.middleware.tool_retry import create_tool_retry_middleware
 
 __all__ = [
     # Base class (from LangChain)
@@ -85,6 +101,13 @@ __all__ = [
     "SummarizationMiddleware",
     "LoggingSummarizationMiddleware",
     "HumanInTheLoopMiddleware",
+    "ToolCallLimitMiddleware",
+    "ModelCallLimitMiddleware",
+    "ToolRetryMiddleware",
+    "ModelRetryMiddleware",
+    "ContextEditingMiddleware",
+    "ClearToolUsesEdit",
+    "PIIMiddleware",
     # Core factory function
     "create_factory_middleware",
     # DAO AI middleware implementations
@@ -122,4 +145,14 @@ __all__ = [
     "create_assert_middleware",
     "create_suggest_middleware",
     "create_refine_middleware",
+    # Limit and retry middleware factory functions
+    "create_tool_call_limit_middleware",
+    "create_model_call_limit_middleware",
+    "create_tool_retry_middleware",
+    "create_model_retry_middleware",
+    # Context editing middleware factory functions
+    "create_context_editing_middleware",
+    "create_clear_tool_uses_edit",
+    # PII middleware factory functions
+    "create_pii_middleware",
 ]

@@ -1,0 +1,296 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Tool Call Limit and Model Call Limit Middleware
+#
+# This example demonstrates how to prevent excessive API calls and runaway loops
+# by limiting the number of tool calls and model (LLM) calls an agent can make.
+#
+# Use cases:
+# - Budget control for expensive API calls
+# - Preventing infinite loops in agent execution
+# - Resource management for database queries, web searches, etc.
+# - Controlling costs for LLM API calls
+#
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  warehouses:
+    default_warehouse: &default_warehouse
+      warehouse_id:
+        env: DATABRICKS_WAREHOUSE_ID
+        default_value: "1234567890abcdef"
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# Define tools with YAML aliases for reference in middleware
+
+tools:
+  # Database query tool - expensive operation to limit
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail data using natural language
+        genie_room: *retail_genie
+
+  # Web search tool - rate-limited operation
+  search_tool: &search_tool
+    name: search_web
+    function:
+      type: python
+      name: dao_ai.tools.search_tool
+
+  # Time tool - lightweight, no limits needed
+  time_tool: &time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# All middleware factories return list[Middleware] for composability.
+# Middleware is executed in order: first defined = first executed.
+
+middleware:
+  # ---------------------------------------------------------------------------
+  # GLOBAL TOOL CALL LIMIT
+  # ---------------------------------------------------------------------------
+  # Applies to ALL tools - prevents runaway loops
+  # This is the safety net for any agent
+  global_tool_limit: &global_tool_limit
+    name: dao_ai.middleware.create_tool_call_limit_middleware
+    args:
+      # No tool = applies to all tools globally
+      thread_limit: 50            # Max 50 tool calls per conversation (thread)
+      run_limit: 15               # Max 15 tool calls per invocation (single message)
+      exit_behavior: continue     # Graceful: let agent try other approaches
+
+  # ---------------------------------------------------------------------------
+  # TOOL-SPECIFIC LIMITS (using tool name string)
+  # ---------------------------------------------------------------------------
+  # Limit expensive database/Genie queries
+  genie_limit: &genie_limit
+    name: dao_ai.middleware.create_tool_call_limit_middleware
+    args:
+      tool: genie                 # Matches the tool's 'name' field
+      thread_limit: 10            # Max 10 Genie queries per conversation
+      run_limit: 3                # Max 3 Genie queries per message
+      exit_behavior: continue     # Graceful termination
+
+  # ---------------------------------------------------------------------------
+  # TOOL-SPECIFIC LIMITS (using YAML alias reference)
+  # ---------------------------------------------------------------------------
+  # Limit web searches - useful for budget control
+  search_limit: &search_limit
+    name: dao_ai.middleware.create_tool_call_limit_middleware
+    args:
+      tool: *search_tool          # Can reference the tool model directly
+      thread_limit: 8             # Max 8 searches per conversation
+      run_limit: 4                # Max 4 searches per message
+      exit_behavior: continue
+
+  # ---------------------------------------------------------------------------
+  # STRICT ENFORCEMENT (error behavior)
+  # ---------------------------------------------------------------------------
+  # For critical operations where exceeding limits must halt execution
+  strict_genie_limit: &strict_genie_limit
+    name: dao_ai.middleware.create_tool_call_limit_middleware
+    args:
+      tool: genie
+      run_limit: 2                # Hard limit: max 2 queries per message
+      exit_behavior: error        # Raise exception if exceeded
+
+  # ---------------------------------------------------------------------------
+  # MODEL CALL LIMIT
+  # ---------------------------------------------------------------------------
+  # Limits LLM API calls to control costs
+  # Note: exit_behavior can only be "end" or "error" for model limits
+  model_call_limit: &model_call_limit
+    name: dao_ai.middleware.create_model_call_limit_middleware
+    args:
+      thread_limit: 100           # Max 100 LLM calls per conversation
+      run_limit: 20               # Max 20 LLM calls per message
+      exit_behavior: end          # Graceful stop when limit reached
+
+  # ---------------------------------------------------------------------------
+  # STRICT MODEL LIMIT
+  # ---------------------------------------------------------------------------
+  # For scenarios where you need hard stops
+  strict_model_limit: &strict_model_limit
+    name: dao_ai.middleware.create_model_call_limit_middleware
+    args:
+      run_limit: 5                # Strict: max 5 LLM calls per message
+      exit_behavior: error        # Raise exception if exceeded
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Research Agent (with multiple tool limits)
+  # ---------------------------------------------------------------------------
+  research_agent: &research_agent
+    name: research_agent
+    description: "Research agent with tool call limits for cost control"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *search_tool
+      - *time_tool
+    middleware:
+      # Order matters: apply global limit first, then specific limits
+      - *global_tool_limit        # Global safety net
+      - *genie_limit              # Genie-specific limits
+      - *search_limit             # Search-specific limits
+      - *model_call_limit         # LLM cost control
+    prompt: |
+      You are a research assistant that can:
+      - Query retail data using the genie tool
+      - Search the web for additional information
+      - Check the current time
+      
+      Be efficient with your tool usage. If you hit a limit, try a different
+      approach or provide the best answer with available information.
+      
+      When you receive a limit error, acknowledge it and provide a partial
+      answer based on what you've already learned.
+    handoff_prompt: |
+      Questions requiring research, data queries, or web searches.
+
+  # ---------------------------------------------------------------------------
+  # Budget-Conscious Agent (with strict limits)
+  # ---------------------------------------------------------------------------
+  budget_agent: &budget_agent
+    name: budget_agent
+    description: "Agent with strict limits for high-cost environments"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *time_tool
+    middleware:
+      - *strict_genie_limit       # Strict database limits
+      - *strict_model_limit       # Strict LLM limits
+    prompt: |
+      You are a budget-conscious assistant. You have very limited
+      API calls available, so be strategic with your queries.
+      
+      Before making a query:
+      1. Plan what information you actually need
+      2. Combine multiple questions into one query when possible
+      3. Use cached or previous information when available
+      
+      If a limit is reached, execution will stop immediately.
+    handoff_prompt: |
+      Questions that require minimal, strategic tool usage.
+
+  # ---------------------------------------------------------------------------
+  # Simple Agent (with basic limits)
+  # ---------------------------------------------------------------------------
+  simple_agent: &simple_agent
+    name: simple_agent
+    description: "Simple agent with basic global limits"
+    model: *default_llm
+    tools:
+      - *time_tool
+    middleware:
+      - *global_tool_limit
+      - *model_call_limit
+    prompt: |
+      You are a simple assistant. Answer user questions helpfully.
+    handoff_prompt: |
+      Simple questions that don't require complex research.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: limit_middleware_example
+  description: "Example demonstrating tool and model call limit middleware"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: limit_middleware_dao
+  endpoint_name: limit_middleware_demo
+  agents:
+    - *research_agent
+    - *budget_agent
+    - *simple_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  
+  input_example:
+    messages:
+      - role: user
+        content: What products are low on stock?
+    custom_inputs:
+      configurable:
+        thread_id: "example-thread-123"
+        user_id: "test_user"
+      session: {}
+
+# =============================================================================
+# EXIT BEHAVIOR REFERENCE
+# =============================================================================
+#
+# Tool Call Limit exit_behavior options:
+#   - "continue" (default, recommended):
+#     * Blocks exceeded tool call with error message
+#     * Error message passed back to the model
+#     * Agent can try alternative approaches or other tools
+#     * Model decides when to stop based on error feedback
+#     * Best for: Most scenarios requiring graceful handling
+#
+#   - "error":
+#     * Raises ToolCallLimitExceededError exception immediately
+#     * Entire agent execution stops
+#     * No recovery possible
+#     * Best for: Critical operations with strict enforcement
+#
+#   - "end":
+#     * Stops execution with clean ToolMessage + AI message
+#     * Only works for single-tool scenarios
+#     * Raises NotImplementedError if multiple tools have pending calls
+#     * Best for: Single-tool workflows needing graceful exit
+#
+# Model Call Limit exit_behavior options:
+#   - "end" (default):
+#     * Stops execution gracefully when limit reached
+#     * Provides clean termination
+#
+#   - "error":
+#     * Raises exception immediately
+#     * Entire agent execution stops
+#
+# Note: "continue" is NOT valid for model call limits (only "end" or "error")
+#
+# =============================================================================

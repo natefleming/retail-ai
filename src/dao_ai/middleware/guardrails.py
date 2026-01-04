@@ -328,7 +328,7 @@ def create_guardrail_middleware(
     model: LanguageModelLike,
     prompt: str,
     num_retries: int = 3,
-) -> GuardrailMiddleware:
+) -> list[GuardrailMiddleware]:
     """
     Create a GuardrailMiddleware instance.
 
@@ -342,7 +342,7 @@ def create_guardrail_middleware(
         num_retries: Maximum number of retry attempts (default: 3)
 
     Returns:
-        GuardrailMiddleware configured with the specified parameters
+        List containing GuardrailMiddleware configured with the specified parameters
 
     Example:
         middleware = create_guardrail_middleware(
@@ -353,18 +353,20 @@ def create_guardrail_middleware(
         )
     """
     logger.trace("Creating guardrail middleware", guardrail_name=name)
-    return GuardrailMiddleware(
-        name=name,
-        model=model,
-        prompt=prompt,
-        num_retries=num_retries,
-    )
+    return [
+        GuardrailMiddleware(
+            name=name,
+            model=model,
+            prompt=prompt,
+            num_retries=num_retries,
+        )
+    ]
 
 
 def create_content_filter_middleware(
     banned_keywords: list[str],
     block_message: str = "I cannot provide that response. Please rephrase your request.",
-) -> ContentFilterMiddleware:
+) -> list[ContentFilterMiddleware]:
     """
     Create a ContentFilterMiddleware instance.
 
@@ -376,7 +378,7 @@ def create_content_filter_middleware(
         block_message: Message to return when content is blocked
 
     Returns:
-        ContentFilterMiddleware configured with the specified parameters
+        List containing ContentFilterMiddleware configured with the specified parameters
 
     Example:
         middleware = create_content_filter_middleware(
@@ -387,15 +389,17 @@ def create_content_filter_middleware(
     logger.trace(
         "Creating content filter middleware", keywords_count=len(banned_keywords)
     )
-    return ContentFilterMiddleware(
-        banned_keywords=banned_keywords,
-        block_message=block_message,
-    )
+    return [
+        ContentFilterMiddleware(
+            banned_keywords=banned_keywords,
+            block_message=block_message,
+        )
+    ]
 
 
 def create_safety_guardrail_middleware(
     safety_model: Optional[LanguageModelLike] = None,
-) -> SafetyGuardrailMiddleware:
+) -> list[SafetyGuardrailMiddleware]:
     """
     Create a SafetyGuardrailMiddleware instance.
 
@@ -407,7 +411,7 @@ def create_safety_guardrail_middleware(
             defaults to gpt-4o-mini.
 
     Returns:
-        SafetyGuardrailMiddleware configured with the specified model
+        List containing SafetyGuardrailMiddleware configured with the specified model
 
     Example:
         from databricks_langchain import ChatDatabricks
@@ -417,4 +421,4 @@ def create_safety_guardrail_middleware(
         )
     """
     logger.trace("Creating safety guardrail middleware")
-    return SafetyGuardrailMiddleware(safety_model=safety_model)
+    return [SafetyGuardrailMiddleware(safety_model=safety_model)]
