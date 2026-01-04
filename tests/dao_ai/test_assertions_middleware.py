@@ -490,6 +490,9 @@ class TestFactoryFunctions:
             constraint=check_length, max_retries=2, name="length_check"
         )
 
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, AssertMiddleware)
         assert middleware.max_retries == 2
 
@@ -499,6 +502,9 @@ class TestFactoryFunctions:
 
         middleware = create_assert_middleware(constraint=constraint, max_retries=3)
 
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, AssertMiddleware)
         assert middleware.constraint is constraint
 
@@ -512,6 +518,9 @@ class TestFactoryFunctions:
             constraint=is_polite, allow_one_retry=True
         )
 
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, SuggestMiddleware)
         assert middleware.allow_one_retry is True
 
@@ -525,6 +534,9 @@ class TestFactoryFunctions:
             reward_fn=score_fn, threshold=0.9, max_iterations=5
         )
 
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, RefineMiddleware)
         assert middleware.threshold == 0.9
         assert middleware.max_iterations == 5

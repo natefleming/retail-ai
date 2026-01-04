@@ -501,7 +501,7 @@ def create_user_id_validation_middleware() -> UserIdValidationMiddleware:
     and format of user_id in the runtime context.
 
     Returns:
-        UserIdValidationMiddleware instance
+        List containing UserIdValidationMiddleware instance
 
     Example:
         middleware = create_user_id_validation_middleware()
@@ -518,7 +518,7 @@ def create_thread_id_validation_middleware() -> ThreadIdValidationMiddleware:
     of thread_id in the runtime context.
 
     Returns:
-        ThreadIdValidationMiddleware instance
+        List containing ThreadIdValidationMiddleware instance
 
     Example:
         middleware = create_thread_id_validation_middleware()
@@ -550,7 +550,7 @@ def create_custom_field_validation_middleware(
             optionally 'description', 'required', and 'example_value' keys.
 
     Returns:
-        CustomFieldValidationMiddleware configured with the specified fields
+        List containing CustomFieldValidationMiddleware configured with the specified fields
 
     Example:
         middleware = create_custom_field_validation_middleware(
@@ -577,7 +577,7 @@ def create_filter_last_human_message_middleware() -> FilterLastHumanMessageMiddl
     process only the latest user input without conversation history.
 
     Returns:
-        FilterLastHumanMessageMiddleware instance
+        List containing FilterLastHumanMessageMiddleware instance
 
     Example:
         middleware = create_filter_last_human_message_middleware()

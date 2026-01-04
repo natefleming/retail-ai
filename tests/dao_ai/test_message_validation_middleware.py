@@ -268,6 +268,9 @@ class TestCustomFieldValidationMiddleware:
             ]
         )
 
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, CustomFieldValidationMiddleware)
         assert len(middleware.fields) == 1
         assert middleware.fields[0].name == "store_num"

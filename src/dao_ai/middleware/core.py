@@ -21,7 +21,6 @@ def create_factory_middleware(
     """
     Create middleware from a factory function.
 
-
     This factory function dynamically loads a Python function and calls it
     with the provided arguments to create a middleware instance.
 
@@ -35,7 +34,7 @@ def create_factory_middleware(
         args: Arguments to pass to the factory function
 
     Returns:
-        An AgentMiddleware instance returned by the factory function
+        The AgentMiddleware instance returned by the factory function.
 
     Raises:
         ImportError: If the function cannot be loaded
@@ -59,9 +58,10 @@ def create_factory_middleware(
     factory: Callable[..., AgentMiddleware[AgentState, Context]] = load_function(
         function_name=function_name
     )
-    middleware: AgentMiddleware[AgentState, Context] = factory(**args)
+    middleware = factory(**args)
 
     logger.trace(
-        "Created middleware from factory", middleware_type=type(middleware).__name__
+        "Created middleware from factory",
+        middleware_type=type(middleware).__name__,
     )
     return middleware

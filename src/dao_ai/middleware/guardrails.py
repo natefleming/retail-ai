@@ -342,7 +342,7 @@ def create_guardrail_middleware(
         num_retries: Maximum number of retry attempts (default: 3)
 
     Returns:
-        GuardrailMiddleware configured with the specified parameters
+        List containing GuardrailMiddleware configured with the specified parameters
 
     Example:
         middleware = create_guardrail_middleware(
@@ -376,7 +376,7 @@ def create_content_filter_middleware(
         block_message: Message to return when content is blocked
 
     Returns:
-        ContentFilterMiddleware configured with the specified parameters
+        List containing ContentFilterMiddleware configured with the specified parameters
 
     Example:
         middleware = create_content_filter_middleware(
@@ -407,7 +407,7 @@ def create_safety_guardrail_middleware(
             defaults to gpt-4o-mini.
 
     Returns:
-        SafetyGuardrailMiddleware configured with the specified model
+        List containing SafetyGuardrailMiddleware configured with the specified model
 
     Example:
         from databricks_langchain import ChatDatabricks

@@ -1,0 +1,313 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Tool Retry and Model Retry Middleware
+#
+# This example demonstrates how to add automatic retry logic with exponential
+# backoff for transient failures in tool and model (LLM) calls.
+#
+# Use cases:
+# - Recovering from transient network errors
+# - Handling rate limits from external APIs
+# - Building resilient agents for production environments
+# - Graceful degradation when services are temporarily unavailable
+#
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+
+tools:
+  # Database query tool - may experience transient failures
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail data using natural language
+        genie_room: *retail_genie
+
+  # External API tool - may hit rate limits
+  search_tool: &search_tool
+    name: search_web
+    function:
+      type: factory
+      name: dao_ai.tools.create_search_tool
+      args: {}
+
+  # Simple time tool
+  time_tool: &time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Retry middleware automatically retries failed calls with exponential backoff.
+# All middleware factories return list[Middleware] for composability.
+#
+# IMPORTANT: LangChain does not allow multiple instances of the same middleware
+# class on a single agent. Each agent can have only ONE ToolRetryMiddleware and
+# ONE ModelRetryMiddleware. If you need to retry multiple tools with different
+# settings, combine them into a single middleware configuration using the 'tools'
+# parameter, or apply retry to all tools by omitting the 'tools' parameter.
+
+middleware:
+  # ---------------------------------------------------------------------------
+  # BASIC TOOL RETRY
+  # ---------------------------------------------------------------------------
+  # Retries all tool calls with default settings
+  basic_tool_retry: &basic_tool_retry
+    name: dao_ai.middleware.create_tool_retry_middleware
+    args:
+      max_retries: 3              # Retry up to 3 times
+      backoff_factor: 2.0         # Double delay each retry (1s, 2s, 4s)
+      initial_delay: 1.0          # Start with 1 second delay
+      # No 'tools' specified = applies to all tools
+
+  # ---------------------------------------------------------------------------
+  # TOOL-SPECIFIC RETRY (combined for multiple tools)
+  # ---------------------------------------------------------------------------
+  # Configure retry for both genie and search tools
+  # NOTE: Only one ToolRetryMiddleware instance is allowed per agent
+  tools_retry: &tools_retry
+    name: dao_ai.middleware.create_tool_retry_middleware
+    args:
+      max_retries: 4
+      backoff_factor: 2.0
+      initial_delay: 1.0
+      max_delay: 60.0
+      jitter: true
+      on_failure: continue
+
+  # ---------------------------------------------------------------------------
+  # AGGRESSIVE RETRY FOR CRITICAL TOOLS
+  # ---------------------------------------------------------------------------
+  # For tools that must succeed
+  critical_retry: &critical_retry
+    name: dao_ai.middleware.create_tool_retry_middleware
+    args:
+      max_retries: 10             # Many retries
+      backoff_factor: 1.2         # Gentle backoff
+      initial_delay: 0.25         # Fast first retry
+      max_delay: 120.0            # Up to 2 minutes
+      jitter: true
+      on_failure: error           # Raise exception if all retries fail
+
+  # ---------------------------------------------------------------------------
+  # MODEL RETRY (LLM API calls)
+  # ---------------------------------------------------------------------------
+  # Retries LLM API calls for transient failures
+  model_retry: &model_retry
+    name: dao_ai.middleware.create_model_retry_middleware
+    args:
+      max_retries: 3              # Retry up to 3 times
+      backoff_factor: 2.0         # Exponential backoff
+      initial_delay: 1.0          # 1 second initial delay
+      max_delay: 30.0             # Cap at 30 seconds
+      jitter: true                # Prevent thundering herd
+      on_failure: continue        # Continue even if retries exhausted
+
+  # ---------------------------------------------------------------------------
+  # AGGRESSIVE MODEL RETRY
+  # ---------------------------------------------------------------------------
+  # For production environments where LLM availability is critical
+  aggressive_model_retry: &aggressive_model_retry
+    name: dao_ai.middleware.create_model_retry_middleware
+    args:
+      max_retries: 5
+      backoff_factor: 1.5
+      initial_delay: 0.5
+      max_delay: 60.0
+      jitter: true
+      on_failure: error           # Fail hard if all retries exhausted
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Resilient Agent (with comprehensive retry logic)
+  # ---------------------------------------------------------------------------
+  resilient_agent: &resilient_agent
+    name: resilient_agent
+    description: "Production-ready agent with comprehensive retry logic"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *search_tool
+      - *time_tool
+    middleware:
+      - *tools_retry              # Tool retry logic for all tools
+      - *model_retry              # LLM retry logic
+    prompt: |
+      You are a resilient research assistant designed for production use.
+      
+      If a tool call fails, the system will automatically retry with
+      exponential backoff. You don't need to manually handle transient errors.
+      
+      Your capabilities:
+      - Query retail data using the genie tool
+      - Search the web for additional information
+      - Check the current time
+      
+      Focus on providing accurate, helpful responses. The retry middleware
+      handles temporary failures automatically.
+    handoff_prompt: |
+      Questions requiring data queries or research that may need retry logic.
+
+  # ---------------------------------------------------------------------------
+  # High-Availability Agent
+  # ---------------------------------------------------------------------------
+  high_availability_agent: &high_availability_agent
+    name: high_availability_agent
+    description: "Agent with aggressive retry for maximum reliability"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *critical_retry           # Aggressive tool retry
+      - *aggressive_model_retry   # Aggressive LLM retry
+    prompt: |
+      You are a high-availability assistant. Your tools have aggressive
+      retry logic to ensure maximum reliability.
+      
+      If failures persist after many retries, the system will raise an
+      error to indicate a genuine service outage.
+      
+      Focus on providing accurate answers from the retail database.
+    handoff_prompt: |
+      Critical queries that must succeed.
+
+  # ---------------------------------------------------------------------------
+  # Simple Agent (with basic retry)
+  # ---------------------------------------------------------------------------
+  simple_agent: &simple_agent
+    name: simple_agent
+    description: "Simple agent with basic retry for common failures"
+    model: *default_llm
+    tools:
+      - *time_tool
+    middleware:
+      - *basic_tool_retry         # Basic retry for all tools
+      - *model_retry              # Basic LLM retry
+    prompt: |
+      You are a simple assistant. Answer user questions helpfully.
+      The system handles temporary failures automatically.
+    handoff_prompt: |
+      Simple questions that don't require complex research.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: retry_middleware_example
+  description: "Example demonstrating tool and model retry middleware"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: retry_middleware_dao
+  endpoint_name: retry_middleware_demo
+  agents:
+    - *resilient_agent
+    - *high_availability_agent
+    - *simple_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  
+  input_example:
+    messages:
+      - role: user
+        content: What products are trending this week?
+    custom_inputs:
+      configurable:
+        thread_id: "example-thread-123"
+        user_id: "test_user"
+      session: {}
+
+# =============================================================================
+# RETRY PARAMETERS REFERENCE
+# =============================================================================
+#
+# Common parameters for both tool and model retry:
+#
+#   max_retries (int, default: 3):
+#     Maximum number of retry attempts before giving up.
+#
+#   backoff_factor (float, default: 2.0):
+#     Multiplier for delay between retries.
+#     Example with factor=2.0, initial=1.0: 1s, 2s, 4s, 8s, ...
+#
+#   initial_delay (float, default: 1.0):
+#     Delay in seconds before the first retry.
+#
+#   max_delay (float, optional):
+#     Maximum delay between retries. Caps exponential growth.
+#     Example: max_delay=30.0 caps at 30 seconds regardless of backoff.
+#
+#   jitter (bool, default: false):
+#     Add random variation to delays to prevent "thundering herd" problem.
+#     When true, actual delay = delay * random(0.5, 1.5)
+#
+#   on_failure (str, default: "continue"):
+#     Behavior when all retries are exhausted:
+#     - "continue": Pass error to agent, let it decide next action
+#     - "error": Raise exception, stop execution
+#
+# Tool-specific parameters:
+#
+#   tools (list, optional):
+#     List of tool names (strings) or tool models to apply retry to.
+#     If not specified, retry applies to ALL tools.
+#     Can mix strings and YAML alias references.
+#
+#   retry_on (optional):
+#     Custom exception types or callable to determine if retry should occur.
+#     By default, retries on common transient exceptions.
+#
+# =============================================================================
+# BACKOFF EXAMPLES
+# =============================================================================
+#
+# Conservative backoff (rate limit friendly):
+#   initial_delay: 2.0, backoff_factor: 2.0, max_delay: 60.0
+#   → 2s, 4s, 8s, 16s, 32s, 60s (capped)
+#
+# Aggressive backoff (fast retry):
+#   initial_delay: 0.25, backoff_factor: 1.2, max_delay: 30.0
+#   → 0.25s, 0.3s, 0.36s, 0.43s, ...
+#
+# Gentle backoff (balanced):
+#   initial_delay: 1.0, backoff_factor: 1.5, max_delay: 30.0
+#   → 1s, 1.5s, 2.25s, 3.4s, 5.1s, ...
+#
+# =============================================================================

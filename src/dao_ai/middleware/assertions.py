@@ -688,7 +688,7 @@ def create_assert_middleware(
         name: Name for function constraints
 
     Returns:
-        AssertMiddleware configured with the constraint
+        List containing AssertMiddleware configured with the constraint
 
     Example:
         # Using a Constraint class
@@ -737,7 +737,7 @@ def create_suggest_middleware(
         name: Name for function constraints
 
     Returns:
-        SuggestMiddleware configured with the constraint
+        List containing SuggestMiddleware configured with the constraint
 
     Example:
         def is_professional(response: str, ctx: dict) -> ConstraintResult:
@@ -783,7 +783,7 @@ def create_refine_middleware(
         select_best: Track and return best response across iterations
 
     Returns:
-        RefineMiddleware configured with the reward function
+        List containing RefineMiddleware configured with the reward function
 
     Example:
         def evaluate_completeness(response: str, ctx: dict) -> float:

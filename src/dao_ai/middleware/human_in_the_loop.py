@@ -132,7 +132,7 @@ def create_human_in_the_loop_middleware(
         description_prefix: Message prefix shown when pausing for review
 
     Returns:
-        HumanInTheLoopMiddleware configured with the specified parameters
+        List containing HumanInTheLoopMiddleware configured with the specified parameters
 
     Example:
         from dao_ai.config import HumanInTheLoopModel
@@ -182,7 +182,8 @@ def create_hitl_middleware_from_tool_models(
         description_prefix: Message prefix shown when pausing for review
 
     Returns:
-        HumanInTheLoopMiddleware if any tools require approval, None otherwise
+        List containing HumanInTheLoopMiddleware if any tools require approval,
+        empty list otherwise
 
     Example:
         from dao_ai.config import ToolModel, PythonFunctionModel, HumanInTheLoopModel

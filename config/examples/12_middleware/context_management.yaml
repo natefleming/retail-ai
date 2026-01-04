@@ -1,0 +1,327 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Context Editing Middleware
+#
+# This example demonstrates how to manage conversation context to prevent
+# token limit issues by automatically clearing older tool outputs while
+# preserving recent context.
+#
+# Use cases:
+# - Preventing context window overflow in long conversations
+# - Reducing token costs by clearing verbose tool outputs
+# - Managing memory-intensive agents with many tool calls
+# - Optimizing performance for production workloads
+#
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+
+tools:
+  # Genie tool - can return large result sets
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail data using natural language
+        genie_room: *retail_genie
+
+  # Search tool - returns verbose web content
+  search_tool: &search_tool
+    name: search_web
+    function:
+      type: factory
+      name: dao_ai.tools.create_search_tool
+      args: {}
+
+  # Time tool - returns small output
+  time_tool: &time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Context editing middleware helps manage conversation context by clearing
+# older tool call outputs to prevent token limit issues.
+#
+# All middleware factories return list[Middleware] for composability.
+
+middleware:
+  # ---------------------------------------------------------------------------
+  # BASIC CONTEXT EDITING
+  # ---------------------------------------------------------------------------
+  # Clears tool outputs when context exceeds token threshold
+  basic_context_editor: &basic_context_editor
+    name: dao_ai.middleware.create_context_editing_middleware
+    args:
+      trigger: 100000             # Clear when context exceeds ~100k tokens
+      keep: 3                     # Keep last 3 tool outputs intact
+      placeholder: "[cleared]"    # Replace cleared content with this
+
+  # ---------------------------------------------------------------------------
+  # AGGRESSIVE CONTEXT EDITING
+  # ---------------------------------------------------------------------------
+  # For agents that make many tool calls with large outputs
+  aggressive_context_editor: &aggressive_context_editor
+    name: dao_ai.middleware.create_context_editing_middleware
+    args:
+      trigger: 50000              # Lower threshold - clear earlier
+      keep: 2                     # Keep only last 2 tool outputs
+      clear_at_least: 5           # Always clear at least 5 old outputs
+      placeholder: "[output cleared for context management]"
+
+  # ---------------------------------------------------------------------------
+  # CONSERVATIVE CONTEXT EDITING
+  # ---------------------------------------------------------------------------
+  # For agents that need more history preserved
+  conservative_context_editor: &conservative_context_editor
+    name: dao_ai.middleware.create_context_editing_middleware
+    args:
+      trigger: 150000             # Higher threshold - wait longer to clear
+      keep: 10                    # Keep more recent outputs
+      placeholder: "[...]"
+
+  # ---------------------------------------------------------------------------
+  # CONTEXT EDITING WITH INPUT CLEARING
+  # ---------------------------------------------------------------------------
+  # Also clears tool inputs (not just outputs)
+  full_context_editor: &full_context_editor
+    name: dao_ai.middleware.create_context_editing_middleware
+    args:
+      trigger: 75000
+      keep: 3
+      clear_tool_inputs: true     # Clear both inputs AND outputs
+      placeholder: "[cleared]"
+
+  # ---------------------------------------------------------------------------
+  # CONTEXT EDITING WITH EXCLUDED TOOLS
+  # ---------------------------------------------------------------------------
+  # Exclude certain tools from clearing (using YAML alias)
+  selective_context_editor: &selective_context_editor
+    name: dao_ai.middleware.create_context_editing_middleware
+    args:
+      trigger: 80000
+      keep: 3
+      exclude_tools:
+        - *time_tool              # Never clear time tool outputs
+        - current_time            # Can also use string name
+      placeholder: "[cleared]"
+
+  # ---------------------------------------------------------------------------
+  # MODEL-BASED TOKEN COUNTING
+  # ---------------------------------------------------------------------------
+  # Uses model's tokenizer for accurate counting (slower but precise)
+  precise_context_editor: &precise_context_editor
+    name: dao_ai.middleware.create_context_editing_middleware
+    args:
+      trigger: 90000
+      keep: 4
+      token_count_method: model   # Use model tokenizer (default: approximate)
+      placeholder: "[cleared]"
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Data Analyst Agent (with context management)
+  # ---------------------------------------------------------------------------
+  data_analyst_agent: &data_analyst_agent
+    name: data_analyst
+    description: "Data analyst agent with context management for long sessions"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *search_tool
+      - *time_tool
+    middleware:
+      - *basic_context_editor     # Manage context for long conversations
+    prompt: |
+      You are a data analyst assistant that helps users explore retail data.
+      
+      You may make many queries during a session. The system automatically
+      manages conversation context by clearing older tool outputs while
+      keeping recent ones available.
+      
+      If you see "[cleared]" in previous tool outputs, those results have been
+      summarized for context management. You can re-run queries if you need
+      the original data again.
+      
+      Your capabilities:
+      - Query retail data using the genie tool
+      - Search the web for additional context
+      - Check the current time
+    handoff_prompt: |
+      Data analysis questions that may involve many queries.
+
+  # ---------------------------------------------------------------------------
+  # Research Agent (with aggressive context management)
+  # ---------------------------------------------------------------------------
+  research_agent: &research_agent
+    name: research_agent
+    description: "Research agent with aggressive context management"
+    model: *default_llm
+    tools:
+      - *search_tool
+      - *time_tool
+    middleware:
+      - *aggressive_context_editor
+    prompt: |
+      You are a research assistant that performs extensive web searches.
+      
+      Web search results can be verbose. The system aggressively manages
+      context to keep conversations within token limits.
+      
+      When you see "[output cleared for context management]", previous search
+      results have been cleared. If you need that information again, perform
+      a new search.
+      
+      Tips:
+      - Summarize key findings before moving to new searches
+      - Reference specific facts rather than expecting full outputs to persist
+    handoff_prompt: |
+      Research questions requiring multiple web searches.
+
+  # ---------------------------------------------------------------------------
+  # Long-Running Agent (with full context clearing)
+  # ---------------------------------------------------------------------------
+  long_running_agent: &long_running_agent
+    name: long_running_agent
+    description: "Agent for extended sessions with full context clearing"
+    model: *default_llm
+    tools:
+      - *genie_tool
+      - *search_tool
+    middleware:
+      - *full_context_editor      # Clear both inputs and outputs
+    prompt: |
+      You are an assistant designed for extended analysis sessions.
+      
+      To maximize the length of our conversation, the system clears both
+      tool inputs AND outputs from older messages. This means previous
+      queries and their results are summarized as "[cleared]".
+      
+      Best practices:
+      - Keep a mental summary of key findings
+      - Re-query when you need specific data points
+      - Don't rely on scroll-back for older information
+    handoff_prompt: |
+      Extended analysis requiring many tool calls over a long session.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: context_management_example
+  description: "Example demonstrating context editing middleware"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: context_management_dao
+  endpoint_name: context_management_demo
+  agents:
+    - *data_analyst_agent
+    - *research_agent
+    - *long_running_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  
+  input_example:
+    messages:
+      - role: user
+        content: Analyze our top 10 products and compare them to industry trends.
+    custom_inputs:
+      configurable:
+        thread_id: "long-session-123"
+        user_id: "test_user"
+      session: {}
+
+# =============================================================================
+# CONTEXT EDITING PARAMETERS REFERENCE
+# =============================================================================
+#
+# trigger (int, default: 100000):
+#   Token threshold that triggers context clearing.
+#   When conversation context exceeds this, older tool outputs are cleared.
+#   Lower values = more aggressive clearing, higher = preserve more history.
+#
+# keep (int, default: 3):
+#   Number of most recent tool outputs to preserve.
+#   These are never cleared regardless of the trigger threshold.
+#   Higher values = more recent context preserved.
+#
+# clear_at_least (int, default: 0):
+#   Minimum number of tool outputs to clear when triggered.
+#   Useful to ensure meaningful reduction when clearing occurs.
+#   Set to 0 to clear only what's needed to get below threshold.
+#
+# clear_tool_inputs (bool, default: false):
+#   Whether to also clear tool call inputs (not just outputs).
+#   True = more aggressive clearing, saves more tokens.
+#   False = preserve the queries, just clear the results.
+#
+# exclude_tools (list, optional):
+#   List of tools whose outputs should never be cleared.
+#   Can use tool name strings or YAML alias references.
+#   Useful for small, important outputs like timestamps.
+#
+# placeholder (str, default: "[cleared]"):
+#   Text that replaces cleared content.
+#   Helps the agent understand that content was removed.
+#   Keep it short to maximize token savings.
+#
+# token_count_method (str, default: "approximate"):
+#   Method for counting tokens:
+#   - "approximate": Fast estimation (~4 chars per token)
+#   - "model": Uses model's tokenizer (slower but accurate)
+#
+# =============================================================================
+# WHEN TO USE CONTEXT EDITING
+# =============================================================================
+#
+# Use context editing when:
+# ✓ Agents make many tool calls with large outputs
+# ✓ Conversations are expected to be long
+# ✓ Tools return verbose data (database results, web content)
+# ✓ You're hitting context window limits
+# ✓ Token costs are a concern
+#
+# Skip context editing when:
+# ✗ Conversations are typically short
+# ✗ Tool outputs are small and critical
+# ✗ Agents need to reference historical outputs
+# ✗ You're using summarization middleware instead
+#
+# =============================================================================

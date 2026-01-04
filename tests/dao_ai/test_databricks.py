@@ -1520,9 +1520,7 @@ def test_vector_store_model_provisioning_mode():
 
     # Mock the DatabricksProvider to avoid actual API calls
     # The import happens inside the validators, so we patch the providers module
-    with patch(
-        "dao_ai.providers.databricks.DatabricksProvider"
-    ) as mock_provider_class:
+    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = MagicMock()
         mock_provider.find_primary_key.return_value = ["id"]
         mock_provider.find_endpoint_for_index.return_value = "test_endpoint"
@@ -1558,9 +1556,7 @@ def test_vector_store_model_provisioning_with_explicit_index():
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
 
-    with patch(
-        "dao_ai.providers.databricks.DatabricksProvider"
-    ) as mock_provider_class:
+    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = MagicMock()
         mock_provider.find_primary_key.return_value = ["id"]
         mock_provider.find_endpoint_for_index.return_value = "test_endpoint"
@@ -1581,9 +1577,7 @@ def test_vector_store_model_provisioning_with_explicit_index():
 def test_vector_store_model_use_existing_no_auto_discovery():
     """Test that use existing mode does not trigger expensive auto-discovery."""
     # This test ensures no DatabricksProvider calls happen in "use existing" mode
-    with patch(
-        "dao_ai.providers.databricks.DatabricksProvider"
-    ) as mock_provider_class:
+    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = MagicMock()
         mock_provider_class.return_value = mock_provider
 
@@ -1622,12 +1616,12 @@ def test_vector_store_model_api_scopes():
 def test_index_model_exists_returns_true():
     """Test IndexModel.exists() returns True when index exists."""
     index = IndexModel(name="catalog.schema.my_index")
-    
+
     # Mock workspace_client via the _workspace_client attribute
     mock_workspace_client = MagicMock()
     mock_workspace_client.vector_search_indexes.get_index.return_value = MagicMock()
     index._workspace_client = mock_workspace_client
-    
+
     assert index.exists() is True
     mock_workspace_client.vector_search_indexes.get_index.assert_called_once_with(
         "catalog.schema.my_index"
@@ -1638,14 +1632,14 @@ def test_index_model_exists_returns_true():
 def test_index_model_exists_returns_false_not_found():
     """Test IndexModel.exists() returns False when index doesn't exist (NotFound)."""
     index = IndexModel(name="catalog.schema.my_index")
-    
+
     # Mock workspace_client to raise NotFound
     mock_workspace_client = MagicMock()
     mock_workspace_client.vector_search_indexes.get_index.side_effect = NotFound(
         "Index not found"
     )
     index._workspace_client = mock_workspace_client
-    
+
     assert index.exists() is False
 
 
@@ -1653,14 +1647,14 @@ def test_index_model_exists_returns_false_not_found():
 def test_index_model_exists_returns_false_on_error():
     """Test IndexModel.exists() returns False on other exceptions."""
     index = IndexModel(name="catalog.schema.my_index")
-    
+
     # Mock workspace_client to raise generic exception
     mock_workspace_client = MagicMock()
     mock_workspace_client.vector_search_indexes.get_index.side_effect = Exception(
         "Connection error"
     )
     index._workspace_client = mock_workspace_client
-    
+
     assert index.exists() is False
 
 
@@ -1669,13 +1663,13 @@ def test_index_model_exists_with_schema():
     """Test IndexModel.exists() with schema-based index."""
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     index = IndexModel(schema=schema, name="my_index")
-    
+
     assert index.full_name == "test_catalog.test_schema.my_index"
-    
+
     mock_workspace_client = MagicMock()
     mock_workspace_client.vector_search_indexes.get_index.return_value = MagicMock()
     index._workspace_client = mock_workspace_client
-    
+
     assert index.exists() is True
     mock_workspace_client.vector_search_indexes.get_index.assert_called_once_with(
         "test_catalog.test_schema.my_index"
@@ -1692,19 +1686,19 @@ def test_vector_store_create_validates_existing_index_success():
     """Test VectorStoreModel.create() in use existing mode when index exists."""
     index = IndexModel(name="catalog.schema.my_index")
     vector_store = VectorStoreModel(index=index)
-    
+
     # Mock the provider and index.exists()
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = MagicMock()
         mock_provider_class.return_value = mock_provider
-        
+
         # Mock the workspace client to make exists() return True
         mock_workspace_client = MagicMock()
         mock_workspace_client.vector_search_indexes.get_index.return_value = MagicMock()
         index._workspace_client = mock_workspace_client
-        
+
         vector_store.create()
-        
+
         # Should NOT call create_vector_store (only validates)
         mock_provider.create_vector_store.assert_not_called()
 
@@ -1714,19 +1708,21 @@ def test_vector_store_create_validates_existing_index_not_found():
     """Test VectorStoreModel.create() in use existing mode raises error when index doesn't exist."""
     index = IndexModel(name="catalog.schema.my_index")
     vector_store = VectorStoreModel(index=index)
-    
+
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = MagicMock()
         mock_provider_class.return_value = mock_provider
-        
+
         # Mock the workspace client to make exists() return False (NotFound)
         mock_workspace_client = MagicMock()
-        mock_workspace_client.vector_search_indexes.get_index.side_effect = NotFound("Index not found")
+        mock_workspace_client.vector_search_indexes.get_index.side_effect = NotFound(
+            "Index not found"
+        )
         index._workspace_client = mock_workspace_client
-        
+
         with pytest.raises(ValueError) as exc_info:
             vector_store.create()
-        
+
         assert "does not exist" in str(exc_info.value)
         assert "Provide 'source_table' to provision it" in str(exc_info.value)
 
@@ -1735,18 +1731,16 @@ def test_vector_store_create_validates_existing_index_not_found():
 def test_vector_store_create_validates_existing_index_no_index():
     """Test VectorStoreModel.create() raises error when index is None in use existing mode."""
     # This shouldn't happen due to validation, but test the helper method directly
-    vector_store = VectorStoreModel(
-        index=IndexModel(name="catalog.schema.my_index")
-    )
+    vector_store = VectorStoreModel(index=IndexModel(name="catalog.schema.my_index"))
     vector_store.index = None  # Force None to test error handling
-    
+
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = MagicMock()
         mock_provider_class.return_value = mock_provider
-        
+
         with pytest.raises(ValueError) as exc_info:
             vector_store._validate_existing_index(mock_provider)
-        
+
         assert "index is required for 'use existing' mode" in str(exc_info.value)
 
 
@@ -1760,36 +1754,40 @@ def test_vector_store_create_provisions_new_index():
     """Test VectorStoreModel.create() in provisioning mode calls create_vector_store."""
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
-    
+
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         # Mock for validators - called multiple times during __init__
         mock_provider_for_primary_key = MagicMock()
         mock_provider_for_primary_key.find_primary_key.return_value = ["id"]
-        
+
         mock_provider_for_endpoint = MagicMock()
         mock_provider_for_endpoint.find_endpoint_for_index.return_value = None
-        mock_provider_for_endpoint.find_vector_search_endpoint.return_value = "test_endpoint"
-        
+        mock_provider_for_endpoint.find_vector_search_endpoint.return_value = (
+            "test_endpoint"
+        )
+
         # Mock for create call
         mock_provider_for_create = MagicMock()
-        
+
         # Return different instances for each DatabricksProvider() call
         mock_provider_class.side_effect = [
             mock_provider_for_primary_key,  # set_default_primary_key validator
-            mock_provider_for_endpoint,      # set_default_endpoint validator
-            mock_provider_for_create         # create() call
+            mock_provider_for_endpoint,  # set_default_endpoint validator
+            mock_provider_for_create,  # create() call
         ]
-        
+
         vector_store = VectorStoreModel(
             source_table=table,
             embedding_source_column="description",
         )
-        
+
         # Call create() - this will use the third mock from side_effect
         vector_store.create()
-        
+
         # Should call create_vector_store
-        mock_provider_for_create.create_vector_store.assert_called_once_with(vector_store)
+        mock_provider_for_create.create_vector_store.assert_called_once_with(
+            vector_store
+        )
 
 
 @pytest.mark.unit
@@ -1797,28 +1795,32 @@ def test_vector_store_create_provisioning_requires_embedding_column():
     """Test VectorStoreModel._create_new_index() validates embedding_source_column."""
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
-    
+
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider_for_validators = MagicMock()
         mock_provider_for_validators.find_primary_key.return_value = ["id"]
         mock_provider_for_validators.find_endpoint_for_index.return_value = None
-        mock_provider_for_validators.find_vector_search_endpoint.return_value = "test_endpoint"
+        mock_provider_for_validators.find_vector_search_endpoint.return_value = (
+            "test_endpoint"
+        )
         mock_provider_class.return_value = mock_provider_for_validators
-        
+
         vector_store = VectorStoreModel(
             source_table=table,
             embedding_source_column="description",
         )
-        
+
         # Force None to test validation
         vector_store.embedding_source_column = None
-        
+
         mock_provider = MagicMock()
-        
+
         with pytest.raises(ValueError) as exc_info:
             vector_store._create_new_index(mock_provider)
-        
-        assert "embedding_source_column is required for provisioning" in str(exc_info.value)
+
+        assert "embedding_source_column is required for provisioning" in str(
+            exc_info.value
+        )
 
 
 @pytest.mark.unit
@@ -1826,27 +1828,29 @@ def test_vector_store_create_provisioning_requires_endpoint():
     """Test VectorStoreModel._create_new_index() validates endpoint."""
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
-    
+
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider_for_validators = MagicMock()
         mock_provider_for_validators.find_primary_key.return_value = ["id"]
         mock_provider_for_validators.find_endpoint_for_index.return_value = None
-        mock_provider_for_validators.find_vector_search_endpoint.return_value = "test_endpoint"
+        mock_provider_for_validators.find_vector_search_endpoint.return_value = (
+            "test_endpoint"
+        )
         mock_provider_class.return_value = mock_provider_for_validators
-        
+
         vector_store = VectorStoreModel(
             source_table=table,
             embedding_source_column="description",
         )
-        
+
         # Force None to test validation
         vector_store.endpoint = None
-        
+
         mock_provider = MagicMock()
-        
+
         with pytest.raises(ValueError) as exc_info:
             vector_store._create_new_index(mock_provider)
-        
+
         assert "endpoint is required for provisioning" in str(exc_info.value)
 
 
@@ -1855,27 +1859,29 @@ def test_vector_store_create_provisioning_requires_index():
     """Test VectorStoreModel._create_new_index() validates index."""
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
-    
+
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider_for_validators = MagicMock()
         mock_provider_for_validators.find_primary_key.return_value = ["id"]
         mock_provider_for_validators.find_endpoint_for_index.return_value = None
-        mock_provider_for_validators.find_vector_search_endpoint.return_value = "test_endpoint"
+        mock_provider_for_validators.find_vector_search_endpoint.return_value = (
+            "test_endpoint"
+        )
         mock_provider_class.return_value = mock_provider_for_validators
-        
+
         vector_store = VectorStoreModel(
             source_table=table,
             embedding_source_column="description",
         )
-        
+
         # Force None to test validation
         vector_store.index = None
-        
+
         mock_provider = MagicMock()
-        
+
         with pytest.raises(ValueError) as exc_info:
             vector_store._create_new_index(mock_provider)
-        
+
         assert "index is required for provisioning" in str(exc_info.value)
 
 
@@ -1890,39 +1896,45 @@ def test_vector_store_create_mode_detection():
     # Use existing mode
     index = IndexModel(name="catalog.schema.my_index")
     vector_store_existing = VectorStoreModel(index=index)
-    
-    with patch.object(vector_store_existing, "_validate_existing_index") as mock_validate:
+
+    with patch.object(
+        vector_store_existing, "_validate_existing_index"
+    ) as mock_validate:
         with patch("dao_ai.providers.databricks.DatabricksProvider"):
             vector_store_existing.create()
             mock_validate.assert_called_once()
-    
+
     # Provisioning mode
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
-    
+
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         # Mock for validators during __init__
         mock_provider_for_primary_key = MagicMock()
         mock_provider_for_primary_key.find_primary_key.return_value = ["id"]
-        
+
         mock_provider_for_endpoint = MagicMock()
         mock_provider_for_endpoint.find_endpoint_for_index.return_value = None
-        mock_provider_for_endpoint.find_vector_search_endpoint.return_value = "test_endpoint"
-        
+        mock_provider_for_endpoint.find_vector_search_endpoint.return_value = (
+            "test_endpoint"
+        )
+
         # Mock for create() call
         mock_provider_for_create = MagicMock()
-        
+
         mock_provider_class.side_effect = [
             mock_provider_for_primary_key,
             mock_provider_for_endpoint,
-            mock_provider_for_create
+            mock_provider_for_create,
         ]
-        
+
         vector_store_provisioning = VectorStoreModel(
             source_table=table,
             embedding_source_column="description",
         )
-        
-        with patch.object(vector_store_provisioning, "_create_new_index") as mock_create:
+
+        with patch.object(
+            vector_store_provisioning, "_create_new_index"
+        ) as mock_create:
             vector_store_provisioning.create()
             mock_create.assert_called_once()
