@@ -282,21 +282,28 @@ def test_mcp_function_model_partial_oauth_credentials() -> None:
 
 @pytest.mark.unit
 def test_mcp_function_model_existing_authorization_header() -> None:
-    """Test that existing Authorization header is preserved and authentication is skipped."""
-    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        mcp_function = McpFunctionModel(
-            transport=TransportType.STREAMABLE_HTTP,
-            url="https://example.com",
-            headers={"Authorization": "Bearer existing_token"},
-            pat="test_pat",
-            workspace_host="https://test-workspace.cloud.databricks.com",
-        )
+    """Test that Authorization header can be stored in headers dict.
+    
+    Note: With unified auth (via DatabricksOAuthClientProvider), the Authorization
+    header in the headers dict is not used for authentication. Instead, the
+    workspace_client from IsDatabricksResource provides authentication.
+    
+    This test verifies that the model can store headers, but authentication
+    happens through the OAuth provider at invocation time.
+    """
+    mcp_function = McpFunctionModel(
+        transport=TransportType.STREAMABLE_HTTP,
+        url="https://example.com",
+        headers={"Authorization": "Bearer existing_token"},
+        pat="test_pat",
+        workspace_host="https://test-workspace.cloud.databricks.com",
+    )
 
-        # DatabricksProvider should not be called since Authorization header exists
-        mock_provider_class.assert_not_called()
-
-        # Existing header should be preserved
-        assert mcp_function.headers["Authorization"] == "Bearer existing_token"
+    # Header is stored in the model
+    assert mcp_function.headers["Authorization"] == "Bearer existing_token"
+    
+    # But authentication will happen via workspace_client at invocation time
+    # The stored header won't be used by _build_connection_config
 
 
 @pytest.mark.unit

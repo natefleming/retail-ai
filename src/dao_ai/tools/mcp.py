@@ -26,6 +26,7 @@ from loguru import logger
 from mcp.types import CallToolResult, TextContent, Tool
 
 from dao_ai.config import (
+    IsDatabricksResource,
     McpFunctionModel,
     TransportType,
     value_of,
@@ -143,11 +144,53 @@ def _should_include_tool(
     return True
 
 
+def _get_auth_resource(function: McpFunctionModel) -> IsDatabricksResource:
+    """
+    Get the IsDatabricksResource to use for authentication.
+    
+    Follows a priority hierarchy:
+    1. Explicit resource with auth (app, connection, genie_room, vector_search, functions)
+    2. McpFunctionModel itself (which also inherits from IsDatabricksResource)
+    
+    Returns the resource whose workspace_client should be used for authentication.
+    """
+    # Check each possible resource source in priority order
+    # These resources may have their own auth configured
+    if function.app:
+        return function.app
+    if function.connection:
+        return function.connection
+    if function.genie_room:
+        return function.genie_room
+    if function.vector_search:
+        return function.vector_search
+    if function.functions:
+        # SchemaModel doesn't have auth - fall through to McpFunctionModel
+        pass
+    
+    # Fall back to McpFunctionModel itself (it inherits from IsDatabricksResource)
+    return function
+
+
 def _build_connection_config(
     function: McpFunctionModel,
 ) -> dict[str, Any]:
     """
     Build the connection configuration dictionary for MultiServerMCPClient.
+    
+    Authentication Strategy:
+    -----------------------
+    For HTTP transport, authentication is handled consistently using 
+    DatabricksOAuthClientProvider with the workspace_client from the appropriate
+    IsDatabricksResource. The auth resource is selected in this priority:
+    
+    1. Nested resource (app, connection, genie_room, vector_search) if it has auth
+    2. McpFunctionModel itself (inherits from IsDatabricksResource)
+    
+    This approach ensures:
+    - Consistent auth handling across all MCP sources
+    - Automatic token refresh for long-running connections
+    - Support for OBO, service principal, PAT, and ambient auth
 
     Args:
         function: The MCP function model configuration.
@@ -162,52 +205,28 @@ def _build_connection_config(
             "transport": function.transport.value,
         }
 
-    # For HTTP transport with UC Connection, use DatabricksOAuthClientProvider
-    if function.connection:
-        from databricks_mcp import DatabricksOAuthClientProvider
-
-        workspace_client = function.connection.workspace_client
-        auth_provider = DatabricksOAuthClientProvider(workspace_client)
-
-        logger.trace(
-            "Using DatabricksOAuthClientProvider for authentication",
-            connection_name=function.connection.name,
-        )
-
-        return {
-            "url": function.mcp_url,
-            "transport": "http",
-            "auth": auth_provider,
-        }
-
-    # For HTTP transport with headers-based authentication
-    headers: dict[str, str] = {
-        key: str(value_of(val)) for key, val in function.headers.items()
-    }
-
-    if "Authorization" not in headers:
-        logger.trace("Generating fresh authentication token")
-
-        from dao_ai.providers.databricks import DatabricksProvider
-
-        try:
-            provider = DatabricksProvider(
-                workspace_host=value_of(function.workspace_host),
-                client_id=value_of(function.client_id),
-                client_secret=value_of(function.client_secret),
-                pat=value_of(function.pat),
-            )
-            headers["Authorization"] = f"Bearer {provider.create_token()}"
-            logger.trace("Generated fresh authentication token")
-        except Exception as e:
-            logger.error("Failed to create fresh token", error=str(e))
-    else:
-        logger.trace("Using existing authentication token")
+    # For HTTP transport, use DatabricksOAuthClientProvider with unified auth
+    from databricks_mcp import DatabricksOAuthClientProvider
+    
+    # Get the resource to use for authentication
+    auth_resource = _get_auth_resource(function)
+    
+    # Get workspace client from the auth resource
+    workspace_client = auth_resource.workspace_client
+    auth_provider = DatabricksOAuthClientProvider(workspace_client)
+    
+    # Log which resource is providing auth
+    resource_name = getattr(auth_resource, 'name', None) or auth_resource.__class__.__name__
+    logger.trace(
+        "Using DatabricksOAuthClientProvider for authentication",
+        auth_resource=resource_name,
+        resource_type=auth_resource.__class__.__name__,
+    )
 
     return {
         "url": function.mcp_url,
         "transport": "http",
-        "headers": headers,
+        "auth": auth_provider,
     }
 
 
