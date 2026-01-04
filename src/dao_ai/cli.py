@@ -7,7 +7,7 @@ import sys
 import traceback
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from dotenv import find_dotenv, load_dotenv
 from loguru import logger
@@ -114,6 +114,7 @@ Examples:
   dao-ai validate -c config/model_config.yaml            # Validate a specific configuration file
   dao-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
   dao-ai chat -c config/retail.yaml --custom-input store_num=87887  # Start interactive chat session
+  dao-ai list-mcp-tools -c config/mcp_config.yaml --apply-filters  # List filtered MCP tools only
   dao-ai validate                                        # Validate with detailed logging
   dao-ai bundle --deploy                                 # Deploy the DAO AI asset bundle
         """,
@@ -307,6 +308,53 @@ Examples:
         required=True,
         metavar="FILE",
         help="Path to the model configuration file to validate",
+    )
+
+    # List MCP tools command
+    list_mcp_parser: ArgumentParser = subparsers.add_parser(
+        "list-mcp-tools",
+        help="List available MCP tools from configuration",
+        description="""
+List all available MCP tools from the configured MCP servers.
+This command shows:
+- All MCP servers/functions in the configuration
+- Available tools from each server
+- Full descriptions for each tool (no truncation)
+- Tool parameters in readable format (type, required/optional, descriptions)
+- Which tools are included/excluded based on filters
+- Filter patterns (include_tools, exclude_tools)
+
+Use this command to:
+- Discover available tools before configuring agents
+- Review tool descriptions and parameter schemas
+- Debug tool filtering configuration
+- Verify MCP server connectivity
+
+Options:
+- Use --apply-filters to only show tools that will be loaded (hides excluded tools)
+- Without --apply-filters, see all available tools with include/exclude status
+
+Note: Schemas are displayed in a concise, readable format instead of verbose JSON
+        """,
+        epilog="""Examples:
+  dao-ai list-mcp-tools -c config/model_config.yaml
+  dao-ai list-mcp-tools -c config/model_config.yaml --apply-filters
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    list_mcp_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default="./config/model_config.yaml",
+        required=False,
+        metavar="FILE",
+        help="Path to the model configuration file (default: ./config/model_config.yaml)",
+    )
+    list_mcp_parser.add_argument(
+        "--apply-filters",
+        action="store_true",
+        help="Only show tools that pass include/exclude filters (hide excluded tools)",
     )
 
     chat_parser: ArgumentParser = subparsers.add_parser(
@@ -704,6 +752,275 @@ def handle_validate_command(options: Namespace) -> None:
         sys.exit(1)
 
 
+def _format_schema_pretty(schema: dict[str, Any], indent: int = 0) -> str:
+    """
+    Format a JSON schema in a more readable, concise format.
+
+    Args:
+        schema: The JSON schema to format
+        indent: Current indentation level
+
+    Returns:
+        Pretty-formatted schema string
+    """
+    if not schema:
+        return ""
+
+    lines: list[str] = []
+    indent_str = "  " * indent
+
+    # Get required fields
+    required_fields = set(schema.get("required", []))
+
+    # Handle object type with properties
+    if schema.get("type") == "object" and "properties" in schema:
+        properties = schema["properties"]
+
+        for prop_name, prop_schema in properties.items():
+            is_required = prop_name in required_fields
+            req_marker = " (required)" if is_required else " (optional)"
+
+            prop_type = prop_schema.get("type", "any")
+            prop_desc = prop_schema.get("description", "")
+
+            # Handle different types
+            if prop_type == "array":
+                items = prop_schema.get("items", {})
+                item_type = items.get("type", "any")
+                type_str = f"array<{item_type}>"
+            elif prop_type == "object":
+                type_str = "object"
+            else:
+                type_str = prop_type
+
+            # Format enum values if present
+            if "enum" in prop_schema:
+                enum_values = ", ".join(str(v) for v in prop_schema["enum"])
+                type_str = f"{type_str} (one of: {enum_values})"
+
+            # Build the line
+            line = f"{indent_str}{prop_name}: {type_str}{req_marker}"
+            if prop_desc:
+                line += f"\n{indent_str}  └─ {prop_desc}"
+
+            lines.append(line)
+
+            # Recursively handle nested objects
+            if prop_type == "object" and "properties" in prop_schema:
+                nested = _format_schema_pretty(prop_schema, indent + 1)
+                if nested:
+                    lines.append(nested)
+
+    # Handle simple types without properties
+    elif "type" in schema:
+        schema_type = schema["type"]
+        if schema.get("description"):
+            lines.append(f"{indent_str}Type: {schema_type}")
+            lines.append(f"{indent_str}└─ {schema['description']}")
+        else:
+            lines.append(f"{indent_str}Type: {schema_type}")
+
+    return "\n".join(lines)
+
+
+def handle_list_mcp_tools_command(options: Namespace) -> None:
+    """
+    List available MCP tools from configuration.
+
+    Shows all MCP servers and their available tools, indicating which
+    are included/excluded based on filter configuration.
+    """
+    logger.debug(f"Listing MCP tools from configuration: {options.config}")
+
+    try:
+        from dao_ai.config import McpFunctionModel
+        from dao_ai.tools.mcp import MCPToolInfo, _matches_pattern, list_mcp_tools
+
+        # Load configuration
+        config: AppConfig = AppConfig.from_file(options.config)
+
+        # Find all MCP tools in configuration
+        mcp_tools_config: list[tuple[str, McpFunctionModel]] = []
+        if config.tools:
+            for tool_name, tool_model in config.tools.items():
+                logger.debug(
+                    f"Checking tool: {tool_name}, function type: {type(tool_model.function)}"
+                )
+                if tool_model.function and isinstance(
+                    tool_model.function, McpFunctionModel
+                ):
+                    mcp_tools_config.append((tool_name, tool_model.function))
+
+        if not mcp_tools_config:
+            logger.warning("No MCP tools found in configuration")
+            print("\n⚠️  No MCP tools configured in this file.")
+            print(f"   Configuration: {options.config}")
+            print(
+                "\nTo add MCP tools, define them in the 'tools' section with 'type: mcp'"
+            )
+            sys.exit(0)
+
+        # Collect all results first (aggregate before displaying)
+        results: list[dict[str, Any]] = []
+        for tool_name, mcp_function in mcp_tools_config:
+            result = {
+                "tool_name": tool_name,
+                "mcp_function": mcp_function,
+                "error": None,
+                "all_tools": [],
+                "included_tools": [],
+                "excluded_tools": [],
+            }
+
+            try:
+                logger.info(f"Connecting to MCP server: {mcp_function.mcp_url}")
+
+                # Get all available tools (unfiltered)
+                all_tools: list[MCPToolInfo] = list_mcp_tools(
+                    mcp_function, apply_filters=False
+                )
+
+                # Get filtered tools (what will actually be loaded)
+                filtered_tools: list[MCPToolInfo] = list_mcp_tools(
+                    mcp_function, apply_filters=True
+                )
+
+                included_names = {t.name for t in filtered_tools}
+
+                # Categorize tools
+                for tool in sorted(all_tools, key=lambda t: t.name):
+                    if tool.name in included_names:
+                        result["included_tools"].append(tool)
+                    else:
+                        # Determine why it was excluded
+                        reason = ""
+                        if mcp_function.exclude_tools:
+                            if _matches_pattern(tool.name, mcp_function.exclude_tools):
+                                matching_patterns = [
+                                    p
+                                    for p in mcp_function.exclude_tools
+                                    if _matches_pattern(tool.name, [p])
+                                ]
+                                reason = f" (matches exclude pattern: {', '.join(matching_patterns)})"
+                        if not reason and mcp_function.include_tools:
+                            reason = " (not in include list)"
+                        result["excluded_tools"].append((tool, reason))
+
+                result["all_tools"] = all_tools
+
+            except KeyboardInterrupt:
+                result["error"] = "Connection interrupted by user"
+                results.append(result)
+                break
+            except Exception as e:
+                logger.error(f"Failed to list tools from MCP server: {e}")
+                result["error"] = str(e)
+
+            results.append(result)
+
+        # Now display all results at once (no logging interleaving)
+        print(f"\n{'=' * 80}")
+        print("MCP TOOLS DISCOVERY")
+        print(f"Configuration: {options.config}")
+        print(f"{'=' * 80}\n")
+
+        for result in results:
+            tool_name = result["tool_name"]
+            mcp_function = result["mcp_function"]
+
+            print(f"📦 Tool: {tool_name}")
+            print(f"   Server: {mcp_function.mcp_url}")
+
+            # Show connection type
+            if mcp_function.connection:
+                print(f"   Connection: UC Connection '{mcp_function.connection.name}'")
+            else:
+                print(f"   Transport: {mcp_function.transport.value}")
+
+            # Show filters if configured
+            if mcp_function.include_tools or mcp_function.exclude_tools:
+                print("\n   Filters:")
+                if mcp_function.include_tools:
+                    print(f"     Include: {', '.join(mcp_function.include_tools)}")
+                if mcp_function.exclude_tools:
+                    print(f"     Exclude: {', '.join(mcp_function.exclude_tools)}")
+
+            # Check for errors
+            if result["error"]:
+                print(f"\n   ❌ Error: {result['error']}")
+                print("   Could not connect to MCP server")
+                if result["error"] != "Connection interrupted by user":
+                    print(
+                        "   Tip: Verify server URL, authentication, and network connectivity"
+                    )
+            else:
+                all_tools = result["all_tools"]
+                included_tools = result["included_tools"]
+                excluded_tools = result["excluded_tools"]
+
+                # Show stats based on --apply-filters flag
+                if options.apply_filters:
+                    # Simplified view: only show filtered tools count
+                    print(
+                        f"\n   Available Tools: {len(included_tools)} (after filters)"
+                    )
+                else:
+                    # Full view: show all, included, and excluded counts
+                    print(f"\n   Available Tools: {len(all_tools)} total")
+                    print(f"   ├─ ✓ Included: {len(included_tools)}")
+                    print(f"   └─ ✗ Excluded: {len(excluded_tools)}")
+
+                # Show included tools with FULL descriptions and schemas
+                if included_tools:
+                    if options.apply_filters:
+                        print(f"\n   Tools ({len(included_tools)}):")
+                    else:
+                        print(f"\n   ✓ Included Tools ({len(included_tools)}):")
+
+                    for tool in included_tools:
+                        print(f"\n     • {tool.name}")
+                        if tool.description:
+                            # Show full description (no truncation)
+                            print(f"       Description: {tool.description}")
+                        if tool.input_schema:
+                            # Pretty print schema in readable format
+                            print("       Parameters:")
+                            pretty_schema = _format_schema_pretty(
+                                tool.input_schema, indent=0
+                            )
+                            if pretty_schema:
+                                # Indent the schema for better readability
+                                for line in pretty_schema.split("\n"):
+                                    print(f"         {line}")
+                            else:
+                                print("         (none)")
+
+                # Show excluded tools only if NOT applying filters
+                if excluded_tools and not options.apply_filters:
+                    print(f"\n   ✗ Excluded Tools ({len(excluded_tools)}):")
+                    for tool, reason in excluded_tools:
+                        print(f"     • {tool.name}{reason}")
+
+            print(f"\n{'-' * 80}\n")
+
+        # Summary
+        print(f"{'=' * 80}")
+        print(f"Summary: Found {len(mcp_tools_config)} MCP server(s)")
+        print(f"{'=' * 80}\n")
+
+        sys.exit(0)
+
+    except FileNotFoundError:
+        logger.error(f"Configuration file not found: {options.config}")
+        print(f"\n❌ Error: Configuration file not found: {options.config}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to list MCP tools: {e}")
+        logger.debug(traceback.format_exc())
+        print(f"\n❌ Error: {e}")
+        sys.exit(1)
+
+
 def setup_logging(verbosity: int) -> None:
     levels: dict[int, str] = {
         0: "ERROR",
@@ -925,6 +1242,8 @@ def main() -> None:
             handle_deploy_command(options)
         case "chat":
             handle_chat_command(options)
+        case "list-mcp-tools":
+            handle_list_mcp_tools_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")
             sys.exit(1)

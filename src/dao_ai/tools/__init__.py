@@ -4,7 +4,7 @@ from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.core import create_tools, say_hello_tool
 from dao_ai.tools.email import create_send_email_tool
 from dao_ai.tools.genie import create_genie_tool
-from dao_ai.tools.mcp import create_mcp_tools
+from dao_ai.tools.mcp import MCPToolInfo, create_mcp_tools, list_mcp_tools
 from dao_ai.tools.memory import create_search_memory_tool
 from dao_ai.tools.python import create_factory_tool, create_python_tool
 from dao_ai.tools.search import create_search_tool
@@ -30,6 +30,8 @@ __all__ = [
     "create_genie_tool",
     "create_hooks",
     "create_mcp_tools",
+    "list_mcp_tools",
+    "MCPToolInfo",
     "create_python_tool",
     "create_search_memory_tool",
     "create_search_tool",

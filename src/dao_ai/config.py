@@ -391,9 +391,16 @@ class PermissionModel(BaseModel):
 
 class SchemaModel(BaseModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    catalog_name: str
-    schema_name: str
+    catalog_name: AnyVariable
+    schema_name: AnyVariable
     permissions: Optional[list[PermissionModel]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def resolve_variables(self) -> Self:
+        """Resolve AnyVariable fields to their actual string values."""
+        self.catalog_name = value_of(self.catalog_name)
+        self.schema_name = value_of(self.schema_name)
+        return self
 
     @property
     def full_name(self) -> str:
@@ -410,7 +417,13 @@ class SchemaModel(BaseModel, HasFullName):
 class DatabricksAppModel(IsDatabricksResource, HasFullName):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    url: str
+    url: AnyVariable
+
+    @model_validator(mode="after")
+    def resolve_variables(self) -> Self:
+        """Resolve AnyVariable fields to their actual string values."""
+        self.url = value_of(self.url)
+        return self
 
     @property
     def full_name(self) -> str:
@@ -1845,6 +1858,26 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     genie_room: Optional[GenieRoomModel] = None
     sql: Optional[bool] = None
     vector_search: Optional[VectorStoreModel] = None
+    # Tool filtering
+    include_tools: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Optional list of tool names or glob patterns to include from the MCP server. "
+            "If specified, only tools matching these patterns will be loaded. "
+            "Supports glob patterns: * (any chars), ? (single char), [abc] (char set). "
+            "Examples: ['execute_query', 'list_*', 'get_?_data']"
+        ),
+    )
+    exclude_tools: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Optional list of tool names or glob patterns to exclude from the MCP server. "
+            "Tools matching these patterns will not be loaded. "
+            "Takes precedence over include_tools. "
+            "Supports glob patterns: * (any chars), ? (single char), [abc] (char set). "
+            "Examples: ['drop_*', 'delete_*', 'execute_ddl']"
+        ),
+    )
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -2018,6 +2051,26 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     def update_headers(self) -> "McpFunctionModel":
         for key, value in self.headers.items():
             self.headers[key] = value_of(value)
+        return self
+
+    @model_validator(mode="after")
+    def validate_tool_filters(self) -> "McpFunctionModel":
+        """Validate tool filter configuration."""
+        from loguru import logger
+
+        # Warn if both are empty lists (explicit but pointless)
+        if self.include_tools is not None and len(self.include_tools) == 0:
+            logger.warning(
+                "include_tools is empty list - no tools will be loaded. "
+                "Remove field to load all tools."
+            )
+
+        if self.exclude_tools is not None and len(self.exclude_tools) == 0:
+            logger.warning(
+                "exclude_tools is empty list - has no effect. "
+                "Remove field or add patterns."
+            )
+
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
