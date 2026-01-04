@@ -1196,6 +1196,7 @@
     },
     "DatabricksAppModel": {
       "additionalProperties": false,
+      "description": "Configuration for a Databricks App resource.\n\nThe `name` is the unique instance name of the Databricks App within the workspace.\nThe `url` is dynamically retrieved from the workspace client by calling \n`apps.get(name)` and returning the app's URL.\n\nExample:\n    ```yaml\n    resources:\n      apps:\n        my_app:\n          name: my-databricks-app\n    ```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1355,40 +1356,10 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
-        "url": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            }
-          ],
-          "title": "Url"
         }
       },
       "required": [
-        "name",
-        "url"
+        "name"
       ],
       "title": "DatabricksAppModel",
       "type": "object"
@@ -2934,6 +2905,17 @@
           },
           "title": "Args",
           "type": "array"
+        },
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabricksAppModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "connection": {
           "anyOf": [
