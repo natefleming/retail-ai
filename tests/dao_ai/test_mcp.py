@@ -1,11 +1,12 @@
 import os
 from typing import Sequence
+from unittest.mock import Mock
 
 import pytest
 from langchain_core.tools import BaseTool
 from pydantic import ValidationError
 
-from dao_ai.config import ConnectionModel, McpFunctionModel, SchemaModel, TransportType
+from dao_ai.config import ConnectionModel, DatabricksAppModel, McpFunctionModel, SchemaModel, TransportType
 
 
 @pytest.mark.integration
@@ -195,7 +196,7 @@ def test_mcp_function_validation_requires_url_or_connection():
     # Should raise ValueError when no URL source is provided
     with pytest.raises(
         ValidationError,
-        match="exactly one of the following must be provided: url, connection, genie_room, sql, vector_search, or functions",
+        match="url, app, connection, genie_room, sql, vector_search, or functions",
     ):
         McpFunctionModel(
             transport=TransportType.STREAMABLE_HTTP,
@@ -228,3 +229,46 @@ def test_mcp_function_with_connection_only():
     assert "mcp.external" in connection.api_scopes
     assert "catalog.connections" in connection.api_scopes
     assert "serving.serving-endpoints" in connection.api_scopes
+
+
+def test_mcp_function_with_databricks_app():
+    """Test that MCP function model can use a Databricks App as URL source."""
+    # Create a mock app response
+    mock_app = Mock()
+    mock_app.url = "https://my-mcp-server.cloud.databricks.com"
+
+    # Create mock workspace client
+    mock_ws = Mock()
+    mock_ws.apps.get.return_value = mock_app
+
+    # Create DatabricksAppModel and inject mock
+    app_model = DatabricksAppModel(name="my-mcp-server")
+    app_model._workspace_client = mock_ws
+
+    # Create MCP function model using the app
+    mcp_function_model = McpFunctionModel(
+        app=app_model,
+    )
+
+    # Verify the model was created correctly
+    assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
+    assert mcp_function_model.app is not None
+    assert mcp_function_model.app.name == "my-mcp-server"
+    assert mcp_function_model.url is None  # URL is retrieved from app
+
+    # Verify the mcp_url property returns the app's URL
+    assert mcp_function_model.mcp_url == "https://my-mcp-server.cloud.databricks.com"
+
+    # Verify the workspace client was called correctly
+    mock_ws.apps.get.assert_called_once_with("my-mcp-server")
+
+
+def test_mcp_function_with_databricks_app_and_url_mutually_exclusive():
+    """Test that app and url cannot be provided together."""
+    app_model = DatabricksAppModel(name="my-app")
+
+    with pytest.raises(ValidationError, match="only one URL source can be provided"):
+        McpFunctionModel(
+            url="https://example.com/mcp",
+            app=app_model,
+        )

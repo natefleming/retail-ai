@@ -24,6 +24,7 @@ from databricks.sdk.credentials_provider import (
     ModelServingUserCredentials,
 )
 from databricks.sdk.errors.platform import NotFound
+from databricks.sdk.service.apps import App
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieSpace
 from databricks.sdk.service.database import DatabaseInstance
@@ -147,7 +148,7 @@ class PrimitiveVariableModel(BaseModel, HasValue):
         return str(value)
 
     @model_validator(mode="after")
-    def validate_value(self) -> "PrimitiveVariableModel":
+    def validate_value(self) -> Self:
         if not isinstance(self.as_value(), (str, int, float, bool)):
             raise ValueError("Value must be a primitive type (str, int, float, bool)")
         return self
@@ -415,15 +416,45 @@ class SchemaModel(BaseModel, HasFullName):
 
 
 class DatabricksAppModel(IsDatabricksResource, HasFullName):
+    """
+    Configuration for a Databricks App resource.
+    
+    The `name` is the unique instance name of the Databricks App within the workspace.
+    The `url` is dynamically retrieved from the workspace client by calling 
+    `apps.get(name)` and returning the app's URL.
+    
+    Example:
+        ```yaml
+        resources:
+          apps:
+            my_app:
+              name: my-databricks-app
+        ```
+    """
+    
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    url: AnyVariable
+    """The unique instance name of the Databricks App in the workspace."""
 
-    @model_validator(mode="after")
-    def resolve_variables(self) -> Self:
-        """Resolve AnyVariable fields to their actual string values."""
-        self.url = value_of(self.url)
-        return self
+    @property
+    def url(self) -> str:
+        """
+        Retrieve the URL of the Databricks App from the workspace.
+        
+        Returns:
+            The URL of the deployed Databricks App.
+            
+        Raises:
+            RuntimeError: If the app is not found or URL is not available.
+        """
+        app: App = self.workspace_client.apps.get(self.name)
+        if app.url is None:
+            raise RuntimeError(
+                f"Databricks App '{self.name}' does not have a URL. "
+                "The app may not be deployed yet."
+            )
+        return app.url
+
 
     @property
     def full_name(self) -> str:
@@ -445,7 +476,7 @@ class TableModel(IsDatabricksResource, HasFullName):
     name: Optional[str] = None
 
     @model_validator(mode="after")
-    def validate_name_or_schema_required(self) -> "TableModel":
+    def validate_name_or_schema_required(self) -> Self:
         if not self.name and not self.schema_model:
             raise ValueError(
                 "Either 'name' or 'schema_model' must be provided for TableModel"
@@ -1011,7 +1042,7 @@ class VolumePathModel(BaseModel, HasFullName):
     path: Optional[str] = None
 
     @model_validator(mode="after")
-    def validate_path_or_volume(self) -> "VolumePathModel":
+    def validate_path_or_volume(self) -> Self:
         if not self.volume and not self.path:
             raise ValueError("Either 'volume' or 'path' must be provided")
         return self
@@ -1853,6 +1884,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     headers: dict[str, AnyVariable] = Field(default_factory=dict)
     args: list[str] = Field(default_factory=list)
     # MCP-specific fields
+    app: Optional[DatabricksAppModel] = None
     connection: Optional[ConnectionModel] = None
     functions: Optional[SchemaModel] = None
     genie_room: Optional[GenieRoomModel] = None
@@ -1940,6 +1972,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
 
         Returns the URL based on the configured source:
         - If url is set, returns it directly
+        - If app is set, retrieves URL from Databricks App via workspace client
         - If connection is set, constructs URL from connection
         - If genie_room is set, constructs Genie MCP URL
         - If sql is set, constructs DBSQL MCP URL (serverless)
@@ -1952,6 +1985,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         - Vector Search: https://{host}/api/2.0/mcp/vector-search/{catalog}/{schema}
         - UC Functions: https://{host}/api/2.0/mcp/functions/{catalog}/{schema}
         - Connection: https://{host}/api/2.0/mcp/external/{connection_name}
+        - Databricks App: Retrieved dynamically from workspace
         """
         # Direct URL provided
         if self.url:
@@ -1973,6 +2007,10 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         # DBSQL MCP server (serverless, workspace-level)
         if self.sql:
             return f"{workspace_host}/api/2.0/mcp/sql"
+        
+        # Databricks App
+        if self.app:
+            return self.app.url
 
         # Vector Search
         if self.vector_search:
@@ -1983,33 +2021,35 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
                 raise ValueError(
                     "vector_search must have an index with a schema (catalog/schema) configured"
                 )
-            catalog: str = self.vector_search.index.schema_model.catalog_name
-            schema: str = self.vector_search.index.schema_model.schema_name
+            catalog: str = value_of(self.vector_search.index.schema_model.catalog_name)
+            schema: str = value_of(self.vector_search.index.schema_model.schema_name)
             return f"{workspace_host}/api/2.0/mcp/vector-search/{catalog}/{schema}"
 
         # UC Functions MCP server
         if self.functions:
-            catalog: str = self.functions.catalog_name
-            schema: str = self.functions.schema_name
+            catalog: str = value_of(self.functions.catalog_name)
+            schema: str = value_of(self.functions.schema_name)
             return f"{workspace_host}/api/2.0/mcp/functions/{catalog}/{schema}"
 
         raise ValueError(
-            "No URL source configured. Provide one of: url, connection, genie_room, "
+            "No URL source configured. Provide one of: url, app, connection, genie_room, "
             "sql, vector_search, or functions"
         )
 
     @field_serializer("transport")
-    def serialize_transport(self, value) -> str:
+    def serialize_transport(self, value: TransportType) -> str:
+        """Serialize transport enum to string."""
         if isinstance(value, TransportType):
             return value.value
         return str(value)
 
     @model_validator(mode="after")
-    def validate_mutually_exclusive(self) -> "McpFunctionModel":
+    def validate_mutually_exclusive(self) -> Self:
         """Validate that exactly one URL source is provided."""
         # Count how many URL sources are provided
         url_sources: list[tuple[str, Any]] = [
             ("url", self.url),
+            ("app", self.app),
             ("connection", self.connection),
             ("genie_room", self.genie_room),
             ("sql", self.sql),
@@ -2025,13 +2065,13 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             if len(provided_sources) == 0:
                 raise ValueError(
                     "For STREAMABLE_HTTP transport, exactly one of the following must be provided: "
-                    "url, connection, genie_room, sql, vector_search, or functions"
+                    "url, app, connection, genie_room, sql, vector_search, or functions"
                 )
             if len(provided_sources) > 1:
                 raise ValueError(
                     f"For STREAMABLE_HTTP transport, only one URL source can be provided. "
                     f"Found: {', '.join(provided_sources)}. "
-                    f"Please provide only one of: url, connection, genie_room, sql, vector_search, or functions"
+                    f"Please provide only one of: url, app, connection, genie_room, sql, vector_search, or functions"
                 )
 
         if self.transport == TransportType.STDIO:
@@ -2043,18 +2083,25 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         return self
 
     @model_validator(mode="after")
-    def update_url(self) -> "McpFunctionModel":
-        self.url = value_of(self.url)
+    def update_url(self) -> Self:
+        """Resolve AnyVariable to concrete value for URL."""
+        if self.url is not None:
+            resolved_value: Any = value_of(self.url)
+            # Cast to string since URL must be a string
+            self.url = str(resolved_value) if resolved_value else None
         return self
 
     @model_validator(mode="after")
-    def update_headers(self) -> "McpFunctionModel":
+    def update_headers(self) -> Self:
+        """Resolve AnyVariable to concrete values for headers."""
         for key, value in self.headers.items():
-            self.headers[key] = value_of(value)
+            resolved_value: Any = value_of(value)
+            # Headers must be strings
+            self.headers[key] = str(resolved_value) if resolved_value else ""
         return self
 
     @model_validator(mode="after")
-    def validate_tool_filters(self) -> "McpFunctionModel":
+    def validate_tool_filters(self) -> Self:
         """Validate tool filter configuration."""
         from loguru import logger
 

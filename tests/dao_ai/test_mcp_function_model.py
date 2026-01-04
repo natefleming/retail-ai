@@ -1,10 +1,13 @@
 """Unit tests for McpFunctionModel convenience objects and validation."""
 
+from unittest.mock import Mock
+
 import pytest
 from pydantic import ValidationError
 
 from dao_ai.config import (
     ConnectionModel,
+    DatabricksAppModel,
     FunctionType,
     GenieRoomModel,
     IndexModel,
@@ -22,7 +25,7 @@ class TestMcpFunctionModelValidation:
     def test_no_url_source_raises_error(self):
         """Test that missing URL source raises validation error."""
         with pytest.raises(
-            ValidationError, match="exactly one of the following must be provided"
+            ValidationError, match="url, app, connection, genie_room, sql, vector_search, or functions"
         ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
@@ -330,3 +333,135 @@ class TestMcpFunctionModelAuthValidation:
             workspace_host="https://workspace.com",
         )
         assert model.pat == "personal_access_token"
+
+
+class TestDatabricksAppModel:
+    """Tests for DatabricksAppModel resource configuration."""
+
+    def test_app_model_creation(self):
+        """Test that DatabricksAppModel can be created with name."""
+        app = DatabricksAppModel(name="my-test-app")
+        assert app.name == "my-test-app"
+
+    def test_app_model_full_name(self):
+        """Test that full_name returns the app name."""
+        app = DatabricksAppModel(name="my-test-app")
+        assert app.full_name == "my-test-app"
+
+    def test_app_model_api_scopes(self):
+        """Test that api_scopes includes apps.apps."""
+        app = DatabricksAppModel(name="my-test-app")
+        assert "apps.apps" in app.api_scopes
+
+    def test_app_model_url_retrieves_from_workspace(self):
+        """Test that url property retrieves URL from workspace client."""
+        # Create a mock app response
+        mock_app = Mock()
+        mock_app.url = "https://my-test-app-123.cloud.databricks.com"
+
+        # Create mock workspace client
+        mock_ws = Mock()
+        mock_ws.apps.get.return_value = mock_app
+
+        # Create DatabricksAppModel and inject mock
+        app_model = DatabricksAppModel(name="my-test-app")
+        app_model._workspace_client = mock_ws
+
+        # Test URL retrieval
+        url = app_model.url
+        assert url == "https://my-test-app-123.cloud.databricks.com"
+        mock_ws.apps.get.assert_called_once_with("my-test-app")
+
+    def test_app_model_url_raises_when_not_deployed(self):
+        """Test that url property raises RuntimeError when app has no URL."""
+        # Create a mock app response without URL
+        mock_app = Mock()
+        mock_app.url = None
+
+        # Create mock workspace client
+        mock_ws = Mock()
+        mock_ws.apps.get.return_value = mock_app
+
+        # Create DatabricksAppModel and inject mock
+        app_model = DatabricksAppModel(name="undeployed-app")
+        app_model._workspace_client = mock_ws
+
+        # Test URL retrieval raises error
+        with pytest.raises(RuntimeError, match="does not have a URL"):
+            _ = app_model.url
+
+
+class TestMcpFunctionModelWithApp:
+    """Tests for McpFunctionModel using DatabricksAppModel as URL source."""
+
+    def test_app_as_url_source(self):
+        """Test that app can be used as URL source."""
+        # Create a mock app with URL
+        mock_app = Mock()
+        mock_app.url = "https://my-mcp-app.cloud.databricks.com"
+
+        # Create mock workspace client
+        mock_ws = Mock()
+        mock_ws.apps.get.return_value = mock_app
+
+        # Create DatabricksAppModel and inject mock
+        app_model = DatabricksAppModel(name="my-mcp-app")
+        app_model._workspace_client = mock_ws
+
+        # Create McpFunctionModel with app source
+        mcp_model = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            app=app_model,
+        )
+
+        assert mcp_model.app is not None
+        assert mcp_model.app.name == "my-mcp-app"
+        assert mcp_model.mcp_url == "https://my-mcp-app.cloud.databricks.com"
+
+    def test_app_mutually_exclusive_with_url(self):
+        """Test that app and url cannot be provided together."""
+        app_model = DatabricksAppModel(name="my-app")
+
+        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+            McpFunctionModel(
+                transport=TransportType.STREAMABLE_HTTP,
+                url="https://example.com/mcp",
+                app=app_model,
+            )
+
+    def test_app_mutually_exclusive_with_connection(self):
+        """Test that app and connection cannot be provided together."""
+        app_model = DatabricksAppModel(name="my-app")
+        connection = ConnectionModel(name="my-connection")
+
+        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+            McpFunctionModel(
+                transport=TransportType.STREAMABLE_HTTP,
+                app=app_model,
+                connection=connection,
+            )
+
+    def test_app_mutually_exclusive_with_genie_room(self):
+        """Test that app and genie_room cannot be provided together."""
+        app_model = DatabricksAppModel(name="my-app")
+        genie_room = GenieRoomModel(name="my-genie", space_id="space_123")
+
+        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+            McpFunctionModel(
+                transport=TransportType.STREAMABLE_HTTP,
+                app=app_model,
+                genie_room=genie_room,
+                workspace_host="https://workspace.com",
+            )
+
+    def test_app_mutually_exclusive_with_sql(self):
+        """Test that app and sql cannot be provided together."""
+        app_model = DatabricksAppModel(name="my-app")
+
+        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+            McpFunctionModel(
+                transport=TransportType.STREAMABLE_HTTP,
+                app=app_model,
+                sql=True,
+                workspace_host="https://workspace.com",
+            )
