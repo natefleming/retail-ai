@@ -126,7 +126,7 @@ def create_tool_call_limit_middleware(
     thread_limit: int | None = None,
     run_limit: int | None = None,
     exit_behavior: Literal["continue", "error", "end"] = "continue",
-) -> list[ToolCallLimitMiddleware]:
+) -> ToolCallLimitMiddleware:
     """
     Create a ToolCallLimitMiddleware with graceful termination support.
 
@@ -147,8 +147,8 @@ def create_tool_call_limit_middleware(
             - "end": Stop execution gracefully (single-tool only)
 
     Returns:
-        List of ToolCallLimitMiddleware instances. Contains one middleware for
-        global/string tool, or multiple if ToolModel produces multiple tools.
+        A ToolCallLimitMiddleware instance. If ToolModel produces multiple tools,
+        only the first tool is used (with a warning logged).
 
     Raises:
         ValueError: If no limits specified, or invalid dict
@@ -176,32 +176,35 @@ def create_tool_call_limit_middleware(
             run_limit=run_limit,
             exit_behavior=exit_behavior,
         )
-        return [
-            ToolCallLimitMiddleware(
-                thread_limit=thread_limit,
-                run_limit=run_limit,
-                exit_behavior=exit_behavior,
-            )
-        ]
+        return ToolCallLimitMiddleware(
+            thread_limit=thread_limit,
+            run_limit=run_limit,
+            exit_behavior=exit_behavior,
+        )
 
     # Resolve to list of tool names
     names = _resolve_tool(tool)
 
+    # Use first tool name (warn if multiple)
+    tool_name = names[0]
+    if len(names) > 1:
+        logger.warning(
+            "ToolModel resolved to multiple tool names, using first only",
+            tool_names=names,
+            using=tool_name,
+        )
+
     logger.debug(
         "Creating tool call limit middleware",
-        tool_names=names,
+        tool_name=tool_name,
         thread_limit=thread_limit,
         run_limit=run_limit,
         exit_behavior=exit_behavior,
     )
 
-    # Create middleware for each tool - always return list
-    return [
-        ToolCallLimitMiddleware(
-            tool_name=name,
-            thread_limit=thread_limit,
-            run_limit=run_limit,
-            exit_behavior=exit_behavior,
-        )
-        for name in names
-    ]
+    return ToolCallLimitMiddleware(
+        tool_name=tool_name,
+        thread_limit=thread_limit,
+        run_limit=run_limit,
+        exit_behavior=exit_behavior,
+    )

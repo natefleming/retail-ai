@@ -30,7 +30,7 @@ def create_model_call_limit_middleware(
     thread_limit: int | None = None,
     run_limit: int | None = None,
     exit_behavior: Literal["error", "end"] = "end",
-) -> list[ModelCallLimitMiddleware]:
+) -> ModelCallLimitMiddleware:
     """
     Create a ModelCallLimitMiddleware to limit LLM API calls.
 
@@ -70,10 +70,8 @@ def create_model_call_limit_middleware(
         exit_behavior=exit_behavior,
     )
 
-    return [
-        ModelCallLimitMiddleware(
-            thread_limit=thread_limit,
-            run_limit=run_limit,
-            exit_behavior=exit_behavior,
-        )
-    ]
+    return ModelCallLimitMiddleware(
+        thread_limit=thread_limit,
+        run_limit=run_limit,
+        exit_behavior=exit_behavior,
+    )

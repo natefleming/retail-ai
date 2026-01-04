@@ -35,7 +35,7 @@ def create_model_retry_middleware(
     jitter: bool = False,
     retry_on: tuple[type[Exception], ...] | Callable[[Exception], bool] | None = None,
     on_failure: Literal["continue", "error"] | Callable[[Exception], str] = "continue",
-) -> list[ModelRetryMiddleware]:
+) -> ModelRetryMiddleware:
     """
     Create a ModelRetryMiddleware for automatic model call retries.
 
@@ -118,4 +118,4 @@ def create_model_retry_middleware(
     if retry_on is not None:
         kwargs["retry_on"] = retry_on
 
-    return [ModelRetryMiddleware(**kwargs)]
+    return ModelRetryMiddleware(**kwargs)

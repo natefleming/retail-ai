@@ -55,16 +55,16 @@ class TestSummarizationMiddleware:
         self, base_app_model
     ):
         """Test that summarization middleware can be created with default parameters."""
-        middlewares = create_summarization_middleware(base_app_model.chat_history)
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        middleware = create_summarization_middleware(base_app_model.chat_history)
+        # Middleware is single instance
+        assert middleware is not None
 
     def test_summarization_middleware_with_max_tokens_only(self, mock_llm_model):
         """Test summarization middleware with only max_tokens parameter."""
         chat_history = ChatHistoryModel(model=mock_llm_model, max_tokens=512)
-        middlewares = create_summarization_middleware(chat_history)
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        middleware = create_summarization_middleware(chat_history)
+        # Middleware is single instance
+        assert middleware is not None
 
     def test_summarization_middleware_with_max_tokens_before_summary(
         self, mock_llm_model
@@ -73,9 +73,9 @@ class TestSummarizationMiddleware:
         chat_history = ChatHistoryModel(
             model=mock_llm_model, max_tokens=2048, max_tokens_before_summary=6000
         )
-        middlewares = create_summarization_middleware(chat_history)
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        middleware = create_summarization_middleware(chat_history)
+        # Middleware is single instance
+        assert middleware is not None
 
     def test_summarization_middleware_with_max_messages_before_summary(
         self, mock_llm_model
@@ -84,9 +84,9 @@ class TestSummarizationMiddleware:
         chat_history = ChatHistoryModel(
             model=mock_llm_model, max_tokens=2048, max_messages_before_summary=10
         )
-        middlewares = create_summarization_middleware(chat_history)
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        middleware = create_summarization_middleware(chat_history)
+        # Middleware is single instance
+        assert middleware is not None
 
     def test_summarization_middleware_with_all_parameters(self, mock_llm_model):
         """Test summarization middleware with all parameters configured."""
@@ -96,9 +96,9 @@ class TestSummarizationMiddleware:
             max_tokens_before_summary=6000,
             max_messages_before_summary=15,
         )
-        middlewares = create_summarization_middleware(chat_history)
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        middleware = create_summarization_middleware(chat_history)
+        # Middleware is single instance
+        assert middleware is not None
 
     def test_summarization_middleware_trigger_tokens(self, mock_llm_model):
         """Test that trigger uses tokens when max_tokens_before_summary is set."""
@@ -106,8 +106,8 @@ class TestSummarizationMiddleware:
             model=mock_llm_model, max_tokens=2048, max_tokens_before_summary=6000
         )
 
-        middlewares = create_summarization_middleware(chat_history)
-        middleware = middlewares[0]
+        middleware = create_summarization_middleware(chat_history)
+        middleware = middleware
 
         # Verify middleware has correct trigger
         assert middleware.trigger == ("tokens", 6000)
@@ -118,8 +118,8 @@ class TestSummarizationMiddleware:
             model=mock_llm_model, max_tokens=2048, max_messages_before_summary=10
         )
 
-        middlewares = create_summarization_middleware(chat_history)
-        middleware = middlewares[0]
+        middleware = create_summarization_middleware(chat_history)
+        middleware = middleware
 
         # Verify middleware has correct trigger
         assert middleware.trigger == ("messages", 10)
@@ -138,8 +138,8 @@ class TestSummarizationMiddleware:
             max_messages_before_summary=max_messages_before_summary,
         )
 
-        middlewares = create_summarization_middleware(chat_history)
-        middleware = middlewares[0]
+        middleware = create_summarization_middleware(chat_history)
+        middleware = middleware
 
         # Verify that max_tokens_before_summary is used when both are present
         assert middleware.trigger == ("tokens", max_tokens_before_summary)
@@ -154,8 +154,8 @@ class TestSummarizationMiddleware:
             max_tokens_before_summary=6000,
         )
 
-        middlewares = create_summarization_middleware(chat_history)
-        middleware = middlewares[0]
+        middleware = create_summarization_middleware(chat_history)
+        middleware = middleware
 
         # Verify keep is set to max_tokens
         assert middleware.keep == ("tokens", max_tokens)
@@ -248,16 +248,16 @@ class TestSummarizationMiddleware:
             max_messages_before_summary=1000,
         )
 
-        middlewares = create_summarization_middleware(chat_history)
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        middleware = create_summarization_middleware(chat_history)
+        # Middleware is single instance
+        assert middleware is not None
 
     def test_summarization_middleware_model_conversion(self, mock_llm_model):
         """Test that the LLM model is properly converted to chat model."""
         chat_history = ChatHistoryModel(model=mock_llm_model, max_tokens=2048)
 
-        middlewares = create_summarization_middleware(chat_history)
-        middleware = middlewares[0]
+        middleware = create_summarization_middleware(chat_history)
+        middleware = middleware
 
         # Verify that as_chat_model() was called on the LLM model
         mock_llm_model.as_chat_model.assert_called_once()
@@ -271,8 +271,8 @@ class TestSummarizationMiddleware:
 
         chat_history = ChatHistoryModel(model=mock_llm_model, max_tokens=max_tokens)
 
-        middlewares = create_summarization_middleware(chat_history)
-        middleware = middlewares[0]
+        middleware = create_summarization_middleware(chat_history)
+        middleware = middleware
 
         # Verify that trigger defaults to max_tokens * 10
         assert middleware.trigger == ("tokens", max_tokens * 10)

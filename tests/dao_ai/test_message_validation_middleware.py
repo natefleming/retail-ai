@@ -262,15 +262,15 @@ class TestCustomFieldValidationMiddleware:
 
     def test_factory_function(self) -> None:
         """Test create_custom_field_validation_middleware factory."""
-        middlewares = create_custom_field_validation_middleware(
+        middleware = create_custom_field_validation_middleware(
             fields=[
                 {"name": "store_num", "description": "Store", "example_value": "123"},
             ]
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, CustomFieldValidationMiddleware)
         assert len(middleware.fields) == 1
         assert middleware.fields[0].name == "store_num"

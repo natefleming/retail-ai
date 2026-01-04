@@ -88,7 +88,7 @@ def create_tool_retry_middleware(
     tools: list[str | ToolModel | dict[str, Any]] | None = None,
     retry_on: tuple[type[Exception], ...] | Callable[[Exception], bool] | None = None,
     on_failure: Literal["continue", "error"] | Callable[[Exception], str] = "continue",
-) -> list[ToolRetryMiddleware]:
+) -> ToolRetryMiddleware:
     """
     Create a ToolRetryMiddleware for automatic tool call retries.
 
@@ -171,4 +171,4 @@ def create_tool_retry_middleware(
     if retry_on is not None:
         kwargs["retry_on"] = retry_on
 
-    return [ToolRetryMiddleware(**kwargs)]
+    return ToolRetryMiddleware(**kwargs)

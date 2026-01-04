@@ -72,13 +72,11 @@ def _create_middleware_list(
             agent=agent.name,
             middleware_name=middleware_config.name,
         )
-        middlewares: list[AgentMiddleware[AgentState, Context]] = (
-            create_factory_middleware(
-                function_name=middleware_config.name,
-                args=middleware_config.args,
-            )
+        middleware: AgentMiddleware[AgentState, Context] = create_factory_middleware(
+            function_name=middleware_config.name,
+            args=middleware_config.args,
         )
-        middleware_list.extend(middlewares)
+        middleware_list.append(middleware)
 
     # Add guardrails as middleware
     if agent.guardrails:
@@ -116,8 +114,8 @@ def _create_middleware_list(
             max_tokens=chat_history.max_tokens,
             summary_model=chat_history.model.name,
         )
-        summarization_middlewares = create_summarization_middleware(chat_history)
-        middleware_list.extend(summarization_middlewares)
+        summarization_middleware = create_summarization_middleware(chat_history)
+        middleware_list.append(summarization_middleware)
 
     # Add human-in-the-loop middleware if any tools require it
     hitl_middlewares = create_hitl_middleware_from_tool_models(tool_models)
@@ -134,7 +132,7 @@ def _create_middleware_list(
             agent=agent.name,
             hitl_tools=hitl_tool_names,
         )
-        middleware_list.extend(hitl_middlewares)
+        middleware_list.append(hitl_middlewares)
 
     logger.info(
         "Middleware summary",

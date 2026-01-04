@@ -607,13 +607,6 @@ def handle_chat_command(options: Namespace) -> None:
                         # Find the last AI message
                         for msg in reversed(latest_messages):
                             if isinstance(msg, AIMessage):
-                                logger.debug(f"AI message content: {msg.content}")
-                                logger.debug(
-                                    f"AI message has tool_calls: {hasattr(msg, 'tool_calls')}"
-                                )
-                                if hasattr(msg, "tool_calls"):
-                                    logger.debug(f"Tool calls: {msg.tool_calls}")
-
                                 if hasattr(msg, "content") and msg.content:
                                     response_content = msg.content
                                     print(response_content, end="", flush=True)

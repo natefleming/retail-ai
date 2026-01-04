@@ -486,13 +486,13 @@ class TestFactoryFunctions:
         def check_length(response: str, ctx: dict[str, Any]) -> bool:
             return len(response) >= 10
 
-        middlewares = create_assert_middleware(
+        middleware = create_assert_middleware(
             constraint=check_length, max_retries=2, name="length_check"
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, AssertMiddleware)
         assert middleware.max_retries == 2
 
@@ -500,11 +500,11 @@ class TestFactoryFunctions:
         """Test creating AssertMiddleware with a Constraint object."""
         constraint = KeywordConstraint(required_keywords=["source"])
 
-        middlewares = create_assert_middleware(constraint=constraint, max_retries=3)
+        middleware = create_assert_middleware(constraint=constraint, max_retries=3)
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, AssertMiddleware)
         assert middleware.constraint is constraint
 
@@ -514,13 +514,13 @@ class TestFactoryFunctions:
         def is_polite(response: str, ctx: dict[str, Any]) -> bool:
             return "please" in response.lower() or "thank" in response.lower()
 
-        middlewares = create_suggest_middleware(
+        middleware = create_suggest_middleware(
             constraint=is_polite, allow_one_retry=True
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, SuggestMiddleware)
         assert middleware.allow_one_retry is True
 
@@ -530,13 +530,13 @@ class TestFactoryFunctions:
         def score_fn(response: str, ctx: dict[str, Any]) -> float:
             return 0.5
 
-        middlewares = create_refine_middleware(
+        middleware = create_refine_middleware(
             reward_fn=score_fn, threshold=0.9, max_iterations=5
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, RefineMiddleware)
         assert middleware.threshold == 0.9
         assert middleware.max_iterations == 5

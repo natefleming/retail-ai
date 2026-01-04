@@ -13,11 +13,11 @@ class TestCreateModelCallLimitMiddleware:
 
     def test_create_with_run_limit_only(self):
         """Test creating middleware with only run_limit specified."""
-        middlewares = create_model_call_limit_middleware(run_limit=5)
+        middleware = create_model_call_limit_middleware(run_limit=5)
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, ModelCallLimitMiddleware)
         assert middleware.run_limit == 5
         assert middleware.thread_limit is None
@@ -25,11 +25,11 @@ class TestCreateModelCallLimitMiddleware:
 
     def test_create_with_thread_limit_only(self):
         """Test creating middleware with only thread_limit specified."""
-        middlewares = create_model_call_limit_middleware(thread_limit=10)
+        middleware = create_model_call_limit_middleware(thread_limit=10)
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, ModelCallLimitMiddleware)
         assert middleware.run_limit is None
         assert middleware.thread_limit == 10
@@ -37,14 +37,14 @@ class TestCreateModelCallLimitMiddleware:
 
     def test_create_with_both_limits(self):
         """Test creating middleware with both run_limit and thread_limit."""
-        middlewares = create_model_call_limit_middleware(
+        middleware = create_model_call_limit_middleware(
             thread_limit=20,
             run_limit=10,
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, ModelCallLimitMiddleware)
         assert middleware.run_limit == 10
         assert middleware.thread_limit == 20
@@ -52,21 +52,21 @@ class TestCreateModelCallLimitMiddleware:
 
     def test_create_with_error_behavior(self):
         """Test creating middleware with 'error' exit behavior."""
-        middlewares = create_model_call_limit_middleware(
+        middleware = create_model_call_limit_middleware(
             run_limit=2,
             exit_behavior="error",
         )
 
-        assert middlewares[0].exit_behavior == "error"
+        assert middleware.exit_behavior == "error"
 
     def test_create_with_end_behavior(self):
         """Test creating middleware with 'end' exit behavior."""
-        middlewares = create_model_call_limit_middleware(
+        middleware = create_model_call_limit_middleware(
             run_limit=5,
             exit_behavior="end",
         )
 
-        assert middlewares[0].exit_behavior == "end"
+        assert middleware.exit_behavior == "end"
 
     def test_raises_error_without_limits(self):
         """Test that creating middleware without limits raises ValueError."""
@@ -77,26 +77,26 @@ class TestCreateModelCallLimitMiddleware:
 
     def test_default_exit_behavior(self):
         """Test that default exit_behavior is 'end'."""
-        middlewares = create_model_call_limit_middleware(run_limit=5)
+        middleware = create_model_call_limit_middleware(run_limit=5)
 
-        assert middlewares[0].exit_behavior == "end"
+        assert middleware.exit_behavior == "end"
 
     def test_factory_accepts_all_parameters(self):
         """Test that factory accepts all supported parameters."""
-        middlewares = create_model_call_limit_middleware(
+        middleware = create_model_call_limit_middleware(
             thread_limit=15,
             run_limit=5,
             exit_behavior="error",
         )
 
-        middleware = middlewares[0]
+        middleware = middleware
         assert middleware.thread_limit == 15
         assert middleware.run_limit == 5
         assert middleware.exit_behavior == "error"
 
     def test_returns_list_for_composition(self):
         """Test that factory returns list for easy composition."""
-        middlewares = create_model_call_limit_middleware(run_limit=5)
+        middleware = create_model_call_limit_middleware(run_limit=5)
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        # Middleware is single instance
+        assert middleware is not None

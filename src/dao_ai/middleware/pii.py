@@ -41,7 +41,7 @@ def create_pii_middleware(
     apply_to_input: bool = True,
     apply_to_output: bool = False,
     apply_to_tool_results: bool = False,
-) -> list[PIIMiddleware]:
+) -> PIIMiddleware:
     """
     Create a PIIMiddleware for detecting and handling PII.
 
@@ -154,4 +154,4 @@ def create_pii_middleware(
     if detector is not None:
         kwargs["detector"] = detector
 
-    return [PIIMiddleware(pii_type, **kwargs)]
+    return PIIMiddleware(pii_type, **kwargs)

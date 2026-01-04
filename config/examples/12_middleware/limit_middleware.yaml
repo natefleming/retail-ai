@@ -29,12 +29,6 @@ resources:
       temperature: 0.1
       max_tokens: 4096
 
-  warehouses:
-    default_warehouse: &default_warehouse
-      warehouse_id:
-        env: DATABRICKS_WAREHOUSE_ID
-        default_value: "1234567890abcdef"
-
   genie_rooms:
     retail_genie: &retail_genie
       name: "Retail Genie Room"
@@ -63,8 +57,9 @@ tools:
   search_tool: &search_tool
     name: search_web
     function:
-      type: python
-      name: dao_ai.tools.search_tool
+      type: factory
+      name: dao_ai.tools.create_search_tool
+      args: {}
 
   # Time tool - lightweight, no limits needed
   time_tool: &time_tool
@@ -78,6 +73,14 @@ tools:
 # =============================================================================
 # All middleware factories return list[Middleware] for composability.
 # Middleware is executed in order: first defined = first executed.
+#
+# ToolCallLimitMiddleware supports multiple instances per agent because each
+# instance gets a unique name based on tool_name:
+#   - ToolCallLimitMiddleware (global)
+#   - ToolCallLimitMiddleware[genie] (tool-specific)
+#   - ToolCallLimitMiddleware[search_web] (tool-specific)
+#
+# This allows combining global and tool-specific limits on the same agent.
 
 middleware:
   # ---------------------------------------------------------------------------
@@ -167,10 +170,10 @@ agents:
       - *search_tool
       - *time_tool
     middleware:
-      # Order matters: apply global limit first, then specific limits
-      - *global_tool_limit        # Global safety net
-      - *genie_limit              # Genie-specific limits
-      - *search_limit             # Search-specific limits
+      # Multiple ToolCallLimitMiddleware instances work because each has a unique name
+      - *global_tool_limit        # Name: ToolCallLimitMiddleware (global safety net)
+      - *genie_limit              # Name: ToolCallLimitMiddleware[genie]
+      - *search_limit             # Name: ToolCallLimitMiddleware[search_web]
       - *model_call_limit         # LLM cost control
     prompt: |
       You are a research assistant that can:
@@ -197,8 +200,8 @@ agents:
       - *genie_tool
       - *time_tool
     middleware:
-      - *strict_genie_limit       # Strict database limits
-      - *strict_model_limit       # Strict LLM limits
+      - *strict_genie_limit       # ONE ToolCallLimitMiddleware (strict)
+      - *strict_model_limit       # ONE ModelCallLimitMiddleware (strict)
     prompt: |
       You are a budget-conscious assistant. You have very limited
       API calls available, so be strategic with your queries.

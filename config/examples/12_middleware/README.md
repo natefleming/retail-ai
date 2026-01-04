@@ -136,6 +136,13 @@ Demonstrates how to prevent excessive API calls and runaway loops by limiting to
 - Resource management for database queries
 - Controlling LLM API costs
 
+**Note:** `ToolCallLimitMiddleware` supports multiple instances per agent because each instance gets a unique name based on `tool_name`:
+- `ToolCallLimitMiddleware` (global limit)
+- `ToolCallLimitMiddleware[genie]` (tool-specific)
+- `ToolCallLimitMiddleware[search_web]` (tool-specific)
+
+This allows combining global and tool-specific limits on the same agent.
+
 **Example:**
 ```yaml
 middleware:
@@ -143,6 +150,7 @@ middleware:
   global_limit: &global_limit
     name: dao_ai.middleware.create_tool_call_limit_middleware
     args:
+      # No 'tool' parameter = applies to all tools
       thread_limit: 50
       run_limit: 15
       exit_behavior: continue
@@ -151,7 +159,7 @@ middleware:
   genie_limit: &genie_limit
     name: dao_ai.middleware.create_tool_call_limit_middleware
     args:
-      tool: *genie_tool         # Reference tool directly
+      tool: *genie_tool         # Limit only this specific tool
       run_limit: 3
       exit_behavior: continue
 
@@ -161,6 +169,13 @@ middleware:
     args:
       run_limit: 20
       exit_behavior: end        # Only "end" or "error" for model limits
+
+agents:
+  my_agent:
+    middleware:
+      - *global_limit           # Name: ToolCallLimitMiddleware
+      - *genie_limit            # Name: ToolCallLimitMiddleware[genie]
+      - *model_limit            # Name: ModelCallLimitMiddleware
 ```
 
 ---
@@ -182,10 +197,14 @@ Demonstrates how to add automatic retry logic for transient failures in tool and
 - Building resilient production agents
 - Graceful degradation during outages
 
+**Important:** ⚠️ Unlike `ToolCallLimitMiddleware`, `ToolRetryMiddleware` does **NOT** have a unique name per instance. All instances have the same name `"ToolRetryMiddleware"`, so you can only have **ONE per agent**.
+
+To configure retry for multiple tools, use the `tools` parameter to list all tools in a single middleware instance.
+
 **Example:**
 ```yaml
 middleware:
-  # Tool retry with backoff
+  # Tool retry with backoff - covers multiple tools
   tool_retry: &tool_retry
     name: dao_ai.middleware.create_tool_retry_middleware
     args:
@@ -197,6 +216,7 @@ middleware:
       tools:
         - *genie_tool           # Reference tool directly
         - search_web            # Or use string name
+      # If tools is omitted, retry applies to ALL tools
 
   # Model retry for LLM calls
   model_retry: &model_retry
@@ -205,6 +225,12 @@ middleware:
       max_retries: 3
       backoff_factor: 2.0
       jitter: true
+
+agents:
+  my_agent:
+    middleware:
+      - *tool_retry           # ONE ToolRetryMiddleware per agent
+      - *model_retry          # ONE ModelRetryMiddleware per agent
 ```
 
 ---

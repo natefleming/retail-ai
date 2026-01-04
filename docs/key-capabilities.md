@@ -595,8 +595,7 @@ from dao_ai.middleware.assertions import (
 )
 
 # Hard constraint: response must be between 100-500 chars
-# Note: All middleware factories return list[Middleware] for composability
-assert_middlewares = create_assert_middleware(
+assert_middleware = create_assert_middleware(
     constraint=LengthConstraint(min_length=100, max_length=500),
     max_retries=3,
     on_failure="fallback",
@@ -992,13 +991,11 @@ from typing import Callable, Any
 from langgraph.types import StateSnapshot
 from langchain.agents import AgentMiddleware
 
-def create_my_middleware(**kwargs) -> list[AgentMiddleware]:
+def create_my_middleware(**kwargs) -> AgentMiddleware:
     """
     Factory function that creates middleware.
     
-    Note: All middleware factories return list[AgentMiddleware] for composability.
-    This allows factories to return multiple middleware instances when needed
-    (e.g., one per tool) and enables simple composition with list concatenation.
+    Middleware factories return a single AgentMiddleware instance.
     """
     
     class MyMiddleware(AgentMiddleware):

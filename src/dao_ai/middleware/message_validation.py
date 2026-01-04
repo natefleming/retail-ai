@@ -493,7 +493,7 @@ class FilterLastHumanMessageMiddleware(AgentMiddleware[AgentState, Context]):
 # =============================================================================
 
 
-def create_user_id_validation_middleware() -> list[UserIdValidationMiddleware]:
+def create_user_id_validation_middleware() -> UserIdValidationMiddleware:
     """
     Create a UserIdValidationMiddleware instance.
 
@@ -507,10 +507,10 @@ def create_user_id_validation_middleware() -> list[UserIdValidationMiddleware]:
         middleware = create_user_id_validation_middleware()
     """
     logger.trace("Creating user_id validation middleware")
-    return [UserIdValidationMiddleware()]
+    return UserIdValidationMiddleware()
 
 
-def create_thread_id_validation_middleware() -> list[ThreadIdValidationMiddleware]:
+def create_thread_id_validation_middleware() -> ThreadIdValidationMiddleware:
     """
     Create a ThreadIdValidationMiddleware instance.
 
@@ -524,12 +524,12 @@ def create_thread_id_validation_middleware() -> list[ThreadIdValidationMiddlewar
         middleware = create_thread_id_validation_middleware()
     """
     logger.trace("Creating thread_id validation middleware")
-    return [ThreadIdValidationMiddleware()]
+    return ThreadIdValidationMiddleware()
 
 
 def create_custom_field_validation_middleware(
     fields: list[dict[str, Any]],
-) -> list[CustomFieldValidationMiddleware]:
+) -> CustomFieldValidationMiddleware:
     """
     Create a CustomFieldValidationMiddleware instance.
 
@@ -565,12 +565,10 @@ def create_custom_field_validation_middleware(
     """
     field_names = [f.get("name", "unknown") for f in fields]
     logger.trace("Creating custom field validation middleware", fields=field_names)
-    return [CustomFieldValidationMiddleware(fields=fields)]
+    return CustomFieldValidationMiddleware(fields=fields)
 
 
-def create_filter_last_human_message_middleware() -> list[
-    FilterLastHumanMessageMiddleware
-]:
+def create_filter_last_human_message_middleware() -> FilterLastHumanMessageMiddleware:
     """
     Create a FilterLastHumanMessageMiddleware instance.
 
@@ -585,4 +583,4 @@ def create_filter_last_human_message_middleware() -> list[
         middleware = create_filter_last_human_message_middleware()
     """
     logger.trace("Creating filter_last_human_message middleware")
-    return [FilterLastHumanMessageMiddleware()]
+    return FilterLastHumanMessageMiddleware()

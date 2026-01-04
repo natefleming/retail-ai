@@ -56,8 +56,9 @@ tools:
   search_tool: &search_tool
     name: search_web
     function:
-      type: python
-      name: dao_ai.tools.search_tool
+      type: factory
+      name: dao_ai.tools.create_search_tool
+      args: {}
 
   # Simple time tool
   time_tool: &time_tool
@@ -71,6 +72,12 @@ tools:
 # =============================================================================
 # Retry middleware automatically retries failed calls with exponential backoff.
 # All middleware factories return list[Middleware] for composability.
+#
+# IMPORTANT: LangChain does not allow multiple instances of the same middleware
+# class on a single agent. Each agent can have only ONE ToolRetryMiddleware and
+# ONE ModelRetryMiddleware. If you need to retry multiple tools with different
+# settings, combine them into a single middleware configuration using the 'tools'
+# parameter, or apply retry to all tools by omitting the 'tools' parameter.
 
 middleware:
   # ---------------------------------------------------------------------------
@@ -86,35 +93,19 @@ middleware:
       # No 'tools' specified = applies to all tools
 
   # ---------------------------------------------------------------------------
-  # TOOL-SPECIFIC RETRY (using string name)
+  # TOOL-SPECIFIC RETRY (combined for multiple tools)
   # ---------------------------------------------------------------------------
-  # Configure retry specifically for Genie queries
-  genie_retry: &genie_retry
-    name: dao_ai.middleware.create_tool_retry_middleware
-    args:
-      max_retries: 5              # More retries for database operations
-      backoff_factor: 1.5         # Gentler backoff (1s, 1.5s, 2.25s, ...)
-      initial_delay: 0.5          # Start faster
-      max_delay: 30.0             # Cap at 30 seconds
-      jitter: true                # Add randomness to prevent thundering herd
-      tools:
-        - genie                   # String tool name
-
-  # ---------------------------------------------------------------------------
-  # TOOL-SPECIFIC RETRY (using YAML alias)
-  # ---------------------------------------------------------------------------
-  # Configure retry for web search with tool model reference
-  search_retry: &search_retry
+  # Configure retry for both genie and search tools
+  # NOTE: Only one ToolRetryMiddleware instance is allowed per agent
+  tools_retry: &tools_retry
     name: dao_ai.middleware.create_tool_retry_middleware
     args:
       max_retries: 4
       backoff_factor: 2.0
-      initial_delay: 2.0          # Start with longer delay (rate limit friendly)
-      max_delay: 60.0             # Allow longer waits for rate limits
+      initial_delay: 1.0
+      max_delay: 60.0
       jitter: true
-      tools:
-        - *search_tool            # Reference tool model directly
-      on_failure: continue        # Continue even if all retries exhausted
+      on_failure: continue
 
   # ---------------------------------------------------------------------------
   # AGGRESSIVE RETRY FOR CRITICAL TOOLS
@@ -175,9 +166,7 @@ agents:
       - *search_tool
       - *time_tool
     middleware:
-      # Apply specific retries before generic ones
-      - *genie_retry              # Genie-specific retry logic
-      - *search_retry             # Search-specific retry logic
+      - *tools_retry              # Tool retry logic for all tools
       - *model_retry              # LLM retry logic
     prompt: |
       You are a resilient research assistant designed for production use.

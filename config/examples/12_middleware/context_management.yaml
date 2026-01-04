@@ -57,8 +57,9 @@ tools:
   search_tool: &search_tool
     name: search_web
     function:
-      type: python
-      name: dao_ai.tools.search_tool
+      type: factory
+      name: dao_ai.tools.create_search_tool
+      args: {}
 
   # Time tool - returns small output
   time_tool: &time_tool

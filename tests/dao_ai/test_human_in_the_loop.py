@@ -26,23 +26,23 @@ class TestHumanInTheLoopMiddleware:
 
     def test_create_hitl_middleware_with_bool_true(self):
         """Test creating HITL middleware with simple True configuration."""
-        middlewares = create_human_in_the_loop_middleware(
+        middleware = create_human_in_the_loop_middleware(
             interrupt_on={"send_email": True}
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], HumanInTheLoopMiddleware)
+        # Middleware is single instance
+        assert middleware is not None
+        assert isinstance(middleware, HumanInTheLoopMiddleware)
 
     def test_create_hitl_middleware_with_bool_false(self):
         """Test creating HITL middleware with False configuration (disabled)."""
-        middlewares = create_human_in_the_loop_middleware(
+        middleware = create_human_in_the_loop_middleware(
             interrupt_on={"send_email": False}
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], HumanInTheLoopMiddleware)
+        # Middleware is single instance
+        assert middleware is not None
+        assert isinstance(middleware, HumanInTheLoopMiddleware)
 
     def test_create_hitl_middleware_with_model(self):
         """Test creating HITL middleware with HumanInTheLoopModel configuration."""
@@ -51,17 +51,17 @@ class TestHumanInTheLoopMiddleware:
             allowed_decisions=["approve", "edit"],
         )
 
-        middlewares = create_human_in_the_loop_middleware(
+        middleware = create_human_in_the_loop_middleware(
             interrupt_on={"send_email": hitl_config}
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], HumanInTheLoopMiddleware)
+        # Middleware is single instance
+        assert middleware is not None
+        assert isinstance(middleware, HumanInTheLoopMiddleware)
 
     def test_create_hitl_middleware_with_multiple_tools(self):
         """Test creating HITL middleware with multiple tools configured."""
-        middlewares = create_human_in_the_loop_middleware(
+        middleware = create_human_in_the_loop_middleware(
             interrupt_on={
                 "send_email": True,
                 "delete_record": True,
@@ -69,20 +69,20 @@ class TestHumanInTheLoopMiddleware:
             }
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], HumanInTheLoopMiddleware)
+        # Middleware is single instance
+        assert middleware is not None
+        assert isinstance(middleware, HumanInTheLoopMiddleware)
 
     def test_create_hitl_middleware_with_custom_description_prefix(self):
         """Test creating HITL middleware with custom description prefix."""
-        middlewares = create_human_in_the_loop_middleware(
+        middleware = create_human_in_the_loop_middleware(
             interrupt_on={"send_email": True},
             description_prefix="Action requires approval",
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], HumanInTheLoopMiddleware)
+        # Middleware is single instance
+        assert middleware is not None
+        assert isinstance(middleware, HumanInTheLoopMiddleware)
 
     def test_create_hitl_middleware_allowed_decisions_from_model(self):
         """Test that allowed decisions are correctly extracted from HumanInTheLoopModel."""
@@ -91,23 +91,23 @@ class TestHumanInTheLoopMiddleware:
             allowed_decisions=["approve", "reject"],
         )
 
-        middlewares = create_human_in_the_loop_middleware(
+        middleware = create_human_in_the_loop_middleware(
             interrupt_on={"test_tool": hitl_config}
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        # Middleware is single instance
+        assert middleware is not None
         # The middleware should have the correct configuration
         # (internal details depend on LangChain implementation)
 
     def test_create_hitl_middleware_default_allowed_decisions(self):
         """Test that True configuration uses default allowed decisions."""
-        middlewares = create_human_in_the_loop_middleware(
+        middleware = create_human_in_the_loop_middleware(
             interrupt_on={"test_tool": True}
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        # Middleware is single instance
+        assert middleware is not None
 
     @patch("dao_ai.middleware.human_in_the_loop.logger")
     def test_create_hitl_middleware_logs_creation(self, mock_logger):
@@ -160,9 +160,9 @@ class TestHitlMiddlewareFromToolModels:
             MagicMock(function=mock_function),
         ]
 
-        middlewares = create_hitl_middleware_from_tool_models(tool_models)
+        middleware = create_hitl_middleware_from_tool_models(tool_models)
 
-        assert middlewares == []
+        assert middleware is None
 
     def test_returns_middleware_when_tool_has_hitl(self):
         """Test that middleware is returned when a tool has HITL configured."""
@@ -182,11 +182,11 @@ class TestHitlMiddlewareFromToolModels:
             MagicMock(function=mock_function),
         ]
 
-        middlewares = create_hitl_middleware_from_tool_models(tool_models)
+        middleware = create_hitl_middleware_from_tool_models(tool_models)
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], HumanInTheLoopMiddleware)
+        # Middleware is single instance
+        assert middleware is not None
+        assert isinstance(middleware, HumanInTheLoopMiddleware)
 
     def test_handles_multiple_tools_mixed_config(self):
         """Test handling multiple tools with mixed HITL configuration."""
@@ -212,17 +212,17 @@ class TestHitlMiddlewareFromToolModels:
             MagicMock(function=mock_function_without_hitl),
         ]
 
-        middlewares = create_hitl_middleware_from_tool_models(tool_models)
+        middleware = create_hitl_middleware_from_tool_models(tool_models)
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], HumanInTheLoopMiddleware)
+        # Middleware is single instance
+        assert middleware is not None
+        assert isinstance(middleware, HumanInTheLoopMiddleware)
 
     def test_empty_tool_models_returns_empty_list(self):
         """Test that empty tool_models list returns empty list."""
-        middlewares = create_hitl_middleware_from_tool_models([])
+        middleware = create_hitl_middleware_from_tool_models([])
 
-        assert middlewares == []
+        assert middleware is None
 
     def test_custom_description_prefix(self):
         """Test that custom description prefix is passed through."""
@@ -239,13 +239,13 @@ class TestHitlMiddlewareFromToolModels:
             MagicMock(function=mock_function),
         ]
 
-        middlewares = create_hitl_middleware_from_tool_models(
+        middleware = create_hitl_middleware_from_tool_models(
             tool_models,
             description_prefix="Deletion requires approval",
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        # Middleware is single instance
+        assert middleware is not None
 
     @patch("dao_ai.middleware.human_in_the_loop.logger")
     def test_logs_tool_configuration(self, mock_logger):
@@ -286,9 +286,9 @@ class TestHitlMiddlewareIntegration:
         mock_compiled_agent.name = "test_agent"
         mock_create_agent.return_value = mock_compiled_agent
 
-        # Mock the HITL middleware factory to return a list with a middleware
+        # Mock the HITL middleware factory to return a single middleware
         mock_hitl_middleware = MagicMock(spec=HumanInTheLoopMiddleware)
-        mock_hitl_factory.return_value = [mock_hitl_middleware]
+        mock_hitl_factory.return_value = mock_hitl_middleware
 
         # Create a mock LLM model using the helper
         mock_llm_model = create_mock_llm_model()

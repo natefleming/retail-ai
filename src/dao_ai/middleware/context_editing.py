@@ -150,7 +150,7 @@ def create_context_editing_middleware(
     exclude_tools: list[str | ToolModel | dict[str, Any]] | None = None,
     placeholder: str = "[cleared]",
     token_count_method: Literal["approximate", "model"] = "approximate",
-) -> list[ContextEditingMiddleware]:
+) -> ContextEditingMiddleware:
     """
     Create a ContextEditingMiddleware with ClearToolUsesEdit.
 
@@ -224,9 +224,7 @@ def create_context_editing_middleware(
         token_count_method=token_count_method,
     )
 
-    return [
-        ContextEditingMiddleware(
-            edits=[edit],
-            token_count_method=token_count_method,
-        )
-    ]
+    return ContextEditingMiddleware(
+        edits=[edit],
+        token_count_method=token_count_method,
+    )

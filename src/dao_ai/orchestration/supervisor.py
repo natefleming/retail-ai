@@ -198,15 +198,14 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             "Creating middleware for supervisor",
             middleware_name=middleware_config.name,
         )
-        middleware_list: list[LangchainAgentMiddleware] = create_factory_middleware(
+        middleware: LangchainAgentMiddleware = create_factory_middleware(
             function_name=middleware_config.name,
             args=middleware_config.args,
         )
-        middlewares.extend(middleware_list)
+        middlewares.append(middleware)
         logger.debug(
             "Created supervisor middleware",
             middleware=middleware_config.name,
-            count=len(middleware_list),
         )
 
     # Set up memory store and checkpointer

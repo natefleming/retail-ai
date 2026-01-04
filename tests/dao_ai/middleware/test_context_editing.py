@@ -112,11 +112,11 @@ class TestCreateContextEditingMiddleware:
 
     def test_create_with_defaults(self):
         """Test creating middleware with default parameters."""
-        middlewares = create_context_editing_middleware()
+        middleware = create_context_editing_middleware()
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, ContextEditingMiddleware)
         assert middleware.token_count_method == "approximate"
         assert len(middleware.edits) == 1
@@ -124,31 +124,31 @@ class TestCreateContextEditingMiddleware:
 
     def test_create_with_custom_trigger(self):
         """Test creating middleware with custom trigger."""
-        middlewares = create_context_editing_middleware(trigger=50000)
+        middleware = create_context_editing_middleware(trigger=50000)
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, ContextEditingMiddleware)
         assert middleware.edits[0].trigger == 50000
 
     def test_create_with_custom_keep(self):
         """Test creating middleware with custom keep count."""
-        middlewares = create_context_editing_middleware(keep=10)
+        middleware = create_context_editing_middleware(keep=10)
 
-        assert middlewares[0].edits[0].keep == 10
+        assert middleware.edits[0].keep == 10
 
     def test_create_with_model_token_count(self):
         """Test creating middleware with model token counting."""
-        middlewares = create_context_editing_middleware(
+        middleware = create_context_editing_middleware(
             token_count_method="model",
         )
 
-        assert middlewares[0].token_count_method == "model"
+        assert middleware.token_count_method == "model"
 
     def test_create_with_all_parameters(self):
         """Test creating middleware with all parameters."""
-        middlewares = create_context_editing_middleware(
+        middleware = create_context_editing_middleware(
             trigger=50000,
             keep=5,
             clear_at_least=1000,
@@ -158,9 +158,9 @@ class TestCreateContextEditingMiddleware:
             token_count_method="model",
         )
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
-        middleware = middlewares[0]
+        # Middleware is single instance
+        assert middleware is not None
+        middleware = middleware
         assert isinstance(middleware, ContextEditingMiddleware)
         assert middleware.token_count_method == "model"
 
@@ -181,7 +181,7 @@ class TestCreateContextEditingMiddleware:
 
     def test_returns_list_for_composition(self):
         """Test that factory returns list for easy composition."""
-        middlewares = create_context_editing_middleware()
+        middleware = create_context_editing_middleware()
 
-        assert isinstance(middlewares, list)
-        assert len(middlewares) == 1
+        # Middleware is single instance
+        assert middleware is not None

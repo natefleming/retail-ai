@@ -328,7 +328,7 @@ def create_guardrail_middleware(
     model: LanguageModelLike,
     prompt: str,
     num_retries: int = 3,
-) -> list[GuardrailMiddleware]:
+) -> GuardrailMiddleware:
     """
     Create a GuardrailMiddleware instance.
 
@@ -353,20 +353,18 @@ def create_guardrail_middleware(
         )
     """
     logger.trace("Creating guardrail middleware", guardrail_name=name)
-    return [
-        GuardrailMiddleware(
-            name=name,
-            model=model,
-            prompt=prompt,
-            num_retries=num_retries,
-        )
-    ]
+    return GuardrailMiddleware(
+        name=name,
+        model=model,
+        prompt=prompt,
+        num_retries=num_retries,
+    )
 
 
 def create_content_filter_middleware(
     banned_keywords: list[str],
     block_message: str = "I cannot provide that response. Please rephrase your request.",
-) -> list[ContentFilterMiddleware]:
+) -> ContentFilterMiddleware:
     """
     Create a ContentFilterMiddleware instance.
 
@@ -389,17 +387,15 @@ def create_content_filter_middleware(
     logger.trace(
         "Creating content filter middleware", keywords_count=len(banned_keywords)
     )
-    return [
-        ContentFilterMiddleware(
-            banned_keywords=banned_keywords,
-            block_message=block_message,
-        )
-    ]
+    return ContentFilterMiddleware(
+        banned_keywords=banned_keywords,
+        block_message=block_message,
+    )
 
 
 def create_safety_guardrail_middleware(
     safety_model: Optional[LanguageModelLike] = None,
-) -> list[SafetyGuardrailMiddleware]:
+) -> SafetyGuardrailMiddleware:
     """
     Create a SafetyGuardrailMiddleware instance.
 
@@ -421,4 +417,4 @@ def create_safety_guardrail_middleware(
         )
     """
     logger.trace("Creating safety guardrail middleware")
-    return [SafetyGuardrailMiddleware(safety_model=safety_model)]
+    return SafetyGuardrailMiddleware(safety_model=safety_model)
