@@ -104,6 +104,7 @@ Integrate with external services and Databricks capabilities.
 | `custom_mcp.yaml` | Custom MCP integration (JIRA example) |
 | `managed_mcp.yaml` | Managed Model Context Protocol integration |
 | `external_mcp.yaml` | External MCP with Unity Catalog connections |
+| `filtered_mcp.yaml` | MCP tool filtering (security, performance, access control) |
 | `vector_search_with_reranking.yaml` | RAG with FlashRank reranking |
 | `genie_with_conversation_id.yaml` | Genie with conversation tracking |
 

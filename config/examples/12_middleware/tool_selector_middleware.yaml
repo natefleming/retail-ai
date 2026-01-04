@@ -1,0 +1,321 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: LLM Tool Selector Middleware
+#
+# This example demonstrates how to use an LLM to intelligently select relevant
+# tools before calling the main model. This is particularly useful for agents
+# with many tools (10+) where most aren't relevant for any given query.
+#
+# Use cases:
+# - Large tool sets: Agents with 20+ tools where most are specialized
+# - Cost optimization: Reduce token usage by filtering irrelevant tools
+# - Improved accuracy: Better tool selection from smaller, focused set
+# - Context efficiency: Keep system prompts manageable
+#
+# Benefits:
+# - Shorter prompts: Only include relevant tools in each call
+# - Better accuracy: Model chooses correctly from fewer options
+# - Token savings: Reduce cost per agent turn
+# - Permission control: Dynamically filter tools based on context
+#
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    # Main agent model - more expensive, more capable
+    main_llm: &main_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+    # Tool selector model - cheaper, faster for filtering tools
+    # This model analyzes the query and selects relevant tools
+    selector_llm: &selector_llm
+      name: databricks-gpt-4o-mini
+      temperature: 0.0
+      max_tokens: 1024
+
+  warehouses:
+    default_warehouse: &default_warehouse
+      name: "Default Warehouse"
+      warehouse_id:
+        env: DATABRICKS_WAREHOUSE_ID
+        default_value: "148ccb90800933a1"
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# Define a large set of tools to demonstrate dynamic selection
+# In this example, we have 12 tools, but most queries only need 2-3
+
+tools:
+  # Data Analysis Tools
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: retail_genie_tool
+        description: Query retail sales and product data using natural language
+        genie_room: *retail_genie
+
+  sql_query_tool: &sql_query_tool
+    name: execute_sql
+    function:
+      type: factory
+      name: dao_ai.tools.create_uc_function_tool
+      args:
+        catalog: retail_consumer_goods
+        schema: quick_serve_restaurant
+        function_name: execute_dynamic_query
+        warehouse: *default_warehouse
+
+  # Research Tools
+  search_tool: &search_tool
+    name: search_web
+    function:
+      type: factory
+      name: dao_ai.tools.create_search_tool
+      args: {}
+
+  wikipedia_tool: &wikipedia_tool
+    name: search_wikipedia
+    function:
+      type: python
+      name: dao_ai.tools.wikipedia_search_tool
+
+  # Communication Tools
+  email_tool: &email_tool
+    name: send_email
+    function:
+      type: python
+      name: dao_ai.tools.send_email_tool
+
+  slack_tool: &slack_tool
+    name: send_slack_message
+    function:
+      type: python
+      name: dao_ai.tools.send_slack_message_tool
+
+  # File Operations
+  read_file_tool: &read_file_tool
+    name: read_file
+    function:
+      type: python
+      name: dao_ai.tools.read_file_tool
+
+  write_file_tool: &write_file_tool
+    name: write_file
+    function:
+      type: python
+      name: dao_ai.tools.write_file_tool
+
+  # Utility Tools
+  time_tool: &time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+  calculator_tool: &calculator_tool
+    name: calculator
+    function:
+      type: python
+      name: dao_ai.tools.calculator_tool
+
+  weather_tool: &weather_tool
+    name: get_weather
+    function:
+      type: python
+      name: dao_ai.tools.weather_tool
+
+  calendar_tool: &calendar_tool
+    name: check_calendar
+    function:
+      type: python
+      name: dao_ai.tools.calendar_tool
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# LLM Tool Selector uses a smaller, faster model to intelligently filter
+# the tool set before calling the main model.
+#
+# This middleware:
+# 1. Receives the user query
+# 2. Uses selector_llm to determine which tools are most relevant
+# 3. Filters the tool set down to max_tools most relevant
+# 4. Passes the filtered tool set to the main model
+#
+# The result: Main model sees only 3-5 relevant tools instead of all 12,
+# reducing token usage and improving accuracy.
+
+middleware:
+  # ---------------------------------------------------------------------------
+  # BASIC TOOL SELECTOR
+  # ---------------------------------------------------------------------------
+  # Uses LLM to select up to 3 most relevant tools from the full set
+  # Always includes search_web as it's frequently useful
+  basic_selector: &basic_selector
+    name: dao_ai.middleware.create_llm_tool_selector_middleware
+    args:
+      model: *selector_llm          # Fast, cheap model for filtering
+      max_tools: 3                   # Select top 3 most relevant tools
+      always_include:                # Tools to always keep available
+        - *search_tool               # Web search often useful
+
+  # ---------------------------------------------------------------------------
+  # RESEARCH-FOCUSED SELECTOR
+  # ---------------------------------------------------------------------------
+  # Optimized for research tasks - always includes search tools
+  research_selector: &research_selector
+    name: dao_ai.middleware.create_llm_tool_selector_middleware
+    args:
+      model: *selector_llm
+      max_tools: 5                   # Allow more tools for research
+      always_include:
+        - *search_tool               # Web search
+        - *wikipedia_tool            # Wikipedia
+
+  # ---------------------------------------------------------------------------
+  # DATA-FOCUSED SELECTOR
+  # ---------------------------------------------------------------------------
+  # Optimized for data analysis - always includes query tools
+  data_selector: &data_selector
+    name: dao_ai.middleware.create_llm_tool_selector_middleware
+    args:
+      model: *selector_llm
+      max_tools: 4
+      always_include:
+        - *genie_tool                # Always include Genie for data queries
+        - *sql_query_tool            # Direct SQL access
+
+  # ---------------------------------------------------------------------------
+  # AGGRESSIVE SELECTOR (Cost Optimization)
+  # ---------------------------------------------------------------------------
+  # Very selective to minimize tokens - only 2 tools selected per turn
+  # Use this when token costs are a primary concern
+  cost_optimized_selector: &cost_optimized_selector
+    name: dao_ai.middleware.create_llm_tool_selector_middleware
+    args:
+      model: *selector_llm
+      max_tools: 2                   # Very selective
+      always_include:
+        - search_web                 # Use tool name string instead of alias
+
+# =============================================================================
+# AGENT DEFINITIONS
+# =============================================================================
+
+agents:
+  # ---------------------------------------------------------------------------
+  # GENERAL PURPOSE AGENT WITH TOOL SELECTOR
+  # ---------------------------------------------------------------------------
+  # Demonstrates basic tool selection for a multi-purpose agent
+  general_agent:
+    name: general_assistant
+    description: |
+      A versatile assistant with access to many tools.
+      Uses LLM tool selector to dynamically choose relevant tools.
+    llm: *main_llm
+    tools:
+      # Register ALL tools - selector will filter at runtime
+      - *genie_tool
+      - *sql_query_tool
+      - *search_tool
+      - *wikipedia_tool
+      - *email_tool
+      - *slack_tool
+      - *read_file_tool
+      - *write_file_tool
+      - *time_tool
+      - *calculator_tool
+      - *weather_tool
+      - *calendar_tool
+    middleware:
+      - *basic_selector              # Dynamically select 3 most relevant
+
+  # ---------------------------------------------------------------------------
+  # DATA ANALYST AGENT
+  # ---------------------------------------------------------------------------
+  # Specialized for data analysis with tool selector optimized for data tools
+  data_analyst:
+    name: data_analyst
+    description: |
+      Specialized data analyst with dynamic tool selection.
+      Prioritizes data query tools but can access others as needed.
+    llm: *main_llm
+    tools:
+      - *genie_tool
+      - *sql_query_tool
+      - *search_tool
+      - *calculator_tool
+      - *time_tool
+      - *read_file_tool
+      - *write_file_tool
+    middleware:
+      - *data_selector               # Always includes Genie + SQL
+
+  # ---------------------------------------------------------------------------
+  # RESEARCH AGENT
+  # ---------------------------------------------------------------------------
+  # Specialized for research with selector optimized for research tools
+  researcher:
+    name: research_assistant
+    description: |
+      Research assistant with dynamic tool selection.
+      Always has access to search tools, selects others as needed.
+    llm: *main_llm
+    tools:
+      - *search_tool
+      - *wikipedia_tool
+      - *genie_tool                  # For internal data research
+      - *read_file_tool
+      - *write_file_tool
+      - *calculator_tool
+      - *time_tool
+    middleware:
+      - *research_selector           # Always includes search + wikipedia
+
+  # ---------------------------------------------------------------------------
+  # COST-OPTIMIZED AGENT
+  # ---------------------------------------------------------------------------
+  # Demonstrates aggressive tool filtering for maximum cost savings
+  budget_agent:
+    name: budget_assistant
+    description: |
+      Cost-optimized assistant with aggressive tool filtering.
+      Only 2 tools selected per turn to minimize token usage.
+    llm: *main_llm
+    tools:
+      - *search_tool
+      - *genie_tool
+      - *calculator_tool
+      - *time_tool
+      - *weather_tool
+      - *calendar_tool
+    middleware:
+      - *cost_optimized_selector     # Very selective: only 2 tools
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+app_name: tool_selector_example
+entry_agent: general_agent

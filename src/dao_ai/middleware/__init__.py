@@ -6,6 +6,7 @@ from langchain.agents.middleware import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
     HumanInTheLoopMiddleware,
+    LLMToolSelectorMiddleware,
     ModelCallLimitMiddleware,
     ModelRetryMiddleware,
     PIIMiddleware,
@@ -82,6 +83,7 @@ from dao_ai.middleware.summarization import (
 )
 from dao_ai.middleware.tool_call_limit import create_tool_call_limit_middleware
 from dao_ai.middleware.tool_retry import create_tool_retry_middleware
+from dao_ai.middleware.tool_selector import create_llm_tool_selector_middleware
 
 __all__ = [
     # Base class (from LangChain)
@@ -105,6 +107,7 @@ __all__ = [
     "ModelCallLimitMiddleware",
     "ToolRetryMiddleware",
     "ModelRetryMiddleware",
+    "LLMToolSelectorMiddleware",
     "ContextEditingMiddleware",
     "ClearToolUsesEdit",
     "PIIMiddleware",
@@ -150,6 +153,8 @@ __all__ = [
     "create_model_call_limit_middleware",
     "create_tool_retry_middleware",
     "create_model_retry_middleware",
+    # Tool selection middleware factory functions
+    "create_llm_tool_selector_middleware",
     # Context editing middleware factory functions
     "create_context_editing_middleware",
     "create_clear_tool_uses_edit",

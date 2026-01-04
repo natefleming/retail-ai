@@ -1357,8 +1357,33 @@
           "type": "string"
         },
         "url": {
-          "title": "Url",
-          "type": "string"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Url"
         }
       },
       "required": [
@@ -2965,6 +2990,38 @@
             }
           ],
           "default": null
+        },
+        "include_tools": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional list of tool names or glob patterns to include from the MCP server. If specified, only tools matching these patterns will be loaded. Supports glob patterns: * (any chars), ? (single char), [abc] (char set). Examples: ['execute_query', 'list_*', 'get_?_data']",
+          "title": "Include Tools"
+        },
+        "exclude_tools": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional list of tool names or glob patterns to exclude from the MCP server. Tools matching these patterns will not be loaded. Takes precedence over include_tools. Supports glob patterns: * (any chars), ? (single char), [abc] (char set). Examples: ['drop_*', 'delete_*', 'execute_ddl']",
+          "title": "Exclude Tools"
         }
       },
       "title": "McpFunctionModel",
@@ -3617,12 +3674,62 @@
       "additionalProperties": false,
       "properties": {
         "catalog_name": {
-          "title": "Catalog Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Catalog Name"
         },
         "schema_name": {
-          "title": "Schema Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Schema Name"
         },
         "permissions": {
           "anyOf": [

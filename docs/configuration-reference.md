@@ -76,6 +76,15 @@ tools:
       name: string              # Import path or UC function name
       args: {}                  # For factory tools
       schema: *my_schema        # For UC tools
+      # MCP-specific options
+      url: string               # MCP server URL
+      connection: *connection   # UC Connection for MCP
+      sql: bool                 # Use DBSQL MCP server
+      functions: *my_schema     # Use UC Functions MCP
+      genie_room: *genie        # Use Genie MCP
+      vector_search: *store     # Use Vector Search MCP
+      include_tools: [string]   # Tools to load (allowlist, supports glob)
+      exclude_tools: [string]   # Tools to exclude (denylist, supports glob)
       human_in_the_loop:        # Optional approval gate
         review_prompt: string
 
@@ -159,6 +168,172 @@ app:
   environment_vars:
     KEY: "{{secrets/scope/secret}}"
 ```
+
+---
+
+## Dynamic Configuration with AnyVariable
+
+Many configuration fields support dynamic values through the `AnyVariable` type, which allows values to be loaded from environment variables, Databricks secrets, or provide fallback chains.
+
+### Supported Fields
+
+The following fields support `AnyVariable`:
+
+- **SchemaModel**: `catalog_name`, `schema_name`
+- **DatabricksAppModel**: `url`
+- And many other resource and configuration fields
+
+### Usage Patterns
+
+**Plain String (Static Value)**
+```yaml
+schemas:
+  my_schema:
+    catalog_name: production_catalog
+    schema_name: analytics
+```
+
+**Environment Variable**
+```yaml
+schemas:
+  my_schema:
+    catalog_name:
+      env: DATABRICKS_CATALOG
+    schema_name:
+      env: DATABRICKS_SCHEMA
+```
+
+**Databricks Secret**
+```yaml
+schemas:
+  my_schema:
+    catalog_name:
+      scope: my_scope
+      secret: catalog_name
+```
+
+**Composite with Fallback Chain**
+```yaml
+schemas:
+  my_schema:
+    catalog_name:
+      options:
+        - env: PROD_CATALOG        # Try environment variable first
+        - scope: prod_secrets      # Fall back to Databricks secret
+          secret: catalog_name
+        - default_value: main      # Final fallback
+```
+
+**Databricks App URL**
+```yaml
+resources:
+  apps:
+    my_app:
+      name: dao_ai_app
+      url:
+        env: DATABRICKS_APP_URL
+        default_value: https://my-app.databricksapps.com
+```
+
+### Benefits
+
+- **Environment Flexibility**: Same config works across dev/staging/prod
+- **Security**: Keep sensitive values in secrets, not config files
+- **Portability**: Easy multi-cloud and multi-workspace deployments
+- **Resilience**: Fallback chains ensure configuration succeeds
+- **Backwards Compatible**: Plain strings still work for static values
+
+---
+
+## MCP Tool Filtering
+
+MCP servers can expose many tools. Use `include_tools` and `exclude_tools` to control which tools are loaded.
+
+### Basic Usage
+
+**Allowlist (Include Only)**
+```yaml
+tools:
+  sql_mcp:
+    name: sql_safe
+    function:
+      type: mcp
+      sql: true
+      include_tools:
+        - execute_query      # Exact name
+        - list_tables
+        - "query_*"          # Glob pattern
+```
+
+**Denylist (Exclude)**
+```yaml
+tools:
+  sql_mcp:
+    name: sql_readonly
+    function:
+      type: mcp
+      sql: true
+      exclude_tools:
+        - "drop_*"           # Glob pattern
+        - "delete_*"
+        - execute_ddl
+```
+
+**Hybrid (Include + Exclude)**
+```yaml
+tools:
+  functions_mcp:
+    function:
+      type: mcp
+      functions: *schema
+      include_tools: ["query_*", "get_*"]
+      exclude_tools: ["*_sensitive"]  # Exclude overrides include
+```
+
+### Pattern Syntax
+
+Supports glob patterns from Python's `fnmatch`:
+
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| `*` | Any characters | `query_*` → `query_sales`, `query_inventory` |
+| `?` | Single character | `tool_?` → `tool_a`, `tool_b` |
+| `[abc]` | Char in set | `tool_[123]` → `tool_1`, `tool_2` |
+| `[!abc]` | Char NOT in set | `tool_[!abc]` → `tool_d` |
+
+### Precedence Rules
+
+1. **exclude_tools** always takes precedence over include_tools
+2. If **include_tools** is specified, only matching tools load (allowlist)
+3. If **exclude_tools** is specified, matching tools are blocked (denylist)
+4. If neither is specified, all tools load (default behavior)
+
+### Common Patterns
+
+**Read-Only SQL**
+```yaml
+include_tools: ["query_*", "list_*", "describe_*", "get_*"]
+```
+
+**Block Dangerous Operations**
+```yaml
+exclude_tools: ["drop_*", "delete_*", "truncate_*", "execute_ddl"]
+```
+
+**Development Mode**
+```yaml
+exclude_tools: ["drop_*", "truncate_*"]  # Block only critical ops
+```
+
+**Maximum Security**
+```yaml
+include_tools: ["execute_query", "list_tables"]  # Only these 2
+```
+
+### See Also
+
+- Full examples: [`config/examples/02_mcp/filtered_mcp.yaml`](../config/examples/02_mcp/filtered_mcp.yaml)
+- MCP documentation: [`config/examples/02_mcp/README.md`](../config/examples/02_mcp/README.md#mcp-tool-filtering)
 
 ---
 

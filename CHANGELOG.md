@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **MCP Tool Filtering**: Control which tools are loaded from MCP servers
+  - `include_tools`: Optional allowlist with glob pattern support (e.g., `["query_*", "list_*"]`)
+  - `exclude_tools`: Optional denylist with glob pattern support (e.g., `["drop_*", "delete_*"]`)
+  - Precedence: exclude always overrides include for maximum security
+  - Pattern syntax: `*` (any chars), `?` (single char), `[abc]` (char set), `[!abc]` (negation)
+  - Use cases: Security (block dangerous operations), performance (reduce context), access control
+  - New example config: `config/examples/02_mcp/filtered_mcp.yaml` with 6 filtering strategies
+  - Comprehensive documentation in configuration reference and MCP README
+
+- **CLI: list-mcp-tools Command**: Discover and inspect MCP tools from configuration
+  - Lists all available tools from configured MCP servers with full details
+  - Shows tool descriptions (no truncation), parameters, types, and requirements
+  - Pretty-printed schemas in readable format (53% more compact than JSON)
+  - Filter statistics: total available, included, and excluded tool counts
+  - `--apply-filters` flag: Show only tools that will be loaded (respects include/exclude)
+  - Aggregated output: Collects all data before display (no logging interference)
+  - Detailed exclusion reasons: Shows why tools are filtered out
+  - Use cases: Discovery, debugging, validation, planning, documentation
+
+- **AnyVariable Support for Additional Fields**: More configuration flexibility
+  - `SchemaModel.catalog_name` and `SchemaModel.schema_name` now support AnyVariable
+  - `DatabricksAppModel.url` now supports AnyVariable
+  - Allows environment variables, Databricks secrets, and fallback chains
+  - Benefits: Environment flexibility, security, portability, backwards compatible
+  - Examples: `{env: CATALOG_NAME}`, `{scope: secrets, secret: url}`, composite fallbacks
+
+### Changed
+- **Refactored Dynamic Prompt Creation**: Simplified and improved `prompts.py`
+  - Consolidated redundant prompt creation logic into single `make_prompt()` function
+  - Removed unused `create_prompt_middleware()` function (dead code)
+  - Cleaner context field handling with generic loop over all context attributes
+  - More maintainable codebase with reduced duplication
+
 ## [0.1.0] - 2025-12-19
 
 ### Added

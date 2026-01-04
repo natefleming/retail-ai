@@ -103,7 +103,7 @@ middleware:
   genie_limit: &genie_limit
     name: dao_ai.middleware.create_tool_call_limit_middleware
     args:
-      tool: genie                 # Matches the tool's 'name' field
+      tool: retail_genie_tool                 # Matches the tool's 'name' field
       thread_limit: 10            # Max 10 Genie queries per conversation
       run_limit: 3                # Max 3 Genie queries per message
       exit_behavior: continue     # Graceful termination
@@ -127,7 +127,7 @@ middleware:
   strict_genie_limit: &strict_genie_limit
     name: dao_ai.middleware.create_tool_call_limit_middleware
     args:
-      tool: genie
+      tool: *genie_tool
       run_limit: 2                # Hard limit: max 2 queries per message
       exit_behavior: error        # Raise exception if exceeded
 

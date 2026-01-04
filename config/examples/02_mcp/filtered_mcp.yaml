@@ -1,0 +1,327 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Filtering MCP Server Tools
+#
+# This example demonstrates how to control which tools are loaded from
+# MCP servers using include_tools and exclude_tools with glob pattern support.
+#
+# Use Cases:
+# - Security: Block dangerous operations (drop, delete, execute_ddl)
+# - Performance: Load only relevant tools to reduce context size
+# - Access Control: Filter tools based on user permissions
+# - Cost Optimization: Minimize token usage by reducing tool set
+#
+# Pattern Syntax:
+# - * matches any characters: "query_*" matches "query_sales", "query_inventory"
+# - ? matches single character: "tool_?" matches "tool_a", "tool_b"
+# - [abc] matches any char in set: "tool_[123]" matches "tool_1", "tool_2"
+# - [!abc] matches any char NOT in set
+#
+# Precedence: exclude_tools ALWAYS overrides include_tools
+#
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+
+variables:
+  client_id: &client_id
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+  workspace_host: &workspace_host
+    options:
+      - env: RETAIL_AI_DATABRICKS_HOST
+      - scope: retail_ai
+        secret: RETAIL_AI_DATABRICKS_HOST
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+
+# =============================================================================
+# TOOLS - MCP WITH FILTERING
+# =============================================================================
+
+tools:
+  # ---------------------------------------------------------------------------
+  # Example 1: Include Specific Tools Only (Allowlist)
+  # ---------------------------------------------------------------------------
+  # Best for: Maximum security, explicit control
+  # Use when: You want to be very explicit about what's allowed
+  
+  sql_safe_tools: &sql_safe_tools
+    name: sql_safe
+    function:
+      type: mcp
+      sql: true  # Serverless DBSQL MCP
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+      # Only load these specific tools - nothing else
+      include_tools:
+        - execute_query        # Exact match
+        - list_tables          # Exact match
+        - describe_table       # Exact match
+        - get_*                # Pattern: all getters
+        - show_*               # Pattern: all show operations
+
+  # ---------------------------------------------------------------------------
+  # Example 2: Exclude Dangerous Tools (Denylist)
+  # ---------------------------------------------------------------------------
+  # Best for: General purpose with safety guardrails
+  # Use when: You want most tools but need to block specific ones
+  
+  sql_readonly: &sql_readonly
+    name: sql_readonly
+    function:
+      type: mcp
+      sql: true
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+      # Load all tools EXCEPT these dangerous ones
+      exclude_tools:
+        - drop_*               # Block all drop operations
+        - delete_*             # Block all delete operations
+        - truncate_*           # Block all truncate operations
+        - execute_ddl          # Block DDL execution
+        - alter_*              # Block all alter operations
+
+  # ---------------------------------------------------------------------------
+  # Example 3: Hybrid Filtering (Include + Exclude)
+  # ---------------------------------------------------------------------------
+  # Best for: Fine-grained control
+  # Use when: You want specific categories but with exceptions
+  
+  functions_filtered: &functions_filtered
+    name: functions_filtered
+    function:
+      type: mcp
+      functions: *retail_schema  # UC Functions MCP
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+      # Start with these categories
+      include_tools:
+        - query_*              # All query functions
+        - get_*                # All getter functions
+        - list_*               # All list functions
+      # But exclude sensitive ones
+      exclude_tools:
+        - *_sensitive          # Exclude anything with "_sensitive"
+        - *_admin              # Exclude admin functions
+        - get_secret_*         # Exclude secret getters
+
+  # ---------------------------------------------------------------------------
+  # Example 4: Pattern-Based Inclusion
+  # ---------------------------------------------------------------------------
+  # Best for: Consistent naming conventions
+  # Use when: Your tools follow predictable patterns
+  
+  query_tools_only: &query_tools_only
+    name: query_tools
+    function:
+      type: mcp
+      sql: true
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+      # Only read operations with patterns
+      include_tools:
+        - query_*              # All queries
+        - list_*               # All lists
+        - describe_*           # All describe operations
+        - show_*               # All show operations
+
+  # ---------------------------------------------------------------------------
+  # Example 5: Maximum Security (Very Restrictive)
+  # ---------------------------------------------------------------------------
+  # Best for: High-security environments
+  # Use when: You need maximum control and auditability
+  
+  minimal_tools: &minimal_tools
+    name: minimal_safe_tools
+    function:
+      type: mcp
+      sql: true
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+      # Only these 3 specific tools, nothing else
+      include_tools:
+        - execute_query
+        - list_tables
+        - describe_table
+
+  # ---------------------------------------------------------------------------
+  # Example 6: Block Only Critical Operations
+  # ---------------------------------------------------------------------------
+  # Best for: Development/testing with safety nets
+  # Use when: You want flexibility but need to prevent disasters
+  
+  dev_tools: &dev_tools
+    name: dev_sql_tools
+    function:
+      type: mcp
+      sql: true
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+      # Allow everything except the really dangerous stuff
+      exclude_tools:
+        - drop_*               # Can't drop anything
+        - truncate_*           # Can't truncate
+        - execute_ddl          # Can't run arbitrary DDL
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Safe SQL Agent (Read-Only)
+  # ---------------------------------------------------------------------------
+  # Can only query, list, and describe - no modifications
+  
+  safe_sql_agent: &safe_sql_agent
+    name: safe_sql_agent
+    description: |
+      SQL agent with read-only access.
+      Can query data and inspect schema, but cannot modify anything.
+    model: *default_llm
+    tools:
+      - *sql_safe_tools
+    prompt: |
+      You are a helpful SQL assistant with read-only access to the database.
+      You can query data, list tables, and describe schemas.
+      You CANNOT modify, delete, or drop any data or structures.
+
+  # ---------------------------------------------------------------------------
+  # Query-Focused Agent
+  # ---------------------------------------------------------------------------
+  # Specialized for data analysis queries only
+  
+  analyst_agent: &analyst_agent
+    name: data_analyst
+    description: |
+      Data analyst agent specialized in querying and analyzing data.
+      Only has access to query and inspection tools.
+    model: *default_llm
+    tools:
+      - *query_tools_only
+    prompt: |
+      You are a data analyst. 
+      Help users write and execute SQL queries to answer their questions.
+      Focus on data analysis and insights.
+
+  # ---------------------------------------------------------------------------
+  # Development Agent (With Safety Rails)
+  # ---------------------------------------------------------------------------
+  # Most tools available but critical operations blocked
+  
+  dev_agent: &dev_agent
+    name: dev_assistant
+    description: |
+      Development assistant with most SQL tools available.
+      Dangerous operations (drop, truncate, DDL) are blocked for safety.
+    model: *default_llm
+    tools:
+      - *dev_tools
+    prompt: |
+      You are a database development assistant.
+      You can help with queries, data manipulation, and schema inspection.
+      Note: Drop, truncate, and DDL operations are disabled for safety.
+
+  # ---------------------------------------------------------------------------
+  # High-Security Agent (Minimal Access)
+  # ---------------------------------------------------------------------------
+  # Only 3 specific tools for maximum security
+  
+  secure_agent: &secure_agent
+    name: secure_query_agent
+    description: |
+      Highly restricted agent with only 3 tools.
+      For use in high-security or audited environments.
+    model: *default_llm
+    tools:
+      - *minimal_tools
+    prompt: |
+      You are a database query assistant with restricted access.
+      You can only execute SELECT queries, list tables, and describe schemas.
+      All operations are logged and audited.
+
+  # ---------------------------------------------------------------------------
+  # Functions Agent with Filtering
+  # ---------------------------------------------------------------------------
+  # UC Functions with sensitive/admin functions excluded
+  
+  functions_agent: &functions_agent
+    name: functions_assistant
+    description: |
+      Assistant with access to Unity Catalog functions.
+      Sensitive and admin functions are excluded for safety.
+    model: *default_llm
+    tools:
+      - *functions_filtered
+    prompt: |
+      You are an assistant that can call Unity Catalog functions.
+      You have access to query, get, and list functions.
+      Sensitive and administrative functions are not available.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+
+app_name: filtered_mcp_example
+entry_agent: safe_sql_agent
+
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+#
+# Testing Filters:
+# 1. Run with safe_sql_agent - try to call drop_table (should not be available)
+# 2. Run with dev_agent - verify you can query but not drop
+# 3. Run with secure_agent - verify only 3 tools are available
+#
+# Pattern Examples:
+# - "query_*" matches: query_sales, query_inventory, query_anything
+# - "get_?" matches: get_a, get_1, but NOT get_ab
+# - "*_admin" matches: user_admin, table_admin, delete_admin
+# - "[!s]*" matches: anything NOT starting with 's'
+#
+# Best Practices:
+# 1. Use include_tools for maximum security (allowlist)
+# 2. Use exclude_tools for general purpose with safety (denylist)
+# 3. Combine both for fine-grained control
+# 4. Test your filters - use logging to verify which tools are loaded
+# 5. Document why you're filtering (security, performance, access control)
+#
+# Common Patterns:
+# - Read-only SQL: include_tools: ["query_*", "list_*", "describe_*", "show_*"]
+# - Block dangerous: exclude_tools: ["drop_*", "delete_*", "truncate_*", "execute_ddl"]
+# - Admin only: exclude_tools: ["*_user", "*_public"]
+# - No sensitive: exclude_tools: ["*_sensitive", "*_secret", "*_password"]

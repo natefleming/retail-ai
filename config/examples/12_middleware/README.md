@@ -313,6 +313,102 @@ middleware:
       apply_to_tool_results: true
 ```
 
+---
+
+### 8. [`tool_selector_middleware.yaml`](tool_selector_middleware.yaml)
+**Intelligent LLM-based tool selection**
+
+Demonstrates how to use an LLM to dynamically select the most relevant tools before calling the main model, optimizing for cost and accuracy in agents with many tools.
+
+**Key Concepts:**
+- LLM-based tool filtering
+- Cost optimization through reduced context
+- Dynamic tool selection based on query
+- Always-include critical tools
+- Selector model configuration
+
+**Use Cases:**
+- Agents with 10+ tools where most are specialized
+- Cost optimization by reducing token usage
+- Improving model accuracy with focused tool sets
+- Context window management for large tool sets
+- Permission-based tool filtering
+
+**Benefits:**
+- **Shorter prompts:** Only include relevant tools per query
+- **Better accuracy:** Model chooses from fewer, relevant options
+- **Token savings:** Reduce cost per agent turn (typically 30-50%)
+- **Scalability:** Support 20+ tools without overwhelming the model
+
+**Example:**
+```yaml
+# Define a fast, cheap model for tool selection
+resources:
+  llms:
+    selector_llm: &selector_llm
+      name: databricks-gpt-4o-mini  # Fast, cheap for filtering
+      temperature: 0.0
+
+middleware:
+  # Basic tool selector - select 3 most relevant
+  tool_selector: &tool_selector
+    name: dao_ai.middleware.create_llm_tool_selector_middleware
+    args:
+      model: *selector_llm        # Use cheap model for selection
+      max_tools: 3                # Select top 3 relevant tools
+      always_include:             # Critical tools always available
+        - *search_tool
+
+  # Research-optimized selector
+  research_selector: &research_selector
+    name: dao_ai.middleware.create_llm_tool_selector_middleware
+    args:
+      model: *selector_llm
+      max_tools: 5
+      always_include:
+        - *search_tool
+        - *wikipedia_tool
+
+  # Cost-optimized selector
+  budget_selector: &budget_selector
+    name: dao_ai.middleware.create_llm_tool_selector_middleware
+    args:
+      model: *selector_llm
+      max_tools: 2                # Very selective for max savings
+
+agents:
+  # Agent with 12 tools - selector chooses 3 per query
+  general_agent:
+    tools:
+      - *tool1
+      - *tool2
+      # ... 10 more tools ...
+      - *tool12
+    middleware:
+      - *tool_selector           # Dynamically select 3 most relevant
+```
+
+**Configuration Tips:**
+- **Selector Model:** Use a fast, cheap model (e.g., gpt-4o-mini, claude-haiku)
+  - The selector makes 1 extra call per turn, so speed matters
+  - Accuracy matters less since it's just filtering
+- **max_tools:** Start with 3-5, adjust based on your use case
+  - Too few: Model might miss needed tools
+  - Too many: Loses cost/accuracy benefits
+- **always_include:** Include frequently-used or critical tools
+  - Search tools are often good candidates
+  - Core business logic tools
+  - Emergency/fallback tools
+
+**When to Use:**
+- ✅ Agent has 10+ tools
+- ✅ Most tools are specialized/situational
+- ✅ Token costs are a concern
+- ✅ Tool selection errors are acceptable
+- ❌ All tools needed for most queries
+- ❌ Latency is critical (adds ~500ms per turn)
+- ❌ Tool selection must be deterministic
+
 ## 🚀 Quick Start
 
 ### Step 1: Define Middleware
