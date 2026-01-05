@@ -418,11 +418,11 @@ class SchemaModel(BaseModel, HasFullName):
 class DatabricksAppModel(IsDatabricksResource, HasFullName):
     """
     Configuration for a Databricks App resource.
-    
+
     The `name` is the unique instance name of the Databricks App within the workspace.
-    The `url` is dynamically retrieved from the workspace client by calling 
+    The `url` is dynamically retrieved from the workspace client by calling
     `apps.get(name)` and returning the app's URL.
-    
+
     Example:
         ```yaml
         resources:
@@ -431,7 +431,7 @@ class DatabricksAppModel(IsDatabricksResource, HasFullName):
               name: my-databricks-app
         ```
     """
-    
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     """The unique instance name of the Databricks App in the workspace."""
@@ -440,10 +440,10 @@ class DatabricksAppModel(IsDatabricksResource, HasFullName):
     def url(self) -> str:
         """
         Retrieve the URL of the Databricks App from the workspace.
-        
+
         Returns:
             The URL of the deployed Databricks App.
-            
+
         Raises:
             RuntimeError: If the app is not found or URL is not available.
         """
@@ -454,7 +454,6 @@ class DatabricksAppModel(IsDatabricksResource, HasFullName):
                 "The app may not be deployed yet."
             )
         return app.url
-
 
     @property
     def full_name(self) -> str:
@@ -761,10 +760,19 @@ class FunctionModel(IsDatabricksResource, HasFullName):
 
 
 class WarehouseModel(IsDatabricksResource):
-    model_config = ConfigDict()
-    name: str
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: Optional[str] = None
     description: Optional[str] = None
     warehouse_id: AnyVariable
+
+    _warehouse_details: Optional[GetWarehouseResponse] = PrivateAttr(default=None)
+
+    def _get_warehouse_details(self) -> GetWarehouseResponse:
+        if self._warehouse_details is None:
+            self._warehouse_details = self.workspace_client.warehouses.get(
+                id=value_of(self.warehouse_id)
+            )
+        return self._warehouse_details
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -786,10 +794,22 @@ class WarehouseModel(IsDatabricksResource):
         self.warehouse_id = value_of(self.warehouse_id)
         return self
 
+    @model_validator(mode="after")
+    def populate_name(self) -> Self:
+        """Populate name from warehouse details if not provided."""
+        if self.warehouse_id and not self.name:
+            try:
+                warehouse_details = self._get_warehouse_details()
+                if warehouse_details.name:
+                    self.name = warehouse_details.name
+            except Exception as e:
+                logger.debug(f"Could not fetch details from warehouse: {e}")
+        return self
+
 
 class GenieRoomModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
+    name: Optional[str] = None
     description: Optional[str] = None
     space_id: AnyVariable
 
@@ -998,15 +1018,17 @@ class GenieRoomModel(IsDatabricksResource):
         return self
 
     @model_validator(mode="after")
-    def update_description_from_space(self) -> Self:
-        """Populate description from GenieSpace if not provided."""
-        if not self.description:
+    def populate_name_and_description(self) -> Self:
+        """Populate name and description from GenieSpace if not provided."""
+        if self.space_id and (not self.name or not self.description):
             try:
                 space_details = self._get_space_details()
-                if space_details.description:
+                if not self.name and space_details.title:
+                    self.name = space_details.title
+                if not self.description and space_details.description:
                     self.description = space_details.description
             except Exception as e:
-                logger.debug(f"Could not fetch description from Genie space: {e}")
+                logger.debug(f"Could not fetch details from Genie space: {e}")
         return self
 
 
@@ -2007,7 +2029,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         # DBSQL MCP server (serverless, workspace-level)
         if self.sql:
             return f"{workspace_host}/api/2.0/mcp/sql"
-        
+
         # Databricks App
         if self.app:
             return self.app.url

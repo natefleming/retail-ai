@@ -1,5 +1,4 @@
 import sys
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -283,11 +282,11 @@ def test_mcp_function_model_partial_oauth_credentials() -> None:
 @pytest.mark.unit
 def test_mcp_function_model_existing_authorization_header() -> None:
     """Test that Authorization header can be stored in headers dict.
-    
+
     Note: With unified auth (via DatabricksOAuthClientProvider), the Authorization
     header in the headers dict is not used for authentication. Instead, the
     workspace_client from IsDatabricksResource provides authentication.
-    
+
     This test verifies that the model can store headers, but authentication
     happens through the OAuth provider at invocation time.
     """
@@ -301,7 +300,7 @@ def test_mcp_function_model_existing_authorization_header() -> None:
 
     # Header is stored in the model
     assert mcp_function.headers["Authorization"] == "Bearer existing_token"
-    
+
     # But authentication will happen via workspace_client at invocation time
     # The stored header won't be used by _build_connection_config
 

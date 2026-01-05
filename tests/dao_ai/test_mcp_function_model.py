@@ -25,7 +25,8 @@ class TestMcpFunctionModelValidation:
     def test_no_url_source_raises_error(self):
         """Test that missing URL source raises validation error."""
         with pytest.raises(
-            ValidationError, match="url, app, connection, genie_room, sql, vector_search, or functions"
+            ValidationError,
+            match="url, app, connection, genie_room, sql, vector_search, or functions",
         ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
@@ -422,7 +423,9 @@ class TestMcpFunctionModelWithApp:
         """Test that app and url cannot be provided together."""
         app_model = DatabricksAppModel(name="my-app")
 
-        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+        with pytest.raises(
+            ValidationError, match="only one URL source can be provided"
+        ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
                 url="https://example.com/mcp",
@@ -434,7 +437,9 @@ class TestMcpFunctionModelWithApp:
         app_model = DatabricksAppModel(name="my-app")
         connection = ConnectionModel(name="my-connection")
 
-        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+        with pytest.raises(
+            ValidationError, match="only one URL source can be provided"
+        ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
                 app=app_model,
@@ -446,7 +451,9 @@ class TestMcpFunctionModelWithApp:
         app_model = DatabricksAppModel(name="my-app")
         genie_room = GenieRoomModel(name="my-genie", space_id="space_123")
 
-        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+        with pytest.raises(
+            ValidationError, match="only one URL source can be provided"
+        ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
                 app=app_model,
@@ -458,7 +465,9 @@ class TestMcpFunctionModelWithApp:
         """Test that app and sql cannot be provided together."""
         app_model = DatabricksAppModel(name="my-app")
 
-        with pytest.raises(ValidationError, match="only one URL source can be provided"):
+        with pytest.raises(
+            ValidationError, match="only one URL source can be provided"
+        ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
                 app=app_model,

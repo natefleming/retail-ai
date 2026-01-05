@@ -1770,6 +1770,7 @@ def test_create_genie_tool_with_cache_parameters() -> None:
 
         # Create mock warehouse with IsDatabricksResource attrs
         mock_warehouse = Mock(spec=WarehouseModel)
+        mock_warehouse.name = "Test Warehouse"
         mock_warehouse.warehouse_id = "test-warehouse"
         mock_warehouse.workspace_client = Mock()
         add_databricks_resource_attrs(mock_warehouse)

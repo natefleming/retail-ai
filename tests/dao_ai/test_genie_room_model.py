@@ -400,6 +400,62 @@ class TestGenieRoomModelSerialization:
             # The genie_space_id is stored as the 'name' attribute
             assert resources[0].name == "test-space-123"
 
+    def test_name_populated_from_space(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that name is automatically populated from GenieSpace.title if not provided."""
+        # Set a title on the mock space
+        mock_genie_space_with_serialized_data.title = "My Retail Analytics Space"
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Create without name
+            genie_room = GenieRoomModel(space_id="test-space-123")
+
+            # Name should be populated from the space title
+            assert genie_room.name == "My Retail Analytics Space"
+
+    def test_name_not_overridden_if_provided(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that provided name is not overridden by GenieSpace title."""
+        # Set a title on the mock space
+        mock_genie_space_with_serialized_data.title = "Space Title from API"
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Create with explicit name
+            genie_room = GenieRoomModel(
+                name="My Custom Name", space_id="test-space-123"
+            )
+
+            # Custom name should be preserved
+            assert genie_room.name == "My Custom Name"
+
+    def test_name_handles_none_from_space(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that None title from space is handled gracefully."""
+        # Set title to None
+        mock_genie_space_with_serialized_data.title = None
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Create without name
+            genie_room = GenieRoomModel(space_id="test-space-123")
+
+            # Name should remain None
+            assert genie_room.name is None
+
     def test_description_populated_from_space(
         self, mock_workspace_client, mock_genie_space_with_serialized_data
     ):
@@ -415,12 +471,32 @@ class TestGenieRoomModelSerialization:
             )
 
             # Create without description
-            genie_room = GenieRoomModel(
-                name="test-genie-room", space_id="test-space-123"
-            )
+            genie_room = GenieRoomModel(space_id="test-space-123")
 
             # Description should be populated from the space
             assert genie_room.description == "This is a test Genie space description"
+
+    def test_name_and_description_populated_together(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that both name and description are populated from GenieSpace when not provided."""
+        # Set both title and description on the mock space
+        mock_genie_space_with_serialized_data.title = "Production Analytics"
+        mock_genie_space_with_serialized_data.description = (
+            "Production space for analytics queries"
+        )
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Create without name or description
+            genie_room = GenieRoomModel(space_id="test-space-123")
+
+            # Both should be populated from the space
+            assert genie_room.name == "Production Analytics"
+            assert genie_room.description == "Production space for analytics queries"
 
     def test_description_not_overridden_if_provided(
         self, mock_workspace_client, mock_genie_space_with_serialized_data
@@ -463,6 +539,84 @@ class TestGenieRoomModelSerialization:
 
             # Description should remain None
             assert genie_room.description is None
+
+    def test_partial_population_name_provided_description_auto(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that description is still populated when name is provided."""
+        # Set both title and description on the mock space
+        mock_genie_space_with_serialized_data.title = "API Space Title"
+        mock_genie_space_with_serialized_data.description = "API Space Description"
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Create with name but without description
+            genie_room = GenieRoomModel(name="Custom Name", space_id="test-space-123")
+
+            # Custom name should be preserved, description should be auto-populated
+            assert genie_room.name == "Custom Name"
+            assert genie_room.description == "API Space Description"
+
+    def test_partial_population_description_provided_name_auto(
+        self, mock_workspace_client, mock_genie_space_with_serialized_data
+    ):
+        """Test that name is still populated when description is provided."""
+        # Set both title and description on the mock space
+        mock_genie_space_with_serialized_data.title = "API Space Title"
+        mock_genie_space_with_serialized_data.description = "API Space Description"
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.return_value = (
+                mock_genie_space_with_serialized_data
+            )
+
+            # Create with description but without name
+            genie_room = GenieRoomModel(
+                description="Custom Description", space_id="test-space-123"
+            )
+
+            # Custom description should be preserved, name should be auto-populated
+            assert genie_room.name == "API Space Title"
+            assert genie_room.description == "Custom Description"
+
+    def test_populate_name_and_description_handles_api_error(
+        self, mock_workspace_client
+    ):
+        """Test that populate_name_and_description validator handles API errors gracefully."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            # Mock API to raise an error
+            mock_workspace_client.genie.get_space.side_effect = Exception(
+                "API Error: Connection timeout"
+            )
+
+            # Create without name or description - should not raise exception
+            genie_room = GenieRoomModel(space_id="test-space-123")
+
+            # Name and description should remain None (not populated due to API error)
+            assert genie_room.name is None
+            assert genie_room.description is None
+
+    def test_populate_name_and_description_not_called_when_both_provided(
+        self, mock_workspace_client
+    ):
+        """Test that API is not called when both name and description are provided."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            # Create with both name and description
+            genie_room = GenieRoomModel(
+                name="Custom Name",
+                description="Custom Description",
+                space_id="test-space-123",
+            )
+
+            # API should not have been called
+            mock_workspace_client.genie.get_space.assert_not_called()
+
+            # Values should be preserved
+            assert genie_room.name == "Custom Name"
+            assert genie_room.description == "Custom Description"
 
     def test_tables_and_functions_inherit_authentication(
         self, mock_workspace_client, mock_genie_space_with_serialized_data

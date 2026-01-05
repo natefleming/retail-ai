@@ -10,7 +10,12 @@ import pytest
 from mcp.types import Tool
 
 from dao_ai.config import DatabricksAppModel, McpFunctionModel
-from dao_ai.tools.mcp import MCPToolInfo, _build_connection_config, create_mcp_tools, list_mcp_tools
+from dao_ai.tools.mcp import (
+    MCPToolInfo,
+    _build_connection_config,
+    create_mcp_tools,
+    list_mcp_tools,
+)
 
 
 @pytest.fixture
@@ -789,7 +794,9 @@ class TestBuildConnectionConfigUnifiedAuth:
         assert config["transport"] == "http"
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
-    def test_functions_source_uses_mcpfunction_workspace_client(self, mock_provider_class):
+    def test_functions_source_uses_mcpfunction_workspace_client(
+        self, mock_provider_class
+    ):
         """Test that functions source uses McpFunctionModel's workspace_client (SchemaModel has no auth)."""
         from dao_ai.config import SchemaModel
 
@@ -831,7 +838,7 @@ class TestBuildConnectionConfigUnifiedAuth:
         function = McpFunctionModel(connection=connection)
         function._workspace_client = function_ws
 
-        config = _build_connection_config(function)
+        _build_connection_config(function)
 
         # Verify connection's workspace client was used, not function's
         mock_provider_class.assert_called_once_with(connection_ws)
@@ -857,7 +864,7 @@ class TestBuildConnectionConfigUnifiedAuth:
         function = McpFunctionModel(app=app)
         function._workspace_client = function_ws
 
-        config = _build_connection_config(function)
+        _build_connection_config(function)
 
         # Verify app's workspace client was used, not function's
         mock_provider_class.assert_called_once_with(app_ws)

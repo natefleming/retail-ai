@@ -6,7 +6,13 @@ import pytest
 from langchain_core.tools import BaseTool
 from pydantic import ValidationError
 
-from dao_ai.config import ConnectionModel, DatabricksAppModel, McpFunctionModel, SchemaModel, TransportType
+from dao_ai.config import (
+    ConnectionModel,
+    DatabricksAppModel,
+    McpFunctionModel,
+    SchemaModel,
+    TransportType,
+)
 
 
 @pytest.mark.integration

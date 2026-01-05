@@ -29,7 +29,6 @@ from dao_ai.config import (
     IsDatabricksResource,
     McpFunctionModel,
     TransportType,
-    value_of,
 )
 
 
@@ -147,11 +146,11 @@ def _should_include_tool(
 def _get_auth_resource(function: McpFunctionModel) -> IsDatabricksResource:
     """
     Get the IsDatabricksResource to use for authentication.
-    
+
     Follows a priority hierarchy:
     1. Explicit resource with auth (app, connection, genie_room, vector_search, functions)
     2. McpFunctionModel itself (which also inherits from IsDatabricksResource)
-    
+
     Returns the resource whose workspace_client should be used for authentication.
     """
     # Check each possible resource source in priority order
@@ -167,7 +166,7 @@ def _get_auth_resource(function: McpFunctionModel) -> IsDatabricksResource:
     if function.functions:
         # SchemaModel doesn't have auth - fall through to McpFunctionModel
         pass
-    
+
     # Fall back to McpFunctionModel itself (it inherits from IsDatabricksResource)
     return function
 
@@ -177,16 +176,16 @@ def _build_connection_config(
 ) -> dict[str, Any]:
     """
     Build the connection configuration dictionary for MultiServerMCPClient.
-    
+
     Authentication Strategy:
     -----------------------
-    For HTTP transport, authentication is handled consistently using 
+    For HTTP transport, authentication is handled consistently using
     DatabricksOAuthClientProvider with the workspace_client from the appropriate
     IsDatabricksResource. The auth resource is selected in this priority:
-    
+
     1. Nested resource (app, connection, genie_room, vector_search) if it has auth
     2. McpFunctionModel itself (inherits from IsDatabricksResource)
-    
+
     This approach ensures:
     - Consistent auth handling across all MCP sources
     - Automatic token refresh for long-running connections
@@ -207,16 +206,18 @@ def _build_connection_config(
 
     # For HTTP transport, use DatabricksOAuthClientProvider with unified auth
     from databricks_mcp import DatabricksOAuthClientProvider
-    
+
     # Get the resource to use for authentication
     auth_resource = _get_auth_resource(function)
-    
+
     # Get workspace client from the auth resource
     workspace_client = auth_resource.workspace_client
     auth_provider = DatabricksOAuthClientProvider(workspace_client)
-    
+
     # Log which resource is providing auth
-    resource_name = getattr(auth_resource, 'name', None) or auth_resource.__class__.__name__
+    resource_name = (
+        getattr(auth_resource, "name", None) or auth_resource.__class__.__name__
+    )
     logger.trace(
         "Using DatabricksOAuthClientProvider for authentication",
         auth_resource=resource_name,

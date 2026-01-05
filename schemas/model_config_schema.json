@@ -1196,7 +1196,7 @@
     },
     "DatabricksAppModel": {
       "additionalProperties": false,
-      "description": "Configuration for a Databricks App resource.\n\nThe `name` is the unique instance name of the Databricks App within the workspace.\nThe `url` is dynamically retrieved from the workspace client by calling \n`apps.get(name)` and returning the app's URL.\n\nExample:\n    ```yaml\n    resources:\n      apps:\n        my_app:\n          name: my-databricks-app\n    ```",
+      "description": "Configuration for a Databricks App resource.\n\nThe `name` is the unique instance name of the Databricks App within the workspace.\nThe `url` is dynamically retrieved from the workspace client by calling\n`apps.get(name)` and returning the app's URL.\n\nExample:\n    ```yaml\n    resources:\n      apps:\n        my_app:\n          name: my-databricks-app\n    ```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -2053,8 +2053,16 @@
           "title": "Pat"
         },
         "name": {
-          "title": "Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
         },
         "description": {
           "anyOf": [
@@ -2099,7 +2107,6 @@
         }
       },
       "required": [
-        "name",
         "space_id"
       ],
       "title": "GenieRoomModel",
@@ -4914,6 +4921,7 @@
       "type": "object"
     },
     "WarehouseModel": {
+      "additionalProperties": false,
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -5071,8 +5079,16 @@
           "title": "Pat"
         },
         "name": {
-          "title": "Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
         },
         "description": {
           "anyOf": [
@@ -5117,7 +5133,6 @@
         }
       },
       "required": [
-        "name",
         "warehouse_id"
       ],
       "title": "WarehouseModel",
