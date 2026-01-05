@@ -295,17 +295,44 @@ agents:
 # APPLICATION CONFIGURATION
 # =============================================================================
 
-app_name: filtered_mcp_example
-entry_agent: safe_sql_agent
+app:
+  name: filtered_mcp_example              # Application name
+  log_level: INFO                         # Logging level (DEBUG, INFO, WARNING, ERROR)
+  registered_model:                       # MLflow registered model configuration
+    schema: *retail_schema                # Schema where model will be registered
+    name: filtered_mcp_example            # Model name in MLflow registry
+  agents:                                 # List of agents included in the system
+    - *safe_sql_agent                     # Safe SQL agent (read-only)
+    - *analyst_agent                      # Data analyst agent
+    - *dev_agent                          # Development agent
+    - *secure_agent                       # High-security agent
+    - *functions_agent                    # Functions agent
+  orchestration:                          # Agent orchestration configuration
+    swarm:                                # Supervisor orchestration pattern
+      model: *default_llm                 # LLM for routing decisions
+      # Agents will be automatically routed based on their capabilities
 
 # =============================================================================
 # USAGE NOTES
 # =============================================================================
 #
+# Deployment:
+#   databricks apps deploy dao-ai-filtered-mcp --source-dir . --config-file config/examples/02_mcp/filtered_mcp.yaml
+#
+# The app uses swarm orchestration to automatically route user queries to the
+# most appropriate agent based on their capabilities and tool access:
+#
+# - safe_sql_agent: Read-only SQL queries (allowlist of 5 safe operations)
+# - analyst_agent: Data analysis queries (query_*, list_*, describe_*, show_*)
+# - dev_agent: Development queries (all tools except dangerous DDL operations)
+# - secure_agent: Maximum security (only 3 specific tools)
+# - functions_agent: UC Functions access (filtered to exclude sensitive/admin)
+#
 # Testing Filters:
-# 1. Run with safe_sql_agent - try to call drop_table (should not be available)
-# 2. Run with dev_agent - verify you can query but not drop
-# 3. Run with secure_agent - verify only 3 tools are available
+# 1. Ask to query data → Routes to analyst_agent or safe_sql_agent
+# 2. Ask to drop a table → Routes to dev_agent, which will refuse (blocked)
+# 3. Ask in secure mode → Routes to secure_agent (only 3 tools available)
+# 4. Ask to call a function → Routes to functions_agent (sensitive functions blocked)
 #
 # Pattern Examples:
 # - "query_*" matches: query_sales, query_inventory, query_anything
