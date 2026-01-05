@@ -85,8 +85,8 @@ tools:
         - execute_query        # Exact match
         - list_tables          # Exact match
         - describe_table       # Exact match
-        - get_*                # Pattern: all getters
-        - show_*               # Pattern: all show operations
+        - "get_*"              # Pattern: all getters
+        - "show_*"             # Pattern: all show operations
 
   # ---------------------------------------------------------------------------
   # Example 2: Exclude Dangerous Tools (Denylist)
@@ -104,11 +104,11 @@ tools:
       workspace_host: *workspace_host
       # Load all tools EXCEPT these dangerous ones
       exclude_tools:
-        - drop_*               # Block all drop operations
-        - delete_*             # Block all delete operations
-        - truncate_*           # Block all truncate operations
+        - "drop_*"             # Block all drop operations
+        - "delete_*"           # Block all delete operations
+        - "truncate_*"         # Block all truncate operations
         - execute_ddl          # Block DDL execution
-        - alter_*              # Block all alter operations
+        - "alter_*"            # Block all alter operations
 
   # ---------------------------------------------------------------------------
   # Example 3: Hybrid Filtering (Include + Exclude)
@@ -126,14 +126,14 @@ tools:
       workspace_host: *workspace_host
       # Start with these categories
       include_tools:
-        - query_*              # All query functions
-        - get_*                # All getter functions
-        - list_*               # All list functions
+        - "query_*"            # All query functions
+        - "get_*"              # All getter functions
+        - "list_*"             # All list functions
       # But exclude sensitive ones
       exclude_tools:
-        - *_sensitive          # Exclude anything with "_sensitive"
-        - *_admin              # Exclude admin functions
-        - get_secret_*         # Exclude secret getters
+        - "*_sensitive"        # Exclude anything with "_sensitive"
+        - "*_admin"            # Exclude admin functions
+        - "get_secret_*"       # Exclude secret getters
 
   # ---------------------------------------------------------------------------
   # Example 4: Pattern-Based Inclusion
@@ -151,10 +151,10 @@ tools:
       workspace_host: *workspace_host
       # Only read operations with patterns
       include_tools:
-        - query_*              # All queries
-        - list_*               # All lists
-        - describe_*           # All describe operations
-        - show_*               # All show operations
+        - "query_*"            # All queries
+        - "list_*"             # All lists
+        - "describe_*"         # All describe operations
+        - "show_*"             # All show operations
 
   # ---------------------------------------------------------------------------
   # Example 5: Maximum Security (Very Restrictive)
@@ -192,8 +192,8 @@ tools:
       workspace_host: *workspace_host
       # Allow everything except the really dangerous stuff
       exclude_tools:
-        - drop_*               # Can't drop anything
-        - truncate_*           # Can't truncate
+        - "drop_*"             # Can't drop anything
+        - "truncate_*"         # Can't truncate
         - execute_ddl          # Can't run arbitrary DDL
 
 # =============================================================================
