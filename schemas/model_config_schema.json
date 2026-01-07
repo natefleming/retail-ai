@@ -5150,6 +5150,18 @@
   },
   "additionalProperties": false,
   "properties": {
+    "version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    },
     "variables": {
       "additionalProperties": {
         "anyOf": [

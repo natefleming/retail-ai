@@ -208,7 +208,9 @@ class IsDatabricksResource(ABC, BaseModel):
     Authentication Options:
     ----------------------
     1. **On-Behalf-Of User (OBO)**: Set on_behalf_of_user=True to use the
-       calling user's identity via ModelServingUserCredentials.
+       calling user's identity. Implementation varies by deployment:
+       - Databricks Apps: Uses X-Forwarded-Access-Token from request headers
+       - Model Serving: Uses ModelServingUserCredentials
 
     2. **Service Principal (OAuth M2M)**: Provide service_principal or
        (client_id + client_secret + workspace_host) for service principal auth.
@@ -221,9 +223,17 @@ class IsDatabricksResource(ABC, BaseModel):
 
     Authentication Priority:
     1. OBO (on_behalf_of_user=True)
+       - Checks for forwarded headers (Databricks Apps)
+       - Falls back to ModelServingUserCredentials (Model Serving)
     2. Service Principal (client_id + client_secret + workspace_host)
     3. PAT (pat + workspace_host)
     4. Ambient/default authentication
+
+    Note: When on_behalf_of_user=True, the agent acts as the calling user regardless
+    of deployment target. In Databricks Apps, this uses X-Forwarded-Access-Token
+    automatically captured by MLflow AgentServer. In Model Serving, this uses
+    ModelServingUserCredentials. Forwarded headers are ONLY used when
+    on_behalf_of_user=True.
     """
 
     model_config = ConfigDict(use_enum_values=True)
@@ -234,9 +244,6 @@ class IsDatabricksResource(ABC, BaseModel):
     client_secret: Optional[AnyVariable] = None
     workspace_host: Optional[AnyVariable] = None
     pat: Optional[AnyVariable] = None
-
-    # Private attribute to cache the workspace client (lazy instantiation)
-    _workspace_client: Optional[WorkspaceClient] = PrivateAttr(default=None)
 
     @abstractmethod
     def as_resources(self) -> Sequence[DatabricksResource]: ...
@@ -273,32 +280,56 @@ class IsDatabricksResource(ABC, BaseModel):
         """
         Get a WorkspaceClient configured with the appropriate authentication.
 
-        The client is lazily instantiated on first access and cached for subsequent calls.
+        A new client is created on each access.
 
         Authentication priority:
-        1. If on_behalf_of_user is True, uses ModelServingUserCredentials (OBO)
-        2. If service principal credentials are configured (client_id, client_secret,
-           workspace_host), uses OAuth M2M
-        3. If PAT is configured, uses token authentication
-        4. Otherwise, uses default/ambient authentication
+        1. On-Behalf-Of User (on_behalf_of_user=True):
+           - Forwarded headers (Databricks Apps)
+           - ModelServingUserCredentials (Model Serving)
+        2. Service Principal (client_id + client_secret + workspace_host)
+        3. PAT (pat + workspace_host)
+        4. Ambient/default authentication
         """
-        # Return cached client if already instantiated
-        if self._workspace_client is not None:
-            return self._workspace_client
-
         from dao_ai.utils import normalize_host
 
         # Check for OBO first (highest priority)
         if self.on_behalf_of_user:
+            # NEW: In Databricks Apps, use forwarded headers for per-user auth
+            try:
+                from mlflow.genai.agent_server import get_request_headers
+
+                headers = get_request_headers()
+                forwarded_token = headers.get("x-forwarded-access-token")
+
+                if forwarded_token:
+                    forwarded_user = headers.get("x-forwarded-user", "unknown")
+                    logger.debug(
+                        f"Creating WorkspaceClient for {self.__class__.__name__} "
+                        f"with OBO using forwarded token from Databricks Apps",
+                        forwarded_user=forwarded_user,
+                    )
+                    # Use workspace_host if configured, otherwise SDK will auto-detect
+                    workspace_host_value: str | None = (
+                        normalize_host(value_of(self.workspace_host))
+                        if self.workspace_host
+                        else None
+                    )
+                    return WorkspaceClient(
+                        host=workspace_host_value,
+                        token=forwarded_token,
+                        auth_type="pat",
+                    )
+            except (ImportError, LookupError):
+                # mlflow not available or headers not set - fall through to Model Serving
+                pass
+
+            # Fall back to Model Serving OBO (existing behavior)
             credentials_strategy: CredentialsStrategy = ModelServingUserCredentials()
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} "
-                f"with OBO credentials strategy"
+                f"with OBO credentials strategy (Model Serving)"
             )
-            self._workspace_client = WorkspaceClient(
-                credentials_strategy=credentials_strategy
-            )
-            return self._workspace_client
+            return WorkspaceClient(credentials_strategy=credentials_strategy)
 
         # Check for service principal credentials
         client_id_value: str | None = (
@@ -318,13 +349,12 @@ class IsDatabricksResource(ABC, BaseModel):
                 f"Creating WorkspaceClient for {self.__class__.__name__} with service principal: "
                 f"client_id={client_id_value}, host={workspace_host_value}"
             )
-            self._workspace_client = WorkspaceClient(
+            return WorkspaceClient(
                 host=workspace_host_value,
                 client_id=client_id_value,
                 client_secret=client_secret_value,
                 auth_type="oauth-m2m",
             )
-            return self._workspace_client
 
         # Check for PAT authentication
         pat_value: str | None = value_of(self.pat) if self.pat else None
@@ -332,20 +362,28 @@ class IsDatabricksResource(ABC, BaseModel):
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} with PAT"
             )
-            self._workspace_client = WorkspaceClient(
+            return WorkspaceClient(
                 host=workspace_host_value,
                 token=pat_value,
                 auth_type="pat",
             )
-            return self._workspace_client
 
         # Default: use ambient authentication
         logger.debug(
             f"Creating WorkspaceClient for {self.__class__.__name__} "
             "with default/ambient authentication"
         )
-        self._workspace_client = WorkspaceClient()
-        return self._workspace_client
+        return WorkspaceClient()
+
+
+class DeploymentTarget(str, Enum):
+    """Target platform for agent deployment."""
+
+    MODEL_SERVING = "model_serving"
+    """Deploy to Databricks Model Serving endpoint."""
+
+    APPS = "apps"
+    """Deploy as a Databricks App."""
 
 
 class Privilege(str, Enum):
@@ -865,10 +903,6 @@ class GenieRoomModel(IsDatabricksResource):
                 pat=self.pat,
             )
 
-            # Share the cached workspace client if available
-            if self._workspace_client is not None:
-                warehouse_model._workspace_client = self._workspace_client
-
             return warehouse_model
         except Exception as e:
             logger.warning(
@@ -912,9 +946,6 @@ class GenieRoomModel(IsDatabricksResource):
                                 workspace_host=self.workspace_host,
                                 pat=self.pat,
                             )
-                            # Share the cached workspace client if available
-                            if self._workspace_client is not None:
-                                table_model._workspace_client = self._workspace_client
 
                             # Verify the table exists before adding
                             if not table_model.exists():
@@ -952,9 +983,6 @@ class GenieRoomModel(IsDatabricksResource):
                 workspace_host=self.workspace_host,
                 pat=self.pat,
             )
-            # Share the cached workspace client if available
-            if self._workspace_client is not None:
-                function_model._workspace_client = self._workspace_client
 
             # Verify the function exists before adding
             if not function_model.exists():
@@ -3255,6 +3283,7 @@ class ResourcesModel(BaseModel):
 
 class AppConfig(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    version: Optional[str] = None
     variables: dict[str, AnyVariable] = Field(default_factory=dict)
     service_principals: dict[str, ServicePrincipalModel] = Field(default_factory=dict)
     schemas: dict[str, SchemaModel] = Field(default_factory=dict)
@@ -3275,6 +3304,9 @@ class AppConfig(BaseModel):
     )
     providers: Optional[dict[type | str, Any]] = None
 
+    # Private attribute to track the source config file path (set by from_file)
+    _source_config_path: str | None = None
+
     @classmethod
     def from_file(cls, path: PathLike) -> "AppConfig":
         path = Path(path).as_posix()
@@ -3282,11 +3314,19 @@ class AppConfig(BaseModel):
         model_config: ModelConfig = ModelConfig(development_config=path)
         config: AppConfig = AppConfig(**model_config.to_dict())
 
+        # Store the source config path for later use (e.g., Apps deployment)
+        config._source_config_path = path
+
         config.initialize()
 
         atexit.register(config.shutdown)
 
         return config
+
+    @property
+    def source_config_path(self) -> str | None:
+        """Get the source config file path if loaded via from_file."""
+        return self._source_config_path
 
     def initialize(self) -> None:
         from dao_ai.hooks.core import create_hooks
@@ -3358,6 +3398,7 @@ class AppConfig(BaseModel):
 
     def deploy_agent(
         self,
+        target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
         w: WorkspaceClient | None = None,
         vsc: "VectorSearchClient | None" = None,
         pat: str | None = None,
@@ -3365,6 +3406,18 @@ class AppConfig(BaseModel):
         client_secret: str | None = None,
         workspace_host: str | None = None,
     ) -> None:
+        """
+        Deploy the agent to the specified target.
+
+        Args:
+            target: The deployment target (MODEL_SERVING or APPS). Defaults to MODEL_SERVING.
+            w: Optional WorkspaceClient instance
+            vsc: Optional VectorSearchClient instance
+            pat: Optional personal access token for authentication
+            client_id: Optional client ID for service principal authentication
+            client_secret: Optional client secret for service principal authentication
+            workspace_host: Optional workspace host URL
+        """
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
@@ -3376,7 +3429,7 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.deploy_agent(self)
+        provider.deploy_agent(self, target=target)
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

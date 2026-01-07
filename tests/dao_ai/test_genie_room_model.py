@@ -652,8 +652,6 @@ class TestGenieRoomModelSerialization:
                 assert table.on_behalf_of_user
                 assert table.service_principal == service_principal
                 assert table.workspace_host == "https://test.databricks.com"
-                # Verify workspace client is shared
-                assert table._workspace_client == genie_room._workspace_client
 
             # Verify functions inherit authentication
             assert len(functions) > 0
@@ -661,8 +659,6 @@ class TestGenieRoomModelSerialization:
                 assert function.on_behalf_of_user
                 assert function.service_principal == service_principal
                 assert function.workspace_host == "https://test.databricks.com"
-                # Verify workspace client is shared
-                assert function._workspace_client == genie_room._workspace_client
 
     def test_warehouse_extraction(
         self, mock_workspace_client, mock_genie_space_with_serialized_data
@@ -735,8 +731,6 @@ class TestGenieRoomModelSerialization:
             assert warehouse.on_behalf_of_user
             assert warehouse.service_principal == service_principal
             assert warehouse.workspace_host == "https://test.databricks.com"
-            # Verify workspace client is shared
-            assert warehouse._workspace_client == genie_room._workspace_client
 
     def test_warehouse_handles_missing_warehouse_id(self, mock_workspace_client):
         """Test that warehouse property handles missing warehouse_id gracefully."""

@@ -1,14 +1,18 @@
 from abc import ABC, abstractmethod
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from dao_ai.config import (
     AppModel,
     DatasetModel,
+    DeploymentTarget,
     SchemaModel,
     UnityCatalogFunctionSqlModel,
     VectorStoreModel,
     VolumeModel,
 )
+
+if TYPE_CHECKING:
+    from dao_ai.config import AppConfig
 
 
 class ServiceProvider(ABC):
@@ -52,4 +56,26 @@ class ServiceProvider(ABC):
     ) -> Any: ...
 
     @abstractmethod
-    def deploy_agent(self, config: AppModel) -> Any: ...
+    def deploy_model_serving_agent(self, config: "AppConfig") -> Any:
+        """Deploy agent to Databricks Model Serving endpoint."""
+        ...
+
+    @abstractmethod
+    def deploy_apps_agent(self, config: "AppConfig") -> Any:
+        """Deploy agent as a Databricks App."""
+        ...
+
+    @abstractmethod
+    def deploy_agent(
+        self,
+        config: "AppConfig",
+        target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+    ) -> Any:
+        """
+        Deploy agent to the specified target.
+
+        Args:
+            config: The AppConfig containing deployment configuration
+            target: The deployment target (MODEL_SERVING or APPS)
+        """
+        ...

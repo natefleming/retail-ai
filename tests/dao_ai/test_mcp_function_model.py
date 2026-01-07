@@ -356,6 +356,8 @@ class TestDatabricksAppModel:
 
     def test_app_model_url_retrieves_from_workspace(self):
         """Test that url property retrieves URL from workspace client."""
+        from unittest.mock import PropertyMock, patch
+
         # Create a mock app response
         mock_app = Mock()
         mock_app.url = "https://my-test-app-123.cloud.databricks.com"
@@ -364,17 +366,25 @@ class TestDatabricksAppModel:
         mock_ws = Mock()
         mock_ws.apps.get.return_value = mock_app
 
-        # Create DatabricksAppModel and inject mock
+        # Create DatabricksAppModel
         app_model = DatabricksAppModel(name="my-test-app")
-        app_model._workspace_client = mock_ws
 
-        # Test URL retrieval
-        url = app_model.url
-        assert url == "https://my-test-app-123.cloud.databricks.com"
-        mock_ws.apps.get.assert_called_once_with("my-test-app")
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            # Test URL retrieval
+            url = app_model.url
+            assert url == "https://my-test-app-123.cloud.databricks.com"
+            mock_ws.apps.get.assert_called_once_with("my-test-app")
 
     def test_app_model_url_raises_when_not_deployed(self):
         """Test that url property raises RuntimeError when app has no URL."""
+        from unittest.mock import PropertyMock, patch
+
         # Create a mock app response without URL
         mock_app = Mock()
         mock_app.url = None
@@ -383,13 +393,19 @@ class TestDatabricksAppModel:
         mock_ws = Mock()
         mock_ws.apps.get.return_value = mock_app
 
-        # Create DatabricksAppModel and inject mock
+        # Create DatabricksAppModel
         app_model = DatabricksAppModel(name="undeployed-app")
-        app_model._workspace_client = mock_ws
 
-        # Test URL retrieval raises error
-        with pytest.raises(RuntimeError, match="does not have a URL"):
-            _ = app_model.url
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            # Test URL retrieval raises error
+            with pytest.raises(RuntimeError, match="does not have a URL"):
+                _ = app_model.url
 
 
 class TestMcpFunctionModelWithApp:
@@ -397,6 +413,8 @@ class TestMcpFunctionModelWithApp:
 
     def test_app_as_url_source(self):
         """Test that app can be used as URL source."""
+        from unittest.mock import PropertyMock, patch
+
         # Create a mock app with URL
         mock_app = Mock()
         mock_app.url = "https://my-mcp-app.cloud.databricks.com"
@@ -405,19 +423,25 @@ class TestMcpFunctionModelWithApp:
         mock_ws = Mock()
         mock_ws.apps.get.return_value = mock_app
 
-        # Create DatabricksAppModel and inject mock
+        # Create DatabricksAppModel
         app_model = DatabricksAppModel(name="my-mcp-app")
-        app_model._workspace_client = mock_ws
 
-        # Create McpFunctionModel with app source
-        mcp_model = McpFunctionModel(
-            transport=TransportType.STREAMABLE_HTTP,
-            app=app_model,
-        )
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            # Create McpFunctionModel with app source
+            mcp_model = McpFunctionModel(
+                transport=TransportType.STREAMABLE_HTTP,
+                app=app_model,
+            )
 
-        assert mcp_model.app is not None
-        assert mcp_model.app.name == "my-mcp-app"
-        assert mcp_model.mcp_url == "https://my-mcp-app.cloud.databricks.com"
+            assert mcp_model.app is not None
+            assert mcp_model.app.name == "my-mcp-app"
+            assert mcp_model.mcp_url == "https://my-mcp-app.cloud.databricks.com"
 
     def test_app_mutually_exclusive_with_url(self):
         """Test that app and url cannot be provided together."""

@@ -1,0 +1,12 @@
+command: ["uv", "run", "python", "-m", "dao_ai.app_server"]
+# Databricks Apps listen by default on port 8000
+
+env:
+  - name: MLFLOW_TRACKING_URI
+    value: "databricks"
+  - name: MLFLOW_REGISTRY_URI
+    value: "databricks-uc"
+  # Path to the dao-ai configuration file
+  # This can be set to a workspace path or local file path
+  - name: DAO_AI_CONFIG_PATH
+    value: "model_config.yaml"

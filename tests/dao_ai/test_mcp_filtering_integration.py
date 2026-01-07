@@ -524,6 +524,8 @@ class TestBuildConnectionConfigWithApp:
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_app_source_uses_oauth_provider(self, mock_provider_class):
         """Test that app source uses DatabricksOAuthClientProvider with app's workspace_client."""
+        from unittest.mock import PropertyMock
+
         # Create mock app with URL
         mock_app_instance = Mock()
         mock_app_instance.url = "https://my-mcp-app.cloud.databricks.com"
@@ -532,27 +534,35 @@ class TestBuildConnectionConfigWithApp:
         mock_ws = Mock()
         mock_ws.apps.get.return_value = mock_app_instance
 
-        # Create DatabricksAppModel and inject mock
+        # Create DatabricksAppModel
         app_model = DatabricksAppModel(name="my-mcp-app")
-        app_model._workspace_client = mock_ws
 
-        # Create McpFunctionModel with app source
-        function = McpFunctionModel(app=app_model)
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            # Create McpFunctionModel with app source
+            function = McpFunctionModel(app=app_model)
 
-        # Build connection config
-        config = _build_connection_config(function)
+            # Build connection config
+            config = _build_connection_config(function)
 
-        # Verify structure
-        assert config["url"] == "https://my-mcp-app.cloud.databricks.com"
-        assert config["transport"] == "http"
-        assert "auth" in config
+            # Verify structure
+            assert config["url"] == "https://my-mcp-app.cloud.databricks.com"
+            assert config["transport"] == "http"
+            assert "auth" in config
 
-        # Verify OAuth provider was called with app's workspace client
-        mock_provider_class.assert_called_once_with(mock_ws)
+            # Verify OAuth provider was called with app's workspace client
+            mock_provider_class.assert_called_once_with(mock_ws)
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_app_source_config_structure(self, mock_provider_class):
         """Test that app source returns correct config structure."""
+        from unittest.mock import PropertyMock
+
         mock_auth = Mock()
         mock_provider_class.return_value = mock_auth
 
@@ -564,17 +574,23 @@ class TestBuildConnectionConfigWithApp:
         mock_ws.apps.get.return_value = mock_app_instance
 
         app_model = DatabricksAppModel(name="test-app")
-        app_model._workspace_client = mock_ws
 
-        function = McpFunctionModel(app=app_model)
-        config = _build_connection_config(function)
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            function = McpFunctionModel(app=app_model)
+            config = _build_connection_config(function)
 
-        # Verify complete config structure
-        assert config == {
-            "url": "https://test-app.azuredatabricks.net",
-            "transport": "http",
-            "auth": mock_auth,
-        }
+            # Verify complete config structure
+            assert config == {
+                "url": "https://test-app.azuredatabricks.net",
+                "transport": "http",
+                "auth": mock_auth,
+            }
 
     @patch("dao_ai.tools.mcp.MultiServerMCPClient")
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
@@ -582,6 +598,8 @@ class TestBuildConnectionConfigWithApp:
         self, mock_provider_class, mock_client_class, mock_mcp_tools
     ):
         """Test creating MCP tools with DatabricksAppModel as source."""
+        from unittest.mock import PropertyMock
+
         # Setup mock client
         mock_session = AsyncMock()
         mock_session.list_tools.return_value = MagicMock(tools=mock_mcp_tools)
@@ -599,18 +617,24 @@ class TestBuildConnectionConfigWithApp:
         mock_ws.apps.get.return_value = mock_app_instance
 
         app_model = DatabricksAppModel(name="my-mcp-app")
-        app_model._workspace_client = mock_ws
 
-        # Create MCP function with app source
-        function = McpFunctionModel(app=app_model)
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            # Create MCP function with app source
+            function = McpFunctionModel(app=app_model)
 
-        # Create tools
-        tools = create_mcp_tools(function)
+            # Create tools
+            tools = create_mcp_tools(function)
 
-        # Verify tools were created
-        assert len(tools) == 10
-        tool_names = [t.name for t in tools]
-        assert "query_sales" in tool_names
+            # Verify tools were created
+            assert len(tools) == 10
+            tool_names = [t.name for t in tools]
+            assert "query_sales" in tool_names
 
     @patch("dao_ai.tools.mcp.MultiServerMCPClient")
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
@@ -618,6 +642,8 @@ class TestBuildConnectionConfigWithApp:
         self, mock_provider_class, mock_client_class, mock_mcp_tools
     ):
         """Test listing MCP tools with DatabricksAppModel as source."""
+        from unittest.mock import PropertyMock
+
         # Setup mock client
         mock_session = AsyncMock()
         mock_session.list_tools.return_value = MagicMock(tools=mock_mcp_tools)
@@ -634,17 +660,23 @@ class TestBuildConnectionConfigWithApp:
         mock_ws.apps.get.return_value = mock_app_instance
 
         app_model = DatabricksAppModel(name="my-mcp-app")
-        app_model._workspace_client = mock_ws
 
-        # Create MCP function with app source
-        function = McpFunctionModel(app=app_model)
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            # Create MCP function with app source
+            function = McpFunctionModel(app=app_model)
 
-        # List tools
-        tool_infos = list_mcp_tools(function)
+            # List tools
+            tool_infos = list_mcp_tools(function)
 
-        # Verify tool infos
-        assert len(tool_infos) == 10
-        assert all(isinstance(t, MCPToolInfo) for t in tool_infos)
+            # Verify tool infos
+            assert len(tool_infos) == 10
+            assert all(isinstance(t, MCPToolInfo) for t in tool_infos)
 
     @patch("dao_ai.tools.mcp.MultiServerMCPClient")
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
@@ -652,6 +684,8 @@ class TestBuildConnectionConfigWithApp:
         self, mock_provider_class, mock_client_class, mock_mcp_tools
     ):
         """Test app source with include/exclude tool filters."""
+        from unittest.mock import PropertyMock
+
         # Setup mock client
         mock_session = AsyncMock()
         mock_session.list_tools.return_value = MagicMock(tools=mock_mcp_tools)
@@ -669,24 +703,30 @@ class TestBuildConnectionConfigWithApp:
         mock_ws.apps.get.return_value = mock_app_instance
 
         app_model = DatabricksAppModel(name="my-mcp-app")
-        app_model._workspace_client = mock_ws
 
-        # Create MCP function with app source and filters
-        function = McpFunctionModel(
-            app=app_model,
-            include_tools=["query_*"],
-            exclude_tools=["*_sensitive"],
-        )
+        # Mock the workspace_client property
+        with patch.object(
+            type(app_model),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            # Create MCP function with app source and filters
+            function = McpFunctionModel(
+                app=app_model,
+                include_tools=["query_*"],
+                exclude_tools=["*_sensitive"],
+            )
 
-        # Create tools
-        tools = create_mcp_tools(function)
+            # Create tools
+            tools = create_mcp_tools(function)
 
-        # Should only have query_* tools except query_sensitive
-        assert len(tools) == 2
-        tool_names = [t.name for t in tools]
-        assert "query_sales" in tool_names
-        assert "query_inventory" in tool_names
-        assert "query_sensitive" not in tool_names
+            # Should only have query_* tools except query_sensitive
+            assert len(tools) == 2
+            tool_names = [t.name for t in tools]
+            assert "query_sales" in tool_names
+            assert "query_inventory" in tool_names
+            assert "query_sensitive" not in tool_names
 
 
 class TestBuildConnectionConfigUnifiedAuth:
@@ -695,6 +735,8 @@ class TestBuildConnectionConfigUnifiedAuth:
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_genie_room_uses_own_workspace_client(self, mock_provider_class):
         """Test that genie_room source uses its own workspace_client for auth."""
+        from unittest.mock import PropertyMock
+
         from dao_ai.config import GenieRoomModel
 
         mock_auth = Mock()
@@ -704,23 +746,31 @@ class TestBuildConnectionConfigUnifiedAuth:
         mock_ws = Mock()
 
         genie_room = GenieRoomModel(name="test-genie", space_id="space_123")
-        genie_room._workspace_client = mock_ws
 
-        function = McpFunctionModel(
-            genie_room=genie_room,
-            workspace_host="https://workspace.databricks.com",
-        )
+        # Mock the workspace_client property
+        with patch.object(
+            type(genie_room),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            function = McpFunctionModel(
+                genie_room=genie_room,
+                workspace_host="https://workspace.databricks.com",
+            )
 
-        config = _build_connection_config(function)
+            config = _build_connection_config(function)
 
-        # Verify OAuth provider was called with genie_room's workspace client
-        mock_provider_class.assert_called_once_with(mock_ws)
-        assert config["transport"] == "http"
-        assert config["auth"] == mock_auth
+            # Verify OAuth provider was called with genie_room's workspace client
+            mock_provider_class.assert_called_once_with(mock_ws)
+            assert config["transport"] == "http"
+            assert config["auth"] == mock_auth
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_vector_search_uses_own_workspace_client(self, mock_provider_class):
         """Test that vector_search source uses its own workspace_client for auth."""
+        from unittest.mock import PropertyMock
+
         from dao_ai.config import IndexModel, SchemaModel, TableModel, VectorStoreModel
 
         mock_auth = Mock()
@@ -739,23 +789,31 @@ class TestBuildConnectionConfigUnifiedAuth:
             index=index,
             primary_key="id",
         )
-        vector_search._workspace_client = mock_ws
 
-        function = McpFunctionModel(
-            vector_search=vector_search,
-            workspace_host="https://workspace.databricks.com",
-        )
+        # Mock the workspace_client property
+        with patch.object(
+            type(vector_search),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            function = McpFunctionModel(
+                vector_search=vector_search,
+                workspace_host="https://workspace.databricks.com",
+            )
 
-        config = _build_connection_config(function)
+            config = _build_connection_config(function)
 
-        # Verify OAuth provider was called with vector_search's workspace client
-        mock_provider_class.assert_called_once_with(mock_ws)
-        assert config["transport"] == "http"
-        assert config["auth"] == mock_auth
+            # Verify OAuth provider was called with vector_search's workspace client
+            mock_provider_class.assert_called_once_with(mock_ws)
+            assert config["transport"] == "http"
+            assert config["auth"] == mock_auth
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_url_source_uses_mcpfunction_workspace_client(self, mock_provider_class):
         """Test that direct URL source uses McpFunctionModel's own workspace_client."""
+        from unittest.mock import PropertyMock
+
         mock_auth = Mock()
         mock_provider_class.return_value = mock_auth
 
@@ -763,18 +821,26 @@ class TestBuildConnectionConfigUnifiedAuth:
         mock_ws = Mock()
 
         function = McpFunctionModel(url="https://example.com/mcp")
-        function._workspace_client = mock_ws
 
-        config = _build_connection_config(function)
+        # Mock the workspace_client property
+        with patch.object(
+            type(function),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            config = _build_connection_config(function)
 
-        # Verify OAuth provider was called with McpFunctionModel's workspace client
-        mock_provider_class.assert_called_once_with(mock_ws)
-        assert config["transport"] == "http"
-        assert config["auth"] == mock_auth
+            # Verify OAuth provider was called with McpFunctionModel's workspace client
+            mock_provider_class.assert_called_once_with(mock_ws)
+            assert config["transport"] == "http"
+            assert config["auth"] == mock_auth
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_sql_source_uses_mcpfunction_workspace_client(self, mock_provider_class):
         """Test that sql=True source uses McpFunctionModel's own workspace_client."""
+        from unittest.mock import PropertyMock
+
         mock_auth = Mock()
         mock_provider_class.return_value = mock_auth
 
@@ -785,19 +851,27 @@ class TestBuildConnectionConfigUnifiedAuth:
             sql=True,
             workspace_host="https://workspace.databricks.com",
         )
-        function._workspace_client = mock_ws
 
-        config = _build_connection_config(function)
+        # Mock the workspace_client property
+        with patch.object(
+            type(function),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            config = _build_connection_config(function)
 
-        # Verify OAuth provider was called with McpFunctionModel's workspace client
-        mock_provider_class.assert_called_once_with(mock_ws)
-        assert config["transport"] == "http"
+            # Verify OAuth provider was called with McpFunctionModel's workspace client
+            mock_provider_class.assert_called_once_with(mock_ws)
+            assert config["transport"] == "http"
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_functions_source_uses_mcpfunction_workspace_client(
         self, mock_provider_class
     ):
         """Test that functions source uses McpFunctionModel's workspace_client (SchemaModel has no auth)."""
+        from unittest.mock import PropertyMock
+
         from dao_ai.config import SchemaModel
 
         mock_auth = Mock()
@@ -811,18 +885,26 @@ class TestBuildConnectionConfigUnifiedAuth:
             functions=schema,
             workspace_host="https://workspace.databricks.com",
         )
-        function._workspace_client = mock_ws
 
-        config = _build_connection_config(function)
+        # Mock the workspace_client property
+        with patch.object(
+            type(function),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=mock_ws,
+        ):
+            config = _build_connection_config(function)
 
-        # Verify OAuth provider was called with McpFunctionModel's workspace client
-        # (SchemaModel doesn't inherit from IsDatabricksResource)
-        mock_provider_class.assert_called_once_with(mock_ws)
-        assert config["transport"] == "http"
+            # Verify OAuth provider was called with McpFunctionModel's workspace client
+            # (SchemaModel doesn't inherit from IsDatabricksResource)
+            mock_provider_class.assert_called_once_with(mock_ws)
+            assert config["transport"] == "http"
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_connection_has_priority_over_mcpfunction_auth(self, mock_provider_class):
         """Test that connection's workspace_client takes priority over McpFunctionModel's."""
+        from unittest.mock import PropertyMock
+
         mock_auth = Mock()
         mock_provider_class.return_value = mock_auth
 
@@ -833,19 +915,31 @@ class TestBuildConnectionConfigUnifiedAuth:
         function_ws = Mock(name="function_ws")
 
         connection = ConnectionModel(name="test-connection")
-        connection._workspace_client = connection_ws
-
         function = McpFunctionModel(connection=connection)
-        function._workspace_client = function_ws
 
-        _build_connection_config(function)
+        # Mock both workspace_client properties
+        with patch.object(
+            type(connection),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=connection_ws,
+        ):
+            with patch.object(
+                type(function),
+                "workspace_client",
+                new_callable=PropertyMock,
+                return_value=function_ws,
+            ):
+                _build_connection_config(function)
 
-        # Verify connection's workspace client was used, not function's
-        mock_provider_class.assert_called_once_with(connection_ws)
+                # Verify connection's workspace client was used, not function's
+                mock_provider_class.assert_called_once_with(connection_ws)
 
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
     def test_app_has_priority_over_mcpfunction_auth(self, mock_provider_class):
         """Test that app's workspace_client takes priority over McpFunctionModel's."""
+        from unittest.mock import PropertyMock
+
         mock_auth = Mock()
         mock_provider_class.return_value = mock_auth
 
@@ -859,12 +953,22 @@ class TestBuildConnectionConfigUnifiedAuth:
         app_ws.apps.get.return_value = mock_app_instance
 
         app = DatabricksAppModel(name="my-app")
-        app._workspace_client = app_ws
-
         function = McpFunctionModel(app=app)
-        function._workspace_client = function_ws
 
-        _build_connection_config(function)
+        # Mock both workspace_client properties
+        with patch.object(
+            type(app),
+            "workspace_client",
+            new_callable=PropertyMock,
+            return_value=app_ws,
+        ):
+            with patch.object(
+                type(function),
+                "workspace_client",
+                new_callable=PropertyMock,
+                return_value=function_ws,
+            ):
+                _build_connection_config(function)
 
-        # Verify app's workspace client was used, not function's
-        mock_provider_class.assert_called_once_with(app_ws)
+                # Verify app's workspace client was used, not function's
+                mock_provider_class.assert_called_once_with(app_ws)

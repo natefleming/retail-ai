@@ -24,8 +24,6 @@ def mock_warehouse() -> WarehouseModel:
         name="test_warehouse",
         warehouse_id="test_warehouse_id",
     )
-    # Mock the workspace client
-    warehouse._workspace_client = MagicMock()
     return warehouse
 
 
@@ -64,6 +62,8 @@ def test_create_execute_sql_tool_with_custom_name(
 @pytest.mark.unit
 def test_execute_sql_tool_success(mock_warehouse: WarehouseModel) -> None:
     """Test successful SQL execution with results."""
+    from unittest.mock import PropertyMock, patch
+
     test_sql = "SELECT * FROM test_table"
 
     # Create mock response
@@ -86,25 +86,35 @@ def test_execute_sql_tool_success(mock_warehouse: WarehouseModel) -> None:
         ),
     )
 
-    # Mock the workspace client's statement execution
-    mock_warehouse._workspace_client.statement_execution.execute_statement.return_value = mock_response
+    # Create mock workspace client
+    mock_ws = MagicMock()
+    mock_ws.statement_execution.execute_statement.return_value = mock_response
 
-    # Create tool and execute (no parameters needed - SQL is pre-configured)
-    tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
-    result = tool.invoke({})
+    # Mock the workspace_client property
+    with patch.object(
+        type(mock_warehouse),
+        "workspace_client",
+        new_callable=PropertyMock,
+        return_value=mock_ws,
+    ):
+        # Create tool and execute (no parameters needed - SQL is pre-configured)
+        tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
+        result = tool.invoke({})
 
-    # Verify result format
-    assert isinstance(result, str)
-    assert "col1" in result
-    assert "col2" in result
-    assert "value1" in result
-    assert "value2" in result
-    assert "(2 rows returned)" in result
+        # Verify result format
+        assert isinstance(result, str)
+        assert "col1" in result
+        assert "col2" in result
+        assert "value1" in result
+        assert "value2" in result
+        assert "(2 rows returned)" in result
 
 
 @pytest.mark.unit
 def test_execute_sql_tool_no_results(mock_warehouse: WarehouseModel) -> None:
     """Test SQL execution with no results (e.g., INSERT statement)."""
+    from unittest.mock import PropertyMock, patch
+
     test_sql = "INSERT INTO test_table VALUES (1, 2)"
 
     mock_response = StatementResponse(
@@ -113,17 +123,28 @@ def test_execute_sql_tool_no_results(mock_warehouse: WarehouseModel) -> None:
         result=None,
     )
 
-    mock_warehouse._workspace_client.statement_execution.execute_statement.return_value = mock_response
+    # Create mock workspace client
+    mock_ws = MagicMock()
+    mock_ws.statement_execution.execute_statement.return_value = mock_response
 
-    tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
-    result = tool.invoke({})
+    # Mock the workspace_client property
+    with patch.object(
+        type(mock_warehouse),
+        "workspace_client",
+        new_callable=PropertyMock,
+        return_value=mock_ws,
+    ):
+        tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
+        result = tool.invoke({})
 
-    assert "executed successfully" in result.lower()
+        assert "executed successfully" in result.lower()
 
 
 @pytest.mark.unit
 def test_execute_sql_tool_error(mock_warehouse: WarehouseModel) -> None:
     """Test SQL execution with error."""
+    from unittest.mock import PropertyMock, patch
+
     test_sql = "SELECT * FROM nonexistent_table"
 
     mock_error = Mock()
@@ -137,26 +158,46 @@ def test_execute_sql_tool_error(mock_warehouse: WarehouseModel) -> None:
         ),
     )
 
-    mock_warehouse._workspace_client.statement_execution.execute_statement.return_value = mock_response
+    # Create mock workspace client
+    mock_ws = MagicMock()
+    mock_ws.statement_execution.execute_statement.return_value = mock_response
 
-    tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
-    result = tool.invoke({})
+    # Mock the workspace_client property
+    with patch.object(
+        type(mock_warehouse),
+        "workspace_client",
+        new_callable=PropertyMock,
+        return_value=mock_ws,
+    ):
+        tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
+        result = tool.invoke({})
 
-    assert "Error" in result
-    assert "Table not found" in result
+        assert "Error" in result
+        assert "Table not found" in result
 
 
 @pytest.mark.unit
 def test_execute_sql_tool_exception(mock_warehouse: WarehouseModel) -> None:
     """Test SQL execution with exception."""
+    from unittest.mock import PropertyMock, patch
+
     test_sql = "SELECT * FROM test_table"
 
-    mock_warehouse._workspace_client.statement_execution.execute_statement.side_effect = Exception(
+    # Create mock workspace client
+    mock_ws = MagicMock()
+    mock_ws.statement_execution.execute_statement.side_effect = Exception(
         "Connection failed"
     )
 
-    tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
-    result = tool.invoke({})
+    # Mock the workspace_client property
+    with patch.object(
+        type(mock_warehouse),
+        "workspace_client",
+        new_callable=PropertyMock,
+        return_value=mock_ws,
+    ):
+        tool = create_execute_statement_tool(mock_warehouse, statement=test_sql)
+        result = tool.invoke({})
 
-    assert "Error" in result
-    assert "Connection failed" in result
+        assert "Error" in result
+        assert "Connection failed" in result
