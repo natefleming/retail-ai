@@ -239,6 +239,8 @@ def test_mcp_function_with_connection_only():
 
 def test_mcp_function_with_databricks_app():
     """Test that MCP function model can use a Databricks App as URL source."""
+    from unittest.mock import PropertyMock, patch
+
     # Create a mock app response
     mock_app = Mock()
     mock_app.url = "https://my-mcp-server.cloud.databricks.com"
@@ -247,26 +249,34 @@ def test_mcp_function_with_databricks_app():
     mock_ws = Mock()
     mock_ws.apps.get.return_value = mock_app
 
-    # Create DatabricksAppModel and inject mock
+    # Create DatabricksAppModel
     app_model = DatabricksAppModel(name="my-mcp-server")
-    app_model._workspace_client = mock_ws
 
-    # Create MCP function model using the app
-    mcp_function_model = McpFunctionModel(
-        app=app_model,
-    )
+    # Mock the workspace_client property
+    with patch.object(
+        type(app_model),
+        "workspace_client",
+        new_callable=PropertyMock,
+        return_value=mock_ws,
+    ):
+        # Create MCP function model using the app
+        mcp_function_model = McpFunctionModel(
+            app=app_model,
+        )
 
-    # Verify the model was created correctly
-    assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
-    assert mcp_function_model.app is not None
-    assert mcp_function_model.app.name == "my-mcp-server"
-    assert mcp_function_model.url is None  # URL is retrieved from app
+        # Verify the model was created correctly
+        assert mcp_function_model.transport == TransportType.STREAMABLE_HTTP
+        assert mcp_function_model.app is not None
+        assert mcp_function_model.app.name == "my-mcp-server"
+        assert mcp_function_model.url is None  # URL is retrieved from app
 
-    # Verify the mcp_url property returns the app's URL
-    assert mcp_function_model.mcp_url == "https://my-mcp-server.cloud.databricks.com"
+        # Verify the mcp_url property returns the app's URL
+        assert (
+            mcp_function_model.mcp_url == "https://my-mcp-server.cloud.databricks.com"
+        )
 
-    # Verify the workspace client was called correctly
-    mock_ws.apps.get.assert_called_once_with("my-mcp-server")
+        # Verify the workspace client was called correctly
+        mock_ws.apps.get.assert_called_once_with("my-mcp-server")
 
 
 def test_mcp_function_with_databricks_app_and_url_mutually_exclusive():

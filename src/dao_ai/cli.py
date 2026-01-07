@@ -309,6 +309,14 @@ Examples:
         metavar="FILE",
         help="Path to the model configuration file to validate",
     )
+    deploy_parser.add_argument(
+        "-t",
+        "--target",
+        type=str,
+        choices=["model_serving", "apps"],
+        default="model_serving",
+        help="Deployment target: 'model_serving' (default) or 'apps'",
+    )
 
     # List MCP tools command
     list_mcp_parser: ArgumentParser = subparsers.add_parser(
@@ -729,11 +737,17 @@ def handle_graph_command(options: Namespace) -> None:
 
 
 def handle_deploy_command(options: Namespace) -> None:
+    from dao_ai.config import DeploymentTarget
+
     logger.debug(f"Validating configuration from {options.config}...")
     try:
         config: AppConfig = AppConfig.from_file(options.config)
+
+        # Convert target string to enum
+        target: DeploymentTarget = DeploymentTarget(options.target)
+
         config.create_agent()
-        config.deploy_agent()
+        config.deploy_agent(target=target)
         sys.exit(0)
     except Exception as e:
         logger.error(f"Deployment failed: {e}")

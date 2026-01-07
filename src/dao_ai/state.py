@@ -164,6 +164,7 @@ class Context(BaseModel):
 
     user_id: str | None = None
     thread_id: str | None = None
+    headers: dict[str, Any] | None = None
 
     @classmethod
     def from_runnable_config(cls, config: dict[str, Any]) -> "Context":

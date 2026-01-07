@@ -23,7 +23,7 @@ from databricks.sdk.service.catalog import (
 )
 from databricks.sdk.service.database import DatabaseCredential
 from databricks.sdk.service.iam import User
-from databricks.sdk.service.workspace import GetSecretResponse
+from databricks.sdk.service.workspace import GetSecretResponse, ImportFormat
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from loguru import logger
@@ -48,6 +48,7 @@ from dao_ai.config import (
     DatabaseModel,
     DatabricksAppModel,
     DatasetModel,
+    DeploymentTarget,
     FunctionModel,
     GenieRoomModel,
     HasFullName,
@@ -439,8 +440,19 @@ class DatabricksProvider(ServiceProvider):
                 version=aliased_model.version,
             )
 
-    def deploy_agent(self, config: AppConfig) -> None:
-        logger.info("Deploying agent", endpoint_name=config.app.endpoint_name)
+    def deploy_model_serving_agent(self, config: AppConfig) -> None:
+        """
+        Deploy agent to Databricks Model Serving endpoint.
+
+        This is the original deployment method that creates/updates a Model Serving
+        endpoint with the registered model.
+
+        Args:
+            config: The AppConfig containing deployment configuration
+        """
+        logger.info(
+            "Deploying agent to Model Serving", endpoint_name=config.app.endpoint_name
+        )
         mlflow.set_registry_uri("databricks-uc")
 
         endpoint_name: str = config.app.endpoint_name
@@ -498,6 +510,196 @@ class DatabricksProvider(ServiceProvider):
                     users=principals,
                     permission_level=PermissionLevel[entitlement],
                 )
+
+    def deploy_apps_agent(self, config: AppConfig) -> None:
+        """
+        Deploy agent as a Databricks App.
+
+        This method creates or updates a Databricks App that serves the agent
+        using the app_server module.
+
+        The deployment process:
+        1. Determine the workspace source path for the app
+        2. Upload the configuration file to the workspace
+        3. Create the app if it doesn't exist
+        4. Deploy the app
+
+        Args:
+            config: The AppConfig containing deployment configuration
+
+        Note:
+            The config file must be loaded via AppConfig.from_file() so that
+            the source_config_path is available for upload.
+        """
+        import io
+
+        from databricks.sdk.service.apps import (
+            App,
+            AppDeployment,
+            AppDeploymentMode,
+            AppDeploymentState,
+        )
+
+        # Normalize app name: lowercase, replace underscores with dashes
+        raw_name: str = config.app.name
+        app_name: str = raw_name.lower().replace("_", "-")
+        if app_name != raw_name:
+            logger.info(
+                "Normalized app name for Databricks Apps",
+                original=raw_name,
+                normalized=app_name,
+            )
+        logger.info("Deploying agent to Databricks Apps", app_name=app_name)
+
+        # Use convention-based workspace path: /Workspace/Users/{user}/apps/{app_name}
+        current_user: User = self.w.current_user.me()
+        user_name: str = current_user.user_name or "default"
+        source_path: str = f"/Workspace/Users/{user_name}/apps/{app_name}"
+
+        logger.info("Using workspace source path", source_path=source_path)
+
+        # Upload the configuration file to the workspace
+        source_config_path: str | None = config.source_config_path
+        if source_config_path:
+            # Read the config file and upload to workspace
+            config_file_name: str = "model_config.yaml"
+            workspace_config_path: str = f"{source_path}/{config_file_name}"
+
+            logger.info(
+                "Uploading config file to workspace",
+                source=source_config_path,
+                destination=workspace_config_path,
+            )
+
+            # Read the source config file
+            with open(source_config_path, "rb") as f:
+                config_content: bytes = f.read()
+
+            # Create the directory if it doesn't exist and upload the file
+            try:
+                self.w.workspace.mkdirs(source_path)
+            except Exception as e:
+                logger.debug(f"Directory may already exist: {e}")
+
+            # Upload the config file
+            self.w.workspace.upload(
+                path=workspace_config_path,
+                content=io.BytesIO(config_content),
+                format=ImportFormat.AUTO,
+                overwrite=True,
+            )
+            logger.info("Config file uploaded", path=workspace_config_path)
+        else:
+            logger.warning(
+                "No source config path available. "
+                "Ensure DAO_AI_CONFIG_PATH is set in the app environment or "
+                "model_config.yaml exists in the app source directory."
+            )
+
+        # Generate and upload app.yaml
+        # Use pip to install dao-ai and run the app server
+        app_yaml_content: str = """command:
+  - /bin/bash
+  - -c
+  - |
+    pip install dao-ai && python -m dao_ai.app_server
+
+env:
+  - name: MLFLOW_TRACKING_URI
+    value: "databricks"
+  - name: MLFLOW_REGISTRY_URI
+    value: "databricks-uc"
+  - name: DAO_AI_CONFIG_PATH
+    value: "model_config.yaml"
+"""
+        app_yaml_path: str = f"{source_path}/app.yaml"
+        self.w.workspace.upload(
+            path=app_yaml_path,
+            content=io.BytesIO(app_yaml_content.encode("utf-8")),
+            format=ImportFormat.AUTO,
+            overwrite=True,
+        )
+        logger.info("app.yaml uploaded", path=app_yaml_path)
+
+        # Check if app exists
+        app_exists: bool = False
+        try:
+            existing_app: App = self.w.apps.get(name=app_name)
+            app_exists = True
+            logger.debug("App already exists, updating", app_name=app_name)
+        except NotFound:
+            logger.debug("Creating new app", app_name=app_name)
+
+        # Create or get the app
+        if not app_exists:
+            logger.info("Creating Databricks App", app_name=app_name)
+            app_spec = App(
+                name=app_name,
+                description=config.app.description or f"DAO AI Agent: {app_name}",
+            )
+            app: App = self.w.apps.create_and_wait(app=app_spec)
+            logger.info("App created", app_name=app.name, app_url=app.url)
+        else:
+            app = existing_app
+
+        # Deploy the app with source code
+        # The app will use the dao_ai.app_server module as the entry point
+        logger.info("Deploying app", app_name=app_name)
+
+        # Create deployment configuration
+        app_deployment = AppDeployment(
+            mode=AppDeploymentMode.SNAPSHOT,
+            source_code_path=source_path,
+        )
+
+        # Deploy the app
+        deployment: AppDeployment = self.w.apps.deploy_and_wait(
+            app_name=app_name,
+            app_deployment=app_deployment,
+        )
+
+        if (
+            deployment.status
+            and deployment.status.state == AppDeploymentState.SUCCEEDED
+        ):
+            logger.info(
+                "App deployed successfully",
+                app_name=app_name,
+                deployment_id=deployment.deployment_id,
+                app_url=app.url if app else None,
+            )
+        else:
+            status_message: str = (
+                deployment.status.message if deployment.status else "Unknown error"
+            )
+            logger.error(
+                "App deployment failed",
+                app_name=app_name,
+                status=status_message,
+            )
+            raise RuntimeError(f"App deployment failed: {status_message}")
+
+    def deploy_agent(
+        self,
+        config: AppConfig,
+        target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+    ) -> None:
+        """
+        Deploy agent to the specified target.
+
+        This is the main deployment method that routes to the appropriate
+        deployment implementation based on the target.
+
+        Args:
+            config: The AppConfig containing deployment configuration
+            target: The deployment target (MODEL_SERVING or APPS)
+        """
+        if target == DeploymentTarget.MODEL_SERVING:
+            self.deploy_model_serving_agent(config)
+        elif target == DeploymentTarget.APPS:
+            self.deploy_apps_agent(config)
+        else:
+            raise ValueError(f"Unknown deployment target: {target}")
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo

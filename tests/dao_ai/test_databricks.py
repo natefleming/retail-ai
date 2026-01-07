@@ -543,6 +543,335 @@ def test_deploy_agent_sets_endpoint_tag():
                     assert call_kwargs["tags"]["custom_tag"] == "custom_value"
 
 
+# ==================== Deployment Target Tests ====================
+
+
+@pytest.mark.unit
+def test_deploy_agent_routes_to_model_serving_by_default():
+    """Test that deploy_agent routes to deploy_model_serving_agent by default."""
+    from unittest.mock import MagicMock, patch
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    # Mock the entire config
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_registered_model = MagicMock()
+    mock_app.endpoint_name = "test_endpoint"
+    mock_registered_model.full_name = "test_catalog.test_schema.test_model"
+    mock_app.registered_model = mock_registered_model
+    mock_app.scale_to_zero = True
+    mock_app.environment_vars = {}
+    mock_app.workload_size = "Small"
+    mock_app.tags = {}
+    mock_app.permissions = []
+    mock_config.app = mock_app
+
+    with patch.object(
+        DatabricksProvider, "deploy_model_serving_agent"
+    ) as mock_model_serving:
+        with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
+            provider = DatabricksProvider()
+            provider.deploy_agent(config=mock_config)
+
+            # Should route to model serving by default
+            mock_model_serving.assert_called_once_with(mock_config)
+            mock_apps.assert_not_called()
+
+
+@pytest.mark.unit
+def test_deploy_agent_routes_to_model_serving_explicitly():
+    """Test that deploy_agent routes to deploy_model_serving_agent when target=MODEL_SERVING."""
+    from unittest.mock import MagicMock, patch
+
+    from dao_ai.config import AppConfig, AppModel, DeploymentTarget
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_registered_model = MagicMock()
+    mock_app.endpoint_name = "test_endpoint"
+    mock_registered_model.full_name = "test_catalog.test_schema.test_model"
+    mock_app.registered_model = mock_registered_model
+    mock_app.scale_to_zero = True
+    mock_app.environment_vars = {}
+    mock_app.workload_size = "Small"
+    mock_app.tags = {}
+    mock_app.permissions = []
+    mock_config.app = mock_app
+
+    with patch.object(
+        DatabricksProvider, "deploy_model_serving_agent"
+    ) as mock_model_serving:
+        with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
+            provider = DatabricksProvider()
+            provider.deploy_agent(
+                config=mock_config, target=DeploymentTarget.MODEL_SERVING
+            )
+
+            mock_model_serving.assert_called_once_with(mock_config)
+            mock_apps.assert_not_called()
+
+
+@pytest.mark.unit
+def test_deploy_agent_routes_to_apps_when_specified():
+    """Test that deploy_agent routes to deploy_apps_agent when target=APPS."""
+    from unittest.mock import MagicMock, patch
+
+    from dao_ai.config import AppConfig, AppModel, DeploymentTarget
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "test_app"
+    mock_app.description = "Test app description"
+    mock_config.app = mock_app
+
+    with patch.object(
+        DatabricksProvider, "deploy_model_serving_agent"
+    ) as mock_model_serving:
+        with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
+            provider = DatabricksProvider()
+            provider.deploy_agent(config=mock_config, target=DeploymentTarget.APPS)
+
+            mock_apps.assert_called_once_with(mock_config)
+            mock_model_serving.assert_not_called()
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_creates_new_app():
+    """Test that deploy_apps_agent creates a new app when it doesn't exist."""
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.errors.platform import NotFound
+    from databricks.sdk.service.apps import App, AppDeployment, AppDeploymentState
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "test_app"
+    mock_app.description = "Test app description"
+    mock_config.app = mock_app
+    mock_config.source_config_path = None  # No config file to upload
+
+    # Create mock App and AppDeployment
+    mock_created_app = MagicMock(spec=App)
+    mock_created_app.name = "test_app"
+    mock_created_app.url = "https://test_app.databricks.com"
+
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.deployment_id = "dep-123"
+    mock_deployment_status = MagicMock()
+    mock_deployment_status.state = AppDeploymentState.SUCCEEDED
+    mock_deployment.status = mock_deployment_status
+
+    # Mock current user
+    mock_user = MagicMock(spec=User)
+    mock_user.user_name = "test.user@example.com"
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+
+        # Mock current user
+        provider.w.current_user.me.return_value = mock_user
+
+        # Simulate app doesn't exist
+        provider.w.apps.get.side_effect = NotFound("App not found")
+        provider.w.apps.create_and_wait.return_value = mock_created_app
+        provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+        provider.deploy_apps_agent(mock_config)
+
+        # Verify create_and_wait was called with an App object
+        provider.w.apps.create_and_wait.assert_called_once()
+        call_args = provider.w.apps.create_and_wait.call_args
+        app_arg = call_args.kwargs.get("app")
+        assert app_arg is not None
+        assert app_arg.name == "test-app"  # Normalized: underscores become dashes
+        assert app_arg.description == "Test app description"
+        # Verify deploy_and_wait was called
+        provider.w.apps.deploy_and_wait.assert_called_once()
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_updates_existing_app():
+    """Test that deploy_apps_agent updates an existing app."""
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import App, AppDeployment, AppDeploymentState
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "test_app"
+    mock_app.description = "Test app description"
+    mock_config.app = mock_app
+    mock_config.source_config_path = None  # No config file to upload
+
+    # Create mock existing App
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.name = "test_app"
+    mock_existing_app.url = "https://test_app.databricks.com"
+
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.deployment_id = "dep-123"
+    mock_deployment_status = MagicMock()
+    mock_deployment_status.state = AppDeploymentState.SUCCEEDED
+    mock_deployment.status = mock_deployment_status
+
+    # Mock current user (used for convention-based path)
+    mock_user = MagicMock(spec=User)
+    mock_user.user_name = "test.user@example.com"
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+
+        # Mock current user
+        provider.w.current_user.me.return_value = mock_user
+
+        # Simulate app already exists
+        provider.w.apps.get.return_value = mock_existing_app
+        provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+        provider.deploy_apps_agent(mock_config)
+
+        # Verify create_and_wait was NOT called (app already exists)
+        provider.w.apps.create_and_wait.assert_not_called()
+        # Verify deploy_and_wait was called
+        provider.w.apps.deploy_and_wait.assert_called_once()
+
+
+@pytest.mark.unit
+def test_deployment_target_enum_values():
+    """Test that DeploymentTarget enum has expected values."""
+    from dao_ai.config import DeploymentTarget
+
+    assert DeploymentTarget.MODEL_SERVING.value == "model_serving"
+    assert DeploymentTarget.APPS.value == "apps"
+
+    # Test enum can be created from string
+    assert DeploymentTarget("model_serving") == DeploymentTarget.MODEL_SERVING
+    assert DeploymentTarget("apps") == DeploymentTarget.APPS
+
+
+# =============================================================================
+# WorkspaceClient OBO with Forwarded Headers Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+def test_workspace_client_obo_uses_forwarded_headers_in_apps():
+    """Test that OBO uses x-forwarded-access-token when in Databricks Apps."""
+    from unittest.mock import patch
+
+    from dao_ai.config import WarehouseModel
+
+    # Resource with on_behalf_of_user=True (OBO enabled)
+    warehouse = WarehouseModel(warehouse_id="test-warehouse", on_behalf_of_user=True)
+
+    # Mock get_request_headers to return forwarded token (Databricks Apps)
+    with patch("mlflow.genai.agent_server.get_request_headers") as mock_headers:
+        mock_headers.return_value = {
+            "x-forwarded-access-token": "dapi123456",
+            "x-forwarded-user": "user@example.com",
+        }
+
+        with patch("dao_ai.config.WorkspaceClient") as mock_client:
+            _ = warehouse.workspace_client
+
+            # Verify client created with forwarded token
+            mock_client.assert_called_once_with(
+                host=None, token="dapi123456", auth_type="pat"
+            )
+
+
+@pytest.mark.unit
+def test_workspace_client_obo_falls_back_to_model_serving():
+    """Test that OBO falls back to ModelServingUserCredentials when no headers."""
+    from unittest.mock import patch
+
+    from dao_ai.config import WarehouseModel
+
+    # Resource with on_behalf_of_user=True (OBO enabled)
+    warehouse = WarehouseModel(warehouse_id="test-warehouse", on_behalf_of_user=True)
+
+    # Simulate Model Serving (no headers available)
+    with patch("mlflow.genai.agent_server.get_request_headers") as mock_headers:
+        mock_headers.side_effect = LookupError("No headers in context")
+
+        with patch("dao_ai.config.WorkspaceClient") as mock_client:
+            with patch("dao_ai.config.ModelServingUserCredentials") as mock_creds:
+                _ = warehouse.workspace_client
+
+                # Verify ModelServingUserCredentials used
+                mock_creds.assert_called_once()
+                mock_client.assert_called_once()
+
+
+@pytest.mark.unit
+def test_workspace_client_ignores_headers_without_obo():
+    """Test that headers are ignored when on_behalf_of_user=False."""
+    from unittest.mock import patch
+
+    from dao_ai.config import WarehouseModel
+
+    # Resource WITHOUT on_behalf_of_user (headers should be ignored)
+    warehouse = WarehouseModel(warehouse_id="test-warehouse")
+
+    # Mock get_request_headers to return forwarded token
+    with patch("mlflow.genai.agent_server.get_request_headers") as mock_headers:
+        mock_headers.return_value = {
+            "x-forwarded-access-token": "dapi123456",
+            "x-forwarded-user": "user@example.com",
+        }
+
+        with patch("dao_ai.config.WorkspaceClient") as mock_client:
+            _ = warehouse.workspace_client
+
+            # Verify headers were NOT used (falls back to ambient)
+            mock_client.assert_called_once_with()  # No token passed
+
+
+@pytest.mark.unit
+def test_workspace_client_obo_takes_precedence_over_pat():
+    """Test that OBO takes precedence when both on_behalf_of_user and PAT configured."""
+    from unittest.mock import patch
+
+    from dao_ai.config import WarehouseModel
+
+    # Resource with BOTH on_behalf_of_user AND explicit PAT
+    # on_behalf_of_user should take precedence (checked first)
+    warehouse = WarehouseModel(
+        warehouse_id="test-warehouse",
+        on_behalf_of_user=True,
+        pat="explicit-pat-token",  # This gets ignored
+        workspace_host="https://test.databricks.com",
+    )
+
+    # Mock get_request_headers to return forwarded token (Databricks Apps)
+    with patch("mlflow.genai.agent_server.get_request_headers") as mock_headers:
+        mock_headers.return_value = {"x-forwarded-access-token": "forwarded-token"}
+
+        with patch("dao_ai.config.WorkspaceClient") as mock_client:
+            _ = warehouse.workspace_client
+
+            # Verify forwarded token used (OBO path), NOT explicit PAT
+            mock_client.assert_called_once_with(
+                host="https://test.databricks.com",
+                token="forwarded-token",  # From headers, not explicit PAT
+                auth_type="pat",
+            )
+
+
 @pytest.mark.system
 @pytest.mark.slow
 @pytest.mark.skipif(
@@ -1615,22 +1944,30 @@ def test_vector_store_model_api_scopes():
 @pytest.mark.unit
 def test_index_model_exists_returns_true():
     """Test IndexModel.exists() returns True when index exists."""
+    from unittest.mock import patch
+
     index = IndexModel(name="catalog.schema.my_index")
 
-    # Mock workspace_client via the _workspace_client attribute
+    # Mock workspace_client property
     mock_workspace_client = MagicMock()
     mock_workspace_client.vector_search_indexes.get_index.return_value = MagicMock()
-    index._workspace_client = mock_workspace_client
 
-    assert index.exists() is True
-    mock_workspace_client.vector_search_indexes.get_index.assert_called_once_with(
-        "catalog.schema.my_index"
-    )
+    with patch.object(
+        type(index),
+        "workspace_client",
+        new_callable=lambda: property(lambda self: mock_workspace_client),
+    ):
+        assert index.exists() is True
+        mock_workspace_client.vector_search_indexes.get_index.assert_called_once_with(
+            "catalog.schema.my_index"
+        )
 
 
 @pytest.mark.unit
 def test_index_model_exists_returns_false_not_found():
     """Test IndexModel.exists() returns False when index doesn't exist (NotFound)."""
+    from unittest.mock import patch
+
     index = IndexModel(name="catalog.schema.my_index")
 
     # Mock workspace_client to raise NotFound
@@ -1638,14 +1975,20 @@ def test_index_model_exists_returns_false_not_found():
     mock_workspace_client.vector_search_indexes.get_index.side_effect = NotFound(
         "Index not found"
     )
-    index._workspace_client = mock_workspace_client
 
-    assert index.exists() is False
+    with patch.object(
+        type(index),
+        "workspace_client",
+        new_callable=lambda: property(lambda self: mock_workspace_client),
+    ):
+        assert index.exists() is False
 
 
 @pytest.mark.unit
 def test_index_model_exists_returns_false_on_error():
     """Test IndexModel.exists() returns False on other exceptions."""
+    from unittest.mock import patch
+
     index = IndexModel(name="catalog.schema.my_index")
 
     # Mock workspace_client to raise generic exception
@@ -1653,14 +1996,20 @@ def test_index_model_exists_returns_false_on_error():
     mock_workspace_client.vector_search_indexes.get_index.side_effect = Exception(
         "Connection error"
     )
-    index._workspace_client = mock_workspace_client
 
-    assert index.exists() is False
+    with patch.object(
+        type(index),
+        "workspace_client",
+        new_callable=lambda: property(lambda self: mock_workspace_client),
+    ):
+        assert index.exists() is False
 
 
 @pytest.mark.unit
 def test_index_model_exists_with_schema():
     """Test IndexModel.exists() with schema-based index."""
+    from unittest.mock import patch
+
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     index = IndexModel(schema=schema, name="my_index")
 
@@ -1668,12 +2017,16 @@ def test_index_model_exists_with_schema():
 
     mock_workspace_client = MagicMock()
     mock_workspace_client.vector_search_indexes.get_index.return_value = MagicMock()
-    index._workspace_client = mock_workspace_client
 
-    assert index.exists() is True
-    mock_workspace_client.vector_search_indexes.get_index.assert_called_once_with(
-        "test_catalog.test_schema.my_index"
-    )
+    with patch.object(
+        type(index),
+        "workspace_client",
+        new_callable=lambda: property(lambda self: mock_workspace_client),
+    ):
+        assert index.exists() is True
+        mock_workspace_client.vector_search_indexes.get_index.assert_called_once_with(
+            "test_catalog.test_schema.my_index"
+        )
 
 
 # =============================================================================
@@ -1692,15 +2045,19 @@ def test_vector_store_create_validates_existing_index_success():
         mock_provider = MagicMock()
         mock_provider_class.return_value = mock_provider
 
-        # Mock the workspace client to make exists() return True
+        # Mock the workspace client property to make exists() return True
         mock_workspace_client = MagicMock()
         mock_workspace_client.vector_search_indexes.get_index.return_value = MagicMock()
-        index._workspace_client = mock_workspace_client
 
-        vector_store.create()
+        with patch.object(
+            type(index),
+            "workspace_client",
+            new_callable=lambda: property(lambda self: mock_workspace_client),
+        ):
+            vector_store.create()
 
-        # Should NOT call create_vector_store (only validates)
-        mock_provider.create_vector_store.assert_not_called()
+            # Should NOT call create_vector_store (only validates)
+            mock_provider.create_vector_store.assert_not_called()
 
 
 @pytest.mark.unit
