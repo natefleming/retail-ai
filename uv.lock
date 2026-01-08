@@ -988,7 +988,7 @@ requires-dist = [
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=16.0.0" },
     { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.12.1" },
     { name = "databricks-mcp", specifier = ">=0.5.0" },
-    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.76.0" },
+    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.77.0" },
     { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.63" },
     { name = "ddgs", specifier = ">=9.10.0" },
     { name = "dspy", specifier = ">=2.6.27" },
@@ -1211,16 +1211,16 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.76.0"
+version = "0.77.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
     { name = "protobuf" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/70/82/5efcfdca8779c84b5c6f61cc110d0938c9818e422f55c36a68d96b98c61f/databricks_sdk-0.76.0.tar.gz", hash = "sha256:fcfce4561b090b3c8e9cac2101f549766d9fb3bece31bb5720571919fa37d210", size = 822376, upload-time = "2025-12-17T17:11:31.907Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/54/f2393af72974d8e70bfd44b52f17b917190b4934bab66508f4afec9e9285/databricks_sdk-0.77.0.tar.gz", hash = "sha256:56b6017ae17dc31ee821e49746d2ff627a029127166c702088428527813422bd", size = 827462, upload-time = "2026-01-06T13:19:09.432Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/96/ee7742b94f996560c57d6fb8d2e10eab3c489e8a72187369ed0917baf8aa/databricks_sdk-0.76.0-py3-none-any.whl", hash = "sha256:6696dda22bc52c8f50a50d24e6ccd1c855f92c0f68f5afe4eb2e77d5b1b1a65f", size = 774688, upload-time = "2025-12-17T17:11:29.925Z" },
+    { url = "https://files.pythonhosted.org/packages/03/aa/d9186684dbcd338cf51e93621bcf53efa843fe647c0f29f549ebddbf2870/databricks_sdk-0.77.0-py3-none-any.whl", hash = "sha256:42e3211b7dbd53b81a795981149ee08d5b025442a73e464264569edc8c46ee0a", size = 779180, upload-time = "2026-01-06T13:19:07.757Z" },
 ]
 
 [package.optional-dependencies]

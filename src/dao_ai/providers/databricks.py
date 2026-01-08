@@ -558,6 +558,16 @@ class DatabricksProvider(ServiceProvider):
 
         logger.info("Using workspace source path", source_path=source_path)
 
+        # Get or create experiment for this app (for tracing and tracking)
+        from mlflow.entities import Experiment
+
+        experiment: Experiment = self.get_or_create_experiment(config)
+        logger.info(
+            "Using MLflow experiment for app",
+            experiment_name=experiment.name,
+            experiment_id=experiment.experiment_id,
+        )
+
         # Upload the configuration file to the workspace
         source_config_path: str | None = config.source_config_path
         if source_config_path:
@@ -618,13 +628,13 @@ class DatabricksProvider(ServiceProvider):
         )
         logger.info("app.yaml with resources uploaded", path=app_yaml_path)
 
-        # Generate SDK resources from the config
+        # Generate SDK resources from the config (including experiment)
         from dao_ai.apps.resources import (
             generate_sdk_resources,
             generate_user_api_scopes,
         )
 
-        sdk_resources = generate_sdk_resources(config)
+        sdk_resources = generate_sdk_resources(config, experiment_id=experiment.experiment_id)
         if sdk_resources:
             logger.info(
                 "Discovered app resources from config",

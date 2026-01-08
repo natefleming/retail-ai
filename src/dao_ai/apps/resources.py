@@ -38,6 +38,8 @@ from databricks.sdk.service.apps import (
     AppResource,
     AppResourceDatabase,
     AppResourceDatabaseDatabasePermission,
+    AppResourceExperiment,
+    AppResourceExperimentExperimentPermission,
     AppResourceGenieSpace,
     AppResourceGenieSpaceGenieSpacePermission,
     AppResourceSecret,
@@ -518,7 +520,10 @@ def _sanitize_resource_name(name: str) -> str:
     return sanitized
 
 
-def generate_sdk_resources(config: AppConfig) -> list[AppResource]:
+def generate_sdk_resources(
+    config: AppConfig,
+    experiment_id: str | None = None,
+) -> list[AppResource]:
     """
     Generate Databricks SDK AppResource objects from an AppConfig.
 
@@ -528,6 +533,9 @@ def generate_sdk_resources(config: AppConfig) -> list[AppResource]:
 
     Args:
         config: The AppConfig containing resource definitions
+        experiment_id: Optional MLflow experiment ID to add as a resource.
+            When provided, the experiment is added with CAN_EDIT permission,
+            allowing the app to log traces and runs.
 
     Returns:
         A list of AppResource objects for the Databricks SDK
@@ -536,12 +544,16 @@ def generate_sdk_resources(config: AppConfig) -> list[AppResource]:
         >>> from databricks.sdk import WorkspaceClient
         >>> from databricks.sdk.service.apps import App
         >>> config = AppConfig.from_file("model_config.yaml")
-        >>> resources = generate_sdk_resources(config)
+        >>> resources = generate_sdk_resources(config, experiment_id="12345")
         >>> w = WorkspaceClient()
         >>> app = App(name="my-app", resources=resources)
         >>> w.apps.create_and_wait(app=app)
     """
     resources: list[AppResource] = []
+
+    # Add experiment resource if provided
+    if experiment_id:
+        resources.append(_extract_sdk_experiment_resource(experiment_id))
 
     if config.resources is None:
         logger.debug("No resources defined in config")
@@ -683,6 +695,36 @@ def _extract_sdk_volume_resources(
             f"Extracted SDK volume resource: {sanitized_name} -> {volume.full_name}"
         )
     return resources
+
+
+def _extract_sdk_experiment_resource(
+    experiment_id: str,
+    resource_name: str = "experiment",
+) -> AppResource:
+    """Create SDK AppResource for MLflow experiment.
+
+    This allows the Databricks App to log traces and runs to the specified
+    MLflow experiment. The experiment ID is exposed via the MLFLOW_EXPERIMENT_ID
+    environment variable using valueFrom: experiment in app.yaml.
+
+    Args:
+        experiment_id: The MLflow experiment ID
+        resource_name: The resource key name (default: "experiment")
+
+    Returns:
+        An AppResource for the MLflow experiment
+    """
+    resource = AppResource(
+        name=resource_name,
+        experiment=AppResourceExperiment(
+            experiment_id=experiment_id,
+            permission=AppResourceExperimentExperimentPermission.CAN_EDIT,
+        ),
+    )
+    logger.debug(
+        f"Extracted SDK experiment resource: {resource_name} -> {experiment_id}"
+    )
+    return resource
 
 
 def _extract_sdk_secrets_from_config(config: AppConfig) -> list[AppResource]:
@@ -926,6 +968,7 @@ def generate_app_yaml(
     env_vars: list[dict[str, str]] = [
         {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
         {"name": "MLFLOW_REGISTRY_URI", "value": "databricks-uc"},
+        {"name": "MLFLOW_EXPERIMENT_ID", "valueFrom": "experiment"},
         {"name": "DAO_AI_CONFIG_PATH", "value": "model_config.yaml"},
     ]
 
