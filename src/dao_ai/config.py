@@ -344,7 +344,14 @@ class IsDatabricksResource(ABC, BaseModel):
             else None
         )
 
-        if client_id_value and client_secret_value and workspace_host_value:
+        if client_id_value and client_secret_value:
+            # If workspace_host is not provided, check DATABRICKS_HOST env var first,
+            # then fall back to WorkspaceClient().config.host
+            if not workspace_host_value:
+                workspace_host_value = os.getenv("DATABRICKS_HOST")
+                if not workspace_host_value:
+                    workspace_host_value = WorkspaceClient().config.host
+
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} with service principal: "
                 f"client_id={client_id_value}, host={workspace_host_value}"
@@ -2803,6 +2810,11 @@ class AppModel(BaseModel):
         "which is supported by Databricks Model Serving. This allows deploying from "
         "environments with different Python versions (e.g., Databricks Apps with 3.11).",
     )
+    deployment_target: Optional[DeploymentTarget] = Field(
+        default=None,
+        description="Default deployment target. If not specified, defaults to MODEL_SERVING. "
+        "Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'.",
+    )
 
     @model_validator(mode="after")
     def set_databricks_env_vars(self) -> Self:
@@ -3398,7 +3410,7 @@ class AppConfig(BaseModel):
 
     def deploy_agent(
         self,
-        target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+        target: DeploymentTarget | None = None,
         w: WorkspaceClient | None = None,
         vsc: "VectorSearchClient | None" = None,
         pat: str | None = None,
@@ -3409,8 +3421,14 @@ class AppConfig(BaseModel):
         """
         Deploy the agent to the specified target.
 
+        Target resolution follows this priority:
+        1. Explicit `target` parameter (if provided)
+        2. `app.deployment_target` from config file (if set)
+        3. Default: MODEL_SERVING
+
         Args:
-            target: The deployment target (MODEL_SERVING or APPS). Defaults to MODEL_SERVING.
+            target: The deployment target (MODEL_SERVING or APPS). If None, uses
+                config.app.deployment_target or defaults to MODEL_SERVING.
             w: Optional WorkspaceClient instance
             vsc: Optional VectorSearchClient instance
             pat: Optional personal access token for authentication
@@ -3421,6 +3439,18 @@ class AppConfig(BaseModel):
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
+        # Resolve target using hybrid logic:
+        # 1. Explicit parameter takes precedence
+        # 2. Fall back to config.app.deployment_target
+        # 3. Default to MODEL_SERVING
+        resolved_target: DeploymentTarget
+        if target is not None:
+            resolved_target = target
+        elif self.app is not None and self.app.deployment_target is not None:
+            resolved_target = self.app.deployment_target
+        else:
+            resolved_target = DeploymentTarget.MODEL_SERVING
+
         provider: ServiceProvider = DatabricksProvider(
             w=w,
             vsc=vsc,
@@ -3429,7 +3459,7 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.deploy_agent(self, target=target)
+        provider.deploy_agent(self, target=resolved_target)
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

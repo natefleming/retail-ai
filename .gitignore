@@ -278,3 +278,6 @@ mlruns/
 databricks.yaml
 
 .cursor/
+
+# Deployment directory for local source code
+deploy/

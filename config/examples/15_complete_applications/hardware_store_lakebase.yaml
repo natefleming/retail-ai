@@ -10,6 +10,20 @@
 # DATABRICKS SCHEMAS
 # =============================================================================
 # Define Unity Catalog schemas where data and functions will be stored
+
+
+variables:
+  client_id: &client_id
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret: &client_secret
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
 schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods                    # Unity Catalog name
@@ -134,6 +148,8 @@ resources:
       instance_name: "retail-consumer-goods"  # Use instance_name for Databricks Lakebase
       description: "Database for agent memory and checkpoints" 
    
+      client_id: *client_id
+      client_secret: *client_secret
       on_behalf_of_user: false
 
 # =============================================================================

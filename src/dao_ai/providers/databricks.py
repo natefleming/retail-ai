@@ -327,7 +327,7 @@ class DatabricksProvider(ServiceProvider):
                 raise FileNotFoundError(f"Code path does not exist: {path}")
 
         model_root_path: Path = Path(dao_ai.__file__).parent
-        model_path: Path = model_root_path / "agent_as_code.py"
+        model_path: Path = model_root_path / "apps" / "model_serving.py"
 
         pip_requirements: Sequence[str] = config.app.pip_requirements
 
@@ -596,22 +596,19 @@ class DatabricksProvider(ServiceProvider):
                 "model_config.yaml exists in the app source directory."
             )
 
-        # Generate and upload app.yaml
-        # Use pip to install dao-ai and run the app server
-        app_yaml_content: str = """command:
-  - /bin/bash
-  - -c
-  - |
-    pip install dao-ai && python -m dao_ai.app_server
+        # Generate and upload app.yaml with dynamically discovered resources
+        from dao_ai.apps.resources import generate_app_yaml
 
-env:
-  - name: MLFLOW_TRACKING_URI
-    value: "databricks"
-  - name: MLFLOW_REGISTRY_URI
-    value: "databricks-uc"
-  - name: DAO_AI_CONFIG_PATH
-    value: "model_config.yaml"
-"""
+        app_yaml_content: str = generate_app_yaml(
+            config,
+            command=[
+                "/bin/bash",
+                "-c",
+                "pip install dao-ai && python -m dao_ai.apps.server",
+            ],
+            include_resources=True,
+        )
+
         app_yaml_path: str = f"{source_path}/app.yaml"
         self.w.workspace.upload(
             path=app_yaml_path,
@@ -619,7 +616,29 @@ env:
             format=ImportFormat.AUTO,
             overwrite=True,
         )
-        logger.info("app.yaml uploaded", path=app_yaml_path)
+        logger.info("app.yaml with resources uploaded", path=app_yaml_path)
+
+        # Generate SDK resources from the config
+        from dao_ai.apps.resources import (
+            generate_sdk_resources,
+            generate_user_api_scopes,
+        )
+
+        sdk_resources = generate_sdk_resources(config)
+        if sdk_resources:
+            logger.info(
+                "Discovered app resources from config",
+                resource_count=len(sdk_resources),
+                resources=[r.name for r in sdk_resources],
+            )
+
+        # Generate user API scopes for on-behalf-of-user resources
+        user_api_scopes = generate_user_api_scopes(config)
+        if user_api_scopes:
+            logger.info(
+                "Discovered user API scopes for OBO resources",
+                scopes=user_api_scopes,
+            )
 
         # Check if app exists
         app_exists: bool = False
@@ -630,20 +649,33 @@ env:
         except NotFound:
             logger.debug("Creating new app", app_name=app_name)
 
-        # Create or get the app
+        # Create or update the app with resources and user_api_scopes
         if not app_exists:
             logger.info("Creating Databricks App", app_name=app_name)
             app_spec = App(
                 name=app_name,
                 description=config.app.description or f"DAO AI Agent: {app_name}",
+                resources=sdk_resources if sdk_resources else None,
+                user_api_scopes=user_api_scopes if user_api_scopes else None,
             )
             app: App = self.w.apps.create_and_wait(app=app_spec)
             logger.info("App created", app_name=app.name, app_url=app.url)
         else:
             app = existing_app
+            # Update resources and scopes on existing app
+            if sdk_resources or user_api_scopes:
+                logger.info("Updating app resources and scopes", app_name=app_name)
+                updated_app = App(
+                    name=app_name,
+                    description=config.app.description or app.description,
+                    resources=sdk_resources if sdk_resources else None,
+                    user_api_scopes=user_api_scopes if user_api_scopes else None,
+                )
+                app = self.w.apps.update(name=app_name, app=updated_app)
+                logger.info("App resources and scopes updated", app_name=app_name)
 
         # Deploy the app with source code
-        # The app will use the dao_ai.app_server module as the entry point
+        # The app will use the dao_ai.apps.server module as the entry point
         logger.info("Deploying app", app_name=app_name)
 
         # Create deployment configuration

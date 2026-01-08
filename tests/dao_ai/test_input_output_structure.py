@@ -399,6 +399,7 @@ class TestCustomOutputs:
 
         mock_graph = MagicMock()
         mock_graph.aget_state = AsyncMock(return_value=None)
+        mock_graph.checkpointer = None  # No checkpointer
 
         agent = LanggraphResponsesAgent(mock_graph)
 
@@ -408,8 +409,8 @@ class TestCustomOutputs:
             store_num="87887",
         )
 
-        # Run async method in sync test
-        outputs = asyncio.get_event_loop().run_until_complete(
+        # Run async method in sync test using asyncio.run()
+        outputs = asyncio.run(
             agent._build_custom_outputs_async(
                 context=context,
                 thread_id="conv_123",
@@ -435,6 +436,7 @@ class TestCustomOutputs:
 
         mock_graph = MagicMock()
         mock_graph.aget_state = AsyncMock(return_value=None)
+        mock_graph.checkpointer = None  # No checkpointer
 
         agent = LanggraphResponsesAgent(mock_graph)
 
@@ -444,8 +446,8 @@ class TestCustomOutputs:
             store_num="87887",
         )
 
-        # Generate outputs
-        outputs = asyncio.get_event_loop().run_until_complete(
+        # Generate outputs using asyncio.run()
+        outputs = asyncio.run(
             agent._build_custom_outputs_async(
                 context=context,
                 thread_id="conv_123",

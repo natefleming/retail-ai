@@ -285,6 +285,15 @@ Examples:
         action="store_true",
         help="Perform a dry run without executing the deployment or run commands",
     )
+    bundle_parser.add_argument(
+        "--deployment-target",
+        type=str,
+        choices=["model_serving", "apps"],
+        default=None,
+        help="Agent deployment target: 'model_serving' or 'apps'. "
+        "If not specified, uses app.deployment_target from config file, "
+        "or defaults to 'model_serving'. Passed to the deploy notebook.",
+    )
 
     # Deploy command
     deploy_parser: ArgumentParser = subparsers.add_parser(
@@ -314,8 +323,10 @@ Examples:
         "--target",
         type=str,
         choices=["model_serving", "apps"],
-        default="model_serving",
-        help="Deployment target: 'model_serving' (default) or 'apps'",
+        default=None,
+        help="Deployment target: 'model_serving' or 'apps'. "
+        "If not specified, uses app.deployment_target from config file, "
+        "or defaults to 'model_serving'.",
     )
 
     # List MCP tools command
@@ -743,8 +754,19 @@ def handle_deploy_command(options: Namespace) -> None:
     try:
         config: AppConfig = AppConfig.from_file(options.config)
 
-        # Convert target string to enum
-        target: DeploymentTarget = DeploymentTarget(options.target)
+        # Hybrid target resolution:
+        # 1. CLI --target takes precedence
+        # 2. Fall back to config.app.deployment_target
+        # 3. Default to MODEL_SERVING (handled in deploy_agent)
+        target: DeploymentTarget | None = None
+        if options.target is not None:
+            target = DeploymentTarget(options.target)
+            logger.info(f"Using CLI-specified deployment target: {target.value}")
+        elif config.app is not None and config.app.deployment_target is not None:
+            target = config.app.deployment_target
+            logger.info(f"Using config file deployment target: {target.value}")
+        else:
+            logger.info("No deployment target specified, defaulting to model_serving")
 
         config.create_agent()
         config.deploy_agent(target=target)
@@ -1097,6 +1119,7 @@ def run_databricks_command(
     target: Optional[str] = None,
     cloud: Optional[str] = None,
     dry_run: bool = False,
+    deployment_target: Optional[str] = None,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -1107,6 +1130,8 @@ def run_databricks_command(
         target: Optional bundle target name (if not provided, auto-generated from app name and cloud)
         cloud: Optional cloud provider ('azure', 'aws', 'gcp'). Auto-detected if not specified.
         dry_run: If True, print the command without executing
+        deployment_target: Optional agent deployment target ('model_serving' or 'apps').
+            Passed to the deploy notebook via bundle variable.
     """
     config_path = Path(config) if config else None
 
@@ -1162,6 +1187,24 @@ def run_databricks_command(
 
         cmd.append(f'--var="config_path={relative_config}"')
 
+    # Add deployment_target variable for notebooks (hybrid resolution)
+    # Priority: CLI arg > config file > default (model_serving)
+    resolved_deployment_target: str = "model_serving"
+    if deployment_target is not None:
+        resolved_deployment_target = deployment_target
+        logger.debug(
+            f"Using CLI-specified deployment target: {resolved_deployment_target}"
+        )
+    elif app_config and app_config.app and app_config.app.deployment_target:
+        resolved_deployment_target = app_config.app.deployment_target.value
+        logger.debug(
+            f"Using config file deployment target: {resolved_deployment_target}"
+        )
+    else:
+        logger.debug("Using default deployment target: model_serving")
+
+    cmd.append(f'--var="deployment_target={resolved_deployment_target}"')
+
     logger.debug(f"Executing command: {' '.join(cmd)}")
 
     if dry_run:
@@ -1204,6 +1247,7 @@ def handle_bundle_command(options: Namespace) -> None:
     target: Optional[str] = options.target
     cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
+    deployment_target: Optional[str] = options.deployment_target
 
     if options.deploy:
         logger.info("Deploying DAO AI asset bundle...")
@@ -1214,6 +1258,7 @@ def handle_bundle_command(options: Namespace) -> None:
             target=target,
             cloud=cloud,
             dry_run=dry_run,
+            deployment_target=deployment_target,
         )
     if options.run:
         logger.info("Running DAO AI system with current configuration...")
@@ -1225,6 +1270,7 @@ def handle_bundle_command(options: Namespace) -> None:
             target=target,
             cloud=cloud,
             dry_run=dry_run,
+            deployment_target=deployment_target,
         )
     if options.destroy:
         logger.info("Destroying DAO AI system with current configuration...")
@@ -1235,6 +1281,7 @@ def handle_bundle_command(options: Namespace) -> None:
             target=target,
             cloud=cloud,
             dry_run=dry_run,
+            deployment_target=deployment_target,
         )
     else:
         logger.warning("No action specified. Use --deploy, --run or --destroy flags.")

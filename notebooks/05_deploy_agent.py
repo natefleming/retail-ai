@@ -28,16 +28,23 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
 # COMMAND ----------
 
 dbutils.widgets.text(name="config-path", defaultValue="")
+dbutils.widgets.dropdown(
+    name="deployment-target",
+    choices=["", "model_serving", "apps"],
+    defaultValue="",
+)
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
 dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
 
 config_path: str | None = dbutils.widgets.get("config-path") or None
 project_path: str = dbutils.widgets.get("config-paths") or None
+deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
 
 config_path: str = config_path or project_path
 
-print(config_path)
+print(f"Config path: {config_path}")
+print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
 # COMMAND ----------
 
@@ -93,9 +100,20 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-from dao_ai.config import AppConfig
+from dao_ai.config import AppConfig, DeploymentTarget
 
 config: AppConfig = AppConfig.from_file(path=config_path)
+
+# Resolve deployment target from widget (hybrid resolution)
+# If widget is empty/None, deploy_agent() will use config.app.deployment_target or default
+deployment_target: DeploymentTarget | None = None
+if deployment_target_str:
+    deployment_target = DeploymentTarget(deployment_target_str)
+    print(f"Using widget-specified deployment target: {deployment_target.value}")
+elif config.app and config.app.deployment_target:
+    print(f"Using config file deployment target: {config.app.deployment_target.value}")
+else:
+    print("Using default deployment target: model_serving")
 
 # COMMAND ----------
 
@@ -107,4 +125,4 @@ config.create_agent()
 
 # COMMAND ----------
 
-config.deploy_agent()
+config.deploy_agent(target=deployment_target)
