@@ -30,7 +30,9 @@ class TestDataclass:
 @pytest.fixture
 def mock_graph():
     """Create a mock CompiledStateGraph."""
-    return Mock()
+    graph = Mock()
+    graph.checkpointer = None  # No checkpointer by default
+    return graph
 
 
 def test_responses_agent_extracts_pydantic_structured_response(mock_graph):
@@ -52,9 +54,12 @@ def test_responses_agent_extracts_pydantic_structured_response(mock_graph):
     mock_state.interrupts = ()  # Empty tuple means not interrupted
     mock_graph.aget_state = AsyncMock(return_value=mock_state)
 
-    # Mock _build_custom_outputs
+    # Mock _build_custom_outputs_async (used by apredict)
     with patch.object(
-        agent, "_build_custom_outputs", return_value={"configurable": {}}
+        agent,
+        "_build_custom_outputs_async",
+        new_callable=AsyncMock,
+        return_value={"configurable": {}},
     ):
         # Mock _convert methods
         with patch.object(
@@ -63,7 +68,10 @@ def test_responses_agent_extracts_pydantic_structured_response(mock_graph):
             with patch.object(
                 agent,
                 "_convert_request_to_context",
-                return_value=Mock(thread_id="test"),
+                return_value=Mock(
+                    thread_id="test",
+                    model_dump=Mock(return_value={"thread_id": "test"}),
+                ),
             ):
                 with patch.object(
                     agent, "_extract_session_from_request", return_value={}
@@ -106,9 +114,12 @@ def test_responses_agent_extracts_dataclass_structured_response(mock_graph):
     mock_state.interrupts = ()  # Empty tuple means not interrupted
     mock_graph.aget_state = AsyncMock(return_value=mock_state)
 
-    # Mock _build_custom_outputs
+    # Mock _build_custom_outputs_async (used by apredict)
     with patch.object(
-        agent, "_build_custom_outputs", return_value={"configurable": {}}
+        agent,
+        "_build_custom_outputs_async",
+        new_callable=AsyncMock,
+        return_value={"configurable": {}},
     ):
         # Mock _convert methods
         with patch.object(
@@ -117,7 +128,10 @@ def test_responses_agent_extracts_dataclass_structured_response(mock_graph):
             with patch.object(
                 agent,
                 "_convert_request_to_context",
-                return_value=Mock(thread_id="test"),
+                return_value=Mock(
+                    thread_id="test",
+                    model_dump=Mock(return_value={"thread_id": "test"}),
+                ),
             ):
                 with patch.object(
                     agent, "_extract_session_from_request", return_value={}
@@ -156,9 +170,12 @@ def test_responses_agent_no_structured_response(mock_graph):
     mock_state.interrupts = ()  # Empty tuple means not interrupted
     mock_graph.aget_state = AsyncMock(return_value=mock_state)
 
-    # Mock _build_custom_outputs
+    # Mock _build_custom_outputs_async (used by apredict)
     with patch.object(
-        agent, "_build_custom_outputs", return_value={"configurable": {}}
+        agent,
+        "_build_custom_outputs_async",
+        new_callable=AsyncMock,
+        return_value={"configurable": {}},
     ):
         # Mock _convert methods
         with patch.object(
@@ -167,7 +184,10 @@ def test_responses_agent_no_structured_response(mock_graph):
             with patch.object(
                 agent,
                 "_convert_request_to_context",
-                return_value=Mock(thread_id="test"),
+                return_value=Mock(
+                    thread_id="test",
+                    model_dump=Mock(return_value={"thread_id": "test"}),
+                ),
             ):
                 with patch.object(
                     agent, "_extract_session_from_request", return_value={}
@@ -204,9 +224,12 @@ def test_responses_agent_dict_structured_response(mock_graph):
     mock_state.interrupts = ()  # Empty tuple means not interrupted
     mock_graph.aget_state = AsyncMock(return_value=mock_state)
 
-    # Mock _build_custom_outputs
+    # Mock _build_custom_outputs_async (used by apredict)
     with patch.object(
-        agent, "_build_custom_outputs", return_value={"configurable": {}}
+        agent,
+        "_build_custom_outputs_async",
+        new_callable=AsyncMock,
+        return_value={"configurable": {}},
     ):
         # Mock _convert methods
         with patch.object(
@@ -215,7 +238,10 @@ def test_responses_agent_dict_structured_response(mock_graph):
             with patch.object(
                 agent,
                 "_convert_request_to_context",
-                return_value=Mock(thread_id="test"),
+                return_value=Mock(
+                    thread_id="test",
+                    model_dump=Mock(return_value={"thread_id": "test"}),
+                ),
             ):
                 with patch.object(
                     agent, "_extract_session_from_request", return_value={}
@@ -267,10 +293,16 @@ def test_responses_agent_streaming_extracts_structured_response(mock_graph):
 
     # Configure aget_state to return different values on successive calls
     mock_graph.aget_state = AsyncMock(side_effect=[initial_state, final_state])
+    mock_graph.checkpointer = (
+        Mock()
+    )  # Enable checkpointer for structured_response extraction
 
-    # Mock _build_custom_outputs_async
+    # Mock _build_custom_outputs_async (used by apredict_stream)
     with patch.object(
-        agent, "_build_custom_outputs_async", return_value={"configurable": {}}
+        agent,
+        "_build_custom_outputs_async",
+        new_callable=AsyncMock,
+        return_value={"configurable": {}},
     ):
         # Mock _convert methods
         with patch.object(
@@ -279,7 +311,10 @@ def test_responses_agent_streaming_extracts_structured_response(mock_graph):
             with patch.object(
                 agent,
                 "_convert_request_to_context",
-                return_value=Mock(thread_id="test"),
+                return_value=Mock(
+                    thread_id="test",
+                    model_dump=Mock(return_value={"thread_id": "test"}),
+                ),
             ):
                 with patch.object(
                     agent, "_extract_session_from_request", return_value={}
@@ -329,10 +364,14 @@ def test_responses_agent_streaming_no_structured_response(mock_graph):
     mock_state = Mock()
     mock_state.values = {"messages": [AIMessage(content="Regular response")]}
     mock_graph.aget_state = AsyncMock(return_value=mock_state)
+    mock_graph.checkpointer = Mock()  # Enable checkpointer
 
-    # Mock _build_custom_outputs_async
+    # Mock _build_custom_outputs_async (used by apredict_stream)
     with patch.object(
-        agent, "_build_custom_outputs_async", return_value={"configurable": {}}
+        agent,
+        "_build_custom_outputs_async",
+        new_callable=AsyncMock,
+        return_value={"configurable": {}},
     ):
         # Mock _convert methods
         with patch.object(
@@ -341,7 +380,10 @@ def test_responses_agent_streaming_no_structured_response(mock_graph):
             with patch.object(
                 agent,
                 "_convert_request_to_context",
-                return_value=Mock(thread_id="test"),
+                return_value=Mock(
+                    thread_id="test",
+                    model_dump=Mock(return_value={"thread_id": "test"}),
+                ),
             ):
                 with patch.object(
                     agent, "_extract_session_from_request", return_value={}

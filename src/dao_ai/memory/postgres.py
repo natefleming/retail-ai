@@ -178,7 +178,20 @@ class AsyncPostgresStoreManager(StoreManagerBase):
     def _setup(self):
         if self._setup_complete:
             return
-        asyncio.run(self._async_setup())
+        try:
+            # Check if we're already in an async context
+            asyncio.get_running_loop()
+            # If we get here, we're in an async context - raise to caller
+            raise RuntimeError(
+                "Cannot call sync _setup() from async context. "
+                "Use await _async_setup() instead."
+            )
+        except RuntimeError as e:
+            if "no running event loop" in str(e).lower():
+                # No event loop running - safe to use asyncio.run()
+                asyncio.run(self._async_setup())
+            else:
+                raise
 
     async def _async_setup(self):
         if self._setup_complete:
@@ -237,13 +250,25 @@ class AsyncPostgresCheckpointerManager(CheckpointManagerBase):
 
     def _setup(self):
         """
-        Run the async setup. Works in both sync and async contexts when nest_asyncio is applied.
+        Run the async setup. For async contexts, use await _async_setup() directly.
         """
         if self._setup_complete:
             return
 
-        # With nest_asyncio applied in notebooks, asyncio.run() works everywhere
-        asyncio.run(self._async_setup())
+        try:
+            # Check if we're already in an async context
+            asyncio.get_running_loop()
+            # If we get here, we're in an async context - raise to caller
+            raise RuntimeError(
+                "Cannot call sync _setup() from async context. "
+                "Use await _async_setup() instead."
+            )
+        except RuntimeError as e:
+            if "no running event loop" in str(e).lower():
+                # No event loop running - safe to use asyncio.run()
+                asyncio.run(self._async_setup())
+            else:
+                raise
 
     async def _async_setup(self):
         """

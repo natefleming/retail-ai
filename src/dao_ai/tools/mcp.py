@@ -261,12 +261,12 @@ def _extract_text_content(result: CallToolResult) -> str:
     return "\n".join(text_parts)
 
 
-def _fetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
+async def _afetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
     """
-    Fetch raw MCP tools from the server.
+    Async version: Fetch raw MCP tools from the server.
 
-    This is the core async operation that connects to the MCP server
-    and retrieves the list of available tools.
+    This is the primary async implementation that handles the actual MCP connection
+    and tool listing. It's used by both alist_mcp_tools() and acreate_mcp_tools().
 
     Args:
         function: The MCP function model configuration.
@@ -280,14 +280,10 @@ def _fetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
     connection_config = _build_connection_config(function)
     client = MultiServerMCPClient({"mcp_function": connection_config})
 
-    async def _list_tools_async() -> list[Tool]:
-        """Async helper to list tools from MCP server."""
+    try:
         async with client.session("mcp_function") as session:
             result = await session.list_tools()
             return result.tools if hasattr(result, "tools") else list(result)
-
-    try:
-        return asyncio.run(_list_tools_async())
     except Exception as e:
         if function.connection:
             logger.error(
@@ -312,57 +308,48 @@ def _fetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
             ) from e
 
 
-def list_mcp_tools(
+def _fetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
+    """
+    Sync wrapper: Fetch raw MCP tools from the server.
+
+    For async contexts, use _afetch_tools_from_server() directly.
+
+    Args:
+        function: The MCP function model configuration.
+
+    Returns:
+        List of raw MCP Tool objects from the server.
+
+    Raises:
+        RuntimeError: If connection to MCP server fails.
+    """
+    return asyncio.run(_afetch_tools_from_server(function))
+
+
+async def alist_mcp_tools(
     function: McpFunctionModel,
     apply_filters: bool = True,
 ) -> list[MCPToolInfo]:
     """
-    List available tools from an MCP server.
+    Async version: List available tools from an MCP server.
 
-    This function connects to an MCP server and returns information about
-    all available tools. It's designed for:
-    - Tool discovery and exploration
-    - UI-based tool selection (e.g., in DAO AI Builder)
-    - Debugging and validation of MCP configurations
-
-    The returned MCPToolInfo objects contain all information needed to
-    display tools in a UI and allow users to select which tools to use.
+    This is the primary async implementation for tool discovery.
+    For sync contexts, use list_mcp_tools() instead.
 
     Args:
-        function: The MCP function model configuration containing:
-            - Connection details (url, connection, headers, etc.)
-            - Optional filtering (include_tools, exclude_tools)
+        function: The MCP function model configuration.
         apply_filters: Whether to apply include_tools/exclude_tools filters.
-            Set to False to get the complete list of available tools
-            regardless of filter configuration. Default True.
 
     Returns:
         List of MCPToolInfo objects describing available tools.
-        Each contains name, description, and input_schema.
 
     Raises:
         RuntimeError: If connection to MCP server fails.
-
-    Example:
-        # List all tools from a DBSQL MCP server
-        from dao_ai.config import McpFunctionModel
-        from dao_ai.tools.mcp import list_mcp_tools
-
-        function = McpFunctionModel(sql=True)
-        tools = list_mcp_tools(function)
-
-        for tool in tools:
-            print(f"{tool.name}: {tool.description}")
-
-        # Get unfiltered list (ignore include_tools/exclude_tools)
-        all_tools = list_mcp_tools(function, apply_filters=False)
-
-    Note:
-        For creating executable LangChain tools, use create_mcp_tools() instead.
-        This function is for discovery/display purposes only.
     """
     mcp_url = function.mcp_url
-    logger.debug("Listing MCP tools", mcp_url=mcp_url, apply_filters=apply_filters)
+    logger.debug(
+        "Listing MCP tools (async)", mcp_url=mcp_url, apply_filters=apply_filters
+    )
 
     # Log connection type
     if function.connection:
@@ -378,8 +365,8 @@ def list_mcp_tools(
             mcp_url=mcp_url,
         )
 
-    # Fetch tools from server
-    mcp_tools: list[Tool] = _fetch_tools_from_server(function)
+    # Fetch tools from server (async)
+    mcp_tools: list[Tool] = await _afetch_tools_from_server(function)
 
     # Log discovered tools
     logger.info(
@@ -433,45 +420,155 @@ def list_mcp_tools(
     return tool_infos
 
 
-def create_mcp_tools(
+def list_mcp_tools(
+    function: McpFunctionModel,
+    apply_filters: bool = True,
+) -> list[MCPToolInfo]:
+    """
+    Sync wrapper: List available tools from an MCP server.
+
+    For async contexts, use alist_mcp_tools() directly.
+
+    Args:
+        function: The MCP function model configuration.
+        apply_filters: Whether to apply include_tools/exclude_tools filters.
+
+    Returns:
+        List of MCPToolInfo objects describing available tools.
+
+    Raises:
+        RuntimeError: If connection to MCP server fails.
+    """
+    return asyncio.run(alist_mcp_tools(function, apply_filters))
+
+
+async def acreate_mcp_tools(
     function: McpFunctionModel,
 ) -> Sequence[RunnableLike]:
     """
-    Create executable LangChain tools for invoking Databricks MCP functions.
+    Async version: Create executable LangChain tools for invoking Databricks MCP functions.
 
-    Supports both direct MCP connections and UC Connection-based MCP access.
-    Uses manual tool wrappers to ensure response format compatibility with
-    Databricks APIs (which reject extra fields in tool results).
-
-    This function:
-    1. Fetches available tools from the MCP server
-    2. Applies include_tools/exclude_tools filters
-    3. Wraps each tool for LangChain agent execution
-
-    For tool discovery without creating executable tools, use list_mcp_tools().
-
-    Based on: https://docs.databricks.com/aws/en/generative-ai/mcp/external-mcp
+    This is the primary async implementation. For sync contexts, use create_mcp_tools().
 
     Args:
-        function: The MCP function model configuration containing:
-            - Connection details (url, connection, headers, etc.)
-            - Optional filtering (include_tools, exclude_tools)
+        function: The MCP function model configuration.
 
     Returns:
         A sequence of LangChain tools that can be used by agents.
 
     Raises:
         RuntimeError: If connection to MCP server fails.
+    """
+    mcp_url = function.mcp_url
+    logger.debug("Creating MCP tools (async)", mcp_url=mcp_url)
 
-    Example:
-        from dao_ai.config import McpFunctionModel
-        from dao_ai.tools.mcp import create_mcp_tools
+    # Fetch tools from server (async)
+    mcp_tools: list[Tool] = await _afetch_tools_from_server(function)
 
-        function = McpFunctionModel(sql=True)
-        tools = create_mcp_tools(function)
+    # Log discovered tools
+    logger.info(
+        "Discovered MCP tools from server",
+        tools_count=len(mcp_tools),
+        tool_names=[t.name for t in mcp_tools],
+        mcp_url=mcp_url,
+    )
 
-        # Use tools in an agent
-        agent = create_agent(model=model, tools=tools)
+    # Apply filtering if configured
+    if function.include_tools or function.exclude_tools:
+        original_count = len(mcp_tools)
+        mcp_tools = [
+            tool
+            for tool in mcp_tools
+            if _should_include_tool(
+                tool.name,
+                function.include_tools,
+                function.exclude_tools,
+            )
+        ]
+        filtered_count = original_count - len(mcp_tools)
+
+        logger.info(
+            "Filtered MCP tools",
+            original_count=original_count,
+            filtered_count=filtered_count,
+            final_count=len(mcp_tools),
+            include_patterns=function.include_tools,
+            exclude_patterns=function.exclude_tools,
+        )
+
+    # Log final tool list
+    for mcp_tool in mcp_tools:
+        logger.debug(
+            "MCP tool available",
+            tool_name=mcp_tool.name,
+            tool_description=(
+                mcp_tool.description[:100] if mcp_tool.description else None
+            ),
+        )
+
+    def _create_tool_wrapper(mcp_tool: Tool) -> RunnableLike:
+        """
+        Create a LangChain tool wrapper for an MCP tool.
+        """
+
+        @create_tool(
+            mcp_tool.name,
+            description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
+            args_schema=mcp_tool.inputSchema,
+        )
+        async def tool_wrapper(**kwargs: Any) -> str:
+            """Execute MCP tool with fresh session."""
+            logger.trace("Invoking MCP tool", tool_name=mcp_tool.name, args=kwargs)
+
+            invocation_client = MultiServerMCPClient(
+                {"mcp_function": _build_connection_config(function)}
+            )
+
+            try:
+                async with invocation_client.session("mcp_function") as session:
+                    result: CallToolResult = await session.call_tool(
+                        mcp_tool.name, kwargs
+                    )
+
+                    text_result = _extract_text_content(result)
+
+                    logger.trace(
+                        "MCP tool completed",
+                        tool_name=mcp_tool.name,
+                        result_length=len(text_result),
+                    )
+
+                    return text_result
+
+            except Exception as e:
+                logger.error(
+                    "MCP tool failed",
+                    tool_name=mcp_tool.name,
+                    error=str(e),
+                )
+                raise
+
+        return tool_wrapper
+
+    return [_create_tool_wrapper(tool) for tool in mcp_tools]
+
+
+def create_mcp_tools(
+    function: McpFunctionModel,
+) -> Sequence[RunnableLike]:
+    """
+    Sync wrapper: Create executable LangChain tools for invoking Databricks MCP functions.
+
+    For async contexts, use acreate_mcp_tools() directly.
+
+    Args:
+        function: The MCP function model configuration.
+
+    Returns:
+        A sequence of LangChain tools that can be used by agents.
+
+    Raises:
+        RuntimeError: If connection to MCP server fails.
     """
     mcp_url = function.mcp_url
     logger.debug("Creating MCP tools", mcp_url=mcp_url)

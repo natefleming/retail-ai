@@ -1,4 +1,4 @@
-command: ["uv", "run", "python", "-m", "dao_ai.app_server"]
+command: ["uv", "run", "python", "-m", "dao_ai.apps.server"]
 # Databricks Apps listen by default on port 8000
 
 env:

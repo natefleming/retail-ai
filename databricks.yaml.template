@@ -16,6 +16,9 @@ variables:
     description: The job compute node type (cloud-specific, set per target)
   cloud:
     description: Cloud provider (azure, aws, gcp) - auto-detected or set per target
+  deployment_target:
+    description: Agent deployment target (model_serving or apps) - defaults to model_serving
+    default: model_serving
 
 resources:
   jobs:
@@ -83,6 +86,7 @@ resources:
             notebook_path: ./notebooks/05_deploy_agent.py
             base_parameters:
               config-path: ${var.config_path}
+              deployment-target: ${var.deployment_target}
           environment_key: dao-ai-env
         - task_key: run-evaluation
           depends_on:

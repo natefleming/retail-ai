@@ -1,7 +1,16 @@
 import uuid
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, Literal, Optional, Sequence, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Generator,
+    Literal,
+    Optional,
+    Sequence,
+    Union,
+)
 
 from databricks_langchain import ChatDatabricks
 
@@ -825,13 +834,16 @@ class LanggraphResponsesAgent(ResponsesAgent):
     ) -> None:
         self.graph = graph
 
-    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+    async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """
+        Async version of predict - primary implementation for Databricks Apps.
+
         Process a ResponsesAgentRequest and return a ResponsesAgentResponse.
+        This method can be awaited directly in async contexts (e.g., MLflow AgentServer).
 
         Input structure (custom_inputs):
             configurable:
-                thread_id: "abc-123"        # Or conversation_id (aliases, conversation_id takes precedence)
+                thread_id: "abc-123"        # Or conversation_id (aliases)
                 user_id: "nate.fleming"
                 store_num: "87887"
             session:  # Paste from previous output
@@ -846,11 +858,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
         Output structure (custom_outputs):
             configurable:
-                thread_id: "abc-123"        # Only thread_id in configurable
+                thread_id: "abc-123"
                 user_id: "nate.fleming"
                 store_num: "87887"
             session:
-                conversation_id: "abc-123"  # conversation_id in session
+                conversation_id: "abc-123"
                 genie:
                     spaces:
                         space_123: {conversation_id: "conv_456", ...}
@@ -859,12 +871,13 @@ class LanggraphResponsesAgent(ResponsesAgent):
                   arguments: {...}
                   description: "..."
         """
-        # Extract conversation_id for logging (from context or custom_inputs)
+        from langgraph.types import Command
+
+        # Extract conversation_id for logging
         conversation_id_for_log: str | None = None
         if request.context and hasattr(request.context, "conversation_id"):
             conversation_id_for_log = request.context.conversation_id
         elif request.custom_inputs:
-            # Check configurable or session for conversation_id
             if "configurable" in request.custom_inputs and isinstance(
                 request.custom_inputs["configurable"], dict
             ):
@@ -881,7 +894,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 )
 
         logger.debug(
-            "ResponsesAgent predict called",
+            "ResponsesAgent apredict called",
             conversation_id=conversation_id_for_log
             if conversation_id_for_log
             else "new",
@@ -899,130 +912,106 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # Extract session state from request
         session_input: dict[str, Any] = self._extract_session_from_request(request)
 
-        # Use async ainvoke internally for parallel execution
-        import asyncio
+        try:
+            # Check if this is a resume request (HITL)
+            if request.custom_inputs and "decisions" in request.custom_inputs:
+                # Explicit structured decisions
+                decisions: list[Decision] = request.custom_inputs["decisions"]
+                logger.info(
+                    "HITL: Resuming with explicit decisions",
+                    decisions_count=len(decisions),
+                )
 
-        from langgraph.types import Command
+                # Resume interrupted graph with decisions
+                response = await self.graph.ainvoke(
+                    Command(resume={"decisions": decisions}),
+                    context=context,
+                    config=custom_inputs,
+                )
+            elif self.graph.checkpointer:
+                # Check if graph is currently interrupted
+                snapshot: StateSnapshot = await self.graph.aget_state(
+                    config=custom_inputs
+                )
+                if is_interrupted(snapshot):
+                    logger.info("HITL: Graph interrupted, checking for user response")
 
-        async def _async_invoke():
-            try:
-                # Check if this is a resume request (HITL)
-                # Two ways to resume:
-                # 1. Explicit decisions in custom_inputs (structured)
-                # 2. Natural language message when graph is interrupted (LLM-parsed)
-
-                if request.custom_inputs and "decisions" in request.custom_inputs:
-                    # Explicit structured decisions
-                    decisions: list[Decision] = request.custom_inputs["decisions"]
-                    logger.info(
-                        "HITL: Resuming with explicit decisions",
-                        decisions_count=len(decisions),
+                    # Convert message dicts to BaseMessage objects
+                    message_objects: list[BaseMessage] = convert_openai_messages(
+                        messages
                     )
 
-                    # Resume interrupted graph with decisions
-                    return await self.graph.ainvoke(
-                        Command(resume={"decisions": decisions}),
-                        context=context,
-                        config=custom_inputs,
+                    # Parse user's message with LLM to extract decisions
+                    parsed_result: dict[str, Any] = handle_interrupt_response(
+                        snapshot=snapshot,
+                        messages=message_objects,
+                        model=None,
                     )
 
-                # Check if graph is currently interrupted (only if checkpointer is configured)
-                # aget_state requires a checkpointer
-                if self.graph.checkpointer:
-                    snapshot: StateSnapshot = await self.graph.aget_state(
-                        config=custom_inputs
-                    )
-                    if is_interrupted(snapshot):
-                        logger.info(
-                            "HITL: Graph interrupted, checking for user response"
+                    if not parsed_result.get("is_valid", False):
+                        validation_message: str = parsed_result.get(
+                            "validation_message",
+                            "Your response was unclear. Please provide a clear decision for each action.",
+                        )
+                        logger.warning(
+                            "HITL: Invalid response from user",
+                            validation_message=validation_message,
                         )
 
-                        # Convert message dicts to BaseMessage objects
-                        message_objects: list[BaseMessage] = convert_openai_messages(
-                            messages
-                        )
-
-                        # Parse user's message with LLM to extract decisions
-                        parsed_result: dict[str, Any] = handle_interrupt_response(
-                            snapshot=snapshot,
-                            messages=message_objects,
-                            model=None,  # Uses default model
-                        )
-
-                        # Check if the response was valid
-                        if not parsed_result.get("is_valid", False):
-                            validation_message: str = parsed_result.get(
-                                "validation_message",
-                                "Your response was unclear. Please provide a clear decision for each action.",
-                            )
-                            logger.warning(
-                                "HITL: Invalid response from user",
-                                validation_message=validation_message,
-                            )
-
-                            # Return error message to user instead of resuming
-                            # Don't resume the graph - stay interrupted so user can try again
-                            return {
-                                "messages": [
-                                    AIMessage(
-                                        content=f"❌ **Invalid Response**\n\n{validation_message}"
-                                    )
-                                ]
-                            }
-
-                        decisions: list[Decision] = parsed_result.get("decisions", [])
+                        # Return error message without resuming
+                        response = {
+                            "messages": [
+                                AIMessage(
+                                    content=f"❌ **Invalid Response**\n\n{validation_message}"
+                                )
+                            ]
+                        }
+                    else:
+                        decisions = parsed_result.get("decisions", [])
                         logger.info(
                             "HITL: LLM parsed valid decisions from user message",
                             decisions_count=len(decisions),
                         )
 
                         # Resume interrupted graph with parsed decisions
-                        return await self.graph.ainvoke(
+                        response = await self.graph.ainvoke(
                             Command(resume={"decisions": decisions}),
                             context=context,
                             config=custom_inputs,
                         )
+                else:
+                    # Normal invocation
+                    graph_input: dict[str, Any] = {"messages": messages}
+                    if "genie_conversation_ids" in session_input:
+                        graph_input["genie_conversation_ids"] = session_input[
+                            "genie_conversation_ids"
+                        ]
 
-                # Normal invocation - build the graph input state
-                graph_input: dict[str, Any] = {"messages": messages}
+                    response = await self.graph.ainvoke(
+                        graph_input, context=context, config=custom_inputs
+                    )
+            else:
+                # No checkpointer, use normal invocation
+                graph_input = {"messages": messages}
                 if "genie_conversation_ids" in session_input:
                     graph_input["genie_conversation_ids"] = session_input[
                         "genie_conversation_ids"
                     ]
-                    logger.trace(
-                        "Including genie conversation IDs in graph input",
-                        count=len(graph_input["genie_conversation_ids"]),
-                    )
 
-                return await self.graph.ainvoke(
+                response = await self.graph.ainvoke(
                     graph_input, context=context, config=custom_inputs
                 )
-            except Exception as e:
-                logger.error("Error in graph invocation", error=str(e))
-                raise
-
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        try:
-            response: dict[str, Sequence[BaseMessage]] = loop.run_until_complete(
-                _async_invoke()
-            )
         except Exception as e:
-            logger.error("Error in async execution", error=str(e))
+            logger.error("Error in graph invocation", error=str(e))
             raise
 
         # Convert response to ResponsesAgent format
         last_message: BaseMessage = response["messages"][-1]
 
-        # Build custom_outputs that can be copy-pasted as next request's custom_inputs
-        custom_outputs: dict[str, Any] = self._build_custom_outputs(
+        # Build custom_outputs
+        custom_outputs: dict[str, Any] = await self._build_custom_outputs_async(
             context=context,
             thread_id=context.thread_id,
-            loop=loop,
         )
 
         # Handle structured_response if present
@@ -1037,25 +1026,19 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 response_type=type(structured_response).__name__,
             )
 
-            # Serialize to dict for JSON compatibility using type hints
             if isinstance(structured_response, BaseModel):
-                # Pydantic model
                 serialized: dict[str, Any] = structured_response.model_dump()
             elif is_dataclass(structured_response):
-                # Dataclass
                 serialized = asdict(structured_response)
             elif isinstance(structured_response, dict):
-                # Already a dict
                 serialized = structured_response
             else:
-                # Unknown type, convert to dict if possible
                 serialized = (
                     dict(structured_response)
                     if hasattr(structured_response, "__dict__")
                     else structured_response
                 )
 
-            # Place structured output in message content as JSON
             import json
 
             structured_text: str = json.dumps(serialized, indent=2)
@@ -1064,22 +1047,18 @@ class LanggraphResponsesAgent(ResponsesAgent):
             )
             logger.trace("Structured response placed in message content")
         else:
-            # No structured response, use text content
             output_item = self.create_text_output_item(
                 text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
             )
 
-        # Include interrupt structure if HITL occurred (following LangChain pattern)
+        # Include interrupt structure if HITL occurred
         if "__interrupt__" in response:
             interrupts: list[Interrupt] = response["__interrupt__"]
             logger.info("HITL: Interrupts detected", interrupts_count=len(interrupts))
 
-            # Extract HITLRequest structures from interrupts (deduplicate by ID)
             seen_interrupt_ids: set[str] = set()
             interrupt_data: list[HITLRequest] = []
-            interrupt: Interrupt
             for interrupt in interrupts:
-                # Only process each unique interrupt once
                 if interrupt.id not in seen_interrupt_ids:
                     seen_interrupt_ids.add(interrupt.id)
                     interrupt_data.append(_extract_interrupt_value(interrupt))
@@ -1093,7 +1072,6 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 interrupts_count=len(interrupt_data),
             )
 
-            # Add user-facing message about the pending actions
             action_message: str = _format_action_requests_message(interrupt_data)
             if action_message:
                 output_item = self.create_text_output_item(
@@ -1104,21 +1082,25 @@ class LanggraphResponsesAgent(ResponsesAgent):
             output=[output_item], custom_outputs=custom_outputs
         )
 
-    def predict_stream(
+    async def apredict_stream(
         self, request: ResponsesAgentRequest
-    ) -> Generator[ResponsesAgentStreamEvent, None, None]:
+    ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
         """
-        Process a ResponsesAgentRequest and yield ResponsesAgentStreamEvent objects.
+        Async version of predict_stream - primary implementation for Databricks Apps.
 
-        Uses same input/output structure as predict() for consistency.
+        Process a ResponsesAgentRequest and yield ResponsesAgentStreamEvent objects.
+        This method can be used directly with async for loops in async contexts.
+
+        Uses same input/output structure as apredict() for consistency.
         Supports Human-in-the-Loop (HITL) interrupts.
         """
-        # Extract conversation_id for logging (from context or custom_inputs)
+        from langgraph.types import Command
+
+        # Extract conversation_id for logging
         conversation_id_for_log: str | None = None
         if request.context and hasattr(request.context, "conversation_id"):
             conversation_id_for_log = request.context.conversation_id
         elif request.custom_inputs:
-            # Check configurable or session for conversation_id
             if "configurable" in request.custom_inputs and isinstance(
                 request.custom_inputs["configurable"], dict
             ):
@@ -1135,7 +1117,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 )
 
         logger.debug(
-            "ResponsesAgent predict_stream called",
+            "ResponsesAgent apredict_stream called",
             conversation_id=conversation_id_for_log
             if conversation_id_for_log
             else "new",
@@ -1153,305 +1135,280 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # Extract session state from request
         session_input: dict[str, Any] = self._extract_session_from_request(request)
 
-        # Use async astream internally for parallel execution
-        import asyncio
+        item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
+        accumulated_content: str = ""
+        interrupt_data: list[HITLRequest] = []
+        seen_interrupt_ids: set[str] = set()
+        structured_response: Any = None
 
-        from langgraph.types import Command
-
-        async def _async_stream():
-            item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
-            accumulated_content: str = ""
-            interrupt_data: list[HITLRequest] = []
-            seen_interrupt_ids: set[str] = set()  # Track processed interrupt IDs
-            structured_response: Any = None  # Track structured output from stream
-
-            try:
-                # Check if this is a resume request (HITL)
-                # Two ways to resume:
-                # 1. Explicit decisions in custom_inputs (structured)
-                # 2. Natural language message when graph is interrupted (LLM-parsed)
-
-                if request.custom_inputs and "decisions" in request.custom_inputs:
-                    # Explicit structured decisions
-                    decisions: list[Decision] = request.custom_inputs["decisions"]
+        try:
+            # Check if this is a resume request (HITL)
+            if request.custom_inputs and "decisions" in request.custom_inputs:
+                decisions: list[Decision] = request.custom_inputs["decisions"]
+                logger.info(
+                    "HITL: Resuming stream with explicit decisions",
+                    decisions_count=len(decisions),
+                )
+                stream_input: Command | dict[str, Any] = Command(
+                    resume={"decisions": decisions}
+                )
+            elif self.graph.checkpointer:
+                snapshot: StateSnapshot = await self.graph.aget_state(
+                    config=custom_inputs
+                )
+                if is_interrupted(snapshot):
                     logger.info(
-                        "HITL: Resuming stream with explicit decisions",
+                        "HITL: Graph interrupted, checking for user response in stream"
+                    )
+
+                    message_objects: list[BaseMessage] = convert_openai_messages(
+                        messages
+                    )
+
+                    parsed_result: dict[str, Any] = handle_interrupt_response(
+                        snapshot=snapshot,
+                        messages=message_objects,
+                        model=None,
+                    )
+
+                    if not parsed_result.get("is_valid", False):
+                        validation_message: str = parsed_result.get(
+                            "validation_message",
+                            "Your response was unclear. Please provide a clear decision for each action.",
+                        )
+                        logger.warning(
+                            "HITL: Invalid response from user in stream",
+                            validation_message=validation_message,
+                        )
+
+                        custom_outputs: dict[
+                            str, Any
+                        ] = await self._build_custom_outputs_async(
+                            context=context,
+                            thread_id=context.thread_id,
+                        )
+
+                        error_message: str = (
+                            f"❌ **Invalid Response**\n\n{validation_message}"
+                        )
+                        yield ResponsesAgentStreamEvent(
+                            type="response.output_item.done",
+                            item=self.create_text_output_item(
+                                text=error_message, id=item_id
+                            ),
+                            custom_outputs=custom_outputs,
+                        )
+                        return
+
+                    decisions = parsed_result.get("decisions", [])
+                    logger.info(
+                        "HITL: LLM parsed valid decisions from user message in stream",
                         decisions_count=len(decisions),
                     )
-                    stream_input: Command | dict[str, Any] = Command(
-                        resume={"decisions": decisions}
-                    )
-                elif self.graph.checkpointer:
-                    # Check if graph is currently interrupted (only if checkpointer is configured)
-                    # aget_state requires a checkpointer
-                    snapshot: StateSnapshot = await self.graph.aget_state(
-                        config=custom_inputs
-                    )
-                    if is_interrupted(snapshot):
-                        logger.info(
-                            "HITL: Graph interrupted, checking for user response in stream"
-                        )
 
-                        # Convert message dicts to BaseMessage objects
-                        message_objects: list[BaseMessage] = convert_openai_messages(
-                            messages
-                        )
-
-                        # Parse user's message with LLM to extract decisions
-                        parsed_result: dict[str, Any] = handle_interrupt_response(
-                            snapshot=snapshot,
-                            messages=message_objects,
-                            model=None,  # Uses default model
-                        )
-
-                        # Check if the response was valid
-                        if not parsed_result.get("is_valid", False):
-                            validation_message: str = parsed_result.get(
-                                "validation_message",
-                                "Your response was unclear. Please provide a clear decision for each action.",
-                            )
-                            logger.warning(
-                                "HITL: Invalid response from user in stream",
-                                validation_message=validation_message,
-                            )
-
-                            # Build custom_outputs before returning
-                            custom_outputs: dict[
-                                str, Any
-                            ] = await self._build_custom_outputs_async(
-                                context=context,
-                                thread_id=context.thread_id,
-                            )
-
-                            # Yield error message to user - don't resume graph
-                            error_message: str = (
-                                f"❌ **Invalid Response**\n\n{validation_message}"
-                            )
-                            accumulated_content = error_message
-                            yield ResponsesAgentStreamEvent(
-                                type="response.output_item.done",
-                                item=self.create_text_output_item(
-                                    text=error_message, id=item_id
-                                ),
-                                custom_outputs=custom_outputs,
-                            )
-                            return  # Don't resume - stay interrupted
-
-                        decisions: list[Decision] = parsed_result.get("decisions", [])
-                        logger.info(
-                            "HITL: LLM parsed valid decisions from user message in stream",
-                            decisions_count=len(decisions),
-                        )
-
-                        # Resume interrupted graph with parsed decisions
-                        stream_input: Command | dict[str, Any] = Command(
-                            resume={"decisions": decisions}
-                        )
-                    else:
-                        # Graph not interrupted, use normal invocation
-                        graph_input: dict[str, Any] = {"messages": messages}
-                        if "genie_conversation_ids" in session_input:
-                            graph_input["genie_conversation_ids"] = session_input[
-                                "genie_conversation_ids"
-                            ]
-                        stream_input: Command | dict[str, Any] = graph_input
+                    stream_input = Command(resume={"decisions": decisions})
                 else:
-                    # No checkpointer, use normal invocation
                     graph_input: dict[str, Any] = {"messages": messages}
                     if "genie_conversation_ids" in session_input:
                         graph_input["genie_conversation_ids"] = session_input[
                             "genie_conversation_ids"
                         ]
-                    stream_input: Command | dict[str, Any] = graph_input
+                    stream_input = graph_input
+            else:
+                graph_input = {"messages": messages}
+                if "genie_conversation_ids" in session_input:
+                    graph_input["genie_conversation_ids"] = session_input[
+                        "genie_conversation_ids"
+                    ]
+                stream_input = graph_input
 
-                # Stream the graph execution with both messages and updates modes to capture interrupts
-                async for nodes, stream_mode, data in self.graph.astream(
-                    stream_input,
-                    context=context,
-                    config=custom_inputs,
-                    stream_mode=["messages", "updates"],
-                    subgraphs=True,
-                ):
-                    nodes: tuple[str, ...]
-                    stream_mode: str
+            # Stream the graph execution
+            async for nodes, stream_mode, data in self.graph.astream(
+                stream_input,
+                context=context,
+                config=custom_inputs,
+                stream_mode=["messages", "updates"],
+                subgraphs=True,
+            ):
+                nodes: tuple[str, ...]
+                stream_mode: str
 
-                    # Handle message streaming
-                    if stream_mode == "messages":
-                        messages_batch: Sequence[BaseMessage] = data
-                        message: BaseMessage
-                        for message in messages_batch:
-                            if (
-                                isinstance(
-                                    message,
-                                    (
-                                        AIMessageChunk,
-                                        AIMessage,
-                                    ),
-                                )
-                                and message.content
-                                and "summarization" not in nodes
-                            ):
-                                content: str = message.content
-                                accumulated_content += content
+                if stream_mode == "messages":
+                    messages_batch: Sequence[BaseMessage] = data
+                    for message in messages_batch:
+                        if (
+                            isinstance(message, (AIMessageChunk, AIMessage))
+                            and message.content
+                            and "summarization" not in nodes
+                        ):
+                            content: str = message.content
+                            accumulated_content += content
 
-                                # Yield streaming delta
-                                yield ResponsesAgentStreamEvent(
-                                    **self.create_text_delta(
-                                        delta=content, item_id=item_id
+                            yield ResponsesAgentStreamEvent(
+                                **self.create_text_delta(delta=content, item_id=item_id)
+                            )
+
+                elif stream_mode == "updates":
+                    updates: dict[str, Any] = data
+                    for source, update in updates.items():
+                        if source == "__interrupt__":
+                            interrupts: list[Interrupt] = update
+                            logger.info(
+                                "HITL: Interrupts detected during streaming",
+                                interrupts_count=len(interrupts),
+                            )
+
+                            for interrupt in interrupts:
+                                if interrupt.id not in seen_interrupt_ids:
+                                    seen_interrupt_ids.add(interrupt.id)
+                                    interrupt_data.append(
+                                        _extract_interrupt_value(interrupt)
                                     )
-                                )
+                                    logger.trace(
+                                        "HITL: Added interrupt to response",
+                                        interrupt_id=interrupt.id,
+                                    )
+                        elif (
+                            isinstance(update, dict) and "structured_response" in update
+                        ):
+                            structured_response = update["structured_response"]
+                            logger.trace(
+                                "Captured structured response from stream",
+                                response_type=type(structured_response).__name__,
+                            )
 
-                    # Handle interrupts (HITL) and state updates
-                    elif stream_mode == "updates":
-                        updates: dict[str, Any] = data
-                        source: str
-                        update: Any
-                        for source, update in updates.items():
-                            if source == "__interrupt__":
-                                interrupts: list[Interrupt] = update
-                                logger.info(
-                                    "HITL: Interrupts detected during streaming",
-                                    interrupts_count=len(interrupts),
-                                )
+            # Get final state if checkpointer available
+            if self.graph.checkpointer:
+                final_state: StateSnapshot = await self.graph.aget_state(
+                    config=custom_inputs
+                )
+                if (
+                    "structured_response" in final_state.values
+                    and not structured_response
+                ):
+                    structured_response = final_state.values["structured_response"]
 
-                                # Extract interrupt values (deduplicate by ID)
-                                interrupt: Interrupt
-                                for interrupt in interrupts:
-                                    # Only process each unique interrupt once
-                                    if interrupt.id not in seen_interrupt_ids:
-                                        seen_interrupt_ids.add(interrupt.id)
-                                        interrupt_data.append(
-                                            _extract_interrupt_value(interrupt)
-                                        )
-                                        logger.trace(
-                                            "HITL: Added interrupt to response",
-                                            interrupt_id=interrupt.id,
-                                        )
-                            elif (
-                                isinstance(update, dict)
-                                and "structured_response" in update
-                            ):
-                                # Capture structured_response from stream updates
-                                structured_response = update["structured_response"]
-                                logger.trace(
-                                    "Captured structured response from stream",
-                                    response_type=type(structured_response).__name__,
-                                )
+            # Build custom_outputs
+            custom_outputs = await self._build_custom_outputs_async(
+                context=context,
+                thread_id=context.thread_id,
+            )
 
-                # Get final state to extract structured_response (only if checkpointer available)
-                if self.graph.checkpointer:
-                    final_state: StateSnapshot = await self.graph.aget_state(
-                        config=custom_inputs
-                    )
-                    # Extract structured_response from state if not already captured
-                    if (
-                        "structured_response" in final_state.values
-                        and not structured_response
-                    ):
-                        structured_response = final_state.values["structured_response"]
+            # Handle structured_response in streaming
+            output_text: str = accumulated_content
+            if structured_response:
+                from dataclasses import asdict, is_dataclass
 
-                # Build custom_outputs
-                custom_outputs: dict[str, Any] = await self._build_custom_outputs_async(
-                    context=context,
-                    thread_id=context.thread_id,
+                from pydantic import BaseModel
+
+                logger.trace(
+                    "Processing structured response in streaming",
+                    response_type=type(structured_response).__name__,
                 )
 
-                # Handle structured_response in streaming if present
-                output_text: str = accumulated_content
-                if structured_response:
-                    from dataclasses import asdict, is_dataclass
-
-                    from pydantic import BaseModel
-
-                    logger.trace(
-                        "Processing structured response in streaming",
-                        response_type=type(structured_response).__name__,
+                if isinstance(structured_response, BaseModel):
+                    serialized: dict[str, Any] = structured_response.model_dump()
+                elif is_dataclass(structured_response):
+                    serialized = asdict(structured_response)
+                elif isinstance(structured_response, dict):
+                    serialized = structured_response
+                else:
+                    serialized = (
+                        dict(structured_response)
+                        if hasattr(structured_response, "__dict__")
+                        else structured_response
                     )
 
-                    # Serialize to dict for JSON compatibility using type hints
-                    if isinstance(structured_response, BaseModel):
-                        serialized: dict[str, Any] = structured_response.model_dump()
-                    elif is_dataclass(structured_response):
-                        serialized = asdict(structured_response)
-                    elif isinstance(structured_response, dict):
-                        serialized = structured_response
-                    else:
-                        serialized = (
-                            dict(structured_response)
-                            if hasattr(structured_response, "__dict__")
-                            else structured_response
+                import json
+
+                structured_text: str = json.dumps(serialized, indent=2)
+
+                if accumulated_content.strip():
+                    yield ResponsesAgentStreamEvent(
+                        **self.create_text_delta(delta="\n\n", item_id=item_id)
+                    )
+                    yield ResponsesAgentStreamEvent(
+                        **self.create_text_delta(delta=structured_text, item_id=item_id)
+                    )
+                    output_text = f"{accumulated_content}\n\n{structured_text}"
+                else:
+                    yield ResponsesAgentStreamEvent(
+                        **self.create_text_delta(delta=structured_text, item_id=item_id)
+                    )
+                    output_text = structured_text
+
+                logger.trace("Streamed structured response in message content")
+
+            # Include interrupt structure if HITL occurred
+            if interrupt_data:
+                custom_outputs["interrupts"] = interrupt_data
+                logger.info(
+                    "HITL: Included interrupts in streaming response",
+                    interrupts_count=len(interrupt_data),
+                )
+
+                action_message = _format_action_requests_message(interrupt_data)
+                if action_message:
+                    if not accumulated_content:
+                        output_text = action_message
+                        yield ResponsesAgentStreamEvent(
+                            **self.create_text_delta(
+                                delta=action_message, item_id=item_id
+                            )
                         )
-
-                    # Place structured output in message content - stream as JSON
-                    import json
-
-                    structured_text: str = json.dumps(serialized, indent=2)
-
-                    # If we streamed text, append structured; if no text, use structured only
-                    if accumulated_content.strip():
-                        # Stream separator and structured output
+                    else:
+                        output_text = f"{accumulated_content}\n\n{action_message}"
                         yield ResponsesAgentStreamEvent(
                             **self.create_text_delta(delta="\n\n", item_id=item_id)
                         )
                         yield ResponsesAgentStreamEvent(
                             **self.create_text_delta(
-                                delta=structured_text, item_id=item_id
+                                delta=action_message, item_id=item_id
                             )
                         )
-                        output_text = f"{accumulated_content}\n\n{structured_text}"
-                    else:
-                        # No text content, stream structured output
-                        yield ResponsesAgentStreamEvent(
-                            **self.create_text_delta(
-                                delta=structured_text, item_id=item_id
-                            )
-                        )
-                        output_text = structured_text
 
-                    logger.trace("Streamed structured response in message content")
+            # Yield final output item
+            yield ResponsesAgentStreamEvent(
+                type="response.output_item.done",
+                item=self.create_text_output_item(text=output_text, id=item_id),
+                custom_outputs=custom_outputs,
+            )
+        except Exception as e:
+            logger.error("Error in graph streaming", error=str(e))
+            raise
 
-                # Include interrupt structure if HITL occurred
-                if interrupt_data:
-                    custom_outputs["interrupts"] = interrupt_data
-                    logger.info(
-                        "HITL: Included interrupts in streaming response",
-                        interrupts_count=len(interrupt_data),
-                    )
+    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        """
+        Synchronous wrapper for apredict().
 
-                    # Add user-facing message about the pending actions
-                    action_message = _format_action_requests_message(interrupt_data)
-                    if action_message:
-                        # If we haven't streamed any content yet, stream the action message
-                        if not accumulated_content:
-                            output_text = action_message
-                            # Stream the action message
-                            yield ResponsesAgentStreamEvent(
-                                **self.create_text_delta(
-                                    delta=action_message, item_id=item_id
-                                )
-                            )
-                        else:
-                            # Append action message after accumulated content
-                            output_text = f"{accumulated_content}\n\n{action_message}"
-                            # Stream the separator and action message
-                            yield ResponsesAgentStreamEvent(
-                                **self.create_text_delta(delta="\n\n", item_id=item_id)
-                            )
-                            yield ResponsesAgentStreamEvent(
-                                **self.create_text_delta(
-                                    delta=action_message, item_id=item_id
-                                )
-                            )
+        Process a ResponsesAgentRequest and return a ResponsesAgentResponse.
+        For async contexts (e.g., Databricks Apps), use apredict() directly.
 
-                # Yield final output item
-                yield ResponsesAgentStreamEvent(
-                    type="response.output_item.done",
-                    item=self.create_text_output_item(text=output_text, id=item_id),
-                    custom_outputs=custom_outputs,
-                )
-            except Exception as e:
-                logger.error("Error in graph streaming", error=str(e))
-                raise
+        Note: This method uses asyncio.run() internally, which will fail in contexts
+        where an event loop is already running (e.g., uvloop). For those cases,
+        use apredict() instead.
+        """
+        import asyncio
+
+        logger.debug("ResponsesAgent predict called (sync wrapper)")
+        return asyncio.run(self.apredict(request))
+
+    def predict_stream(
+        self, request: ResponsesAgentRequest
+    ) -> Generator[ResponsesAgentStreamEvent, None, None]:
+        """
+        Synchronous wrapper for apredict_stream().
+
+        Process a ResponsesAgentRequest and yield ResponsesAgentStreamEvent objects.
+        For async contexts (e.g., Databricks Apps), use apredict_stream() directly.
+
+        Note: This method converts the async generator to a sync generator using
+        event loop manipulation. For contexts where an event loop is already running
+        (e.g., uvloop), use apredict_stream() instead.
+        """
+        import asyncio
+
+        logger.debug("ResponsesAgent predict_stream called (sync wrapper)")
 
         # Convert async generator to sync generator
         try:
@@ -1460,7 +1417,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        async_gen = _async_stream()
+        async_gen = self.apredict_stream(request)
 
         try:
             while True:

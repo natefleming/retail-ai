@@ -618,7 +618,7 @@ result = reflection_app.invoke({"messages": example_query})
 
 # COMMAND ----------
 
-from agent_as_code import app
+from dao_ai.apps.model_serving import app
 
 
 # COMMAND ----------
