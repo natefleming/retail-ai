@@ -34,7 +34,7 @@ mlflow.set_tracking_uri("databricks")
 mlflow.langchain.autolog()
 
 # Get config path from environment or use default
-config_path: str = os.environ.get("DAO_AI_CONFIG_PATH", "model_config.yaml")
+config_path: str = os.environ.get("DAO_AI_CONFIG_PATH", "dao_ai.yaml")
 
 # Load configuration using AppConfig.from_file (consistent with CLI, notebook, builder)
 config: AppConfig = AppConfig.from_file(config_path)

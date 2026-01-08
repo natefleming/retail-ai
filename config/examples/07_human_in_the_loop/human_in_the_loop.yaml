@@ -26,6 +26,18 @@
   # - Composite: { type: composite, options: [${VAR1}, ${VAR2}, default] }
   # - Primitives: Just use the value directly
 
+variables:
+  client_id: &client_id
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret: &client_secret
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
 schemas:
   retail_schema: &retail_schema
     catalog_name: nfleming                    
@@ -42,6 +54,8 @@ resources:
     lakebase_db: &lakebase_db
       name: retail-consumer-goods
       instance_name: retail-consumer-goods
+      client_id: *client_id
+      client_secret: *client_secret
 
 # =============================================================================
 # TOOLS WITH HUMAN-IN-THE-LOOP CONFIGURATIONS

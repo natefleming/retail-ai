@@ -152,25 +152,77 @@ class DatabricksProvider(ServiceProvider):
         client_secret: str | None = None,
         workspace_host: str | None = None,
     ) -> None:
-        if w is None:
-            w = _workspace_client(
-                pat=pat,
-                client_id=client_id,
-                client_secret=client_secret,
-                workspace_host=workspace_host,
+        # Store credentials for lazy initialization
+        self._pat = pat
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._workspace_host = workspace_host
+
+        # Lazy initialization for WorkspaceClient
+        self._w: WorkspaceClient | None = w
+        self._w_initialized = w is not None
+
+        # Lazy initialization for VectorSearchClient - only create when needed
+        # This avoids authentication errors in Databricks Apps where VSC
+        # requires explicit credentials but the platform uses ambient auth
+        self._vsc: VectorSearchClient | None = vsc
+        self._vsc_initialized = vsc is not None
+
+        # Lazy initialization for DatabricksFunctionClient
+        self._dfs: DatabricksFunctionClient | None = dfs
+        self._dfs_initialized = dfs is not None
+
+    @property
+    def w(self) -> WorkspaceClient:
+        """Lazy initialization of WorkspaceClient."""
+        if not self._w_initialized:
+            self._w = _workspace_client(
+                pat=self._pat,
+                client_id=self._client_id,
+                client_secret=self._client_secret,
+                workspace_host=self._workspace_host,
             )
-        if vsc is None:
-            vsc = _vector_search_client(
-                pat=pat,
-                client_id=client_id,
-                client_secret=client_secret,
-                workspace_host=workspace_host,
+            self._w_initialized = True
+        return self._w  # type: ignore[return-value]
+
+    @w.setter
+    def w(self, value: WorkspaceClient) -> None:
+        """Set WorkspaceClient and mark as initialized."""
+        self._w = value
+        self._w_initialized = True
+
+    @property
+    def vsc(self) -> VectorSearchClient:
+        """Lazy initialization of VectorSearchClient."""
+        if not self._vsc_initialized:
+            self._vsc = _vector_search_client(
+                pat=self._pat,
+                client_id=self._client_id,
+                client_secret=self._client_secret,
+                workspace_host=self._workspace_host,
             )
-        if dfs is None:
-            dfs = _function_client(w=w)
-        self.w = w
-        self.vsc = vsc
-        self.dfs = dfs
+            self._vsc_initialized = True
+        return self._vsc  # type: ignore[return-value]
+
+    @vsc.setter
+    def vsc(self, value: VectorSearchClient) -> None:
+        """Set VectorSearchClient and mark as initialized."""
+        self._vsc = value
+        self._vsc_initialized = True
+
+    @property
+    def dfs(self) -> DatabricksFunctionClient:
+        """Lazy initialization of DatabricksFunctionClient."""
+        if not self._dfs_initialized:
+            self._dfs = _function_client(w=self.w)
+            self._dfs_initialized = True
+        return self._dfs  # type: ignore[return-value]
+
+    @dfs.setter
+    def dfs(self, value: DatabricksFunctionClient) -> None:
+        """Set DatabricksFunctionClient and mark as initialized."""
+        self._dfs = value
+        self._dfs_initialized = True
 
     def experiment_name(self, config: AppConfig) -> str:
         current_user: User = self.w.current_user.me()
@@ -572,7 +624,7 @@ class DatabricksProvider(ServiceProvider):
         source_config_path: str | None = config.source_config_path
         if source_config_path:
             # Read the config file and upload to workspace
-            config_file_name: str = "model_config.yaml"
+            config_file_name: str = "dao_ai.yaml"
             workspace_config_path: str = f"{source_path}/{config_file_name}"
 
             logger.info(
@@ -603,7 +655,7 @@ class DatabricksProvider(ServiceProvider):
             logger.warning(
                 "No source config path available. "
                 "Ensure DAO_AI_CONFIG_PATH is set in the app environment or "
-                "model_config.yaml exists in the app source directory."
+                "dao_ai.yaml exists in the app source directory."
             )
 
         # Generate and upload app.yaml with dynamically discovered resources
@@ -634,7 +686,9 @@ class DatabricksProvider(ServiceProvider):
             generate_user_api_scopes,
         )
 
-        sdk_resources = generate_sdk_resources(config, experiment_id=experiment.experiment_id)
+        sdk_resources = generate_sdk_resources(
+            config, experiment_id=experiment.experiment_id
+        )
         if sdk_resources:
             logger.info(
                 "Discovered app resources from config",

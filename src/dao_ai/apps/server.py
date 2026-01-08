@@ -7,13 +7,13 @@ uses the AgentServer for the Databricks Apps runtime.
 
 Configuration Loading:
     The config path is specified via the DAO_AI_CONFIG_PATH environment variable,
-    or defaults to model_config.yaml in the current directory.
+    or defaults to dao_ai.yaml in the current directory.
 
 Usage:
     # With environment variable
     DAO_AI_CONFIG_PATH=/path/to/config.yaml python -m dao_ai.apps.server
 
-    # With default model_config.yaml in current directory
+    # With default dao_ai.yaml in current directory
     python -m dao_ai.apps.server
 """
 

@@ -310,6 +310,25 @@ def _extract_secrets_from_config(config: AppConfig) -> list[dict[str, Any]]:
         A list of secret resource dictionaries with unique scope/key pairs
     """
     secrets: dict[tuple[str, str], dict[str, Any]] = {}
+    used_names: set[str] = set()
+
+    def get_unique_resource_name(base_name: str) -> str:
+        """Generate a unique resource name, adding suffix if needed."""
+        sanitized = _sanitize_resource_name(base_name)
+        if sanitized not in used_names:
+            used_names.add(sanitized)
+            return sanitized
+        # Name collision - add numeric suffix
+        counter = 1
+        while True:
+            # Leave room for suffix (e.g., "_1", "_2", etc.)
+            suffix = f"_{counter}"
+            max_base_len = 30 - len(suffix)
+            candidate = sanitized[:max_base_len] + suffix
+            if candidate not in used_names:
+                used_names.add(candidate)
+                return candidate
+            counter += 1
 
     def extract_from_value(value: Any, path: str = "") -> None:
         """Recursively extract secrets from any value."""
@@ -317,9 +336,10 @@ def _extract_secrets_from_config(config: AppConfig) -> list[dict[str, Any]]:
             secret_key = (value.scope, value.secret)
             if secret_key not in secrets:
                 # Create a unique name for the secret resource
-                resource_name = f"{value.scope}_{value.secret}".replace(
-                    "-", "_"
-                ).replace("/", "_")
+                base_name = f"{value.scope}_{value.secret}".replace("-", "_").replace(
+                    "/", "_"
+                )
+                resource_name = get_unique_resource_name(base_name)
                 secrets[secret_key] = {
                     "name": resource_name,
                     "type": "secret",
@@ -327,7 +347,9 @@ def _extract_secrets_from_config(config: AppConfig) -> list[dict[str, Any]]:
                     "key": value.secret,
                     "permissions": [{"level": "READ"}],
                 }
-                logger.debug(f"Found secret: {value.scope}/{value.secret} at {path}")
+                logger.debug(
+                    f"Found secret: {value.scope}/{value.secret} at {path} -> resource: {resource_name}"
+                )
         elif isinstance(value, dict):
             for k, v in value.items():
                 extract_from_value(v, f"{path}.{k}" if path else k)
@@ -742,6 +764,25 @@ def _extract_sdk_secrets_from_config(config: AppConfig) -> list[AppResource]:
         A list of AppResource objects for secrets
     """
     secrets: dict[tuple[str, str], AppResource] = {}
+    used_names: set[str] = set()
+
+    def get_unique_resource_name(base_name: str) -> str:
+        """Generate a unique resource name, adding suffix if needed."""
+        sanitized = _sanitize_resource_name(base_name)
+        if sanitized not in used_names:
+            used_names.add(sanitized)
+            return sanitized
+        # Name collision - add numeric suffix
+        counter = 1
+        while True:
+            # Leave room for suffix (e.g., "_1", "_2", etc.)
+            suffix = f"_{counter}"
+            max_base_len = 30 - len(suffix)
+            candidate = sanitized[:max_base_len] + suffix
+            if candidate not in used_names:
+                used_names.add(candidate)
+                return candidate
+            counter += 1
 
     def extract_from_value(value: Any) -> None:
         """Recursively extract secrets from any value."""
@@ -749,10 +790,10 @@ def _extract_sdk_secrets_from_config(config: AppConfig) -> list[AppResource]:
             secret_key = (value.scope, value.secret)
             if secret_key not in secrets:
                 # Create a unique name for the secret resource
-                resource_name = f"{value.scope}_{value.secret}".replace(
-                    "-", "_"
-                ).replace("/", "_")
-                resource_name = _sanitize_resource_name(resource_name)
+                base_name = f"{value.scope}_{value.secret}".replace("-", "_").replace(
+                    "/", "_"
+                )
+                resource_name = get_unique_resource_name(base_name)
 
                 resource = AppResource(
                     name=resource_name,
@@ -764,7 +805,7 @@ def _extract_sdk_secrets_from_config(config: AppConfig) -> list[AppResource]:
                 )
                 secrets[secret_key] = resource
                 logger.debug(
-                    f"Found secret for SDK resource: {value.scope}/{value.secret}"
+                    f"Found secret for SDK resource: {value.scope}/{value.secret} -> resource: {resource_name}"
                 )
         elif isinstance(value, dict):
             for v in value.values():
@@ -969,11 +1010,20 @@ def generate_app_yaml(
         {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
         {"name": "MLFLOW_REGISTRY_URI", "value": "databricks-uc"},
         {"name": "MLFLOW_EXPERIMENT_ID", "valueFrom": "experiment"},
-        {"name": "DAO_AI_CONFIG_PATH", "value": "model_config.yaml"},
+        {"name": "DAO_AI_CONFIG_PATH", "value": "dao_ai.yaml"},
     ]
 
     # Extract environment variables from config.app.environment_vars
     config_env_vars = _extract_env_vars_from_config(config)
+
+    # Environment variables that are automatically provided by Databricks Apps
+    # and should not be included in app.yaml
+    platform_provided_env_vars = {"DATABRICKS_HOST"}
+
+    # Filter out platform-provided env vars from config
+    config_env_vars = [
+        e for e in config_env_vars if e["name"] not in platform_provided_env_vars
+    ]
 
     # Merge config env vars, avoiding duplicates (config takes precedence)
     base_env_names = {e["name"] for e in env_vars}

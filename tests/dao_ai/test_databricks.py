@@ -684,22 +684,28 @@ def test_deploy_apps_agent_creates_new_app():
         # Mock current user
         provider.w.current_user.me.return_value = mock_user
 
-        # Simulate app doesn't exist
-        provider.w.apps.get.side_effect = NotFound("App not found")
-        provider.w.apps.create_and_wait.return_value = mock_created_app
-        provider.w.apps.deploy_and_wait.return_value = mock_deployment
+        # Mock MLflow experiment
+        mock_experiment = MagicMock()
+        mock_experiment.experiment_id = "12345"
+        with patch.object(
+            provider, "get_or_create_experiment", return_value=mock_experiment
+        ):
+            # Simulate app doesn't exist
+            provider.w.apps.get.side_effect = NotFound("App not found")
+            provider.w.apps.create_and_wait.return_value = mock_created_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
-        provider.deploy_apps_agent(mock_config)
+            provider.deploy_apps_agent(mock_config)
 
-        # Verify create_and_wait was called with an App object
-        provider.w.apps.create_and_wait.assert_called_once()
-        call_args = provider.w.apps.create_and_wait.call_args
-        app_arg = call_args.kwargs.get("app")
-        assert app_arg is not None
-        assert app_arg.name == "test-app"  # Normalized: underscores become dashes
-        assert app_arg.description == "Test app description"
-        # Verify deploy_and_wait was called
-        provider.w.apps.deploy_and_wait.assert_called_once()
+            # Verify create_and_wait was called with an App object
+            provider.w.apps.create_and_wait.assert_called_once()
+            call_args = provider.w.apps.create_and_wait.call_args
+            app_arg = call_args.kwargs.get("app")
+            assert app_arg is not None
+            assert app_arg.name == "test-app"  # Normalized: underscores become dashes
+            assert app_arg.description == "Test app description"
+            # Verify deploy_and_wait was called
+            provider.w.apps.deploy_and_wait.assert_called_once()
 
 
 @pytest.mark.unit
@@ -746,16 +752,22 @@ def test_deploy_apps_agent_updates_existing_app():
         # Mock current user
         provider.w.current_user.me.return_value = mock_user
 
-        # Simulate app already exists
-        provider.w.apps.get.return_value = mock_existing_app
-        provider.w.apps.deploy_and_wait.return_value = mock_deployment
+        # Mock MLflow experiment
+        mock_experiment = MagicMock()
+        mock_experiment.experiment_id = "12345"
+        with patch.object(
+            provider, "get_or_create_experiment", return_value=mock_experiment
+        ):
+            # Simulate app already exists
+            provider.w.apps.get.return_value = mock_existing_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
-        provider.deploy_apps_agent(mock_config)
+            provider.deploy_apps_agent(mock_config)
 
-        # Verify create_and_wait was NOT called (app already exists)
-        provider.w.apps.create_and_wait.assert_not_called()
-        # Verify deploy_and_wait was called
-        provider.w.apps.deploy_and_wait.assert_called_once()
+            # Verify create_and_wait was NOT called (app already exists)
+            provider.w.apps.create_and_wait.assert_not_called()
+            # Verify deploy_and_wait was called
+            provider.w.apps.deploy_and_wait.assert_called_once()
 
 
 @pytest.mark.unit
