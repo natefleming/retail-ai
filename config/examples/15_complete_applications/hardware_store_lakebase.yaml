@@ -15,14 +15,15 @@
 variables:
   client_id: &client_id
     options:
-      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
       - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+
   client_secret: &client_secret
     options:
-      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
       - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
 
 schemas:
   retail_schema: &retail_schema
