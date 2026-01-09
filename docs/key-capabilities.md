@@ -2,7 +2,62 @@
 
 These are the powerful features that make DAO production-ready. Don't worry if some seem complex — you can start simple and add these capabilities as you need them.
 
-## 1. Multi-Tool Support
+## 1. Dual Deployment Targets
+
+**What is this?** DAO agents can be deployed to either **Databricks Model Serving** or **Databricks Apps** using the same configuration, giving you flexibility in how you expose your agent.
+
+**Why this matters:**
+- **Model Serving**: Traditional endpoint for inference workloads, autoscaling, pay-per-token pricing
+- **Databricks Apps**: Full web applications with custom UI, background jobs, and richer integrations
+- **Single Configuration**: Switch deployment targets with one line change — no code rewrite needed
+- **Environment Consistency**: Same YAML config works in both environments
+
+**Comparison:**
+
+| Feature | Model Serving | Databricks Apps |
+|---------|--------------|-----------------|
+| **Use Case** | Inference API endpoint | Full web application |
+| **Scaling** | Auto-scales based on load | Manual scaling configuration |
+| **UI** | API only | Custom web UI possible |
+| **Pricing** | Pay per token/request | Compute-based |
+| **Deployment Speed** | ~2-5 minutes | ~2-5 minutes |
+| **Best For** | API integrations, high throughput | Interactive apps, custom UX |
+
+**How to configure:**
+
+```yaml
+app:
+  name: my_agent
+  deployment_target: model_serving  # or 'apps'
+  
+  # Model Serving specific options (only used when deployment_target: model_serving)
+  endpoint_name: my_agent_endpoint
+  workload_size: Small
+  scale_to_zero: true
+  
+  agents:
+    - *my_agent
+```
+
+**Deploy to Model Serving:**
+```bash
+dao-ai deploy -c config.yaml --target model_serving
+```
+
+**Deploy to Databricks Apps:**
+```bash
+dao-ai deploy -c config.yaml --target apps
+```
+
+**CLI override:** The `--target` flag always takes precedence over the YAML config, making it easy to deploy the same config to different environments.
+
+**Behind the scenes:**
+- Model Serving deployments create an MLflow model and serving endpoint
+- Apps deployments create a Databricks App with MLflow experiment tracking
+- Both share the same agent code, tools, and orchestration logic
+- Environment variables and secrets are automatically configured for each platform
+
+## 2. Multi-Tool Support
 
 **What are tools?** Tools are actions an agent can perform — like querying a database, calling an API, or running custom code.
 
@@ -57,7 +112,7 @@ tools:
       connection: *github_connection
 ```
 
-## 2. On-Behalf-Of User Support
+## 3. On-Behalf-Of User Support
 
 **What is this?** Many Databricks resources (like SQL warehouses, Genie spaces, and LLMs) can operate "on behalf of" the end user, using their permissions instead of the agent's service account credentials.
 
@@ -104,7 +159,7 @@ The same agent code enforces different permissions for each user automatically.
 - The user must have the necessary permissions on the underlying resources
 - Not all Databricks resources support on-behalf-of functionality
 
-## 3. Advanced Caching (Genie Queries)
+## 4. Advanced Caching (Genie Queries)
 
 **Why caching matters:** When users ask similar questions repeatedly, you don't want to pay for the same AI processing over and over. Caching stores results so you can reuse them.
 
@@ -234,7 +289,7 @@ This works by embedding both the current question *and* recent conversation turn
 
 For more details on semantic cache configuration, see [docs/semantic_cache_weight_configuration.md](semantic_cache_weight_configuration.md).
 
-## 4. Vector Search Reranking
+## 5. Vector Search Reranking
 
 **The problem:** Vector search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
 
@@ -321,7 +376,7 @@ rerank:
 
 **Note:** Model weights are downloaded automatically on first use (~34MB for MiniLM-L-12-v2).
 
-## 5. Human-in-the-Loop Approvals
+## 6. Human-in-the-Loop Approvals
 
 **Why this matters:** Some actions are too important to automate completely. For example, you might want human approval before an agent:
 - Deletes data
@@ -343,7 +398,7 @@ tools:
         review_prompt: "This operation will modify production data. Approve?"
 ```
 
-## 6. Memory & State Persistence
+## 7. Memory & State Persistence
 
 **What is memory?** Your agent needs to remember past conversations. When a user asks "What about size XL?" the agent should remember they were talking about shirts.
 
@@ -395,7 +450,7 @@ memory:
 - **PostgreSQL**: When you need external database features or already have PostgreSQL infrastructure
 - **Lakebase**: When you want Databricks-native persistence with Unity Catalog governance
 
-## 7. MLflow Prompt Registry Integration
+## 8. MLflow Prompt Registry Integration
 
 **The problem:** Prompts (instructions you give to AI models) need constant refinement. Hardcoding them in YAML means every change requires redeployment.
 
@@ -427,7 +482,7 @@ agents:
     prompt: *product_expert_prompt  # Loaded from MLflow registry
 ```
 
-## 8. Automated Prompt Optimization
+## 9. Automated Prompt Optimization
 
 **What is this?** Instead of manually tweaking prompts through trial and error, DAO can automatically test variations and find the best one.
 
@@ -452,7 +507,7 @@ optimizations:
       num_candidates: 5
 ```
 
-## 9. Guardrails & Response Quality Middleware
+## 10. Guardrails & Response Quality Middleware
 
 **What are guardrails?** Safety and quality controls that validate agent responses before they reach users. Think of them as quality assurance checkpoints.
 
@@ -670,7 +725,7 @@ agents:
         prompt: *professional_tone_prompt
 ```
 
-## 10. Conversation Summarization
+## 11. Conversation Summarization
 
 **The problem:** AI models have a maximum amount of text they can process (the "context window"). Long conversations eventually exceed this limit.
 
@@ -697,7 +752,7 @@ The `LoggingSummarizationMiddleware` provides detailed observability:
 INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~2100 tokens) | Reduced by ~10400 tokens
 ```
 
-## 11. Structured Output (Response Format)
+## 12. Structured Output (Response Format)
 
 **What is this?** A way to force your agent to return data in a specific JSON structure, making responses machine-readable and predictable.
 
@@ -749,7 +804,7 @@ See `config/examples/09_structured_output/structured_output.yaml` for a complete
 
 ---
 
-## 12. Custom Input & Custom Output Support
+## 13. Custom Input & Custom Output Support
 
 **What is this?** A flexible system for passing custom configuration values to your agents and receiving enriched output with runtime state.
 
@@ -829,7 +884,7 @@ When invoked with the `custom_inputs` above, the prompt automatically populates:
 - `session` state is automatically maintained and returned in `custom_outputs`
 - Backward compatible with legacy flat custom_inputs format
 
-## 13. Middleware (Input Validation, Logging, Monitoring)
+## 14. Middleware (Input Validation, Logging, Monitoring)
 
 **What is middleware?** Middleware are functions that wrap around agent execution to add cross-cutting concerns like validation, logging, authentication, and monitoring. They run before and after the agent processes requests.
 
@@ -1049,7 +1104,7 @@ agents:
 
 ---
 
-## 14. Hook System
+## 15. Hook System
 
 **What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting" or "when shutting down".
 
