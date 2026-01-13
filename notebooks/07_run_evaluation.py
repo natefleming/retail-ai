@@ -225,6 +225,8 @@ def tool_call_efficiency(trace: Trace) -> Feedback:
         value=True,
         rationale=f"Efficient tool usage: {len(tool_calls)} successful calls"
     )
+    
+
 
 # COMMAND ----------
 

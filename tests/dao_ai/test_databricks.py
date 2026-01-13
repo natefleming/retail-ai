@@ -815,29 +815,6 @@ def test_workspace_client_obo_uses_forwarded_headers_in_apps():
 
 
 @pytest.mark.unit
-def test_workspace_client_obo_falls_back_to_model_serving():
-    """Test that OBO falls back to ModelServingUserCredentials when no headers."""
-    from unittest.mock import patch
-
-    from dao_ai.config import WarehouseModel
-
-    # Resource with on_behalf_of_user=True (OBO enabled)
-    warehouse = WarehouseModel(warehouse_id="test-warehouse", on_behalf_of_user=True)
-
-    # Simulate Model Serving (no headers available)
-    with patch("mlflow.genai.agent_server.get_request_headers") as mock_headers:
-        mock_headers.side_effect = LookupError("No headers in context")
-
-        with patch("dao_ai.config.WorkspaceClient") as mock_client:
-            with patch("dao_ai.config.ModelServingUserCredentials") as mock_creds:
-                _ = warehouse.workspace_client
-
-                # Verify ModelServingUserCredentials used
-                mock_creds.assert_called_once()
-                mock_client.assert_called_once()
-
-
-@pytest.mark.unit
 def test_workspace_client_ignores_headers_without_obo():
     """Test that headers are ignored when on_behalf_of_user=False."""
     from unittest.mock import patch

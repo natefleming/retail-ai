@@ -294,36 +294,37 @@ class IsDatabricksResource(ABC, BaseModel):
 
         # Check for OBO first (highest priority)
         if self.on_behalf_of_user:
-            # NEW: In Databricks Apps, use forwarded headers for per-user auth
-            try:
-                from mlflow.genai.agent_server import get_request_headers
+            # In Databricks Apps, use forwarded headers for per-user auth
+            from mlflow.genai.agent_server import get_request_headers
 
-                headers = get_request_headers()
-                forwarded_token = headers.get("x-forwarded-access-token")
+            headers = get_request_headers()
+            logger.debug(f"Headers received: {list(headers.keys())}")
+            # Try both lowercase and title-case header names (HTTP headers are case-insensitive)
+            forwarded_token = headers.get("x-forwarded-access-token") or headers.get(
+                "X-Forwarded-Access-Token"
+            )
 
-                if forwarded_token:
-                    forwarded_user = headers.get("x-forwarded-user", "unknown")
-                    logger.debug(
-                        f"Creating WorkspaceClient for {self.__class__.__name__} "
-                        f"with OBO using forwarded token from Databricks Apps",
-                        forwarded_user=forwarded_user,
-                    )
-                    # Use workspace_host if configured, otherwise SDK will auto-detect
-                    workspace_host_value: str | None = (
-                        normalize_host(value_of(self.workspace_host))
-                        if self.workspace_host
-                        else None
-                    )
-                    return WorkspaceClient(
-                        host=workspace_host_value,
-                        token=forwarded_token,
-                        auth_type="pat",
-                    )
-            except (ImportError, LookupError):
-                # mlflow not available or headers not set - fall through to Model Serving
-                pass
+            if forwarded_token:
+                forwarded_user = headers.get("x-forwarded-user") or headers.get(
+                    "X-Forwarded-User", "unknown"
+                )
+                logger.debug(
+                    f"Creating WorkspaceClient for {self.__class__.__name__} "
+                    f"with OBO using forwarded token from Databricks Apps",
+                    forwarded_user=forwarded_user,
+                )
+                # Use workspace_host if configured, otherwise SDK will auto-detect
+                workspace_host_value: str | None = (
+                    normalize_host(value_of(self.workspace_host))
+                    if self.workspace_host
+                    else None
+                )
+                return WorkspaceClient(
+                    host=workspace_host_value,
+                    token=forwarded_token,
+                    auth_type="pat",
+                )
 
-            # Fall back to Model Serving OBO (existing behavior)
             credentials_strategy: CredentialsStrategy = ModelServingUserCredentials()
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} "
