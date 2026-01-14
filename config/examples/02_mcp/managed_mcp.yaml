@@ -3,19 +3,19 @@
 variables:
   client_id: &client_id                          # Service principal client ID
     options:
-      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
-      - scope: retail_ai
+      - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
   client_secret: &client_secret                  # Service principal secret
     options:
-      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      - scope: retail_ai
+      - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
   workspace_host: &workspace_host                # Databricks workspace URL
     options:
-      - env: RETAIL_AI_DATABRICKS_HOST
-      - scope: retail_ai
+      - scope: retail_consumer_goods
         secret: RETAIL_AI_DATABRICKS_HOST
+      - env: RETAIL_AI_DATABRICKS_HOST
 
 schemas:
   retail_schema: &retail_schema                  # Unity Catalog schema configuration
@@ -112,6 +112,10 @@ app:
   registered_model:                              # MLflow registered model configuration
     schema: *retail_schema                       # Schema where model will be registered
     name: mcp_agent                              # Model name in MLflow registry
+  environment_vars:
+    RETAIL_AI_DATABRICKS_CLIENT_ID: *client_id
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: *client_secret
+    RETAIL_AI_DATABRICKS_HOST: *workspace_host
   agents:                                        # List of agents included in the system
     - *mcp_agent                                 # MCP agent
   orchestration:                                 # Agent orchestration configuration
