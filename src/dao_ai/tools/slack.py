@@ -1,11 +1,13 @@
 from typing import Any, Callable, Optional
 
 from databricks.sdk.service.serving import ExternalFunctionRequestHttpMethod
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from loguru import logger
 from requests import Response
 
 from dao_ai.config import ConnectionModel
+from dao_ai.state import Context
 
 
 def _find_channel_id_by_name(
@@ -129,8 +131,17 @@ def create_send_slack_message_tool(
         name_or_callable=name,
         description=description,
     )
-    def send_slack_message(text: str) -> str:
-        response: Response = connection.workspace_client.serving_endpoints.http_request(
+    def send_slack_message(
+        text: str,
+        runtime: ToolRuntime[Context] = None,
+    ) -> str:
+        from databricks.sdk import WorkspaceClient
+
+        # Get workspace client with OBO support via context
+        context: Context | None = runtime.context if runtime else None
+        workspace_client: WorkspaceClient = connection.workspace_client_from(context)
+
+        response: Response = workspace_client.serving_endpoints.http_request(
             conn=connection.name,
             method=ExternalFunctionRequestHttpMethod.POST,
             path="/api/chat.postMessage",

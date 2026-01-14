@@ -7,13 +7,14 @@ with dynamic filter schemas based on table columns and FlashRank reranking suppo
 
 import json
 import os
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 import mlflow
 from databricks.sdk import WorkspaceClient
 from databricks.vector_search.reranker import DatabricksReranker
 from databricks_langchain import DatabricksVectorSearch
 from flashrank import Ranker, RerankRequest
+from langchain.tools import ToolRuntime, tool
 from langchain_core.documents import Document
 from langchain_core.tools import StructuredTool
 from loguru import logger
@@ -27,6 +28,7 @@ from dao_ai.config import (
     VectorStoreModel,
     value_of,
 )
+from dao_ai.state import Context
 from dao_ai.utils import normalize_host
 
 # Create FilterItem model at module level so it can be used in type hints
@@ -299,35 +301,67 @@ def create_vector_search_tool(
         client_args_keys=list(client_args.keys()) if client_args else [],
     )
 
-    # Create DatabricksVectorSearch
-    # Note: text_column should be None for Databricks-managed embeddings
-    # (it's automatically determined from the index)
-    vector_search: DatabricksVectorSearch = DatabricksVectorSearch(
-        index_name=index_name,
-        text_column=None,
-        columns=columns,
-        workspace_client=vector_store.workspace_client,
-        client_args=client_args if client_args else None,
-        primary_key=vector_store.primary_key,
-        doc_uri=vector_store.doc_uri,
-        include_score=True,
-        reranker=(
-            DatabricksReranker(columns_to_rerank=rerank_config.columns)
-            if rerank_config and rerank_config.columns
-            else None
-        ),
-    )
+    # Cache for DatabricksVectorSearch - created lazily for OBO support
+    _cached_vector_search: DatabricksVectorSearch | None = None
 
-    # Create dynamic input schema
-    input_schema: type[BaseModel] = _create_dynamic_input_schema(
-        index_name, vector_store.workspace_client
-    )
+    def _get_vector_search(context: Context | None) -> DatabricksVectorSearch:
+        """Get or create DatabricksVectorSearch, using context for OBO auth if available."""
+        nonlocal _cached_vector_search
 
-    # Define the tool function
+        # Use cached instance if available and not OBO
+        if _cached_vector_search is not None and not vector_store.on_behalf_of_user:
+            return _cached_vector_search
+
+        # Get workspace client with OBO support via context
+        workspace_client: WorkspaceClient = vector_store.workspace_client_from(context)
+
+        # Create DatabricksVectorSearch
+        # Note: text_column should be None for Databricks-managed embeddings
+        # (it's automatically determined from the index)
+        vs: DatabricksVectorSearch = DatabricksVectorSearch(
+            index_name=index_name,
+            text_column=None,
+            columns=columns,
+            workspace_client=workspace_client,
+            client_args=client_args if client_args else None,
+            primary_key=vector_store.primary_key,
+            doc_uri=vector_store.doc_uri,
+            include_score=True,
+            reranker=(
+                DatabricksReranker(columns_to_rerank=rerank_config.columns)
+                if rerank_config and rerank_config.columns
+                else None
+            ),
+        )
+
+        # Cache for non-OBO scenarios
+        if not vector_store.on_behalf_of_user:
+            _cached_vector_search = vs
+
+        return vs
+
+    # Determine tool name and description
+    tool_name: str = name or f"vector_search_{vector_store.index.name}"
+    tool_description: str = description or f"Search documents in {index_name}"
+
+    # Use @tool decorator for proper ToolRuntime injection
+    # The decorator ensures runtime is automatically injected and hidden from the LLM
+    @tool(name_or_callable=tool_name, description=tool_description)
     def vector_search_func(
-        query: str, filters: Optional[list[FilterItem]] = None
+        query: Annotated[str, "The search query to find relevant documents"],
+        filters: Annotated[
+            Optional[list[FilterItem]],
+            "Optional filters to apply to the search results",
+        ] = None,
+        runtime: ToolRuntime[Context] = None,
     ) -> str:
         """Search for relevant documents using vector similarity."""
+        # Get context for OBO support
+        context: Context | None = runtime.context if runtime else None
+
+        # Get vector search instance with OBO support
+        vector_search: DatabricksVectorSearch = _get_vector_search(context)
+
         # Convert FilterItem Pydantic models to dict format for DatabricksVectorSearch
         filters_dict: dict[str, Any] = {}
         if filters:
@@ -379,14 +413,6 @@ def create_vector_search_tool(
         # Return as JSON string
         return json.dumps(serialized_docs)
 
-    # Create the StructuredTool
-    tool: StructuredTool = StructuredTool.from_function(
-        func=vector_search_func,
-        name=name or f"vector_search_{vector_store.index.name}",
-        description=description or f"Search documents in {index_name}",
-        args_schema=input_schema,
-    )
+    logger.success("Vector search tool created", name=tool_name, index=index_name)
 
-    logger.success("Vector search tool created", name=tool.name, index=index_name)
-
-    return tool
+    return vector_search_func

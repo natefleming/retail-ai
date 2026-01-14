@@ -7,10 +7,11 @@ pre-configured SQL statements against a Databricks SQL warehouse.
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementResponse, StatementState
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
 from loguru import logger
 
 from dao_ai.config import WarehouseModel, value_of
+from dao_ai.state import Context
 
 
 def create_execute_statement_tool(
@@ -63,7 +64,6 @@ def create_execute_statement_tool(
         description = f"Execute a pre-configured SQL query against the {warehouse.name} warehouse and return the results."
 
     warehouse_id: str = value_of(warehouse.warehouse_id)
-    workspace_client: WorkspaceClient = warehouse.workspace_client
 
     logger.debug(
         "Creating SQL execution tool",
@@ -74,7 +74,7 @@ def create_execute_statement_tool(
     )
 
     @tool(name_or_callable=name, description=description)
-    def execute_statement_tool() -> str:
+    def execute_statement_tool(runtime: ToolRuntime[Context] = None) -> str:
         """
         Execute the pre-configured SQL statement against the Databricks SQL warehouse.
 
@@ -87,6 +87,10 @@ def create_execute_statement_tool(
             warehouse_id=warehouse_id,
             sql_preview=statement[:100] + "..." if len(statement) > 100 else statement,
         )
+
+        # Get workspace client with OBO support via context
+        context: Context | None = runtime.context if runtime else None
+        workspace_client: WorkspaceClient = warehouse.workspace_client_from(context)
 
         try:
             # Execute the SQL statement

@@ -30,6 +30,7 @@ from dao_ai.config import (
     McpFunctionModel,
     TransportType,
 )
+from dao_ai.state import Context
 
 
 @dataclass
@@ -173,6 +174,7 @@ def _get_auth_resource(function: McpFunctionModel) -> IsDatabricksResource:
 
 def _build_connection_config(
     function: McpFunctionModel,
+    context: Context | None = None,
 ) -> dict[str, Any]:
     """
     Build the connection configuration dictionary for MultiServerMCPClient.
@@ -193,6 +195,7 @@ def _build_connection_config(
 
     Args:
         function: The MCP function model configuration.
+        context: Optional runtime context with headers for OBO auth.
 
     Returns:
         A dictionary containing the transport-specific connection settings.
@@ -205,14 +208,17 @@ def _build_connection_config(
         }
 
     # For HTTP transport, use DatabricksOAuthClientProvider with unified auth
+    from databricks.sdk import WorkspaceClient
     from databricks_mcp import DatabricksOAuthClientProvider
 
     # Get the resource to use for authentication
-    auth_resource = _get_auth_resource(function)
+    auth_resource: IsDatabricksResource = _get_auth_resource(function)
 
-    # Get workspace client from the auth resource
-    workspace_client = auth_resource.workspace_client
-    auth_provider = DatabricksOAuthClientProvider(workspace_client)
+    # Get workspace client from the auth resource with OBO support via context
+    workspace_client: WorkspaceClient = auth_resource.workspace_client_from(context)
+    auth_provider: DatabricksOAuthClientProvider = DatabricksOAuthClientProvider(
+        workspace_client
+    )
 
     # Log which resource is providing auth
     resource_name = (
@@ -509,19 +515,28 @@ async def acreate_mcp_tools(
     def _create_tool_wrapper(mcp_tool: Tool) -> RunnableLike:
         """
         Create a LangChain tool wrapper for an MCP tool.
+
+        Supports OBO authentication via context headers.
         """
+        from langchain.tools import ToolRuntime
 
         @create_tool(
             mcp_tool.name,
             description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
             args_schema=mcp_tool.inputSchema,
         )
-        async def tool_wrapper(**kwargs: Any) -> str:
+        async def tool_wrapper(
+            runtime: ToolRuntime[Context] = None,
+            **kwargs: Any,
+        ) -> str:
             """Execute MCP tool with fresh session."""
             logger.trace("Invoking MCP tool", tool_name=mcp_tool.name, args=kwargs)
 
-            invocation_client = MultiServerMCPClient(
-                {"mcp_function": _build_connection_config(function)}
+            # Get context for OBO support
+            context: Context | None = runtime.context if runtime else None
+
+            invocation_client: MultiServerMCPClient = MultiServerMCPClient(
+                {"mcp_function": _build_connection_config(function, context)}
             )
 
             try:
@@ -530,7 +545,7 @@ async def acreate_mcp_tools(
                         mcp_tool.name, kwargs
                     )
 
-                    text_result = _extract_text_content(result)
+                    text_result: str = _extract_text_content(result)
 
                     logger.trace(
                         "MCP tool completed",
@@ -625,20 +640,28 @@ def create_mcp_tools(
         This wrapper handles:
         - Fresh session creation per invocation (stateless)
         - Content extraction to plain text (avoiding extra fields)
+        - OBO authentication via context headers
         """
+        from langchain.tools import ToolRuntime
 
         @create_tool(
             mcp_tool.name,
             description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
             args_schema=mcp_tool.inputSchema,
         )
-        async def tool_wrapper(**kwargs: Any) -> str:
+        async def tool_wrapper(
+            runtime: ToolRuntime[Context] = None,
+            **kwargs: Any,
+        ) -> str:
             """Execute MCP tool with fresh session."""
             logger.trace("Invoking MCP tool", tool_name=mcp_tool.name, args=kwargs)
 
-            # Create a fresh client/session for each invocation
-            invocation_client = MultiServerMCPClient(
-                {"mcp_function": _build_connection_config(function)}
+            # Get context for OBO support
+            context: Context | None = runtime.context if runtime else None
+
+            # Create a fresh client/session for each invocation with OBO support
+            invocation_client: MultiServerMCPClient = MultiServerMCPClient(
+                {"mcp_function": _build_connection_config(function, context)}
             )
 
             try:
@@ -648,7 +671,7 @@ def create_mcp_tools(
                     )
 
                     # Extract text content, avoiding extra fields
-                    text_result = _extract_text_content(result)
+                    text_result: str = _extract_text_content(result)
 
                     logger.trace(
                         "MCP tool completed",

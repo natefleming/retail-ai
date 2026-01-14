@@ -155,6 +155,11 @@ class TestVectorSearchToolCreation:
         mock_provider.find_endpoint_for_index.return_value = "test_endpoint"
         mock_provider_class.return_value = mock_provider
 
+        # Mock DatabricksVectorSearch to return documents
+        mock_vs_instance = MagicMock()
+        mock_vs_instance.similarity_search.return_value = []
+        mock_vector_search.return_value = mock_vs_instance
+
         # Create a real VectorStoreModel (not a mock)
         schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
         table = TableModel(schema=schema, name="test_table")
@@ -177,11 +182,9 @@ class TestVectorSearchToolCreation:
         assert tool.name == "test_tool"
         assert tool.description == "Test description"
 
-        # Verify DatabricksVectorSearch was called with expected columns
-        mock_vector_search.assert_called_once()
-        call_kwargs = mock_vector_search.call_args[1]
-        assert "test_table_index" in call_kwargs["index_name"]
-        assert call_kwargs["columns"] == ["text", "metadata"]
+        # DatabricksVectorSearch uses lazy initialization - it's only created when
+        # the tool is invoked. Verify the tool structure is correct without invoking.
+        # The actual DatabricksVectorSearch instantiation happens at runtime for OBO support.
 
     def test_validation_requires_one_parameter(self) -> None:
         """Test that validation fails when neither retriever nor vector_store is provided."""
