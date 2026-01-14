@@ -139,28 +139,52 @@ Returns:
 GenieResponse: A response object containing the conversation ID and result from Genie."""
     tool_description = tool_description + function_docs
 
-    genie: Genie = Genie(
-        space_id=space_id,
-        client=genie_room.workspace_client,
-        truncate_results=truncate_results,
-    )
+    # Cache for genie service - created lazily on first call
+    # This allows us to use workspace_client_from with runtime context for OBO
+    _cached_genie_service: GenieServiceBase | None = None
 
-    genie_service: GenieServiceBase = GenieService(genie)
+    def _get_genie_service(context: Context | None) -> GenieServiceBase:
+        """Get or create the Genie service, using context for OBO auth if available."""
+        nonlocal _cached_genie_service
 
-    # Wrap with semantic cache first (checked second due to decorator pattern)
-    if semantic_cache_parameters is not None:
-        genie_service = SemanticCacheService(
-            impl=genie_service,
-            parameters=semantic_cache_parameters,
-            workspace_client=genie_room.workspace_client,  # Pass workspace client for conversation history
-        ).initialize()  # Eagerly initialize to fail fast and create table
+        # Use cached service if available (for non-OBO or after first call)
+        # For OBO, we need fresh workspace client each time to use the user's token
+        if _cached_genie_service is not None and not genie_room.on_behalf_of_user:
+            return _cached_genie_service
 
-    # Wrap with LRU cache last (checked first - fast O(1) exact match)
-    if lru_cache_parameters is not None:
-        genie_service = LRUCacheService(
-            impl=genie_service,
-            parameters=lru_cache_parameters,
+        # Get workspace client using context for OBO support
+        from databricks.sdk import WorkspaceClient
+
+        workspace_client: WorkspaceClient = genie_room.workspace_client_from(context)
+
+        genie: Genie = Genie(
+            space_id=space_id,
+            client=workspace_client,
+            truncate_results=truncate_results,
         )
+
+        genie_service: GenieServiceBase = GenieService(genie)
+
+        # Wrap with semantic cache first (checked second due to decorator pattern)
+        if semantic_cache_parameters is not None:
+            genie_service = SemanticCacheService(
+                impl=genie_service,
+                parameters=semantic_cache_parameters,
+                workspace_client=workspace_client,
+            ).initialize()
+
+        # Wrap with LRU cache last (checked first - fast O(1) exact match)
+        if lru_cache_parameters is not None:
+            genie_service = LRUCacheService(
+                impl=genie_service,
+                parameters=lru_cache_parameters,
+            )
+
+        # Cache for non-OBO scenarios
+        if not genie_room.on_behalf_of_user:
+            _cached_genie_service = genie_service
+
+        return genie_service
 
     @tool(
         name_or_callable=tool_name,
@@ -177,6 +201,10 @@ GenieResponse: A response object containing the conversation ID and result from 
         # Access state through runtime
         state: AgentState = runtime.state
         tool_call_id: str = runtime.tool_call_id
+        context: Context | None = runtime.context
+
+        # Get genie service with OBO support via context
+        genie_service: GenieServiceBase = _get_genie_service(context)
 
         # Ensure space_id is a string for state keys
         space_id_str: str = str(space_id)
@@ -194,6 +222,14 @@ GenieResponse: A response object containing the conversation ID and result from 
             conversation_id=existing_conversation_id,
         )
 
+        # Log the prompt being sent to Genie
+        logger.trace(
+            "Sending prompt to Genie",
+            space_id=space_id_str,
+            conversation_id=existing_conversation_id,
+            prompt=question[:500] + "..." if len(question) > 500 else question,
+        )
+
         # Call ask_question which always returns CacheResult with cache metadata
         cache_result: CacheResult = genie_service.ask_question(
             question, conversation_id=existing_conversation_id
@@ -209,6 +245,22 @@ GenieResponse: A response object containing the conversation ID and result from 
             conversation_id=current_conversation_id,
             cache_hit=cache_hit,
             cache_key=cache_key,
+        )
+
+        # Log truncated response for debugging
+        result_preview: str = str(genie_response.result)
+        if len(result_preview) > 500:
+            result_preview = result_preview[:500] + "..."
+        logger.trace(
+            "Genie response content",
+            question=question[:100] + "..." if len(question) > 100 else question,
+            query=genie_response.query,
+            description=(
+                genie_response.description[:200] + "..."
+                if genie_response.description and len(genie_response.description) > 200
+                else genie_response.description
+            ),
+            result_preview=result_preview,
         )
 
         # Update session state with cache information

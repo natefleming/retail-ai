@@ -789,8 +789,8 @@ def test_deployment_target_enum_values():
 
 
 @pytest.mark.unit
-def test_workspace_client_obo_uses_forwarded_headers_in_apps():
-    """Test that OBO uses x-forwarded-access-token when in Databricks Apps."""
+def test_workspace_client_obo_uses_model_serving_credentials():
+    """Test that OBO workspace_client property uses ModelServingUserCredentials."""
     from unittest.mock import patch
 
     from dao_ai.config import WarehouseModel
@@ -798,20 +798,41 @@ def test_workspace_client_obo_uses_forwarded_headers_in_apps():
     # Resource with on_behalf_of_user=True (OBO enabled)
     warehouse = WarehouseModel(warehouse_id="test-warehouse", on_behalf_of_user=True)
 
-    # Mock get_request_headers to return forwarded token (Databricks Apps)
-    with patch("mlflow.genai.agent_server.get_request_headers") as mock_headers:
-        mock_headers.return_value = {
+    with patch("dao_ai.config.WorkspaceClient") as mock_client:
+        _ = warehouse.workspace_client
+
+        # Verify client created with ModelServingUserCredentials
+        mock_client.assert_called_once()
+        call_kwargs = mock_client.call_args.kwargs
+        assert "credentials_strategy" in call_kwargs
+
+
+@pytest.mark.unit
+def test_workspace_client_from_uses_forwarded_headers():
+    """Test that workspace_client_from uses x-forwarded-access-token from Context."""
+    from unittest.mock import patch
+
+    from dao_ai.config import WarehouseModel
+    from dao_ai.state import Context
+
+    # Resource with on_behalf_of_user=True (OBO enabled)
+    warehouse = WarehouseModel(warehouse_id="test-warehouse", on_behalf_of_user=True)
+
+    # Create a Context with headers
+    context = Context(
+        headers={
             "x-forwarded-access-token": "dapi123456",
             "x-forwarded-user": "user@example.com",
         }
+    )
 
-        with patch("dao_ai.config.WorkspaceClient") as mock_client:
-            _ = warehouse.workspace_client
+    with patch("dao_ai.config.WorkspaceClient") as mock_client:
+        _ = warehouse.workspace_client_from(context)
 
-            # Verify client created with forwarded token
-            mock_client.assert_called_once_with(
-                host=None, token="dapi123456", auth_type="pat"
-            )
+        # Verify client created with forwarded token
+        mock_client.assert_called_once_with(
+            host=None, token="dapi123456", auth_type="pat"
+        )
 
 
 @pytest.mark.unit
@@ -839,34 +860,34 @@ def test_workspace_client_ignores_headers_without_obo():
 
 
 @pytest.mark.unit
-def test_workspace_client_obo_takes_precedence_over_pat():
-    """Test that OBO takes precedence when both on_behalf_of_user and PAT configured."""
+def test_workspace_client_from_obo_takes_precedence_over_pat():
+    """Test that workspace_client_from with OBO takes precedence over PAT."""
     from unittest.mock import patch
 
     from dao_ai.config import WarehouseModel
+    from dao_ai.state import Context
 
     # Resource with BOTH on_behalf_of_user AND explicit PAT
     # on_behalf_of_user should take precedence (checked first)
     warehouse = WarehouseModel(
         warehouse_id="test-warehouse",
         on_behalf_of_user=True,
-        pat="explicit-pat-token",  # This gets ignored
+        pat="explicit-pat-token",  # This gets ignored when using workspace_client_from
         workspace_host="https://test.databricks.com",
     )
 
-    # Mock get_request_headers to return forwarded token (Databricks Apps)
-    with patch("mlflow.genai.agent_server.get_request_headers") as mock_headers:
-        mock_headers.return_value = {"x-forwarded-access-token": "forwarded-token"}
+    # Create a Context with forwarded token
+    context = Context(headers={"x-forwarded-access-token": "forwarded-token"})
 
-        with patch("dao_ai.config.WorkspaceClient") as mock_client:
-            _ = warehouse.workspace_client
+    with patch("dao_ai.config.WorkspaceClient") as mock_client:
+        _ = warehouse.workspace_client_from(context)
 
-            # Verify forwarded token used (OBO path), NOT explicit PAT
-            mock_client.assert_called_once_with(
-                host="https://test.databricks.com",
-                token="forwarded-token",  # From headers, not explicit PAT
-                auth_type="pat",
-            )
+        # Verify forwarded token used (OBO path), NOT explicit PAT
+        mock_client.assert_called_once_with(
+            host="https://test.databricks.com",
+            token="forwarded-token",  # From context headers, not explicit PAT
+            auth_type="pat",
+        )
 
 
 @pytest.mark.system

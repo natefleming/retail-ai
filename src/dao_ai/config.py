@@ -7,6 +7,7 @@ from enum import Enum
 from os import PathLike
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Iterator,
@@ -17,6 +18,9 @@ from typing import (
     TypeAlias,
     Union,
 )
+
+if TYPE_CHECKING:
+    from dao_ai.state import Context
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
@@ -284,8 +288,8 @@ class IsDatabricksResource(ABC, BaseModel):
 
         Authentication priority:
         1. On-Behalf-Of User (on_behalf_of_user=True):
-           - Forwarded headers (Databricks Apps)
-           - ModelServingUserCredentials (Model Serving)
+           - Uses ModelServingUserCredentials (Model Serving)
+           - For Databricks Apps with headers, use workspace_client_from(context)
         2. Service Principal (client_id + client_secret + workspace_host)
         3. PAT (pat + workspace_host)
         4. Ambient/default authentication
@@ -294,37 +298,6 @@ class IsDatabricksResource(ABC, BaseModel):
 
         # Check for OBO first (highest priority)
         if self.on_behalf_of_user:
-            # In Databricks Apps, use forwarded headers for per-user auth
-            from mlflow.genai.agent_server import get_request_headers
-
-            headers = get_request_headers()
-            logger.debug(f"Headers received: {list(headers.keys())}")
-            # Try both lowercase and title-case header names (HTTP headers are case-insensitive)
-            forwarded_token = headers.get("x-forwarded-access-token") or headers.get(
-                "X-Forwarded-Access-Token"
-            )
-
-            if forwarded_token:
-                forwarded_user = headers.get("x-forwarded-user") or headers.get(
-                    "X-Forwarded-User", "unknown"
-                )
-                logger.debug(
-                    f"Creating WorkspaceClient for {self.__class__.__name__} "
-                    f"with OBO using forwarded token from Databricks Apps",
-                    forwarded_user=forwarded_user,
-                )
-                # Use workspace_host if configured, otherwise SDK will auto-detect
-                workspace_host_value: str | None = (
-                    normalize_host(value_of(self.workspace_host))
-                    if self.workspace_host
-                    else None
-                )
-                return WorkspaceClient(
-                    host=workspace_host_value,
-                    token=forwarded_token,
-                    auth_type="pat",
-                )
-
             credentials_strategy: CredentialsStrategy = ModelServingUserCredentials()
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} "
@@ -382,6 +355,55 @@ class IsDatabricksResource(ABC, BaseModel):
             "with default/ambient authentication"
         )
         return WorkspaceClient()
+
+    def workspace_client_from(self, context: "Context | None") -> WorkspaceClient:
+        """
+        Get a WorkspaceClient using headers from the provided Context.
+
+        Use this method from tools that have access to ToolRuntime[Context].
+        This allows OBO authentication to work in Databricks Apps where headers
+        are captured at request entry and passed through the Context.
+
+        Args:
+            context: Runtime context containing headers for OBO auth.
+                     If None or no headers, falls back to workspace_client property.
+
+        Returns:
+            WorkspaceClient configured with appropriate authentication.
+        """
+        from dao_ai.utils import normalize_host
+
+        # Check if we have headers in context for OBO
+        if context and context.headers and self.on_behalf_of_user:
+            headers = context.headers
+            # Try both lowercase and title-case header names (HTTP headers are case-insensitive)
+            forwarded_token = headers.get("x-forwarded-access-token") or headers.get(
+                "X-Forwarded-Access-Token"
+            )
+
+            if forwarded_token:
+                forwarded_user = headers.get("x-forwarded-user") or headers.get(
+                    "X-Forwarded-User", "unknown"
+                )
+                logger.debug(
+                    f"Creating WorkspaceClient for {self.__class__.__name__} "
+                    f"with OBO using forwarded token from Context",
+                    forwarded_user=forwarded_user,
+                )
+                # Use workspace_host if configured, otherwise SDK will auto-detect
+                workspace_host_value: str | None = (
+                    normalize_host(value_of(self.workspace_host))
+                    if self.workspace_host
+                    else None
+                )
+                return WorkspaceClient(
+                    host=workspace_host_value,
+                    token=forwarded_token,
+                    auth_type="pat",
+                )
+
+        # Fall back to existing workspace_client property
+        return self.workspace_client
 
 
 class DeploymentTarget(str, Enum):

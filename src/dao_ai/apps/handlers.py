@@ -14,7 +14,7 @@ from typing import AsyncGenerator
 
 import mlflow
 from dotenv import load_dotenv
-from mlflow.genai.agent_server import invoke, stream
+from mlflow.genai.agent_server import get_request_headers, invoke, stream
 from mlflow.types.responses import (
     ResponsesAgentRequest,
     ResponsesAgentResponse,
@@ -24,6 +24,23 @@ from mlflow.types.responses import (
 from dao_ai.config import AppConfig
 from dao_ai.logging import configure_logging
 from dao_ai.models import LanggraphResponsesAgent
+
+
+def _inject_headers_into_request(request: ResponsesAgentRequest) -> None:
+    """Inject request headers into custom_inputs for Context propagation.
+
+    Captures headers from the MLflow AgentServer context (where they're available)
+    and injects them into request.custom_inputs.configurable.headers so they
+    flow through to Context and can be used for OBO authentication.
+    """
+    headers: dict[str, str] = get_request_headers()
+    if headers:
+        if request.custom_inputs is None:
+            request.custom_inputs = {}
+        if "configurable" not in request.custom_inputs:
+            request.custom_inputs["configurable"] = {}
+        request.custom_inputs["configurable"]["headers"] = headers
+
 
 # Load environment variables from .env.local if it exists
 load_dotenv(dotenv_path=".env.local", override=True)
@@ -61,6 +78,8 @@ async def non_streaming(request: ResponsesAgentRequest) -> ResponsesAgentRespons
     Returns:
         ResponsesAgentResponse with the complete output
     """
+    # Capture headers while in the AgentServer async context (before they're lost)
+    _inject_headers_into_request(request)
     return await _responses_agent.apredict(request)
 
 
@@ -80,5 +99,7 @@ async def streaming(
     Yields:
         ResponsesAgentStreamEvent objects as they are generated
     """
+    # Capture headers while in the AgentServer async context (before they're lost)
+    _inject_headers_into_request(request)
     async for event in _responses_agent.apredict_stream(request):
         yield event
