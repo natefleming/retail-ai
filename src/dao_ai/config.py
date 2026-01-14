@@ -373,11 +373,13 @@ class IsDatabricksResource(ABC, BaseModel):
         """
         from dao_ai.utils import normalize_host
 
+        logger.trace(f"workspace_client_from called", context=context, on_behalf_of_user=self.on_behalf_of_user)
+
         # Check if we have headers in context for OBO
         if context and context.headers and self.on_behalf_of_user:
             headers = context.headers
             # Try both lowercase and title-case header names (HTTP headers are case-insensitive)
-            forwarded_token = headers.get("x-forwarded-access-token") or headers.get(
+            forwarded_token: str = headers.get("x-forwarded-access-token") or headers.get(
                 "X-Forwarded-Access-Token"
             )
 

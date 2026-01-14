@@ -98,22 +98,22 @@ resources:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
           
-# Cloud-specific targets with appropriate node types
-# The CLI auto-selects the target based on workspace cloud detection
+# App-specific cloud targets - ensures each app has its own deployment identity per cloud
+# The CLI auto-detects cloud provider and selects the appropriate target (e.g., app_name-azure)
 targets:
-  azure:
+  __APP_NAME__-azure:
     mode: development
     variables:
       cloud: azure
       node_type: Standard_D4ads_v5
   
-  aws:
+  __APP_NAME__-aws:
     mode: development
     variables:
       cloud: aws
       node_type: i3.xlarge
   
-  gcp:
+  __APP_NAME__-gcp:
     mode: development
     variables:
       cloud: gcp

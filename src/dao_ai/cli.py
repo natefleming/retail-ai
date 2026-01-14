@@ -63,16 +63,26 @@ def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
         Cloud provider string ('azure', 'aws', 'gcp') or None if detection fails
     """
     try:
+        import os
         from databricks.sdk import WorkspaceClient
+
+        # Check for environment variables that might override profile
+        if profile and os.environ.get("DATABRICKS_HOST"):
+            logger.warning(
+                f"DATABRICKS_HOST environment variable is set, which may override --profile {profile}"
+            )
 
         # Create workspace client with optional profile
         if profile:
+            logger.debug(f"Creating WorkspaceClient with profile: {profile}")
             w = WorkspaceClient(profile=profile)
         else:
+            logger.debug("Creating WorkspaceClient with default/ambient credentials")
             w = WorkspaceClient()
 
         # Get the workspace URL from config
         host = w.config.host
+        logger.debug(f"WorkspaceClient host: {host}, profile used: {profile}")
         if not host:
             logger.warning("Could not determine workspace URL for cloud detection")
             return None
@@ -1143,7 +1153,7 @@ def run_databricks_command(
     app_config: AppConfig = AppConfig.from_file(config_path) if config_path else None
     normalized_name: str = normalize_name(app_config.app.name) if app_config else None
 
-    # Auto-detect cloud provider if not specified
+    # Auto-detect cloud provider if not specified (used for node_type selection)
     if not cloud:
         cloud = detect_cloud_provider(profile)
         if cloud:
@@ -1156,10 +1166,12 @@ def run_databricks_command(
     if config_path and app_config:
         generate_bundle_from_template(config_path, normalized_name)
 
-    # Use cloud as target (azure, aws, gcp) - can be overridden with explicit --target
+    # Use app-specific cloud target: {app_name}-{cloud}
+    # This ensures each app has unique deployment identity while supporting cloud-specific settings
+    # Can be overridden with explicit --target
     if not target:
-        target = cloud
-        logger.debug(f"Using cloud-based target: {target}")
+        target = f"{normalized_name}-{cloud}"
+        logger.info(f"Using app-specific cloud target: {target}")
 
     # Build databricks command
     # --profile is a global flag, --target is a subcommand flag for 'bundle'

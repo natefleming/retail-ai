@@ -144,38 +144,7 @@ resources:
       description: "A warehouse for shared endpoints"  # Description
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
 
-  # ---------------------------------------------------------------------------
-  # DATABASES
-  # ---------------------------------------------------------------------------
-  # Configure external databases (e.g., PostgreSQL for checkpoints and memory)
-  # Supports both traditional user/password auth and OAuth2 client credentials
-  databases:
-    # PostgreSQL database for agent memory and checkpoints
-    qsr_database: &qsr_database
-      name: "retail-consumer-goods"
-      description: "Database for agent memory and checkpoints" 
-      
-      # Database connection parameters
-      # These can be set via environment variables or Databricks secrets
-      host: *database_host_var
-      port: *port_var
-      database: *database_var
-      client_id: *client_id_var
-      client_secret: *client_secret_var
-      workspace_host: *workspace_host_var
 
-          
-      # Optional: Additional PostgreSQL connection parameters
-      # Uncomment and modify as needed for your specific setup
-      # connection_kwargs:                            # Additional connection parameters
-      #   autocommit: True                            # Enable autocommit mode
-      #   prepare_threshold: 0                        # Disable prepared statements
-      #   sslmode: require                            # Require SSL connection
-      #   connect_timeout: 10                         # Connection timeout in seconds
-      
-      # Optional: Connection pool configuration
-      # max_pool_size: 20                             # Maximum connections in pool
-      # timeout: 5                                    # Connection timeout in seconds
 
 # =============================================================================
 # RETRIEVERS CONFIGURATION
