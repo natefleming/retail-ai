@@ -2090,9 +2090,10 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         if self.sql:
             return f"{workspace_host}/api/2.0/mcp/sql"
 
-        # Databricks App
+        # Databricks App - MCP endpoint is at {app_url}/mcp
         if self.app:
-            return self.app.url
+            app_url = self.app.url.rstrip("/")
+            return f"{app_url}/mcp"
 
         # Vector Search
         if self.vector_search:
