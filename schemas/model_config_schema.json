@@ -3156,10 +3156,15 @@
               "$ref": "#/$defs/SwarmModel"
             },
             {
+              "const": true,
+              "type": "boolean"
+            },
+            {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Swarm"
         },
         "memory": {
           "anyOf": [

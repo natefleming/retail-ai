@@ -2663,11 +2663,17 @@ class SwarmModel(BaseModel):
 class OrchestrationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     supervisor: Optional[SupervisorModel] = None
-    swarm: Optional[SwarmModel] = None
+    swarm: Optional[SwarmModel | Literal[True]] = None
     memory: Optional[MemoryModel] = None
 
     @model_validator(mode="after")
-    def validate_mutually_exclusive(self) -> Self:
+    def validate_and_normalize(self) -> Self:
+        """Validate orchestration and normalize swarm shorthand."""
+        # Convert swarm: true to SwarmModel()
+        if self.swarm is True:
+            self.swarm = SwarmModel()
+
+        # Validate mutually exclusive
         if self.supervisor is not None and self.swarm is not None:
             raise ValueError("Cannot specify both supervisor and swarm")
         if self.supervisor is None and self.swarm is None:

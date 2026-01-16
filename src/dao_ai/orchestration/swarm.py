@@ -167,8 +167,13 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     default_agent: str
     if isinstance(swarm.default_agent, AgentModel):
         default_agent = swarm.default_agent.name
-    else:
+    elif swarm.default_agent is not None:
         default_agent = swarm.default_agent
+    elif len(config.app.agents) > 0:
+        # Fallback to first agent if no default specified
+        default_agent = config.app.agents[0].name
+    else:
+        raise ValueError("Swarm requires at least one agent and a default_agent")
 
     logger.info(
         "Creating swarm graph",
