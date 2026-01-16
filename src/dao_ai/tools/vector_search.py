@@ -2,11 +2,13 @@
 Vector search tool for retrieving documents from Databricks Vector Search.
 
 This module provides a tool factory for creating semantic search tools
-with dynamic filter schemas based on table columns and FlashRank reranking support.
+with dynamic filter schemas based on table columns, FlashRank reranking support,
+and instructed retrieval with query decomposition and RRF merging.
 """
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any, Optional
 
 import mlflow
@@ -22,13 +24,20 @@ from mlflow.entities import SpanType
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from dao_ai.config import (
+    InstructedRetrieverModel,
     RerankParametersModel,
     RetrieverModel,
     SearchParametersModel,
+    SearchQuery,
     VectorStoreModel,
     value_of,
 )
 from dao_ai.state import Context
+from dao_ai.tools.instructed_retriever import (
+    _get_cached_llm,
+    decompose_query,
+    rrf_merge,
+)
 from dao_ai.utils import normalize_host
 
 # Create FilterItem model at module level so it can be used in type hints
@@ -236,6 +245,7 @@ def create_vector_search_tool(
     columns: list[str] = list(retriever.columns or [])
     search_parameters: SearchParametersModel = retriever.search_parameters
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
+    instructed_config: Optional[InstructedRetrieverModel] = retriever.instructed
 
     # Initialize FlashRank ranker if configured
     ranker: Optional[Ranker] = None
@@ -344,6 +354,82 @@ def create_vector_search_tool(
     tool_name: str = name or f"vector_search_{vector_store.index.name}"
     tool_description: str = description or f"Search documents in {index_name}"
 
+    def _execute_instructed_retrieval(
+        vs: DatabricksVectorSearch,
+        query: str,
+        base_filters: dict[str, Any],
+    ) -> list[Document]:
+        """Execute instructed retrieval with query decomposition and RRF merging."""
+        try:
+            decomposition_llm = _get_cached_llm(instructed_config.decomposition_model)
+
+            subqueries: list[SearchQuery] = decompose_query(
+                llm=decomposition_llm,
+                query=query,
+                schema_description=instructed_config.schema_description,
+                constraints=instructed_config.constraints,
+                max_subqueries=instructed_config.max_subqueries,
+                examples=instructed_config.examples,
+            )
+
+            if not subqueries:
+                logger.warning(
+                    "Query decomposition returned no subqueries, using original"
+                )
+                return vs.similarity_search(
+                    query=query,
+                    k=search_parameters.num_results or 5,
+                    filter=base_filters if base_filters else None,
+                    query_type=search_parameters.query_type or "ANN",
+                )
+
+            def execute_search(sq: SearchQuery) -> list[Document]:
+                combined_filters = {**(sq.filters or {}), **base_filters}
+                return vs.similarity_search(
+                    query=sq.text,
+                    k=search_parameters.num_results or 5,
+                    filter=combined_filters if combined_filters else None,
+                    query_type=search_parameters.query_type or "ANN",
+                )
+
+            logger.debug(
+                "Executing parallel searches",
+                num_subqueries=len(subqueries),
+                queries=[sq.text[:50] for sq in subqueries],
+            )
+
+            with ThreadPoolExecutor(
+                max_workers=instructed_config.max_subqueries
+            ) as executor:
+                all_results = list(executor.map(execute_search, subqueries))
+
+            merged = rrf_merge(
+                all_results,
+                k=instructed_config.rrf_k,
+                primary_key=vector_store.primary_key,
+            )
+
+            logger.debug(
+                "Instructed retrieval complete",
+                num_subqueries=len(subqueries),
+                total_results=sum(len(r) for r in all_results),
+                merged_results=len(merged),
+            )
+
+            return merged
+
+        except Exception as e:
+            logger.warning(
+                "Instructed retrieval failed, falling back to standard search",
+                error=str(e),
+            )
+            return vs.similarity_search(
+                query=query,
+                k=search_parameters.num_results or 5,
+                filter=base_filters if base_filters else None,
+                query_type=search_parameters.query_type or "ANN",
+            )
+
     # Use @tool decorator for proper ToolRuntime injection
     # The decorator ensures runtime is automatically injected and hidden from the LLM
     @tool(name_or_callable=tool_name, description=tool_description)
@@ -358,9 +444,8 @@ def create_vector_search_tool(
         """Search for relevant documents using vector similarity."""
         # Get context for OBO support
         context: Context | None = runtime.context if runtime else None
-
         # Get vector search instance with OBO support
-        vector_search: DatabricksVectorSearch = _get_vector_search(context)
+        vs: DatabricksVectorSearch = _get_vector_search(context)
 
         # Convert FilterItem Pydantic models to dict format for DatabricksVectorSearch
         filters_dict: dict[str, Any] = {}
@@ -368,20 +453,25 @@ def create_vector_search_tool(
             for item in filters:
                 filters_dict[item.key] = item.value
 
-        # Merge with configured filters
-        combined_filters: dict[str, Any] = {
+        base_filters: dict[str, Any] = {
             **filters_dict,
             **(search_parameters.filters or {}),
         }
 
-        # Perform vector search
-        logger.trace("Performing vector search", query_preview=query[:50])
-        documents: list[Document] = vector_search.similarity_search(
-            query=query,
-            k=search_parameters.num_results or 5,
-            filter=combined_filters if combined_filters else None,
-            query_type=search_parameters.query_type or "ANN",
-        )
+        if instructed_config and instructed_config.enabled:
+            documents = _execute_instructed_retrieval(
+                vs=vs,
+                query=query,
+                base_filters=base_filters,
+            )
+        else:
+            logger.trace("Performing vector search", query_preview=query[:50])
+            documents = vs.similarity_search(
+                query=query,
+                k=search_parameters.num_results or 5,
+                filter=base_filters if base_filters else None,
+                query_type=search_parameters.query_type or "ANN",
+            )
 
         # Apply FlashRank reranking if configured
         if ranker and rerank_config:

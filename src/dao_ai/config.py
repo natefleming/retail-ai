@@ -1814,6 +1814,78 @@ class RerankParametersModel(BaseModel):
     )
 
 
+class SearchQuery(BaseModel):
+    """A decomposed search query with optional filters for instructed retrieval."""
+
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(description="The search query text")
+    filters: Optional[dict[str, Any]] = Field(
+        default=None, description="Filters to apply in Databricks Vector Search syntax"
+    )
+
+
+class DecomposedQueries(BaseModel):
+    """Container for structured output from query decomposition."""
+
+    model_config = ConfigDict(extra="forbid")
+    queries: list[SearchQuery] = Field(
+        description="List of decomposed search queries with filters"
+    )
+
+
+class InstructedRetrieverModel(BaseModel):
+    """
+    Configuration for instructed retrieval with query decomposition and RRF merging.
+
+    Instructed retrieval decomposes user queries into multiple subqueries with
+    metadata filters, executes them in parallel, and merges results using
+    Reciprocal Rank Fusion (RRF) before reranking.
+
+    Example:
+        ```yaml
+        retriever:
+          vector_store: *products_vector_store
+          instructed:
+            enabled: true
+            decomposition_model: *fast_llm
+            schema_description: |
+              Products table: product_id, brand_name, category, price, updated_at
+              Filter operators: {"col": val}, {"col >": val}, {"col NOT": val}
+            constraints:
+              - "Prefer recent products"
+            max_subqueries: 3
+            examples:
+              - query: "cheap drills"
+                filters: {"price <": 100}
+        ```
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    enabled: bool = Field(default=False, description="Enable instructed retrieval")
+    decomposition_model: Optional["LLMModel"] = Field(
+        default=None,
+        description="LLM for query decomposition (smaller/faster model recommended)",
+    )
+    schema_description: str = Field(
+        description="Column names, types, and valid filter syntax for the LLM"
+    )
+    constraints: Optional[list[str]] = Field(
+        default=None, description="Default constraints to always apply"
+    )
+    max_subqueries: int = Field(
+        default=3, description="Maximum number of parallel subqueries"
+    )
+    rrf_k: int = Field(
+        default=60,
+        description="RRF constant (lower values weight top ranks more heavily)",
+    )
+    examples: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="Few-shot examples for domain-specific filter translation",
+    )
+
+
 class RetrieverModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     vector_store: VectorStoreModel
@@ -1824,6 +1896,10 @@ class RetrieverModel(BaseModel):
     rerank: Optional[RerankParametersModel | bool] = Field(
         default=None,
         description="Optional reranking configuration. Set to true for defaults, or provide ReRankParametersModel for custom settings.",
+    )
+    instructed: Optional[InstructedRetrieverModel] = Field(
+        default=None,
+        description="Optional instructed retrieval with query decomposition and RRF merging.",
     )
 
     @model_validator(mode="after")

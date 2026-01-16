@@ -1,0 +1,532 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Hardware Store with Instructed Retriever
+# =============================================================================
+# This configuration demonstrates instructed retrieval with query decomposition
+# and RRF merging for improved product search quality.
+#
+# Key differences from hardware_store.yaml:
+# - Uses instructed retriever for intelligent query decomposition
+# - Adds a fast LLM for low-latency decomposition
+# - Includes schema description and few-shot examples for filter translation
+# - Combines with FlashRank reranking for maximum precision
+
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+
+# =============================================================================
+# RESOURCES CONFIGURATION
+# =============================================================================
+resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS (LLMs)
+  # ---------------------------------------------------------------------------
+  llms:
+    # Primary LLM for agent reasoning
+    default_llm: &default_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192
+
+    # LLM optimized for tool calling
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 8192
+
+    # Fast LLM for query decomposition (smaller model = lower latency)
+    decomposition_llm: &decomposition_llm
+      name: databricks-meta-llama-3-1-8b-instruct
+      temperature: 0.0
+      max_tokens: 1024
+
+    # LLM for evaluating responses
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.5
+      max_tokens: 8192
+
+    # Embedding model for vector search
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES
+  # ---------------------------------------------------------------------------
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: products_index
+      source_table:
+        schema: *retail_schema
+        name: products
+      primary_key: product_id
+      doc_uri: ~
+      embedding_source_column: description
+      columns:
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
+
+  # ---------------------------------------------------------------------------
+  # FUNCTIONS
+  # ---------------------------------------------------------------------------
+  functions:
+    find_product_by_sku: &find_product_by_sku
+      schema: *retail_schema
+      name: find_product_by_sku
+    find_product_by_upc: &find_product_by_upc
+      schema: *retail_schema
+      name: find_product_by_upc
+    find_inventory_by_sku: &find_inventory_by_sku
+      schema: *retail_schema
+      name: find_inventory_by_sku
+    find_inventory_by_upc: &find_inventory_by_upc
+      schema: *retail_schema
+      name: find_inventory_by_upc
+    find_store_inventory_by_upc: &find_store_inventory_by_upc
+      schema: *retail_schema
+      name: find_store_inventory_by_upc
+    find_store_inventory_by_sku: &find_store_inventory_by_sku
+      schema: *retail_schema
+      name: find_store_inventory_by_sku
+
+# =============================================================================
+# RETRIEVERS CONFIGURATION
+# =============================================================================
+# The instructed retriever decomposes queries into subqueries with filters,
+# executes them in parallel, and merges results using RRF before reranking.
+
+retrievers:
+  # Standard retriever (for comparison)
+  products_retriever_standard: &products_retriever_standard
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:
+      num_results: 50
+      query_type: ANN
+    rerank:
+      top_n: 10
+      columns:
+        - merchandise_class
+        - product_name
+        - brand_name
+
+  # Instructed retriever with query decomposition and RRF
+  products_retriever_instructed: &products_retriever_instructed
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID
+    instructed:
+      enabled: true
+      decomposition_model: *decomposition_llm
+      schema_description: |
+        Products table for a hardware/home improvement store.
+        
+        Columns:
+        - product_id (STRING): Unique product identifier
+        - sku (STRING): Stock keeping unit code
+        - upc (STRING): Universal product code barcode
+        - brand_name (STRING): Brand/manufacturer (e.g., Milwaukee, DeWalt, Makita, Craftsman, Black+Decker, Ryobi, Bosch, Stanley, Husky)
+        - product_name (STRING): Product display name
+        - merchandise_class (STRING): Category (e.g., Power Tools, Hand Tools, Paint, Plumbing, Electrical, Lumber, Hardware, Outdoor)
+        - class_cd (STRING): Category code
+        - description (STRING): Full product description
+        
+        Valid filter operators for Databricks Vector Search:
+        - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
+        - Comparison: {"column >": value}, {"column >=": value}, {"column <": value}, {"column <=": value}
+        - Exclusion: {"column NOT": "value"} or {"column NOT": ["val1", "val2"]}
+        - Pattern: {"column LIKE": "pattern"} (matches tokens in text)
+      constraints:
+        - "Use brand_name filter for specific brand requests"
+        - "Use merchandise_class filter for category-based queries"
+        - "Product names often include model numbers and specifications"
+      max_subqueries: 3
+      rrf_k: 60
+      examples:
+        - query: "Milwaukee cordless drills"
+          filters: {"brand_name": "Milwaukee", "product_name LIKE": "drill"}
+        - query: "DeWalt or Makita power tools"
+          filters: {"brand_name": ["DeWalt", "Makita"], "merchandise_class": "Power Tools"}
+        - query: "paint brushes excluding Purdy brand"
+          filters: {"merchandise_class": "Paint", "product_name LIKE": "brush", "brand_name NOT": "Purdy"}
+        - query: "Craftsman hand tools"
+          filters: {"brand_name": "Craftsman", "merchandise_class": "Hand Tools"}
+        - query: "outdoor power equipment not battery powered"
+          filters: {"merchandise_class": "Outdoor", "description NOT": "battery"}
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2
+      top_n: 10
+      columns:
+        - merchandise_class
+        - product_name
+        - brand_name
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+tools:
+  # Instructed vector search tool (primary)
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: product_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever_instructed
+        name: product_search
+        description: |
+          Search for products by description with intelligent query understanding.
+          Automatically extracts brand, category, and feature filters from natural language.
+          Best for queries like:
+          - "Milwaukee cordless drills under 18V"
+          - "paint supplies excluding spray cans"
+          - "DeWalt or Makita power saws"
+
+  # Unity Catalog tools
+  find_product_by_sku_tool: &find_product_by_sku_tool
+    name: find_product_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_product_by_sku
+
+  find_product_by_upc_tool: &find_product_by_upc_tool
+    name: find_product_by_upc_uc
+    function:
+      type: unity_catalog
+      resource: *find_product_by_upc
+
+  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
+    name: find_inventory_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_inventory_by_sku
+
+  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
+    name: find_inventory_by_upc_uc
+    function:
+      type: unity_catalog
+      resource: *find_inventory_by_upc
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+middleware:
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        - name: store_num
+          description: "Your store number for inventory lookups"
+          example_value: "12345"
+        - name: user_id
+          description: "Your unique user identifier"
+          required: false
+          example_value: "my_user_id"
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+agents:
+  # General assistant with instructed search
+  general: &general
+    name: general
+    description: "General retail store assistant with intelligent product search"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a helpful retail store assistant for a home improvement and hardware store with advanced search capabilities.
+
+      #### Search Capabilities
+      Your product search tool understands natural language queries including:
+      - Brand preferences ("Milwaukee", "DeWalt", "not Ryobi")
+      - Categories ("power tools", "paint supplies", "outdoor equipment")
+      - Features and specifications ("cordless", "18V", "stainless steel")
+      - Exclusions ("excluding spray cans", "not battery powered")
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE SEARCH TOOLS FIRST
+      Before answering ANY question:
+      - ALWAYS use your search tools to find the most current and accurate information
+      - The search tool automatically understands brand, category, and feature constraints
+      - Use natural language - you don't need to construct complex filters manually
+
+      #### Response Guidelines
+      - Provide friendly, concise, and informative answers based on search results
+      - Reference specific products found in search results
+      - Suggest alternatives when relevant
+      - Guide customers to appropriate specialists when needed
+    handoff_prompt: |
+      General questions about store information, policies, or basic product inquiries
+
+  # Product specialist with instructed search
+  product: &product
+    name: product
+    description: "Product specialist with intelligent search for detailed product information"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+      - *find_product_by_sku_tool
+      - *find_product_by_upc_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a knowledgeable product specialist with access to intelligent search tools.
+
+      #### Search Capabilities
+      Your product search understands complex queries:
+      - "Milwaukee M18 cordless drills" → Filters by brand AND searches for M18 drills
+      - "paint brushes not Purdy" → Searches paint brushes, excludes Purdy brand
+      - "DeWalt or Makita power saws" → Searches both brands in power tools
+
+      #### Tool Usage Strategy
+      - Use natural language search for discovery and comparisons
+      - Use SKU/UPC lookup for exact product details when codes are known
+      - Combine search results with specific lookups for complete information
+
+      #### Response Guidelines
+      - Provide detailed specifications from search results
+      - Mention related accessories or complementary items
+      - Present balanced information about capabilities and limitations
+    handoff_prompt: |
+      Questions about specific product details, features, specifications, or availability
+      Example: "Tell me about Milwaukee M18 drills" or "Compare DeWalt and Makita circular saws"
+
+  # Inventory specialist
+  inventory: &inventory
+    name: inventory
+    description: "Inventory specialist providing stock levels and availability information"
+    model: *tool_calling_llm
+    tools:
+      - *find_inventory_by_sku_tool
+      - *find_inventory_by_upc_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an inventory management specialist with access to intelligent search and inventory lookup tools.
+
+      #### Tool Usage Strategy
+      - Use product search to find items by description, then check inventory with SKU/UPC
+      - Search understands brand and category filters for finding alternatives
+      - Cross-reference inventory data with product details
+
+      #### Response Guidelines
+      - Provide specific stock quantities when available
+      - Include store location information when found
+      - Suggest alternatives for out-of-stock items using search
+    handoff_prompt: |
+      Questions about stock levels, availability, or inventory
+      Example: "Do you have Milwaukee drills in stock?" or "Check inventory for DeWalt batteries"
+
+  # Comparison specialist
+  comparison: &comparison
+    name: comparison
+    description: "Product comparison specialist for detailed side-by-side comparisons"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+      - *find_product_by_sku_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a product comparison specialist with intelligent search capabilities.
+
+      #### Comparison Strategy
+      - Use search with brand filters to find products from specific manufacturers
+      - Search for each product category to find comparable alternatives
+      - Example: "DeWalt cordless drills" then "Milwaukee cordless drills" for comparison
+
+      #### Response Guidelines
+      - Create clear feature-by-feature comparisons
+      - Highlight key differentiating factors
+      - Provide recommendations based on use cases
+    handoff_prompt: |
+      Questions comparing multiple products or brands
+      Example: "Compare Milwaukee vs DeWalt drills" or "What's the difference between Makita and Bosch jigsaws?"
+
+  # Recommendation specialist
+  recommendation: &recommendation
+    name: recommendation
+    description: "Product recommendation specialist for personalized suggestions"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a product recommendation specialist with intelligent search capabilities.
+
+      #### Recommendation Strategy
+      - Use search with category and feature filters to find matching products
+      - Search can understand exclusions ("not battery powered", "excluding brand X")
+      - Find complementary items by searching related categories
+
+      #### Response Guidelines
+      - Provide personalized recommendations based on stated needs
+      - Explain why each recommendation fits the customer's requirements
+      - Suggest complementary products and accessories
+    handoff_prompt: |
+      Questions asking for product recommendations or suggestions
+      Example: "What drill would you recommend for home use?" or "Suggest paint for outdoor furniture"
+
+# =============================================================================
+# APP CONFIGURATION
+# =============================================================================
+app:
+  name: hardware_store_instructed
+  description: "Hardware store assistant with instructed retrieval for intelligent product search"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: hardware_store_instructed
+  endpoint_name: hardware_store_instructed_agent
+  tags:
+    business: rcg
+    feature: instructed_retriever
+    streaming: true
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
+  agents:
+    - *general
+    - *product
+    - *inventory
+    - *comparison
+    - *recommendation
+  orchestration:
+    supervisor:
+      model: *tool_calling_llm
+      middleware:
+        - *store_validation
+  input_example:
+    input:
+      - role: user
+        content: Find me Milwaukee cordless drills, not the M12 line
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+        store_num: 87887
+      session: {}
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS DEPLOYMENT
+# =============================================================================
+unity_catalog_functions:
+  - function: *find_inventory_by_sku
+    ddl: ../functions/hardware_store/find_inventory_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"]
+  - function: *find_inventory_by_upc
+    ddl: ../functions/hardware_store/find_inventory_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"]
+  - function: *find_product_by_sku
+    ddl: ../functions/hardware_store/find_product_by_sku.sql
+    test:
+      parameters:
+        sku: ["00176279"]
+  - function: *find_product_by_upc
+    ddl: ../functions/hardware_store/find_product_by_upc.sql
+    test:
+      parameters:
+        upc: ["0017627748017"]
+  - function: *find_store_inventory_by_sku
+    ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store: "35048"
+        sku: ["00176279"]
+  - function: *find_store_inventory_by_upc
+    ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
+    test:
+      parameters:
+        store: "35048"
+        upc: ["0017627748017"]
+
+# =============================================================================
+# EVALUATION CONFIGURATION
+# =============================================================================
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *retail_schema
+    name: evaluation_instructed
+  num_evals: 25
+  custom_inputs:
+    configurable:
+      user_id: demo_user
+      store_num: 87887
+    session: {}
+
+# =============================================================================
+# DATASETS CONFIGURATION
+# =============================================================================
+datasets:
+  - table:
+      schema: *retail_schema
+      name: products
+    ddl: ../data/hardware_store/products.sql
+    data: ../data/hardware_store/products.snappy.parquet
+    format: parquet
+  - table:
+      schema: *retail_schema
+      name: inventory
+    ddl: ../data/hardware_store/inventory.sql
+    data: ../data/hardware_store/inventory.snappy.parquet
+    format: parquet

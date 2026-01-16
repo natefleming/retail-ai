@@ -13,6 +13,7 @@ Reference implementations of complete, production-grade agent systems. These exa
 | `reservations_system.yaml` | Restaurant reservation management | ⭐⭐⭐ |
 | `genie_vector_search_hybrid.yaml` | Combined SQL and vector search | ⭐⭐⭐⭐ |
 | `genie_and_genie_mcp.yaml` | Multiple Genie instances via MCP | ⭐⭐⭐⭐ (experimental) |
+| `hardware_store_instructed.yaml` | Hardware store with instructed retrieval | ⭐⭐⭐⭐ |
 
 ## What You'll Learn
 
@@ -70,6 +71,25 @@ Reference implementations of complete, production-grade agent systems. These exa
 - Intelligent query routing
 - Combined result synthesis
 
+### Hardware Store with Instructed Retrieval
+**Use case**: Intelligent product search with natural language understanding  
+**Tools**: Vector Search with query decomposition, Unity Catalog functions  
+**Patterns**: Instructed retrieval, RRF merging, FlashRank reranking
+
+**Capabilities:**
+- 🔍 Natural language product search with automatic filter extraction
+- 🏷️ Brand, category, and feature filtering from plain English
+- 🔀 Query decomposition into parallel subqueries
+- 📊 Reciprocal Rank Fusion for result merging
+- ⚡ Low-latency decomposition with smaller LLM
+- 🎯 FlashRank reranking for precision
+
+**Example queries the instructed retriever understands:**
+- "Milwaukee cordless drills, not the M12 line"
+- "DeWalt or Makita power saws under 15 amps"
+- "paint brushes excluding Purdy brand"
+- "outdoor power equipment not battery powered"
+
 ## Prerequisites
 
 ### General
@@ -100,6 +120,11 @@ Reference implementations of complete, production-grade agent systems. These exa
 - Vector Search indexes
 - Embedding models
 
+**Hardware Store Instructed:**
+- Vector Search index for products
+- Fast LLM for decomposition (Llama 3.1 8B or similar)
+- Unity Catalog functions for inventory lookup
+
 ## Quick Start
 
 ### Executive Assistant
@@ -109,24 +134,34 @@ export SMTP_PASSWORD="your-password"
 export SLACK_BOT_TOKEN="xoxb-token"
 export CALENDAR_API_KEY="your-key"
 
-dao-ai chat -c config/examples/11_complete_applications/executive_assistant.yaml
+dao-ai chat -c config/examples/15_complete_applications/executive_assistant.yaml
 ```
 
 Example: *"Check my calendar for tomorrow and send a Slack message to #team with my availability"*
 
 ### Deep Research
 ```bash
-dao-ai chat -c config/examples/11_complete_applications/deep_research.yaml
+dao-ai chat -c config/examples/15_complete_applications/deep_research.yaml
 ```
 
 Example: *"Research the latest developments in quantum computing and create a summary report"*
 
 ### Reservations
 ```bash
-dao-ai chat -c config/examples/11_complete_applications/reservations_system.yaml
+dao-ai chat -c config/examples/15_complete_applications/reservations_system.yaml
 ```
 
 Example: *"Make a reservation for 4 people tomorrow at 7pm"*
+
+### Hardware Store with Instructed Retrieval
+```bash
+dao-ai chat -c config/examples/15_complete_applications/hardware_store_instructed.yaml
+```
+
+Example queries:
+- *"Find Milwaukee cordless drills, not the M12 line"*
+- *"Compare DeWalt and Makita circular saws"*
+- *"What paint supplies do you have, excluding spray cans?"*
 
 ## Production Checklist
 

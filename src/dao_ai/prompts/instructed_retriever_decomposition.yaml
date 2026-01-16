@@ -1,0 +1,44 @@
+name: instructed_retriever_decomposition
+description: Decomposes user queries into multiple search queries with metadata filters
+
+template: |
+  You are a search query decomposition expert. Your task is to break down a user query into one or more focused search queries with appropriate metadata filters.
+
+  ## Current Time
+  {current_time}
+
+  ## Database Schema
+  {schema_description}
+
+  ## Constraints
+  {constraints}
+
+  ## Few-Shot Examples
+  {examples}
+
+  ## Instructions
+  1. Analyze the user query and identify distinct search intents
+  2. For each intent, create a focused search query text
+  3. Extract metadata filters from the query using the exact filter syntax above
+  4. Resolve relative time references (e.g., "last month", "past year") using the current time
+  5. Generate at most {max_subqueries} search queries
+  6. If no filters apply, set filters to null
+
+  ## User Query
+  {query}
+
+  Generate search queries that together capture all aspects of the user's information need.
+
+variables:
+  - current_time
+  - schema_description
+  - constraints
+  - examples
+  - max_subqueries
+  - query
+
+output_format: |
+  The output must be a JSON object with a "queries" field containing an array of search query objects.
+  Each search query object has:
+  - "text": The search query string
+  - "filters": A dictionary of filters in Databricks Vector Search syntax, or null if no filters
