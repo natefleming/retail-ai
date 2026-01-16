@@ -1,0 +1,232 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# FULL INSTRUCTED RETRIEVER PIPELINE
+# ==============================================================================
+# Demonstrates the complete pipeline with Router, Instructed Retrieval,
+# Instruction-Aware Reranking, and Verifier components.
+#
+# Pipeline Flow (Complex Query):
+#   Router → Decompose → Parallel Search → RRF → FlashRank → Instruction Rerank → Verifier
+#
+# Pipeline Flow (Simple Query with auto_bypass):
+#   Router → Standard Search → FlashRank → Results
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+
+resources:
+  llms:
+    # Primary LLM for agent reasoning
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 8192
+
+    # Fast LLM for pipeline components (Router, Decomposition, Reranker, Verifier)
+    # IMPORTANT: Use small models to minimize latency
+    # Options: GPT-3.5-Turbo, Claude 3 Haiku, Llama 3 8B (~50-100ms vs 500ms+)
+    fast_llm: &fast_llm
+      name: databricks-meta-llama-3-1-8b-instruct
+      temperature: 0.0
+      max_tokens: 1024
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: products_index
+      source_table:
+        schema: *retail_schema
+        name: products
+      primary_key: product_id
+      doc_uri: ~
+      embedding_source_column: description
+      columns:
+        - product_id
+        - sku
+        - brand_name
+        - product_name
+        - category
+        - price
+        - updated_at
+
+retrievers:
+  # Full pipeline retriever with all components
+  full_pipeline_retriever: &full_pipeline_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - brand_name
+      - product_name
+      - category
+      - price
+      - updated_at
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID
+
+    # Router: Selects execution mode based on query complexity
+    router:
+      enabled: true
+      model: *fast_llm
+      default_mode: standard            # Fallback if router fails
+      auto_bypass: true                 # Skip Instruction Reranker + Verifier for standard mode
+
+    # Instructed Retrieval: Query decomposition and RRF merging
+    instructed:
+      enabled: true
+      decomposition_model: *fast_llm
+      schema_description: |
+        Products table columns:
+        - product_id (STRING): Unique product identifier
+        - sku (STRING): Stock keeping unit
+        - brand_name (STRING): Brand/manufacturer (Milwaukee, DeWalt, Makita, etc.)
+        - product_name (STRING): Product display name
+        - category (STRING): Product category (Power Tools, Hand Tools, Paint, etc.)
+        - price (DOUBLE): Price in USD
+        - updated_at (TIMESTAMP): Last update timestamp (ISO format)
+
+        Valid filter operators for Databricks Vector Search:
+        - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
+        - Comparison: {"column >": value}, {"column <": value}
+        - Exclusion: {"column NOT": "value"}
+        - Pattern: {"column LIKE": "pattern"}
+      constraints:
+        - "Prefer products updated within the last 6 months when recency is relevant"
+        - "Apply price filters when budget constraints are mentioned"
+      max_subqueries: 3
+      rrf_k: 60
+      examples:
+        - query: "cheap Milwaukee drills"
+          filters: {"price <": 200, "brand_name": "Milwaukee"}
+        - query: "cordless power tools excluding DeWalt"
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DeWalt"}
+        - query: "paint products under $50"
+          filters: {"category": "Paint", "price <": 50}
+
+    # Reranking: FlashRank + Instruction-Aware
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2
+      top_n: 20                         # FlashRank outputs 20 candidates
+      instruction_aware:
+        enabled: true
+        model: *fast_llm
+        instructions: |
+          Prioritize results based on user constraints:
+          - Price constraints: prefer items within budget
+          - Brand preferences: boost specified brands, demote excluded brands
+          - Category: prefer exact category matches
+          - Recency: prefer recently updated when mentioned
+        top_n: 10                       # Final count after instruction reranking
+
+    # Verifier: Validates results and provides feedback for retry
+    verifier:
+      enabled: true
+      model: *fast_llm
+      on_failure: warn_and_retry        # Options: warn, retry, warn_and_retry
+      max_retries: 1
+
+tools:
+  full_pipeline_search_tool: &full_pipeline_search_tool
+    name: intelligent_product_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *full_pipeline_retriever
+        name: intelligent_product_search
+        description: |
+          Intelligent product search with automatic query routing.
+          - Simple queries: Fast standard search path
+          - Complex queries: Full pipeline with decomposition, RRF, and verification
+          Handles price constraints, brand preferences, category filters, and time constraints.
+
+agents:
+  intelligent_search_agent: &intelligent_search_agent
+    name: intelligent_search
+    description: "Product search with intelligent query routing and verification"
+    model: *default_llm
+    tools:
+      - *full_pipeline_search_tool
+    prompt: |
+      You are an intelligent product search assistant.
+
+      Use the intelligent_product_search tool for all product queries.
+      The tool automatically:
+      - Routes simple queries through a fast path
+      - Routes complex queries (with constraints) through the full pipeline
+      - Verifies results match user intent
+      - Retries with adjusted filters if needed
+
+      Simply pass the user's query naturally - the tool handles the complexity.
+    handoff_prompt: |
+      All product searches - automatically routes to optimal execution path
+
+app:
+  name: full_pipeline_demo
+  description: "Full instructed retriever pipeline with Router, Verifier, and Instruction-Aware Reranking"
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: full_pipeline_demo
+  endpoint_name: full_pipeline_agent
+  tags:
+    demo: full_pipeline
+    feature: instructed_retriever
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
+  agents:
+    - *intelligent_search_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    input:
+      - role: user
+        content: Find me Milwaukee power drills under $200 from the last 6 months
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+      session: {}
+
+# ==============================================================================
+# PIPELINE BEHAVIOR
+# ==============================================================================
+#
+# Simple Query ("drill bits"):
+#   1. Router → "standard"
+#   2. Standard vector search
+#   3. FlashRank reranking
+#   4. (auto_bypass skips Instruction Reranker + Verifier)
+#   5. Results returned (~150ms)
+#
+# Complex Query ("Milwaukee drills under $200 from last month"):
+#   1. Router → "instructed"
+#   2. Decompose query into subqueries with filters
+#   3. Parallel vector searches
+#   4. RRF merge results
+#   5. FlashRank reranking
+#   6. Instruction-aware reranking
+#   7. Verifier checks results
+#   8. Results returned (~800-1200ms)
+#
+# OBSERVABILITY TAGS (set in MLflow):
+#   - router.mode: "standard" or "instructed"
+#   - router.fallback: "true" if router LLM failed
+#   - router.bypassed_stages: "true" if auto_bypass triggered
+#   - verifier.outcome: "passed", "warned", "retried", "exhausted"
+#   - verifier.retries: number of retry attempts
+#   - reranker.instruction_avg_score: average score of returned results

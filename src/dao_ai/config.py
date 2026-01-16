@@ -1763,6 +1763,45 @@ class SearchParametersModel(BaseModel):
     query_type: Optional[str] = "ANN"
 
 
+class InstructionAwareRerankModel(BaseModel):
+    """
+    LLM-based reranking considering user instructions and constraints.
+
+    Use fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).
+    Runs AFTER FlashRank as an additional constraint-aware reranking stage.
+    Skipped for 'standard' mode when auto_bypass=true in router config.
+
+    Example:
+        ```yaml
+        rerank:
+          model: ms-marco-MiniLM-L-12-v2
+          top_n: 20
+          instruction_aware:
+            enabled: true
+            model: *fast_llm
+            instructions: |
+              Prioritize results matching price and brand constraints.
+            top_n: 10
+        ```
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    enabled: bool = Field(default=False, description="Enable instruction-aware reranking")
+    model: Optional["LLMModel"] = Field(
+        default=None,
+        description="LLM for instruction reranking (fast model recommended)",
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Custom reranking instructions for constraint prioritization",
+    )
+    top_n: Optional[int] = Field(
+        default=None,
+        description="Number of documents to return after instruction reranking",
+    )
+
+
 class RerankParametersModel(BaseModel):
     """
     Configuration for reranking retrieved documents using FlashRank.
@@ -1811,6 +1850,10 @@ class RerankParametersModel(BaseModel):
     )
     columns: Optional[list[str]] = Field(
         default_factory=list, description="Columns to rerank using DatabricksReranker"
+    )
+    instruction_aware: Optional[InstructionAwareRerankModel] = Field(
+        default=None,
+        description="Optional LLM-based reranking stage after FlashRank",
     )
 
 
@@ -1886,12 +1929,137 @@ class InstructedRetrieverModel(BaseModel):
     )
 
 
+class RouterModel(BaseModel):
+    """
+    Select internal execution mode based on query characteristics.
+
+    Use fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).
+    Routes to internal modes within the same retriever, not external retrievers.
+    Cross-index routing belongs at the agent/tool-selection level.
+
+    Execution Modes:
+    - "standard": Single similarity_search() for simple keyword/product searches
+    - "instructed": Decompose -> Parallel Search -> RRF for constrained queries
+
+    Example:
+        ```yaml
+        retriever:
+          router:
+            enabled: true
+            model: *fast_llm
+            default_mode: standard
+            auto_bypass: true
+        ```
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    enabled: bool = Field(default=False, description="Enable query routing")
+    model: Optional["LLMModel"] = Field(
+        default=None,
+        description="LLM for routing decision (fast model recommended)",
+    )
+    default_mode: Literal["standard", "instructed"] = Field(
+        default="standard",
+        description="Fallback mode if routing fails or is disabled",
+    )
+    auto_bypass: bool = Field(
+        default=True,
+        description="Skip Instruction Reranker and Verifier for standard mode",
+    )
+
+
+class VerificationResult(BaseModel):
+    """Structured feedback from result verification for intelligent retry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool = Field(description="Whether results satisfy user constraints")
+    confidence: float = Field(
+        ge=0.0, le=1.0, description="Confidence score (0.0-1.0)"
+    )
+    feedback: Optional[str] = Field(
+        default=None, description="Human-readable explanation of issues"
+    )
+    suggested_filter_relaxation: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Suggested filter changes for retry (e.g., {'brand_name': 'REMOVE'})",
+    )
+    unmet_constraints: Optional[list[str]] = Field(
+        default=None, description="List of constraints that were not satisfied"
+    )
+
+
+class VerifierModel(BaseModel):
+    """
+    Validate results against user constraints with structured feedback.
+
+    Use fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).
+    Skipped for 'standard' mode when auto_bypass=true in router config.
+    Returns structured feedback for intelligent retry, not blind retry.
+
+    Example:
+        ```yaml
+        retriever:
+          verifier:
+            enabled: true
+            model: *fast_llm
+            on_failure: warn_and_retry
+            max_retries: 1
+        ```
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    enabled: bool = Field(default=False, description="Enable result verification")
+    model: Optional["LLMModel"] = Field(
+        default=None,
+        description="LLM for verification (fast model recommended)",
+    )
+    on_failure: Literal["warn", "retry", "warn_and_retry"] = Field(
+        default="warn",
+        description="Behavior when verification fails",
+    )
+    max_retries: int = Field(
+        default=1,
+        description="Maximum retry attempts before returning with warning",
+    )
+
+
+class RankedDocument(BaseModel):
+    """Single document ranking result from instruction-aware reranking."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(description="Original document index (0-based)")
+    score: float = Field(
+        ge=0.0, le=1.0, description="Relevance score to instructions (0.0-1.0)"
+    )
+    reason: Optional[str] = Field(
+        default=None, description="Brief explanation for the ranking"
+    )
+
+
+class RankingResult(BaseModel):
+    """Structured output from instruction-aware reranking."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rankings: list[RankedDocument] = Field(
+        description="Ordered list of document rankings"
+    )
+
+
 class RetrieverModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     vector_store: VectorStoreModel
     columns: Optional[list[str]] = Field(default_factory=list)
     search_parameters: SearchParametersModel = Field(
         default_factory=SearchParametersModel
+    )
+    router: Optional[RouterModel] = Field(
+        default=None,
+        description="Optional query router for selecting execution mode (standard vs instructed).",
     )
     rerank: Optional[RerankParametersModel | bool] = Field(
         default=None,
@@ -1900,6 +2068,10 @@ class RetrieverModel(BaseModel):
     instructed: Optional[InstructedRetrieverModel] = Field(
         default=None,
         description="Optional instructed retrieval with query decomposition and RRF merging.",
+    )
+    verifier: Optional[VerifierModel] = Field(
+        default=None,
+        description="Optional result verification with structured feedback for retry.",
     )
 
     @model_validator(mode="after")

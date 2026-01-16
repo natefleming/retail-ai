@@ -1,6 +1,6 @@
 # 03. Reranking
 
-**Improve search result relevance with semantic reranking**
+**Improve search result relevance with semantic and instruction-aware reranking**
 
 Reranking refines search results by using advanced models to reorder results based on semantic similarity to the query, dramatically improving result quality without changing the initial retrieval.
 
@@ -9,11 +9,13 @@ Reranking refines search results by using advanced models to reorder results bas
 | File | Description | Use Case |
 |------|-------------|----------|
 | `vector_search_with_reranking.yaml` | Vector search + FlashRank reranking | High-quality semantic search with minimal latency |
+| `instruction_aware_reranking.yaml` | FlashRank + LLM instruction-aware reranking | Constraint-aware reranking for price/brand/category |
 
 ## What You'll Learn
 
 - **Reranking Basics** - How reranking improves search quality
-- **FlashRank Integration** - Fast, efficient reranking models
+- **FlashRank Integration** - Fast, efficient cross-encoder models
+- **Instruction-Aware Reranking** - LLM-based constraint prioritization
 - **Performance Trade-offs** - Balance between quality and latency
 - **Configuration Patterns** - Setting up reranking pipelines
 
@@ -139,6 +141,49 @@ Query → [Vector Search + Keyword Search] → Merge → Rerank (top 5) → Agen
 - Best of both retrieval methods
 - Reranking unifies the results
 - Excellent for diverse queries
+
+### Pattern 4: FlashRank + Instruction-Aware (NEW)
+```
+Query → Vector Search (top 50) → FlashRank (top 20) → Instruction-Aware LLM (top 10) → Agent
+```
+- FlashRank for semantic relevance (~10ms)
+- LLM for constraint prioritization (~100ms)
+- Best for queries with explicit constraints (price, brand, category)
+
+## Instruction-Aware Reranking
+
+### Overview
+Instruction-aware reranking adds an LLM stage after FlashRank to consider user constraints:
+
+```yaml
+rerank:
+  model: ms-marco-MiniLM-L-12-v2
+  top_n: 20                          # FlashRank outputs 20 candidates
+  instruction_aware:
+    enabled: true
+    model: *fast_llm                 # Use small model for speed
+    instructions: |
+      Prioritize results matching price and brand constraints.
+    top_n: 10                        # Final count after instruction reranking
+```
+
+### When to Use
+- Queries with explicit price constraints ("under $100")
+- Brand preferences ("Milwaukee", "not DeWalt")
+- Category requirements ("power tools")
+- When FlashRank alone misses nuanced user intent
+
+### Performance Tips
+- Use fast LLMs: GPT-3.5-Turbo, Claude 3 Haiku, Llama 3 8B (~100ms)
+- Large models add significant latency (~500ms+)
+- Set FlashRank `top_n` higher than instruction-aware `top_n` (e.g., 20 → 10)
+
+### Latency Comparison
+
+| Configuration | Latency | Use Case |
+|--------------|---------|----------|
+| FlashRank only | ~110ms | General queries |
+| FlashRank + Instruction-Aware | ~210ms | Constrained queries |
 
 ## Best Practices
 

@@ -3,13 +3,14 @@ Vector search tool for retrieving documents from Databricks Vector Search.
 
 This module provides a tool factory for creating semantic search tools
 with dynamic filter schemas based on table columns, FlashRank reranking support,
-and instructed retrieval with query decomposition and RRF merging.
+instructed retrieval with query decomposition and RRF merging, and optional
+query routing, result verification, and instruction-aware reranking.
 """
 
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 import mlflow
 from databricks.sdk import WorkspaceClient
@@ -27,17 +28,23 @@ from dao_ai.config import (
     InstructedRetrieverModel,
     RerankParametersModel,
     RetrieverModel,
+    RouterModel,
     SearchParametersModel,
     SearchQuery,
+    VerificationResult,
+    VerifierModel,
     VectorStoreModel,
     value_of,
 )
 from dao_ai.state import Context
+from dao_ai.tools.instruction_reranker import instruction_aware_rerank
 from dao_ai.tools.instructed_retriever import (
     _get_cached_llm,
     decompose_query,
     rrf_merge,
 )
+from dao_ai.tools.router import route_query
+from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import normalize_host
 
 # Create FilterItem model at module level so it can be used in type hints
@@ -244,8 +251,10 @@ def create_vector_search_tool(
     index_name: str = vector_store.index.full_name
     columns: list[str] = list(retriever.columns or [])
     search_parameters: SearchParametersModel = retriever.search_parameters
+    router_config: Optional[RouterModel] = retriever.router
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
     instructed_config: Optional[InstructedRetrieverModel] = retriever.instructed
+    verifier_config: Optional[VerifierModel] = retriever.verifier
 
     # Initialize FlashRank ranker if configured
     ranker: Optional[Ranker] = None
@@ -358,6 +367,7 @@ def create_vector_search_tool(
         vs: DatabricksVectorSearch,
         query: str,
         base_filters: dict[str, Any],
+        previous_feedback: str | None = None,
     ) -> list[Document]:
         """Execute instructed retrieval with query decomposition and RRF merging."""
         try:
@@ -370,6 +380,7 @@ def create_vector_search_tool(
                 constraints=instructed_config.constraints,
                 max_subqueries=instructed_config.max_subqueries,
                 examples=instructed_config.examples,
+                previous_feedback=previous_feedback,
             )
 
             if not subqueries:
@@ -430,8 +441,95 @@ def create_vector_search_tool(
                 query_type=search_parameters.query_type or "ANN",
             )
 
+    def _execute_standard_search(
+        vs: DatabricksVectorSearch,
+        query: str,
+        base_filters: dict[str, Any],
+    ) -> list[Document]:
+        """Execute standard single-query search."""
+        logger.trace("Performing standard vector search", query_preview=query[:50])
+        return vs.similarity_search(
+            query=query,
+            k=search_parameters.num_results or 5,
+            filter=base_filters if base_filters else None,
+            query_type=search_parameters.query_type or "ANN",
+        )
+
+    def _apply_post_processing(
+        documents: list[Document],
+        query: str,
+        mode: Literal["standard", "instructed"],
+        auto_bypass: bool,
+    ) -> list[Document]:
+        """Apply instruction-aware reranking and verification based on mode and bypass settings."""
+        # Skip post-processing for standard mode when auto_bypass is enabled
+        if mode == "standard" and auto_bypass:
+            mlflow.set_tag("router.bypassed_stages", "true")
+            return documents
+
+        # Apply instruction-aware reranking if configured
+        if rerank_config and rerank_config.instruction_aware and rerank_config.instruction_aware.enabled:
+            instruction_config = rerank_config.instruction_aware
+            instruction_llm = _get_cached_llm(instruction_config.model) if instruction_config.model else None
+
+            if instruction_llm:
+                schema_desc = instructed_config.schema_description if instructed_config else None
+                documents = instruction_aware_rerank(
+                    llm=instruction_llm,
+                    query=query,
+                    documents=documents,
+                    instructions=instruction_config.instructions,
+                    schema_description=schema_desc,
+                    top_n=instruction_config.top_n,
+                )
+
+        # Apply verification if configured
+        if verifier_config and verifier_config.enabled:
+            verifier_llm = _get_cached_llm(verifier_config.model) if verifier_config.model else None
+
+            if verifier_llm:
+                schema_desc = instructed_config.schema_description if instructed_config else ""
+                constraints = instructed_config.constraints if instructed_config else None
+                retry_count = 0
+                verification_result: VerificationResult | None = None
+                previous_feedback: str | None = None
+
+                while retry_count <= verifier_config.max_retries:
+                    verification_result = verify_results(
+                        llm=verifier_llm,
+                        query=query,
+                        documents=documents,
+                        schema_description=schema_desc,
+                        constraints=constraints,
+                        previous_feedback=previous_feedback,
+                    )
+
+                    if verification_result.passed:
+                        mlflow.set_tag("verifier.outcome", "passed")
+                        mlflow.set_tag("verifier.retries", str(retry_count))
+                        break
+
+                    # Handle failure based on configuration
+                    if verifier_config.on_failure == "warn":
+                        mlflow.set_tag("verifier.outcome", "warned")
+                        documents = add_verification_metadata(documents, verification_result)
+                        break
+
+                    if retry_count >= verifier_config.max_retries:
+                        mlflow.set_tag("verifier.outcome", "exhausted")
+                        mlflow.set_tag("verifier.retries", str(retry_count))
+                        documents = add_verification_metadata(documents, verification_result, exhausted=True)
+                        break
+
+                    # Retry with feedback
+                    mlflow.set_tag("verifier.outcome", "retried")
+                    previous_feedback = verification_result.feedback
+                    retry_count += 1
+                    logger.debug("Retrying search with verification feedback", retry=retry_count)
+
+        return documents
+
     # Use @tool decorator for proper ToolRuntime injection
-    # The decorator ensures runtime is automatically injected and hidden from the LLM
     @tool(name_or_callable=tool_name, description=tool_description)
     def vector_search_func(
         query: Annotated[str, "The search query to find relevant documents"],
@@ -442,12 +540,9 @@ def create_vector_search_tool(
         runtime: ToolRuntime[Context] = None,
     ) -> str:
         """Search for relevant documents using vector similarity."""
-        # Get context for OBO support
         context: Context | None = runtime.context if runtime else None
-        # Get vector search instance with OBO support
         vs: DatabricksVectorSearch = _get_vector_search(context)
 
-        # Convert FilterItem Pydantic models to dict format for DatabricksVectorSearch
         filters_dict: dict[str, Any] = {}
         if filters:
             for item in filters:
@@ -458,36 +553,54 @@ def create_vector_search_tool(
             **(search_parameters.filters or {}),
         }
 
-        if instructed_config and instructed_config.enabled:
-            documents = _execute_instructed_retrieval(
-                vs=vs,
-                query=query,
-                base_filters=base_filters,
-            )
+        # Determine execution mode via router or config
+        mode: Literal["standard", "instructed"] = "standard"
+        auto_bypass = True
+
+        if router_config and router_config.enabled:
+            router_llm = _get_cached_llm(router_config.model) if router_config.model else None
+            auto_bypass = router_config.auto_bypass
+
+            if router_llm and instructed_config:
+                try:
+                    mode = route_query(
+                        llm=router_llm,
+                        query=query,
+                        schema_description=instructed_config.schema_description,
+                    )
+                except Exception as e:
+                    # Router fail-safe: default to standard mode
+                    logger.warning("Router failed, defaulting to standard mode", error=str(e))
+                    mlflow.set_tag("router.fallback", "true")
+                    mode = router_config.default_mode
+            else:
+                mode = router_config.default_mode
+        elif instructed_config and instructed_config.enabled:
+            # No router but instructed is enabled - use instructed mode
+            mode = "instructed"
+            auto_bypass = False
+
+        mlflow.set_tag("router.mode", mode)
+
+        # Execute search based on mode
+        if mode == "instructed" and instructed_config and instructed_config.enabled:
+            documents = _execute_instructed_retrieval(vs, query, base_filters)
         else:
-            logger.trace("Performing vector search", query_preview=query[:50])
-            documents = vs.similarity_search(
-                query=query,
-                k=search_parameters.num_results or 5,
-                filter=base_filters if base_filters else None,
-                query_type=search_parameters.query_type or "ANN",
-            )
+            documents = _execute_standard_search(vs, query, base_filters)
 
         # Apply FlashRank reranking if configured
         if ranker and rerank_config:
             logger.debug("Applying FlashRank reranking")
             documents = _rerank_documents(query, documents, ranker, rerank_config)
 
+        # Apply post-processing (instruction reranking + verification)
+        documents = _apply_post_processing(documents, query, mode, auto_bypass)
+
         # Serialize documents to JSON format for LLM consumption
-        # Convert Document objects to dicts with page_content and metadata
-        # Need to handle numpy types in metadata (e.g., float32, int64)
         serialized_docs: list[dict[str, Any]] = []
         for doc in documents:
-            doc: Document
-            # Convert metadata values to JSON-serializable types
             metadata_serializable: dict[str, Any] = {}
             for key, value in doc.metadata.items():
-                # Handle numpy types
                 if hasattr(value, "item"):  # numpy scalar
                     metadata_serializable[key] = value.item()
                 else:
@@ -500,7 +613,6 @@ def create_vector_search_tool(
                 }
             )
 
-        # Return as JSON string
         return json.dumps(serialized_docs)
 
     logger.success("Vector search tool created", name=tool_name, index=index_name)

@@ -6,7 +6,6 @@ subqueries with metadata filters and merging results using Reciprocal Rank Fusio
 """
 
 import json
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -79,6 +78,7 @@ def decompose_query(
     constraints: list[str] | None = None,
     max_subqueries: int = 3,
     examples: list[dict[str, Any]] | None = None,
+    previous_feedback: str | None = None,
 ) -> list[SearchQuery]:
     """
     Decompose a user query into multiple search queries with filters.
@@ -93,6 +93,7 @@ def decompose_query(
         constraints: Default constraints to apply
         max_subqueries: Maximum number of subqueries to generate
         examples: Few-shot examples for domain-specific filter translation
+        previous_feedback: Feedback from failed verification (for retry)
 
     Returns:
         List of SearchQuery objects with text and optional filters
@@ -103,6 +104,11 @@ def decompose_query(
     prompt_config = _load_prompt_template()
     prompt_template = prompt_config["template"]
 
+    # Add previous feedback section if provided (for retry)
+    feedback_section = ""
+    if previous_feedback:
+        feedback_section = f"\n\n## Previous Attempt Feedback\nThe previous search attempt failed verification: {previous_feedback}\nAdjust your filters to address this feedback."
+
     prompt = prompt_template.format(
         current_time=current_time,
         schema_description=schema_description,
@@ -110,7 +116,7 @@ def decompose_query(
         examples=_format_examples(examples),
         max_subqueries=max_subqueries,
         query=query,
-    )
+    ) + feedback_section
 
     logger.trace("Decomposing query", query=query[:100], max_subqueries=max_subqueries)
 

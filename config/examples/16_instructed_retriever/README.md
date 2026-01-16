@@ -8,7 +8,8 @@ Instructed Retriever extends traditional RAG by carrying system specifications t
 
 | File | Description | Use Case |
 |------|-------------|----------|
-| `instructed_retriever.yaml` | Full instructed retrieval with RRF merging | Complex queries with metadata constraints |
+| `instructed_retriever.yaml` | Instructed retrieval with RRF merging | Complex queries with metadata constraints |
+| `full_pipeline.yaml` | Complete pipeline with Router + Verifier | Production-ready with auto-routing and verification |
 
 ## What You'll Learn
 
@@ -16,6 +17,8 @@ Instructed Retriever extends traditional RAG by carrying system specifications t
 - **Metadata Reasoning** - Auto-translate constraints to filters ("last month" → timestamp filter)
 - **RRF Merging** - Combine results from multiple queries using Reciprocal Rank Fusion
 - **Constraint Following** - Enforce recency, exclusions, and other user instructions
+- **Query Routing** - Automatically route simple vs complex queries
+- **Result Verification** - Validate results meet user constraints with intelligent retry
 
 ## Quick Start
 
@@ -162,6 +165,58 @@ User Query
 ## Fallback Behavior
 
 If decomposition fails (LLM error, parsing error), the system automatically falls back to standard single-query search. This ensures robustness in production.
+
+## Full Pipeline (Router + Verifier)
+
+The `full_pipeline.yaml` example demonstrates all components working together:
+
+### Components
+
+| Component | Purpose | Latency |
+|-----------|---------|---------|
+| **Router** | Select execution mode (standard vs instructed) | ~50-100ms |
+| **Decomposition** | Break query into subqueries with filters | ~100ms |
+| **Verifier** | Validate results and retry with feedback | ~100ms |
+| **Instruction Reranker** | Constraint-aware final reranking | ~100ms |
+
+### Auto-Bypass Behavior
+
+When Router selects "standard" mode and `auto_bypass: true` (default):
+- Instruction Reranker is skipped
+- Verifier is skipped
+- Simple queries stay fast (~150ms)
+
+### Verification with Retry
+
+The Verifier returns structured feedback for intelligent retry:
+
+```python
+VerificationResult(
+    passed=False,
+    confidence=0.6,
+    feedback="Results are all blue shoes, user wanted red",
+    suggested_filter_relaxation={"color": "REMOVE"},
+    unmet_constraints=["color preference"]
+)
+```
+
+On retry, this feedback is passed to decomposition to adjust filters.
+
+### Observability Tags
+
+MLflow tags for debugging:
+- `router.mode`: "standard" or "instructed"
+- `router.fallback`: "true" if Router LLM failed
+- `router.bypassed_stages`: "true" if auto_bypass triggered
+- `verifier.outcome`: "passed", "warned", "retried", "exhausted"
+- `verifier.retries`: number of retry attempts
+- `reranker.instruction_avg_score`: average score of returned results
+
+### Quick Start
+
+```bash
+dao-ai chat -c config/examples/16_instructed_retriever/full_pipeline.yaml
+```
 
 ## Next Steps
 

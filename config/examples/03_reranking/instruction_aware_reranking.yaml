@@ -1,0 +1,214 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# INSTRUCTION-AWARE RERANKING EXAMPLE
+# ==============================================================================
+# Demonstrates LLM-based reranking that considers user instructions and
+# constraints, running AFTER FlashRank for constraint-aware result ordering.
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: store_ops
+
+resources:
+  llms:
+    # Primary LLM for agent reasoning
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 8192
+
+    # Fast LLM for instruction-aware reranking (minimize latency)
+    # Use small models: GPT-3.5, Haiku, Llama 3 8B (~100ms vs 500ms+ for large models)
+    reranker_llm: &reranker_llm
+      name: databricks-meta-llama-3-1-8b-instruct
+      temperature: 0.0
+      max_tokens: 512
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: one-env-shared-endpoint-0
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: retail_vectorstore
+      source_table:
+        schema: *retail_schema
+        name: products
+      primary_key: item_id
+      doc_uri: ~
+      embedding_source_column: item_description
+      columns:
+        - item_id
+        - item_name
+        - item_description
+        - category
+        - price
+        - brand
+
+retrievers:
+  # FlashRank only (baseline)
+  flashrank_only_retriever: &flashrank_only_retriever
+    vector_store: *products_vector_store
+    columns:
+      - item_id
+      - item_name
+      - item_description
+      - category
+      - price
+      - brand
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2
+      top_n: 10
+
+  # FlashRank + Instruction-Aware Reranking
+  instruction_aware_retriever: &instruction_aware_retriever
+    vector_store: *products_vector_store
+    columns:
+      - item_id
+      - item_name
+      - item_description
+      - category
+      - price
+      - brand
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2
+      top_n: 20                                  # FlashRank returns 20 candidates
+      instruction_aware:
+        enabled: true
+        model: *reranker_llm
+        instructions: |
+          Prioritize results that match explicit user constraints:
+          - Price constraints: "under $100" → prefer lower-priced items
+          - Brand preferences: "Milwaukee" → boost Milwaukee products
+          - Category filters: "power tools" → prefer power tool category
+          - Recency: "recent" or "new" → prefer recently updated items
+          When constraints conflict, explicit mentions take priority.
+        top_n: 10                                # Final count after instruction reranking
+
+tools:
+  # Tool with FlashRank only
+  flashrank_search_tool: &flashrank_search_tool
+    name: flashrank_product_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *flashrank_only_retriever
+        name: flashrank_product_search
+        description: |
+          Search for products with FlashRank semantic reranking.
+          Good for general queries without specific constraints.
+
+  # Tool with FlashRank + Instruction-Aware Reranking
+  instruction_aware_search_tool: &instruction_aware_search_tool
+    name: instruction_aware_product_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *instruction_aware_retriever
+        name: instruction_aware_product_search
+        description: |
+          Search for products with constraint-aware reranking.
+          Best for queries with explicit constraints:
+          - Price limits ("under $100", "between $50-200")
+          - Brand preferences ("Milwaukee", "not DeWalt")
+          - Category filters ("power tools", "paint")
+          Results are reranked to prioritize constraint matches.
+
+agents:
+  # Agent using FlashRank only
+  flashrank_search_agent: &flashrank_search_agent
+    name: flashrank_search
+    description: "Product search with FlashRank semantic reranking"
+    model: *default_llm
+    tools:
+      - *flashrank_search_tool
+    prompt: |
+      You are a product search assistant with semantic reranking.
+      Use the flashrank_product_search tool for general queries.
+    handoff_prompt: |
+      General product searches without specific constraints
+
+  # Agent using instruction-aware reranking
+  instruction_aware_search_agent: &instruction_aware_search_agent
+    name: instruction_aware_search
+    description: "Product search with constraint-aware reranking"
+    model: *default_llm
+    tools:
+      - *instruction_aware_search_tool
+    prompt: |
+      You are a product search assistant with constraint-aware reranking.
+      Use the instruction_aware_product_search tool for queries with:
+      - Price constraints
+      - Brand preferences
+      - Category requirements
+      Results are automatically reranked to prioritize constraint matches.
+    handoff_prompt: |
+      Product searches with price, brand, or category constraints
+
+app:
+  name: instruction_aware_reranking_demo
+  description: "Demonstrates instruction-aware reranking on top of FlashRank"
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: instruction_aware_reranking_demo
+  endpoint_name: instruction_reranking_agent
+  tags:
+    demo: instruction_aware_reranking
+    feature: reranking
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
+  agents:
+    - *flashrank_search_agent
+    - *instruction_aware_search_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    input:
+      - role: user
+        content: Find me power tools under $150 from Milwaukee
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+      session: {}
+
+# ==============================================================================
+# INSTRUCTION-AWARE RERANKING EXPLAINED
+# ==============================================================================
+#
+# Reranking Pipeline:
+# 1. Vector Search (HYBRID) → 50 candidates
+# 2. FlashRank (semantic) → 20 candidates (~10ms)
+# 3. Instruction-Aware (constraint) → 10 final results (~100ms)
+#
+# When to Use:
+# - Queries with explicit price, brand, or category constraints
+# - When FlashRank alone misses user intent nuances
+# - Complex queries requiring constraint prioritization
+#
+# Configuration Tips:
+# - Use small/fast LLM for instruction reranking (GPT-3.5, Haiku, Llama 3 8B)
+# - Set FlashRank top_n higher than instruction_aware top_n (e.g., 20 → 10)
+# - Custom instructions can be tailored to your domain
+#
+# Latency Profile:
+# - FlashRank only: ~110ms (100ms search + 10ms rerank)
+# - With instruction-aware: ~210ms (100ms search + 10ms FlashRank + 100ms LLM)
