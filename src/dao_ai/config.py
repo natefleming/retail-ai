@@ -373,15 +373,19 @@ class IsDatabricksResource(ABC, BaseModel):
         """
         from dao_ai.utils import normalize_host
 
-        logger.trace(f"workspace_client_from called", context=context, on_behalf_of_user=self.on_behalf_of_user)
+        logger.trace(
+            "workspace_client_from called",
+            context=context,
+            on_behalf_of_user=self.on_behalf_of_user,
+        )
 
         # Check if we have headers in context for OBO
         if context and context.headers and self.on_behalf_of_user:
             headers = context.headers
             # Try both lowercase and title-case header names (HTTP headers are case-insensitive)
-            forwarded_token: str = headers.get("x-forwarded-access-token") or headers.get(
-                "X-Forwarded-Access-Token"
-            )
+            forwarded_token: str = headers.get(
+                "x-forwarded-access-token"
+            ) or headers.get("X-Forwarded-Access-Token")
 
             if forwarded_token:
                 forwarded_user = headers.get("x-forwarded-user") or headers.get(
@@ -2091,9 +2095,47 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             return f"{workspace_host}/api/2.0/mcp/sql"
 
         # Databricks App - MCP endpoint is at {app_url}/mcp
+        # Try McpFunctionModel's workspace_client first (which may have credentials),
+        # then fall back to DatabricksAppModel.url property (which uses its own workspace_client)
         if self.app:
-            app_url = self.app.url.rstrip("/")
-            return f"{app_url}/mcp"
+            from databricks.sdk.service.apps import App
+
+            app_url: str | None = None
+
+            # First, try using McpFunctionModel's workspace_client
+            try:
+                app: App = self.workspace_client.apps.get(self.app.name)
+                app_url = app.url
+                logger.trace(
+                    "Got app URL using McpFunctionModel workspace_client",
+                    app_name=self.app.name,
+                    url=app_url,
+                )
+            except Exception as e:
+                logger.debug(
+                    "Failed to get app URL using McpFunctionModel workspace_client, "
+                    "trying DatabricksAppModel.url property",
+                    app_name=self.app.name,
+                    error=str(e),
+                )
+
+            # Fall back to DatabricksAppModel.url property
+            if not app_url:
+                try:
+                    app_url = self.app.url
+                    logger.trace(
+                        "Got app URL using DatabricksAppModel.url property",
+                        app_name=self.app.name,
+                        url=app_url,
+                    )
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Databricks App '{self.app.name}' does not have a URL. "
+                        "The app may not be deployed yet, or credentials may be invalid. "
+                        f"Error: {e}"
+                    ) from e
+
+            return f"{app_url.rstrip('/')}/mcp"
 
         # Vector Search
         if self.vector_search:

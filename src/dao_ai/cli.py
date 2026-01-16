@@ -64,6 +64,7 @@ def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
     """
     try:
         import os
+
         from databricks.sdk import WorkspaceClient
 
         # Check for environment variables that might override profile
@@ -1208,7 +1209,9 @@ def run_databricks_command(
             f"Using CLI-specified deployment target: {resolved_deployment_target}"
         )
     elif app_config and app_config.app and app_config.app.deployment_target:
-        resolved_deployment_target = app_config.app.deployment_target.value
+        # deployment_target is DeploymentTarget enum (str subclass) or string
+        # str() works for both since DeploymentTarget inherits from str
+        resolved_deployment_target = str(app_config.app.deployment_target)
         logger.debug(
             f"Using config file deployment target: {resolved_deployment_target}"
         )

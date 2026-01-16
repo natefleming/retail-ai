@@ -144,31 +144,42 @@ def _should_include_tool(
     return True
 
 
+def _has_auth_configured(resource: IsDatabricksResource) -> bool:
+    """Check if a resource has explicit authentication configured."""
+    return bool(
+        resource.on_behalf_of_user
+        or resource.service_principal
+        or resource.client_id
+        or resource.pat
+    )
+
+
 def _get_auth_resource(function: McpFunctionModel) -> IsDatabricksResource:
     """
     Get the IsDatabricksResource to use for authentication.
 
     Follows a priority hierarchy:
-    1. Explicit resource with auth (app, connection, genie_room, vector_search, functions)
+    1. Nested resource with explicit auth (app, connection, genie_room, vector_search)
     2. McpFunctionModel itself (which also inherits from IsDatabricksResource)
+
+    Only uses a nested resource if it has authentication configured.
+    Otherwise falls back to McpFunctionModel which may have credentials set at the tool level.
 
     Returns the resource whose workspace_client should be used for authentication.
     """
-    # Check each possible resource source in priority order
-    # These resources may have their own auth configured
-    if function.app:
+    # Check each possible resource source - only use if it has auth configured
+    if function.app and _has_auth_configured(function.app):
         return function.app
-    if function.connection:
+    if function.connection and _has_auth_configured(function.connection):
         return function.connection
-    if function.genie_room:
+    if function.genie_room and _has_auth_configured(function.genie_room):
         return function.genie_room
-    if function.vector_search:
+    if function.vector_search and _has_auth_configured(function.vector_search):
         return function.vector_search
-    if function.functions:
-        # SchemaModel doesn't have auth - fall through to McpFunctionModel
-        pass
+    # SchemaModel (functions) doesn't have auth - always fall through
 
     # Fall back to McpFunctionModel itself (it inherits from IsDatabricksResource)
+    # This allows credentials to be set at the tool level
     return function
 
 
