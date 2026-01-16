@@ -2650,7 +2650,6 @@ class SupervisorModel(BaseModel):
 
 class SwarmModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: LLMModel
     default_agent: Optional[AgentModel | str] = None
     middleware: list[MiddlewareModel] = Field(
         default_factory=list,
@@ -2940,9 +2939,7 @@ class AppModel(BaseModel):
             elif len(self.agents) == 1:
                 default_agent: AgentModel = self.agents[0]
                 self.orchestration = OrchestrationModel(
-                    swarm=SwarmModel(
-                        model=default_agent.model, default_agent=default_agent
-                    )
+                    swarm=SwarmModel(default_agent=default_agent)
                 )
             else:
                 raise ValueError("At least one agent must be specified")

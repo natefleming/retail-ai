@@ -747,7 +747,9 @@ class TestBuildConnectionConfigUnifiedAuth:
         mock_ws = Mock()
 
         # Genie room must have auth configured to take priority
-        genie_room = GenieRoomModel(name="test-genie", space_id="space_123", on_behalf_of_user=True)
+        genie_room = GenieRoomModel(
+            name="test-genie", space_id="space_123", on_behalf_of_user=True
+        )
 
         # Mock the workspace_client property
         with patch.object(
@@ -770,7 +772,9 @@ class TestBuildConnectionConfigUnifiedAuth:
 
     @patch("dao_ai.providers.databricks.VectorSearchClient")
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
-    def test_vector_search_uses_own_workspace_client(self, mock_provider_class, mock_vsc_class):
+    def test_vector_search_uses_own_workspace_client(
+        self, mock_provider_class, mock_vsc_class
+    ):
         """Test that vector_search source uses its own workspace_client for auth when auth is configured."""
         from unittest.mock import PropertyMock
 

@@ -309,8 +309,7 @@ app:
     - *functions_agent                    # Functions agent
   orchestration:                          # Agent orchestration configuration
     swarm:                                # Supervisor orchestration pattern
-      model: *default_llm                 # LLM for routing decisions
-      # Agents will be automatically routed based on their capabilities
+      default_agent: *general_agent       # Default agent for routing
 
 # =============================================================================
 # USAGE NOTES

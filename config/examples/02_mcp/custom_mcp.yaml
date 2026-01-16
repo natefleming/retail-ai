@@ -55,4 +55,4 @@ app:
     - *jira_agent                                 # MCP agent
   orchestration:                                 # Agent orchestration configuration
     swarm:                                       # Supervisor orchestration pattern
-      model: *default_llm                        # LLM for routing decisions
+      default_agent: *jira_agent                 # Default agent for routing

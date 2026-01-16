@@ -105,11 +105,13 @@ app:
     - inventory_agent # Can transfer to product or comparison
     - comparison_agent # Can transfer back to product or inventory
 
-tools:
-  transfer_to_inventory:
-    function: dao_ai.tools.agent.create_handoff_tool
-    args:
-      agent_name: inventory_agent
+  orchestration:
+    swarm:
+      default_agent: product_agent    # Starting agent for new conversations
+      handoffs:
+        product_agent: [inventory_agent, comparison_agent]
+        inventory_agent: [product_agent]
+        comparison_agent: [product_agent, inventory_agent]
 ```
 
 See [`swarm_pattern.yaml`](./swarm_pattern.yaml) for a complete working example.

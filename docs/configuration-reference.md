@@ -152,7 +152,6 @@ app:
       model: *model_name
       prompt: string
     swarm:
-      model: *model_name
       default_agent: *agent_name
       handoffs:
         agent_a: [agent_b, agent_c]

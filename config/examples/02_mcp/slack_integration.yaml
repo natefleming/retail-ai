@@ -65,5 +65,5 @@ app:
     - *slack_agent                                  # Slack notification agent
   orchestration:                                    # Agent orchestration configuration
     swarm:                                          # Swarm orchestration pattern
-      model: *default_llm                           # LLM for routing decisions
+      default_agent: *slack_agent                   # Default agent for routing
 

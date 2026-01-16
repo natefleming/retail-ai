@@ -709,10 +709,6 @@ app:
     # - If no specific handoffs defined, agent can hand off to any agent
     # ========================================================================
     swarm:
-      # LLM used for swarm coordination and agent decision-making
-      # This model powers the underlying swarm orchestration logic
-      model: *tool_calling_llm
-      
       # Starting agent for new conversations - acts as the entry point
       # Users initially interact with this agent before potential handoffs
       default_agent: *general

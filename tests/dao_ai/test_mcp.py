@@ -272,7 +272,8 @@ def test_mcp_function_with_databricks_app():
 
         # Verify the mcp_url property returns the app's URL with /mcp suffix
         assert (
-            mcp_function_model.mcp_url == "https://my-mcp-server.cloud.databricks.com/mcp"
+            mcp_function_model.mcp_url
+            == "https://my-mcp-server.cloud.databricks.com/mcp"
         )
 
         # Verify the workspace client was called correctly

@@ -132,7 +132,7 @@ app:
   orchestration:                                    # Agent orchestration configuration
     memory: *memory                            # Memory store for conversation context
     swarm:                                     # Supervisor orchestration pattern
-      model: *default_llm                      # LLM for routing decisions
+      default_agent: *genie                    # Default agent for routing
 
 
 

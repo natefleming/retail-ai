@@ -165,7 +165,7 @@ app:
   
   orchestration:
     swarm:
-      model: *default_llm
+      default_agent: *main_agent
 
     memory: *memory  # CRITICAL: Memory with checkpointer required for HITL
   

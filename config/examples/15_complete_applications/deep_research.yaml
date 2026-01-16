@@ -388,7 +388,6 @@ app:
     - *strategy_synthesizer                                     
   orchestration:                                  
     swarm:                                    
-      model: *default_llm
       default_agent: research_lead
       handoffs:
         research_lead:

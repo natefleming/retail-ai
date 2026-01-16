@@ -135,7 +135,7 @@ app:
   orchestration:
     memory: *memory
     swarm:
-      model: *default_llm
+      default_agent: *main_agent
 
   # ---------------------------------------------------------------------------
   # CHAT HISTORY / SUMMARIZATION CONFIGURATION

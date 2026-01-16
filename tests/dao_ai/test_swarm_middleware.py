@@ -30,7 +30,6 @@ class TestSwarmModelMiddlewareField:
     def test_swarm_model_accepts_empty_middleware(self) -> None:
         """Test that SwarmModel can be created with empty middleware list."""
         swarm = SwarmModel(
-            model=LLMModel(name="test-model"),
             default_agent="test_agent",
             middleware=[],
         )
@@ -47,7 +46,6 @@ class TestSwarmModelMiddlewareField:
         ]
 
         swarm = SwarmModel(
-            model=LLMModel(name="test-model"),
             default_agent="test_agent",
             middleware=middleware,
         )
@@ -59,7 +57,6 @@ class TestSwarmModelMiddlewareField:
     def test_swarm_model_middleware_defaults_to_empty_list(self) -> None:
         """Test that middleware field defaults to empty list."""
         swarm = SwarmModel(
-            model=LLMModel(name="test-model"),
             default_agent="test_agent",
         )
 
@@ -74,7 +71,6 @@ class TestSwarmModelMiddlewareField:
         ]
 
         swarm = SwarmModel(
-            model=LLMModel(name="test-model"),
             default_agent="test_agent",
             middleware=middleware,
         )
@@ -213,7 +209,6 @@ class TestSwarmMiddlewareInAppConfig:
                 ],
                 "orchestration": {
                     "swarm": {
-                        "model": {"name": "test-model"},
                         "default_agent": "agent1",
                         "middleware": [
                             {
@@ -251,7 +246,6 @@ class TestSwarmMiddlewareInAppConfig:
                 ],
                 "orchestration": {
                     "swarm": {
-                        "model": {"name": "test-model"},
                         "default_agent": "agent1",
                     }
                 },
@@ -312,7 +306,6 @@ class TestSwarmGraphWithMiddleware:
                 "agents": [agent1, agent2],
                 "orchestration": {
                     "swarm": {
-                        "model": {"name": "test-model"},
                         "default_agent": "agent1",
                         "middleware": swarm_middleware,
                     }
@@ -380,7 +373,6 @@ class TestSwarmMiddlewareYAMLConfig:
                 ],
                 "orchestration": {
                     "swarm": {
-                        "model": {"name": "test-model"},
                         "default_agent": "agent1",
                         "middleware": [
                             {

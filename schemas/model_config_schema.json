@@ -4005,9 +4005,6 @@
     "SwarmModel": {
       "additionalProperties": false,
       "properties": {
-        "model": {
-          "$ref": "#/$defs/LLMModel"
-        },
         "default_agent": {
           "anyOf": [
             {
@@ -4063,9 +4060,6 @@
           "title": "Handoffs"
         }
       },
-      "required": [
-        "model"
-      ],
       "title": "SwarmModel",
       "type": "object"
     },

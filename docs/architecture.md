@@ -245,7 +245,6 @@ No central supervisor needed — agents decide collaboratively.
 ```yaml
 orchestration:
   swarm:
-    model: *default_llm
     default_agent: *general_agent    # Where to start
     handoffs:
       product_agent: [orders_agent, diy_agent]  # Product agent can hand off to these

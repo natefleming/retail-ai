@@ -355,7 +355,7 @@ app:
     - *barista  
   orchestration:                                    # Agent orchestration configuration
     swarm:                                     # Supervisor orchestration pattern
-      model: *tool_calling_llm                      # LLM for routing decisions
+      default_agent: *barista                       # Default agent for routing
     memory: *memory                            # Memory store for conversation context
   input_example:
       messages:

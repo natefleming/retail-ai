@@ -156,7 +156,7 @@ app:
     - *assistant
   orchestration:
     swarm:
-      model: *default_llm
+      default_agent: *assistant
 ```
 
 **💡 What's happening here?**
