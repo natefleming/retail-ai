@@ -2,32 +2,227 @@
 
 **Improve search result relevance with semantic and instruction-aware reranking**
 
-Reranking refines search results by using advanced models to reorder results based on semantic similarity to the query, dramatically improving result quality without changing the initial retrieval.
+Improve search quality by reranking initial results using a cross-encoder or LLM-based reranker.
+
+## Architecture Overview
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0'}}}%%
+flowchart TB
+    subgraph Query["📝 User Query"]
+        Q["Best cordless drill for DIY projects"]
+    end
+
+    subgraph Stage1["🔍 Stage 1: Initial Retrieval"]
+        VS["Vector Search<br/>━━━━━━━━━━━━━━━━<br/>Fast embedding lookup<br/>Top 100 candidates"]
+        Results1["📋 100 Results<br/><i>Broad recall</i>"]
+    end
+
+    subgraph Stage2["🎯 Stage 2: Reranking"]
+        Reranker["Cross-Encoder Reranker<br/>━━━━━━━━━━━━━━━━<br/>Score each (query, doc) pair<br/>Semantic similarity"]
+        Results2["📋 Top 10 Results<br/><i>Precise ranking</i>"]
+    end
+
+    subgraph Response["📤 Final Response"]
+        Best["🥇 Best matches"]
+    end
+
+    Q --> VS
+    VS --> Results1
+    Results1 --> Reranker
+    Reranker --> Results2
+    Results2 --> Best
+
+    style Stage1 fill:#e3f2fd,stroke:#1565c0
+    style Stage2 fill:#e8f5e9,stroke:#2e7d32
+```
 
 ## Examples
 
 | File | Description | Use Case |
 |------|-------------|----------|
-| `vector_search_with_reranking.yaml` | Vector search + FlashRank reranking | High-quality semantic search with minimal latency |
-| `instruction_aware_reranking.yaml` | FlashRank + LLM instruction-aware reranking | Constraint-aware reranking for price/brand/category |
+| [`vector_search_with_reranking.yaml`](./vector_search_with_reranking.yaml) | Vector search + FlashRank reranking | High-quality semantic search with minimal latency |
+| [`instruction_aware_reranking.yaml`](./instruction_aware_reranking.yaml) | FlashRank + LLM instruction-aware reranking | Constraint-aware reranking for price/brand/category |
 
-## What You'll Learn
+## Why Reranking?
 
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Problem["❌ Without Reranking"]
+        P1["Vector search is fast but imprecise"]
+        P2["Embeddings miss nuance"]
+        P3["Good recall, poor precision"]
+    end
+    
+    subgraph Solution["✅ With Reranking"]
+        S1["Cross-encoder sees query + doc together"]
+        S2["Captures semantic nuance"]
+        S3["Good recall AND precision"]
+    end
+
+    style Problem fill:#ffebee,stroke:#c62828
+    style Solution fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Key Topics:**
 - **Reranking Basics** - How reranking improves search quality
 - **FlashRank Integration** - Fast, efficient cross-encoder models
 - **Instruction-Aware Reranking** - LLM-based constraint prioritization
 - **Performance Trade-offs** - Balance between quality and latency
 - **Configuration Patterns** - Setting up reranking pipelines
 
+## Two-Stage Process
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant 👤 as User
+    participant 🔍 as Vector Search
+    participant 🎯 as Reranker
+    participant 🤖 as Agent
+
+    👤->>🔍: "Best drill for DIY"
+    🔍->>🔍: Embed query
+    🔍->>🔍: Find top 100 by cosine similarity
+    🔍-->>🎯: 100 candidates
+    
+    loop For each candidate
+        🎯->>🎯: Score (query, document) pair
+    end
+    
+    🎯->>🎯: Sort by relevance score
+    🎯-->>🤖: Top 10 most relevant
+    🤖-->>👤: The best drill for DIY is...
+```
+
+## Configuration
+
+```yaml
+resources:
+  vector_stores:
+    products_store: &products_store
+      catalog_name: retail_consumer_goods
+      schema_name: hardware_store
+      index_name: products_vs_index
+      columns:
+        - product_name
+        - description
+        - category
+
+  rerankers:
+    product_reranker: &product_reranker
+      type: cross_encoder           # or 'llm' for LLM-based
+      model: databricks-gte-large-en
+      top_k: 10                      # Final results count
+
+tools:
+  search_tool: &search_tool
+    name: search_products
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        vector_store: *products_store
+        reranker: *product_reranker   # ← Add reranking
+        num_results: 100              # ← Initial retrieval count
+```
+
+## Reranker Types
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Types["🎯 Reranker Types"]
+        subgraph CrossEncoder["🔀 Cross-Encoder"]
+            CE1["<b>type: cross_encoder</b>"]
+            CE2["• Fast (batch processing)"]
+            CE3["• Purpose-built for ranking"]
+            CE4["• Lower cost"]
+        end
+        
+        subgraph LLM["🧠 LLM-Based"]
+            LLM1["<b>type: llm</b>"]
+            LLM2["• More nuanced"]
+            LLM3["• Can follow instructions"]
+            LLM4["• Higher cost"]
+        end
+    end
+
+    style CrossEncoder fill:#e3f2fd,stroke:#1565c0
+    style LLM fill:#e8f5e9,stroke:#2e7d32
+```
+
+### Cross-Encoder Configuration
+
+```yaml
+rerankers:
+  cross_encoder_reranker: &cross_encoder_reranker
+    type: cross_encoder
+    model: databricks-gte-large-en
+    top_k: 10
+```
+
+### LLM-Based Configuration
+
+```yaml
+rerankers:
+  llm_reranker: &llm_reranker
+    type: llm
+    model: *default_llm
+    top_k: 10
+    prompt: |
+      Rate the relevance of this document to the query.
+      Query: {query}
+      Document: {document}
+      Score (0-10):
+```
+
+## Performance Trade-offs
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph LR
+    subgraph Tradeoffs["⚖️ Performance Trade-offs"]
+        subgraph Fast["⚡ Faster"]
+            F1["Smaller num_results"]
+            F2["Lower top_k"]
+            F3["Cross-encoder model"]
+        end
+        
+        subgraph Quality["🎯 Higher Quality"]
+            Q1["Larger num_results"]
+            Q2["Higher top_k"]
+            Q3["LLM reranker"]
+        end
+    end
+
+    style Fast fill:#e3f2fd,stroke:#1565c0
+    style Quality fill:#e8f5e9,stroke:#2e7d32
+```
+
+| Setting | Trade-off |
+|---------|-----------|
+| `num_results: 50` | Faster, might miss relevant docs |
+| `num_results: 200` | Slower, better recall |
+| `top_k: 5` | Focused results |
+| `top_k: 20` | More comprehensive |
+
 ## Quick Start
 
 ```bash
-dao-ai chat -c config/examples/03_reranking/vector_search_with_reranking.yaml
+# Run with reranking
+dao-ai chat -c config/examples/03_reranking/reranking_basic.yaml
+
+# Compare results
+> Search for cordless drills
+# Notice: Results are more relevant to intent
 ```
 
 Ask questions about your data - results will be semantically reranked for better relevance.
 
-## Why Reranking?
+## Detailed Reranking Guide
 
 ### The Problem
 Standard vector search retrieves the top-k results based on vector similarity, but:
@@ -45,22 +240,6 @@ Reranking adds a second-stage model that:
 - **Better Relevance**: 20-40% improvement in result quality
 - **Minimal Latency**: Only reranks a small set of candidates
 - **Cost Effective**: Reranking is faster than re-querying with better embeddings
-
-## Configuration Pattern
-
-```yaml
-tools:
-  search_tool:
-    name: search_documents
-    function:
-      type: vector_search
-      vector_search_index: catalog.schema.index_name
-      columns: [content, title, url]
-      reranker:
-        model: flashrank
-        top_n: 5              # Return top 5 after reranking
-        num_candidates: 20    # Rerank from top 20 retrieved
-```
 
 ## Reranking Models
 
@@ -87,21 +266,6 @@ reranker:
   top_n: 5
 ```
 
-## Performance Tuning
-
-### Top-N Selection
-- **top_n: 3-5** - Best for focused questions
-- **top_n: 10-15** - Better for broad topics
-- **top_n: 20+** - When you need comprehensive coverage
-
-### Candidate Pool Size
-- **num_candidates: 20** - Fast, good for simple queries
-- **num_candidates: 50** - Balanced quality/speed
-- **num_candidates: 100** - Best quality, slower
-
-### Rule of Thumb
-Set `num_candidates` to 3-5x your `top_n` value.
-
 ## When to Use Reranking
 
 ### ✅ Use Reranking When:
@@ -119,40 +283,27 @@ Set `num_candidates` to 3-5x your `top_n` value.
 ## Architecture Patterns
 
 ### Pattern 1: Two-Stage Retrieval (Recommended)
+
 ```
 Query → Vector Search (top 100) → Rerank (top 5) → Agent
 ```
+
 - Fast initial retrieval
 - High-quality final results
 - Best balance of speed and accuracy
 
-### Pattern 2: Multi-Pass Reranking
-```
-Query → Vector Search (top 200) → Coarse Rerank (top 50) → Fine Rerank (top 5) → Agent
-```
-- Maximum quality
-- Higher latency
-- Use for critical applications
+### Pattern 2: FlashRank + Instruction-Aware
 
-### Pattern 3: Hybrid Retrieval + Reranking
-```
-Query → [Vector Search + Keyword Search] → Merge → Rerank (top 5) → Agent
-```
-- Best of both retrieval methods
-- Reranking unifies the results
-- Excellent for diverse queries
-
-### Pattern 4: FlashRank + Instruction-Aware (NEW)
 ```
 Query → Vector Search (top 50) → FlashRank (top 20) → Instruction-Aware LLM (top 10) → Agent
 ```
+
 - FlashRank for semantic relevance (~10ms)
 - LLM for constraint prioritization (~100ms)
 - Best for queries with explicit constraints (price, brand, category)
 
 ## Instruction-Aware Reranking
 
-### Overview
 Instruction-aware reranking adds an LLM stage after FlashRank to consider user constraints:
 
 ```yaml
@@ -167,16 +318,11 @@ rerank:
     top_n: 10                        # Final count after instruction reranking
 ```
 
-### When to Use
+### When to Use Instruction-Aware Reranking
 - Queries with explicit price constraints ("under $100")
 - Brand preferences ("Milwaukee", "not DeWalt")
 - Category requirements ("power tools")
 - When FlashRank alone misses nuanced user intent
-
-### Performance Tips
-- Use fast LLMs: GPT-3.5-Turbo, Claude 3 Haiku, Llama 3 8B (~100ms)
-- Large models add significant latency (~500ms+)
-- Set FlashRank `top_n` higher than instruction-aware `top_n` (e.g., 20 → 10)
 
 ### Latency Comparison
 
@@ -187,181 +333,34 @@ rerank:
 
 ## Best Practices
 
-### 1. Choose Appropriate Candidate Pool
-```yaml
-# Good: 4x ratio
-top_n: 5
-num_candidates: 20
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Best["✅ Best Practices"]
+        BP1["📊 Set num_results 5-10x larger than top_k"]
+        BP2["⚡ Use cross-encoder for speed"]
+        BP3["🧠 Use LLM for complex queries"]
+        BP4["📈 Monitor latency vs quality"]
+    end
 
-# Better: 5x ratio for complex queries
-top_n: 10
-num_candidates: 50
+    style Best fill:#e8f5e9,stroke:#2e7d32
 ```
-
-### 2. Cache Reranked Results
-Reranking is deterministic - cache results for identical queries:
-
-```yaml
-tools:
-  search_tool:
-    function:
-      type: vector_search
-      reranker:
-        model: flashrank
-        top_n: 5
-        num_candidates: 20
-    cache:
-      type: semantic
-      ttl: 3600  # Cache for 1 hour
-```
-
-### 3. Monitor Performance
-Track these metrics:
-- **Retrieval time**: Initial vector search
-- **Reranking time**: Reranker inference
-- **Total latency**: End-to-end time
-- **Result relevance**: User feedback/clicks
-
-### 4. A/B Test Configuration
-Test different `top_n` and `num_candidates` values:
-
-```python
-# Baseline
-top_n=5, num_candidates=20
-
-# Test variants
-top_n=5, num_candidates=50   # More candidates
-top_n=10, num_candidates=50  # More results
-```
-
-## Prerequisites
-
-### For FlashRank
-- ✅ `flashrank` Python package installed
-- ✅ First run downloads model (~100MB)
-- ✅ Sufficient RAM (models use ~200-500MB)
-
-### For Vector Search
-- ✅ Databricks Vector Search index created
-- ✅ Index populated with embeddings
-- ✅ Proper permissions to query index
 
 ## Troubleshooting
 
-**"FlashRank model not found"**
-- Run once to download the model
-- Check internet connectivity
-- Verify disk space for model cache
-
-**"Reranking too slow"**
-- Reduce `num_candidates` (e.g., 50 → 20)
-- Reduce `top_n` (e.g., 10 → 5)
-- Consider caching reranked results
-
-**"Results not improving"**
-- Increase `num_candidates` to give reranker more options
-- Verify initial retrieval is working well
-- Check if reranker model is appropriate for your domain
-
-**"Out of memory errors"**
-- Reduce `num_candidates`
-- Use smaller reranker model
-- Increase available RAM
-
-## Performance Benchmarks
-
-Typical latencies for FlashRank:
-
-| Candidates | Top-N | Reranking Time | Total Time* |
-|------------|-------|----------------|-------------|
-| 20 | 5 | ~5ms | ~105ms |
-| 50 | 10 | ~12ms | ~112ms |
-| 100 | 20 | ~25ms | ~125ms |
-
-*Total time includes vector search (~100ms) + reranking
-
-## Advanced Topics
-
-### Custom Reranking Functions
-
-Implement your own reranking logic:
-
-```python
-from typing import List, Dict, Any
-
-def custom_reranker(
-    query: str,
-    documents: List[Dict[str, Any]],
-    top_n: int = 5
-) -> List[Dict[str, Any]]:
-    """
-    Custom reranking function.
-    
-    Args:
-        query: User's search query
-        documents: Retrieved documents with 'content' field
-        top_n: Number of documents to return
-    
-    Returns:
-        Reranked documents (top_n most relevant)
-    """
-    # Your reranking logic here
-    scores = compute_relevance_scores(query, documents)
-    ranked_docs = sort_by_scores(documents, scores)
-    return ranked_docs[:top_n]
-```
-
-### Combining Multiple Rerankers
-
-Use ensemble reranking for maximum quality:
-
-```yaml
-reranker:
-  type: ensemble
-  models:
-    - flashrank
-    - custom_domain_reranker
-  weights: [0.7, 0.3]
-  top_n: 5
-  num_candidates: 50
-```
+| Issue | Solution |
+|-------|----------|
+| Slow reranking | Reduce num_results, use cross-encoder |
+| Poor results | Increase num_results, try LLM reranker |
+| Missing relevant docs | Increase num_results in initial retrieval |
 
 ## Next Steps
 
-👉 **04_genie/** - Cache reranked results for performance  
-👉 **02_mcp/** - Combine with other tool integrations  
-👉 **11_complete_applications/** - See reranking in production
+- **04_genie/** - Add caching for repeated queries
+- **02_mcp/** - Use MCP for vector search
+- **10_agent_integrations/** - Combine with other tools
 
 ## Related Documentation
 
-- [Vector Search](../02_mcp/README.md#vector-search)
-- [Caching Strategies](../04_genie/README.md)
-- [Performance Optimization](../../../docs/key-capabilities.md#performance)
-
-## Example Output
-
-### Without Reranking
-```
-Query: "How do I reset my password?"
-
-Top Results:
-1. General FAQ page (moderate relevance)
-2. Account settings overview (low relevance)  
-3. Password reset guide (high relevance) ← Should be #1!
-4. Security best practices (moderate relevance)
-5. Login troubleshooting (moderate relevance)
-```
-
-### With Reranking
-```
-Query: "How do I reset my password?"
-
-Top Results (Reranked):
-1. Password reset guide (high relevance) ✓
-2. Login troubleshooting (high relevance) ✓
-3. Account settings overview (moderate relevance)
-4. Security best practices (moderate relevance)
-5. General FAQ page (low relevance)
-```
-
-The reranker correctly identifies and promotes the most relevant document to the top!
+- [Reranking Configuration](../../../docs/key-capabilities.md#reranking)
+- [Vector Search](../../../docs/configuration-reference.md#vector-stores)

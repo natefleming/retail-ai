@@ -1,127 +1,271 @@
-# 04. Memory
+# 05. Memory
 
-**Persistent state management for multi-turn conversations**
+**Conversation persistence across sessions**
 
-Add conversation memory to enable stateful, context-aware agents that remember past interactions.
+Store and retrieve conversation history to maintain context across user sessions.
+
+## Architecture Overview
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0'}}}%%
+flowchart TB
+    subgraph Session1["💬 Session 1"]
+        U1["👤 User: My name is Alice"]
+        A1["🤖 Agent: Nice to meet you, Alice!"]
+    end
+
+    subgraph Memory["🧠 Memory System"]
+        subgraph Backends["Storage Backend"]
+            direction LR
+            PG["🐘 PostgreSQL<br/><i>Production</i>"]
+            SQLite["📁 SQLite<br/><i>Development</i>"]
+            InMem["💾 In-Memory<br/><i>Testing</i>"]
+        end
+        
+        subgraph Data["Stored Data"]
+            Thread["<b>thread_id:</b> user_123<br/><b>messages:</b> [...]<br/><b>summary:</b> User is Alice..."]
+        end
+    end
+
+    subgraph Session2["💬 Session 2 (Later)"]
+        U2["👤 User: What's my name?"]
+        A2["🤖 Agent: Your name is Alice!"]
+    end
+
+    Session1 -->|"Store"| Memory
+    Memory -->|"Retrieve"| Session2
+
+    style Session1 fill:#e3f2fd,stroke:#1565c0
+    style Memory fill:#e8f5e9,stroke:#2e7d32
+    style Session2 fill:#e3f2fd,stroke:#1565c0
+```
 
 ## Examples
 
-| File | Description | Storage Backend |
-|------|-------------|-----------------|
-| `conversation_summarization.yaml` | Long conversation summarization | PostgreSQL/Lakebase |
+| File | Backend | Description |
+|------|---------|-------------|
+| [`memory_sqlite.yaml`](./memory_sqlite.yaml) | 📁 SQLite | Local file-based persistence |
+| [`memory_postgres.yaml`](./memory_postgres.yaml) | 🐘 PostgreSQL | Production-ready persistence |
 
-## What You'll Learn
+## Memory Components
 
-- **Checkpointers** - Persist conversation state across sessions
-- **Stores** - Key-value storage for user preferences
-- **Summarization** - Handle long conversations by summarizing history
-- **Backend options** - In-memory vs PostgreSQL vs Lakebase
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph Memory["🧠 Memory Configuration"]
+        subgraph Checkpoint["📍 Checkpointer"]
+            direction TB
+            CP["<b>checkpointer:</b><br/>━━━━━━━━━━━━━━━━<br/>type: postgres | sqlite<br/>connection_string: ...<br/><br/><i>Stores conversation messages</i>"]
+        end
+        
+        subgraph Store["📦 Store (Optional)"]
+            direction TB
+            ST["<b>store:</b><br/>━━━━━━━━━━━━━━━━<br/>type: postgres | sqlite<br/>connection_string: ...<br/><br/><i>Stores metadata & summaries</i>"]
+        end
+        
+        subgraph Summarizer["📝 Summarizer (Optional)"]
+            direction TB
+            SU["<b>summarizer:</b><br/>━━━━━━━━━━━━━━━━<br/>model: *default_llm<br/>max_messages: 100<br/><br/><i>Summarizes long conversations</i>"]
+        end
+    end
 
-## Memory Backends
+    Checkpoint --> Store
+    Store --> Summarizer
 
-### 1. In-Memory
-- Fast but temporary (resets on restart)
-- Good for: Development, testing
+    style Checkpoint fill:#e3f2fd,stroke:#1565c0
+    style Store fill:#e8f5e9,stroke:#2e7d32
+    style Summarizer fill:#fff3e0,stroke:#e65100
+```
 
-### 2. PostgreSQL
-- External database, survives restarts
-- Good for: Production with existing PostgreSQL
+## Backend Comparison
 
-### 3. Lakebase
-- Databricks-managed PostgreSQL with Unity Catalog
-- Good for: Production in Databricks ecosystem
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Backends["📊 Backend Comparison"]
+        subgraph SQLite["📁 SQLite"]
+            S1["✅ Zero setup"]
+            S2["✅ Local development"]
+            S3["⚠️ Single process"]
+            S4["⚠️ Not for production"]
+        end
+        
+        subgraph Postgres["🐘 PostgreSQL"]
+            P1["✅ Production-ready"]
+            P2["✅ Multi-process safe"]
+            P3["✅ Scalable"]
+            P4["⚠️ Requires setup"]
+        end
+        
+        subgraph InMemory["💾 In-Memory"]
+            I1["✅ Fastest"]
+            I2["✅ Testing only"]
+            I3["⚠️ Lost on restart"]
+        end
+    end
+
+    style SQLite fill:#e3f2fd,stroke:#1565c0
+    style Postgres fill:#e8f5e9,stroke:#2e7d32
+    style InMemory fill:#fff3e0,stroke:#e65100
+```
+
+## SQLite Configuration
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart LR
+    subgraph Config["📄 memory_sqlite.yaml"]
+        YAML["orchestration:<br/>  memory:<br/>    checkpointer:<br/>      type: sqlite<br/>      connection_string:<br/>        sqlite:///memory.db"]
+    end
+
+    subgraph File["📁 Local File"]
+        DB["memory.db<br/>━━━━━━━━━━━━━━━━<br/>📊 messages table<br/>📊 checkpoints table"]
+    end
+
+    Config --> File
+
+    style Config fill:#e3f2fd,stroke:#1565c0
+    style File fill:#e8f5e9,stroke:#2e7d32
+```
+
+```yaml
+app:
+  orchestration:
+    swarm: true
+    memory:
+      checkpointer:
+        type: sqlite
+        connection_string: "sqlite:///memory.db"
+      store:
+        type: sqlite
+        connection_string: "sqlite:///store.db"
+```
+
+## PostgreSQL Configuration
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart LR
+    subgraph Config["📄 memory_postgres.yaml"]
+        YAML["orchestration:<br/>  memory:<br/>    checkpointer:<br/>      type: postgres<br/>      connection_string:<br/>        postgresql://..."]
+    end
+
+    subgraph UC["🔐 Unity Catalog Secret"]
+        Secret["postgres_conn_string<br/>━━━━━━━━━━━━━━━━<br/>postgresql://user:pass@host/db"]
+    end
+
+    subgraph DB["🐘 PostgreSQL"]
+        Tables["📊 Tables<br/>━━━━━━━━━━━━━━━━<br/>checkpoints<br/>messages<br/>metadata"]
+    end
+
+    Config --> UC
+    UC --> DB
+
+    style Config fill:#e3f2fd,stroke:#1565c0
+    style UC fill:#fff3e0,stroke:#e65100
+    style DB fill:#e8f5e9,stroke:#2e7d32
+```
+
+```yaml
+app:
+  orchestration:
+    swarm: true
+    memory:
+      checkpointer:
+        type: postgres
+        connection_string: "{{secrets/scope/postgres_conn_string}}"
+      store:
+        type: postgres
+        connection_string: "{{secrets/scope/postgres_conn_string}}"
+      summarizer:
+        model: *default_llm
+        max_messages: 100
+```
+
+## Conversation Summarization
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant 💬 as Conversation
+    participant 🧠 as Memory
+    participant 📝 as Summarizer LLM
+
+    💬->>🧠: Message 1...100
+    🧠->>🧠: max_messages reached!
+    🧠->>📝: Summarize first 50 messages
+    📝-->>🧠: "User Alice discussed power tools..."
+    🧠->>🧠: Store summary, keep recent 50
+    Note over 🧠: Context preserved, size reduced
+```
+
+```yaml
+memory:
+  summarizer:
+    model: *default_llm     # LLM for summarization
+    max_messages: 100       # Trigger summarization at 100 messages
+```
 
 ## Quick Start
 
 ```bash
-# Ensure database is configured
-export DATABASE_HOST="your-db-host"
-export DATABASE_PASSWORD="your-password"
+# SQLite (development)
+dao-ai chat -c config/examples/05_memory/memory_sqlite.yaml \
+  --thread-id my_session
 
-dao-ai chat -c config/examples/05_memory/conversation_summarization.yaml
+# PostgreSQL (production)
+dao-ai chat -c config/examples/05_memory/memory_postgres.yaml \
+  --thread-id user_123
 ```
 
-Have a long conversation - notice older messages are summarized to stay within token limits.
+**Test memory:**
+```
+> My name is Alice
+Nice to meet you, Alice!
 
-## Conversation Summarization
+> [quit and restart]
 
-When conversations exceed token limits:
-
-1. **Detect**: Monitor message count and token usage
-2. **Summarize**: LLM condenses old messages into summary
-3. **Preserve**: Recent messages kept as-is
-4. **Continue**: Conversation continues with reduced context
-
-**Benefits:**
-- ✅ Handle unlimited conversation length
-- ✅ Maintain context without hitting token limits
-- ✅ Reduce costs by summarizing old context
-
-## Configuration
-
-### Checkpointer (Conversation State)
-```yaml
-memory:
-  checkpointer:
-    database: *postgres_db        # Or Lakebase
-    table_name: agent_checkpoints
+> What's my name?
+Your name is Alice!
 ```
 
-### Store (User Preferences)
-```yaml
-memory:
-  store:
-    database: *postgres_db
-    table_name: agent_store
-    embedding_model: *embed_model  # For semantic search
-```
+## Thread ID Usage
 
-### Summarization
-```yaml
-chat_history:
-  max_tokens: 8000                    # Trigger summarization
-  max_messages_before_summary: 20     # Or by message count
-  summary_model: *claude_sonnet       # Model for summarization
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph ThreadIDs["🔑 Thread ID Patterns"]
+        TID1["<b>user_123</b><br/><i>Per-user history</i>"]
+        TID2["<b>session_abc</b><br/><i>Per-session history</i>"]
+        TID3["<b>project_xyz</b><br/><i>Per-project history</i>"]
+    end
+
+    style ThreadIDs fill:#e3f2fd,stroke:#1565c0
 ```
 
 ## Prerequisites
 
-- ✅ PostgreSQL or Databricks Lakebase instance
-- ✅ Database credentials (OAuth for Lakebase)
-- ✅ Tables will be auto-created on first use
-
-## Architecture
-
-```
-┌─────────────┐
-│   Agent     │
-└──────┬──────┘
-       │
-       ├──→ Checkpointer (Conversation State)
-       │    └─→ PostgreSQL/Lakebase Table
-       │
-       └──→ Store (User Preferences)
-            └─→ PostgreSQL/Lakebase Table
-```
-
-## Next Steps
-
-👉 **07_human_in_the_loop/** - Add safety and validation  
-👉 **11_prompt_engineering/** - Optimize prompts for summarization
+| Backend | Requirements |
+|---------|--------------|
+| 📁 SQLite | None (creates file) |
+| 🐘 PostgreSQL | PostgreSQL server, connection string |
 
 ## Troubleshooting
 
-**"Database connection failed"**
-- Verify host and credentials
-- Check network connectivity
-- For Lakebase: Verify OAuth client ID/secret
+| Issue | Solution |
+|-------|----------|
+| Memory not persisting | Check connection_string, file permissions |
+| PostgreSQL connection failed | Verify host, port, credentials |
+| Context lost | Ensure same thread_id across sessions |
 
-**"Table doesn't exist"**
-- Tables are auto-created - check permissions
-- Verify schema exists in Unity Catalog
+## Next Steps
+
+- **13_orchestration/** - Combine with multi-agent patterns
+- **07_human_in_the_loop/** - Stateful approval workflows
+- **15_complete_applications/** - Production memory patterns
 
 ## Related Documentation
 
-- [Memory Configuration](../../../docs/key-capabilities.md#conversation-memory--state)
-- [Database Configuration](../../../docs/configuration-reference.md)
-
+- [Memory Configuration](../../../docs/key-capabilities.md#memory)
+- [Orchestration](../13_orchestration/README.md)
