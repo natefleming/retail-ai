@@ -1,450 +1,277 @@
 # 10. Agent Integrations
 
-**Integrate with external agent platforms like Agent Bricks and Kasal**
+**Compose agents for modular architectures**
 
-Learn how to use agent endpoint tools to delegate tasks to specialized external agents, creating powerful multi-agent systems with best-in-class specialist capabilities.
+Build complex systems by integrating specialized agents as tools within other agents.
 
----
+## Architecture Overview
 
-## 📋 Overview
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0'}}}%%
+flowchart TB
+    subgraph Main["🤖 Main Agent"]
+        MainLLM["🧠 Orchestrator LLM"]
+    end
 
-Agent endpoint tools allow you to call external agent systems (like Agent Bricks or Kasal) as tools within your DAO-AI agents. This enables:
+    subgraph SubAgents["🔧 Agent-as-Tool"]
+        direction TB
+        subgraph DataAgent["📊 Data Agent"]
+            DA["SQL queries<br/>Data analysis"]
+        end
+        
+        subgraph SearchAgent["🔍 Search Agent"]
+            SA["Vector search<br/>Document retrieval"]
+        end
+        
+        subgraph ActionAgent["⚡ Action Agent"]
+            AA["Write operations<br/>Notifications"]
+        end
+    end
 
-- **Delegation to Specialists**: Route specific tasks to purpose-built external agents
-- **Multi-Agent Orchestration**: Coordinate multiple agent systems in a single workflow
-- **Enterprise Integration**: Leverage existing agent infrastructure and investments
-- **Governance & Compliance**: Use specialized agents with built-in compliance features
+    MainLLM -->|"call_data_agent"| DataAgent
+    MainLLM -->|"call_search_agent"| SearchAgent
+    MainLLM -->|"call_action_agent"| ActionAgent
 
-### When to Use Agent Integrations
-
-✅ **Use when you need:**
-- Domain-specific expertise (finance, legal, customer support)
-- Compliance-certified agent responses
-- Integration with existing agent platforms
-- Coordinated multi-agent workflows
-- Separation of concerns across agent systems
-
-❌ **Not needed when:**
-- Simple single-agent tasks suffice
-- All capabilities can be provided by built-in tools
-- Latency is critical (agent-to-agent calls add overhead)
-
----
-
-## 🗂️ Examples in This Directory
-
-### 1. `agent_bricks.yaml` - Agent Bricks Integration
-
-Demonstrates integration with Agent Bricks, routing customer queries to specialized agents.
-
-**What it shows:**
-- Customer support agent delegation
-- Product expert consultation
-- Intelligent routing between specialists
-- Context-aware agent selection
-
-**Key concepts:**
-- Agent endpoint tool configuration
-- Multi-specialist orchestration
-- Dynamic task delegation
-
-**Use for:**
-- Customer service automation
-- Technical support systems
-- Multi-domain expertise applications
-
----
-
-### 2. `kasal.yaml` - Kasal Enterprise Integration
-
-Shows enterprise-grade agent integration with Kasal, including compliance and governance.
-
-**What it shows:**
-- Financial analysis agent integration
-- Compliance validation workflows
-- Data privacy specialist consultation
-- Multi-agent governance patterns
-
-**Key concepts:**
-- Compliance-first agent design
-- Privacy-aware data handling
-- Enterprise agent orchestration
-- Regulatory validation workflows
-
-**Use for:**
-- Financial services applications
-- Healthcare and regulated industries
-- Enterprise data processing
-- Compliance-sensitive workflows
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-1. **External Agent Endpoints**: Deploy and configure your Agent Bricks or Kasal agents
-2. **Endpoint URLs**: Obtain the serving endpoint names/URLs for external agents
-3. **Authentication**: Configure necessary credentials for external agent access
-4. **Databricks Workspace**: Access to create and deploy DAO-AI agents
-
-### Running the Examples
-
-#### Agent Bricks Example
-
-```bash
-# Set up Agent Bricks endpoint (replace with your actual endpoints)
-export AGENT_BRICKS_CUSTOMER_SUPPORT_ENDPOINT="agent-bricks-customer-support"
-export AGENT_BRICKS_PRODUCT_EXPERT_ENDPOINT="agent-bricks-product-expert"
-
-# Run the agent
-dao-ai chat -c config/examples/10_agent_integrations/agent_bricks.yaml
+    style Main fill:#e3f2fd,stroke:#1565c0
+    style DataAgent fill:#e8f5e9,stroke:#2e7d32
+    style SearchAgent fill:#fff3e0,stroke:#e65100
+    style ActionAgent fill:#fce4ec,stroke:#c2185b
 ```
 
-**Try asking:**
-- "A customer is unhappy with a delayed order, how should I handle this?"
-- "What's the best drill for a professional contractor?"
-- "I need to process a return for a defective power tool"
+## Examples
 
-#### Kasal Example
+| File | Description |
+|------|-------------|
+| [`nested_agents.yaml`](./nested_agents.yaml) | Main agent calling specialized sub-agents |
+| [`parallel_agents.yaml`](./parallel_agents.yaml) | Parallel agent execution pattern |
 
-```bash
-# Set up Kasal endpoints (replace with your actual endpoints)
-export KASAL_FINANCIAL_ENDPOINT="kasal-financial-analyst"
-export KASAL_COMPLIANCE_ENDPOINT="kasal-compliance-checker"
-export KASAL_PRIVACY_ENDPOINT="kasal-privacy-specialist"
+## Integration Patterns
 
-# Run the agent
-dao-ai chat -c config/examples/10_agent_integrations/kasal.yaml
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Patterns["🔗 Integration Patterns"]
+        subgraph Hub["🎯 Hub-and-Spoke"]
+            H1["Main agent orchestrates"]
+            H2["Sub-agents as tools"]
+            H3["Clear hierarchy"]
+        end
+        
+        subgraph Sequential["📋 Sequential"]
+            S1["Agent A → Agent B → Agent C"]
+            S2["Pipeline processing"]
+            S3["Output feeds next input"]
+        end
+        
+        subgraph Parallel["⚡ Parallel"]
+            P1["Multiple agents simultaneously"]
+            P2["Aggregate results"]
+            P3["Faster processing"]
+        end
+    end
+
+    style Hub fill:#e3f2fd,stroke:#1565c0
+    style Sequential fill:#e8f5e9,stroke:#2e7d32
+    style Parallel fill:#fff3e0,stroke:#e65100
 ```
 
-**Try asking:**
-- "What's our revenue forecast for next quarter?"
-- "Can we store customer email addresses in this database?"
-- "Does this marketing campaign comply with GDPR?"
+## Hub-and-Spoke Pattern
 
----
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant 👤 as User
+    participant 🎯 as Main Agent
+    participant 📊 as Data Agent
+    participant 🔍 as Search Agent
 
-## 🔧 How Agent Endpoint Tools Work
-
-### Tool Factory Configuration
-
-Agent endpoint tools are created using the `create_agent_endpoint_tool` factory:
-
-```yaml
-tools:
-  specialist_agent_tool:
-    name: my_specialist
-    function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *external_agent_llm        # LLM endpoint configuration
-        name: specialist_name            # Tool name for the orchestrator
-        description: |                   # Clear description of capabilities
-          Detailed description of what this agent can do
-          and when to use it.
+    👤->>🎯: Find top products and get details
+    🎯->>🎯: Plan: Need data + search
+    🎯->>📊: call_data_agent("top sellers")
+    📊-->>🎯: [Product A, Product B]
+    🎯->>🔍: call_search_agent("Product A details")
+    🔍-->>🎯: {specs, reviews, ...}
+    🎯->>🎯: Combine results
+    🎯-->>👤: Here are the top products with details...
 ```
 
-### LLM Configuration for External Agents
+## Configuration
 
-External agents are configured as LLM endpoints:
-
-```yaml
-resources:
-  llms:
-    external_agent: &external_agent
-      name: external-agent-endpoint-name    # Databricks serving endpoint
-      description: "Agent description"      # What this agent does
-      temperature: 0.1                      # Model temperature
-      max_tokens: 1000                      # Response length limit
-```
-
-### Orchestrator Pattern
-
-The orchestrator agent decides when to delegate to specialists:
+### Define Sub-Agents
 
 ```yaml
 agents:
-  orchestrator:
-    name: main_agent
-    model: *main_llm
+  # 📊 Specialized data agent
+  data_agent: &data_agent
+    name: data_analyst
+    model: *default_llm
     tools:
-      - *specialist_tool_1
-      - *specialist_tool_2
+      - *sql_tool
+      - *genie_tool
     prompt: |
-      You coordinate between specialist agents.
-      Use specialist_tool_1 for X tasks.
-      Use specialist_tool_2 for Y tasks.
+      You are a data analysis specialist.
+      Execute queries and return structured results.
+
+  # 🔍 Specialized search agent
+  search_agent: &search_agent
+    name: search_specialist
+    model: *default_llm
+    tools:
+      - *vector_search_tool
+    prompt: |
+      You are a search specialist.
+      Find relevant documents and information.
 ```
 
----
-
-## 🏗️ Architecture Patterns
-
-### 1. Hub-and-Spoke Pattern
-
-**Structure**: One orchestrator routes to multiple specialists
-
-```
-         ┌─────────────┐
-         │ Orchestrator│
-         │   Agent     │
-         └──────┬──────┘
-                │
-      ┌─────────┼─────────┐
-      │         │         │
-   ┌──▼──┐   ┌──▼──┐   ┌──▼──┐
-   │Spec │   │Spec │   │Spec │
-   │  A  │   │  B  │   │  C  │
-   └─────┘   └─────┘   └─────┘
-```
-
-**Use for**: Task routing, domain separation
-
-### 2. Sequential Workflow Pattern
-
-**Structure**: Chain of specialist agents in sequence
-
-```
-User → Agent A → Agent B → Agent C → Response
-```
-
-**Use for**: Compliance validation, multi-step processing
-
-### 3. Parallel Consultation Pattern
-
-**Structure**: Consult multiple agents simultaneously
-
-```
-           ┌─── Agent A ───┐
-User → Hub ├─── Agent B ───┤ → Synthesize → Response
-           └─── Agent C ───┘
-```
-
-**Use for**: Multi-perspective analysis, consensus building
-
----
-
-## ⚙️ Configuration Options
-
-### Tool Configuration
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `llm` | LLMModel | External agent endpoint configuration |
-| `name` | str | Tool name (how orchestrator references it) |
-| `description` | str | Detailed description of agent capabilities |
-
-### LLM Endpoint Configuration
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `name` | str | Databricks serving endpoint name |
-| `temperature` | float | Model creativity (0.0 = deterministic) |
-| `max_tokens` | int | Maximum response length |
-| `description` | str | Agent purpose and capabilities |
-
----
-
-## 📊 Best Practices
-
-### 1. Clear Agent Responsibilities
-
-**✅ Do:**
-- Give each agent a specific, well-defined role
-- Document agent capabilities clearly in descriptions
-- Avoid overlapping responsibilities
-
-**❌ Don't:**
-- Create agents with vague, overlapping roles
-- Make descriptions too generic
-- Assume the orchestrator knows agent capabilities
-
-### 2. Effective Prompting
-
-**✅ Do:**
-- Provide complete context when calling specialist agents
-- Include relevant background information
-- Format requests clearly
-
-**❌ Don't:**
-- Send minimal or ambiguous prompts
-- Assume specialists have conversation context
-- Omit critical details
-
-### 3. Error Handling
-
-**✅ Do:**
-- Handle agent timeout and failure scenarios
-- Provide fallback options
-- Log agent interactions for debugging
-
-**❌ Don't:**
-- Assume agent calls always succeed
-- Silently ignore errors
-- Leave users hanging on failures
-
-### 4. Performance Optimization
-
-**✅ Do:**
-- Cache agent responses when appropriate
-- Use parallel calls when possible
-- Set reasonable token limits
-
-**❌ Don't:**
-- Make unnecessary sequential calls
-- Request excessive output
-- Ignore latency implications
-
----
-
-## 🔐 Security & Governance
-
-### Authentication
-
-External agent endpoints should use:
-- Service principal authentication
-- Token-based access control
-- Databricks endpoint security
-
-### Compliance Considerations
-
-When using agent integrations for regulated industries:
-
-1. **Audit Trails**: Log all agent interactions
-2. **Data Privacy**: Validate PII handling with privacy specialists
-3. **Regulatory Compliance**: Use compliance validators before final decisions
-4. **Access Control**: Restrict agent access based on user roles
-
-### Example Compliance Workflow
+### Create Agent Tools
 
 ```yaml
-# Always check compliance before execution
-1. User makes request
-2. Orchestrator analyzes request
-3. If decision has regulatory implications:
-   → Call compliance_validator agent
-   → Wait for approval
-   → Proceed only if validated
-4. Execute with specialist agent
-5. Log all interactions for audit
+tools:
+  # 🔧 Wrap data_agent as a tool
+  call_data_agent: &call_data_agent
+    name: call_data_agent
+    function:
+      type: factory
+      name: dao_ai.tools.agent.create_agent_tool
+      args:
+        agent: *data_agent
+    description: |
+      Call the data analysis agent for SQL queries and data analysis.
+
+  # 🔧 Wrap search_agent as a tool
+  call_search_agent: &call_search_agent
+    name: call_search_agent
+    function:
+      type: factory
+      name: dao_ai.tools.agent.create_agent_tool
+      args:
+        agent: *search_agent
 ```
 
----
-
-## 🎯 Common Use Cases
-
-### Customer Support Automation
-
-**Pattern**: Route customer queries to specialized support agents
+### Main Agent Uses Sub-Agents
 
 ```yaml
-- Customer service agent: Handles complaints, returns
-- Product expert agent: Technical questions, recommendations
-- Escalation agent: Complex issues requiring human intervention
+agents:
+  main_agent: &main_agent
+    name: orchestrator
+    model: *default_llm
+    tools:
+      - *call_data_agent      # ← Sub-agent as tool
+      - *call_search_agent    # ← Sub-agent as tool
+    prompt: |
+      You are an orchestrator that coordinates specialized agents.
+      
+      Use call_data_agent for data queries and analysis.
+      Use call_search_agent for document search and retrieval.
+      
+      Combine results from multiple agents when needed.
 ```
 
-### Financial Services
+## Sequential Pattern
 
-**Pattern**: Multi-agent financial analysis with compliance
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart LR
+    subgraph Pipeline["📋 Sequential Pipeline"]
+        A1["🔍 Extract Agent<br/><i>Parse input</i>"]
+        A2["📊 Analyze Agent<br/><i>Process data</i>"]
+        A3["📝 Format Agent<br/><i>Create output</i>"]
+    end
 
-```yaml
-- Financial analyst: Data analysis and forecasting
-- Compliance validator: Regulatory checks
-- Risk assessment: Risk scoring and mitigation
+    Input["📥 Raw Input"] --> A1
+    A1 --> A2
+    A2 --> A3
+    A3 --> Output["📤 Formatted Output"]
+
+    style Pipeline fill:#e3f2fd,stroke:#1565c0
 ```
 
-### Healthcare & Life Sciences
+## Parallel Pattern
 
-**Pattern**: Clinical decision support with privacy
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph Parallel["⚡ Parallel Execution"]
+        Query["📝 User Query"]
+        
+        subgraph Agents["Simultaneous Execution"]
+            direction LR
+            A1["📊 Data Agent"]
+            A2["🔍 Search Agent"]
+            A3["📋 Summary Agent"]
+        end
+        
+        Aggregate["🔗 Aggregate Results"]
+    end
 
-```yaml
-- Clinical expert: Medical guidance
-- Privacy specialist: HIPAA compliance validation
-- Research agent: Latest treatment protocols
+    Query --> A1
+    Query --> A2
+    Query --> A3
+    A1 --> Aggregate
+    A2 --> Aggregate
+    A3 --> Aggregate
+
+    style Parallel fill:#e8f5e9,stroke:#2e7d32
 ```
 
-### Enterprise IT
+## Benefits
 
-**Pattern**: Multi-domain technical support
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Benefits["✅ Integration Benefits"]
+        B1["🧩 <b>Modularity</b><br/>Reusable components"]
+        B2["🎯 <b>Specialization</b><br/>Focused agents"]
+        B3["🔧 <b>Maintainability</b><br/>Isolated changes"]
+        B4["📈 <b>Scalability</b><br/>Add agents easily"]
+    end
 
-```yaml
-- Security specialist: Security and access control
-- Infrastructure expert: System and network issues
-- Application support: Software and integration
+    style Benefits fill:#e8f5e9,stroke:#2e7d32
 ```
 
----
+## Quick Start
 
-## 🐛 Troubleshooting
+```bash
+# Run nested agent example
+dao-ai chat -c config/examples/10_agent_integrations/nested_agents.yaml
 
-### Agent Not Responding
+# Test agent delegation
+> Analyze sales data and find related product reviews
 
-**Problem**: External agent endpoint not returning responses
+# Main agent calls data_agent for sales, search_agent for reviews
+```
 
-**Solutions:**
-1. Verify endpoint is deployed and active
-2. Check authentication credentials
-3. Validate endpoint name matches configuration
-4. Review serving endpoint logs in Databricks
+## Best Practices
 
-### Poor Task Routing
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Best["✅ Best Practices"]
+        BP1["🎯 Clear agent responsibilities"]
+        BP2["📝 Descriptive tool descriptions"]
+        BP3["🔄 Handle sub-agent errors"]
+        BP4["📊 Monitor nested call depth"]
+    end
 
-**Problem**: Orchestrator calling wrong specialist agents
+    style Best fill:#e8f5e9,stroke:#2e7d32
+```
 
-**Solutions:**
-1. Improve tool descriptions (be more specific)
-2. Enhance orchestrator prompt with clearer routing rules
-3. Add examples in orchestrator prompt
-4. Consider adding a routing decision step
+## Troubleshooting
 
-### High Latency
+| Issue | Solution |
+|-------|----------|
+| Wrong agent called | Improve tool descriptions |
+| Deep nesting | Flatten hierarchy, limit depth |
+| Slow responses | Use parallel pattern |
 
-**Problem**: Agent responses taking too long
+## Next Steps
 
-**Solutions:**
-1. Use parallel agent calls when possible
-2. Reduce max_tokens for specialist agents
-3. Optimize specialist agent prompts
-4. Consider caching for repeated queries
+- **13_orchestration/** - Compare with supervisor/swarm
+- **12_middleware/** - Apply middleware to sub-agents
+- **15_complete_applications/** - Production patterns
 
-### Inconsistent Results
+## Related Documentation
 
-**Problem**: Agent responses vary unexpectedly
-
-**Solutions:**
-1. Lower temperature (closer to 0.0) for deterministic results
-2. Provide more context in agent calls
-3. Use structured output formats
-4. Add validation steps
-
----
-
-## 📚 Related Examples
-
-👉 **13_orchestration/** - Advanced multi-agent patterns  
-👉 **02_mcp/** - Alternative tool integration approaches  
-👉 **15_complete_applications/** - Full production systems  
-
----
-
-## 🔗 Additional Resources
-
-- [Agent Endpoint Tools Documentation](../../../docs/key-capabilities.md#agent-tools)
-- [Multi-Agent Orchestration Guide](../13_orchestration/)
-- [Production Deployment Best Practices](../../../docs/contributing.md)
-
----
-
-## 📝 Next Steps
-
-After mastering agent integrations:
-
-1. **Explore Orchestration**: Learn advanced patterns in `13_orchestration/`
-2. **Add Middleware**: Implement cross-cutting concerns from `12_middleware/`
-3. **Deploy Production**: See complete systems in `15_complete_applications/`
-
----
-
-**Questions or Issues?** Check the [FAQ](../../../docs/faq.md) or open an issue on GitHub.
+- [Agent Tools](../../../docs/key-capabilities.md#agent-tools)
+- [Orchestration](../13_orchestration/README.md)

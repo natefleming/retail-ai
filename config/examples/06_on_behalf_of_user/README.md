@@ -1,172 +1,206 @@
-# On-Behalf-Of (OBO) User Authentication
+# 06. On Behalf of User (OBO)
 
-This directory demonstrates how to configure agents to use On-Behalf-Of (OBO) user authentication with Databricks resources.
+**Impersonate users for Databricks API calls**
 
-## 📋 Overview
+Execute Databricks operations using the end user's identity and permissions via OAuth token exchange.
 
-On-Behalf-Of (OBO) authentication allows your agents to access Databricks resources using the end user's credentials rather than a service principal. This provides:
+## Architecture Overview
 
-- **Fine-grained access control**: Users can only access data they have permission to view
-- **Audit trails**: Actions are attributed to individual users, not a service account
-- **Compliance**: Meets data governance requirements for user-level tracking
-- **Security**: No need to grant broad permissions to service principals
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#c2185b'}}}%%
+flowchart TB
+    subgraph User["👤 End User (Alice)"]
+        Token["🔑 User OAuth Token"]
+    end
 
-## 📁 Examples in This Directory
+    subgraph App["🤖 DAO AI Application"]
+        Agent["Agent"]
+        OBO["🔄 Token Exchange<br/>━━━━━━━━━━━━━━━━<br/>Exchange user token<br/>for scoped token"]
+    end
 
-### `obo_basic.yaml`
-A simple single-agent configuration demonstrating OBO with:
-- **UC Functions**: Execute functions as the end user
-- **Genie Spaces**: Query data with user's permissions
-- **LLM Requests**: Track which user made which requests
+    subgraph Databricks["☁️ Databricks"]
+        subgraph Resources["User's Resources"]
+            SQL["🗄️ SQL Warehouse<br/><i>Alice's permissions</i>"]
+            VS["🔍 Vector Search<br/><i>Alice's data</i>"]
+            Genie["🧞 Genie Room<br/><i>Alice's access</i>"]
+        end
+    end
 
-**Key Configuration Points:**
+    Token --> OBO
+    OBO -->|"As Alice"| Resources
+    Agent --> OBO
+
+    style User fill:#fce4ec,stroke:#c2185b
+    style OBO fill:#fff3e0,stroke:#e65100
+    style Resources fill:#e8f5e9,stroke:#2e7d32
+```
+
+## Examples
+
+| File | Description |
+|------|-------------|
+| [`obo_config.yaml`](./obo_config.yaml) | On-behalf-of user token exchange configuration |
+
+## How OBO Works
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant 👤 as User (Alice)
+    participant 🖥️ as Web App
+    participant 🤖 as DAO AI Agent
+    participant 🔑 as OAuth Service
+    participant ☁️ as Databricks
+
+    👤->>🖥️: Login (OAuth)
+    🖥️-->>👤: User token
+    👤->>🤖: Query with user token
+    
+    🤖->>🔑: Exchange token (OBO)
+    Note over 🔑: Grant: urn:ietf:params:oauth:grant-type:jwt-bearer
+    🔑-->>🤖: Scoped token (as Alice)
+    
+    🤖->>☁️: Execute query (as Alice)
+    Note over ☁️: Uses Alice's permissions
+    ☁️-->>🤖: Results
+    🤖-->>👤: Response
+```
+
+## Configuration
+
 ```yaml
-resources:
-  llms:
-    default_llm:
-      on_behalf_of_user: true  # Enable OBO for LLM
-  
-  genie_rooms:
-    retail_genie:
-      on_behalf_of_user: true  # Enable OBO for Genie
-
-tools:
-  inventory_lookup:
-    function:
-      on_behalf_of_user: true  # Enable OBO for UC Functions
+app:
+  # Enable on-behalf-of user mode
+  on_behalf_of_user: true
 ```
 
-## 🔧 How OBO Works
+That's it! When enabled, DAO AI will:
+1. Accept user tokens from incoming requests
+2. Exchange them for Databricks tokens
+3. Execute all Databricks operations as that user
 
-### 1. Request Flow
-```
-User Request → Agent → Databricks Resource (as user)
-                ↓
-         User's Token Passed Through
-```
+## Service Principal vs OBO
 
-### 2. Configuration Levels
-OBO can be enabled at multiple levels:
-- **Resource level**: LLMs, Genie rooms, tables, functions, etc.
-- **Tool level**: Override resource settings for specific tools
-- **Global level**: Default behavior for all resources
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Comparison["🔐 Authentication Comparison"]
+        subgraph SP["🔧 Service Principal"]
+            SP1["Agent uses SP credentials"]
+            SP2["Same permissions for all users"]
+            SP3["Simpler setup"]
+            SP4["❌ No user-level audit"]
+        end
+        
+        subgraph OBO["👤 On-Behalf-Of"]
+            OBO1["Agent uses user's identity"]
+            OBO2["User's permissions apply"]
+            OBO3["Requires OAuth setup"]
+            OBO4["✅ Full user audit trail"]
+        end
+    end
 
-### 3. Token Propagation
-When OBO is enabled:
-- User's OAuth token is automatically propagated to Databricks APIs
-- Resources are accessed with the user's permissions
-- Failed requests return permission errors if user lacks access
-
-## 🚀 Deployment Scenarios
-
-### Databricks Apps
-```python
-# OBO is automatic - no additional configuration needed
-# User tokens are passed through the Apps platform
-dao-ai deploy -c obo_basic.yaml
-```
-
-### Model Serving
-```python
-# Pass user token in API request
-import requests
-
-response = requests.post(
-    "https://<workspace>.cloud.databricks.com/serving-endpoints/<endpoint>/invocations",
-    headers={
-        "Authorization": f"Bearer {user_token}",
-        "Content-Type": "application/json"
-    },
-    json={"messages": [{"role": "user", "content": "Find product SKU 12345"}]}
-)
+    style SP fill:#e3f2fd,stroke:#1565c0
+    style OBO fill:#e8f5e9,stroke:#2e7d32
 ```
 
-### Local Development
+| Aspect | Service Principal | On-Behalf-Of |
+|--------|------------------|--------------|
+| **Identity** | Shared SP | Per-user |
+| **Permissions** | SP's permissions | User's permissions |
+| **Audit** | Actions logged as SP | Actions logged as user |
+| **Setup** | Simpler | OAuth required |
+| **Use Case** | Internal tools | User-facing apps |
+
+## OBO Flow
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph Flow["🔄 OBO Token Flow"]
+        subgraph Step1["1️⃣ User Authenticates"]
+            Auth["User logs into app<br/>Receives OAuth token"]
+        end
+        
+        subgraph Step2["2️⃣ Token Exchange"]
+            Exchange["App exchanges user token<br/>for Databricks token"]
+            Grant["grant_type: jwt-bearer<br/>assertion: user_token"]
+        end
+        
+        subgraph Step3["3️⃣ Execute as User"]
+            Execute["Databricks operations<br/>run with user's identity"]
+        end
+    end
+
+    Step1 --> Step2 --> Step3
+
+    style Step1 fill:#e3f2fd,stroke:#1565c0
+    style Step2 fill:#fff3e0,stroke:#e65100
+    style Step3 fill:#e8f5e9,stroke:#2e7d32
+```
+
+## Prerequisites
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Prerequisites["✅ Prerequisites"]
+        P1["🔑 OAuth application configured"]
+        P2["👤 Users have Databricks accounts"]
+        P3["🔐 Proper scope configuration"]
+        P4["🖥️ Frontend sends user tokens"]
+    end
+
+    style Prerequisites fill:#e3f2fd,stroke:#1565c0
+```
+
+1. **OAuth Application** - Register in Databricks Account Console
+2. **User Accounts** - Users must have Databricks workspace access
+3. **Token Handling** - Frontend must pass user tokens to agent
+
+## Quick Start
+
 ```bash
-# Uses your personal credentials from databricks-cli
-dao-ai chat -c config/examples/06_on_behalf_of_user/obo_basic.yaml
+# Run with OBO enabled
+dao-ai serve -c config/examples/06_on_behalf_of_user/obo_config.yaml
+
+# Frontend sends request with user token
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer <user_oauth_token>" \
+  -d '{"message": "What tables can I access?"}'
 ```
 
-## 🔒 Access Control Setup
+## Security Considerations
 
-### Unity Catalog Permissions
-Users need appropriate permissions on the resources they'll access:
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Security["🔐 Security Considerations"]
+        S1["✅ Tokens are short-lived"]
+        S2["✅ User permissions enforced"]
+        S3["✅ Full audit trail"]
+        S4["⚠️ Token handling in frontend"]
+    end
 
-```sql
--- Grant function execution permissions
-GRANT EXECUTE ON FUNCTION catalog.schema.function_name TO user@example.com;
-
--- Grant schema usage permissions
-GRANT USE CATALOG ON CATALOG catalog_name TO user@example.com;
-GRANT USE SCHEMA ON SCHEMA catalog.schema TO user@example.com;
-
--- Grant table access (for Genie queries)
-GRANT SELECT ON TABLE catalog.schema.table_name TO user@example.com;
+    style Security fill:#e8f5e9,stroke:#2e7d32
 ```
 
-### Genie Space Permissions
-```sql
--- Grant Genie space access via Databricks UI or API
--- Users need "Can Use" or "Can Manage" permission on the Genie space
-```
+## Troubleshooting
 
-## 🧪 Testing OBO
+| Issue | Solution |
+|-------|----------|
+| Token exchange fails | Check OAuth app configuration |
+| Permission denied | User lacks Databricks access |
+| Token expired | Implement token refresh in frontend |
 
-### Test with Different Users
-1. **Admin User**: Should have full access to all resources
-2. **Read-Only User**: Should only access permitted tables
-3. **Restricted User**: Should see permission errors for restricted data
+## Next Steps
 
-### Verify OBO is Working
-```python
-# Check audit logs to confirm user attribution
-# Databricks Audit Logs will show:
-# - serviceName: "unityCatalog"
-# - actionName: "execute" (for functions)
-# - userIdentity: actual_user@example.com (not service_principal)
-```
+- **07_human_in_the_loop/** - Add user approval workflows
+- **05_memory/** - Per-user conversation history
+- **15_complete_applications/** - Production OBO patterns
 
-## 📊 Benefits vs. Service Principal Auth
+## Related Documentation
 
-| Feature | Service Principal | On-Behalf-Of User |
-|---------|------------------|-------------------|
-| Access Control | Broad permissions required | User's individual permissions |
-| Audit Trail | Shows service principal | Shows actual end user |
-| Compliance | May not meet requirements | Meets user-level tracking requirements |
-| Multi-tenancy | Requires manual filtering | Automatic based on permissions |
-| Setup Complexity | Simple | Moderate |
-| Use Case | Internal tools, batch jobs | Production apps, user-facing tools |
-
-## ⚠️ Important Considerations
-
-### 1. Performance
-- Each user's token is cached by Databricks
-- No significant performance impact for most use cases
-- Token refresh is handled automatically
-
-### 2. Fallback Behavior
-If OBO token is not available (e.g., local development), the system falls back to:
-1. Service principal credentials (if configured)
-2. Personal access token (if available)
-3. Databricks CLI authentication
-
-### 3. Compatibility
-OBO works with:
-- ✅ Unity Catalog Functions
-- ✅ Genie Spaces
-- ✅ SQL Warehouses
-- ✅ Vector Search
-- ✅ LLM Serving Endpoints
-- ✅ Tables and Views
-
-## 🔗 Related Examples
-
-- **[01_getting_started](../01_getting_started/)**: Basic agent setup without OBO
-- **[04_genie](../04_genie/)**: More Genie examples
-- **[08_guardrails](../08_guardrails/)**: Combine OBO with guardrails for secure AI
-
-## 📚 Additional Resources
-
-- [Databricks OBO Documentation](https://docs.databricks.com/dev-tools/auth.html#on-behalf-of-authentication)
-- [Unity Catalog Access Control](https://docs.databricks.com/data-governance/unity-catalog/manage-privileges/index.html)
-- [Model Serving Authentication](https://docs.databricks.com/machine-learning/model-serving/authentication.html)
+- [OAuth Configuration](../../../docs/key-capabilities.md#on-behalf-of-user)
+- [Databricks OAuth](https://docs.databricks.com/dev-tools/auth/oauth.html)

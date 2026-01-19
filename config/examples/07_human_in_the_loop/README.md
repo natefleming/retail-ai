@@ -1,151 +1,276 @@
 # 07. Human-in-the-Loop (HITL)
 
-**Approval workflows for sensitive operations**
+**Require human approval for sensitive operations**
 
-Pause agent execution to get human approval before executing critical actions like deletions, external communications, or financial transactions.
+Pause agent execution to request human confirmation before executing critical actions.
+
+## Architecture Overview
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#c2185b'}}}%%
+flowchart TB
+    subgraph Agent["🤖 Agent Execution"]
+        LLM["🧠 Agent LLM"]
+        Tool["🔧 Sensitive Tool<br/><i>update_record</i>"]
+        LLM --> Tool
+    end
+
+    subgraph HITL["⏸️ Human-in-the-Loop"]
+        Interrupt["🛑 Interrupt Execution"]
+        Request["📋 Approval Request<br/>━━━━━━━━━━━━━━━━<br/>Tool: update_record<br/>Args: {id: 123, status: 'closed'}"]
+        
+        Interrupt --> Request
+    end
+
+    subgraph Human["👤 Human Review"]
+        Review["Review request..."]
+        Decision{Approve?}
+        Approve["✅ Approve"]
+        Reject["❌ Reject"]
+        
+        Review --> Decision
+        Decision -->|"Yes"| Approve
+        Decision -->|"No"| Reject
+    end
+
+    subgraph Result["📤 Result"]
+        Execute["🔧 Execute Tool"]
+        Cancel["🚫 Cancel Operation"]
+    end
+
+    Tool --> Interrupt
+    Request --> Review
+    Approve --> Execute
+    Reject --> Cancel
+
+    style Agent fill:#e3f2fd,stroke:#1565c0
+    style HITL fill:#fff3e0,stroke:#e65100
+    style Human fill:#fce4ec,stroke:#c2185b
+    style Execute fill:#e8f5e9,stroke:#2e7d32
+    style Cancel fill:#ffebee,stroke:#c62828
+```
 
 ## Examples
 
-| File | Description | Use Case |
-|------|-------------|----------|
-| `human_in_the_loop.yaml` | Tool approval workflows | Sensitive operations requiring review |
+| File | Description |
+|------|-------------|
+| [`hitl_tools.yaml`](./hitl_tools.yaml) | Tool-level approval for sensitive operations |
 
-## What You'll Learn
+## How HITL Works
 
-- **HITL Configuration** - How to require approval for specific tools
-- **Approval Workflows** - Configure approve, edit, and reject decisions
-- **State Management** - Preserve context across approval cycles
-- **Review Prompts** - Provide context to human reviewers
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant 👤 as User
+    participant 🤖 as Agent
+    participant ⏸️ as HITL
+    participant 👨‍💼 as Human Reviewer
+
+    👤->>🤖: Close issue #123
+    🤖->>🤖: Select update_record tool
+    🤖->>⏸️: Requires approval
+    ⏸️->>⏸️: Pause execution
+    ⏸️->>👨‍💼: Request approval
+    Note over 👨‍💼: Review tool: update_record<br/>Args: {id: 123, status: 'closed'}
+    👨‍💼-->>⏸️: ✅ Approved
+    ⏸️->>🤖: Resume execution
+    🤖->>🤖: Execute tool
+    🤖-->>👤: Issue #123 has been closed
+```
+
+## Configuration
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph Config["📄 HITL Configuration"]
+        subgraph ToolDef["🔧 Tool Definition"]
+            T["tools:<br/>  update_tool: &update_tool<br/>    name: update_record<br/>    <b>human_in_the_loop: true</b><br/>    function:<br/>      type: python<br/>      code: ..."]
+        end
+        
+        subgraph AgentDef["🤖 Agent Uses Tool"]
+            A["agents:<br/>  my_agent:<br/>    tools:<br/>      - *update_tool"]
+        end
+    end
+
+    ToolDef --> AgentDef
+
+    style ToolDef fill:#e3f2fd,stroke:#1565c0
+    style AgentDef fill:#e8f5e9,stroke:#2e7d32
+```
+
+```yaml
+tools:
+  # 🔓 Safe tool - no approval needed
+  search_tool: &search_tool
+    name: search_records
+    function:
+      type: python
+      code: |
+        def search_records(query: str):
+            return {"results": [...]}
+
+  # 🔒 Sensitive tool - requires approval
+  update_tool: &update_tool
+    name: update_record
+    human_in_the_loop: true       # ← Requires human approval
+    function:
+      type: python
+      code: |
+        def update_record(id: int, status: str):
+            return {"updated": id, "status": status}
+
+agents:
+  assistant: &assistant
+    tools:
+      - *search_tool     # ✅ Executes immediately
+      - *update_tool     # ⏸️ Pauses for approval
+```
+
+## HITL Patterns
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Patterns["🛡️ When to Use HITL"]
+        subgraph Write["✏️ Write Operations"]
+            W1["Update records"]
+            W2["Delete data"]
+            W3["Create resources"]
+        end
+        
+        subgraph Sensitive["🔐 Sensitive Actions"]
+            S1["Access PII"]
+            S2["Financial transactions"]
+            S3["Permission changes"]
+        end
+        
+        subgraph External["🌐 External Effects"]
+            E1["Send notifications"]
+            E2["API calls"]
+            E3["File modifications"]
+        end
+    end
+
+    style Write fill:#e3f2fd,stroke:#1565c0
+    style Sensitive fill:#fce4ec,stroke:#c2185b
+    style External fill:#fff3e0,stroke:#e65100
+```
+
+## Approval Flow
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph Request["📋 Approval Request"]
+        Info["<b>Tool:</b> update_record<br/><b>Arguments:</b><br/>  id: 123<br/>  status: 'closed'<br/><b>Reason:</b> User requested..."]
+    end
+
+    subgraph Options["🎯 Reviewer Options"]
+        Approve["✅ <b>Approve</b><br/><i>Execute as requested</i>"]
+        Modify["📝 <b>Modify</b><br/><i>Change arguments</i>"]
+        Reject["❌ <b>Reject</b><br/><i>Cancel operation</i>"]
+    end
+
+    subgraph Outcomes["📤 Outcomes"]
+        O1["🔧 Tool executes"]
+        O2["🔧 Tool executes with changes"]
+        O3["🚫 Agent informed, continues"]
+    end
+
+    Request --> Options
+    Approve --> O1
+    Modify --> O2
+    Reject --> O3
+
+    style Request fill:#e3f2fd,stroke:#1565c0
+    style Approve fill:#e8f5e9,stroke:#2e7d32
+    style Modify fill:#fff3e0,stroke:#e65100
+    style Reject fill:#ffebee,stroke:#c62828
+```
+
+## Integration with Memory
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart LR
+    subgraph WithMemory["🧠 HITL + Memory"]
+        Pending["⏸️ Pending approval"]
+        Store["💾 State saved"]
+        Later["⏰ Hours later..."]
+        Resume["▶️ Resume & execute"]
+    end
+
+    Pending --> Store
+    Store --> Later
+    Later --> Resume
+
+    style WithMemory fill:#e3f2fd,stroke:#1565c0
+```
+
+For async approval workflows, combine HITL with memory persistence:
+
+```yaml
+app:
+  orchestration:
+    swarm: true
+    memory:
+      checkpointer:
+        type: postgres
+        connection_string: "{{secrets/scope/postgres}}"
+```
 
 ## Quick Start
 
 ```bash
-dao-ai chat -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
+dao-ai chat -c config/examples/07_human_in_the_loop/hitl_tools.yaml
 ```
 
-Request a sensitive action - the agent will pause and wait for your approval before proceeding.
-
-## Configuration Pattern
-
-```yaml
-tools:
-  send_email_tool:
-    name: send_email
-    function:
-      type: python
-      name: my_package.send_email_function
-      human_in_the_loop:
-        review_prompt: "Review this email before sending"
-        allowed_decisions:
-          - approve  # Execute with original parameters
-          - edit     # Modify parameters before execution
-          - reject   # Cancel the operation
+**Example interaction:**
 ```
+> Close issue #123
 
-## Decision Types
+⏸️ APPROVAL REQUIRED
+Tool: update_record
+Arguments: {"id": 123, "status": "closed"}
 
-### Approve
-Execute the tool with the original parameters provided by the agent.
+Approve? [y/n]: y
 
-### Edit
-Modify the tool parameters before execution. Useful when the agent got most of it right but needs minor adjustments.
-
-### Reject
-Cancel the operation entirely. The agent will be notified and can try an alternative approach.
-
-## Prerequisites
-
-- ✅ Checkpointer configured (PostgreSQL or Lakebase) for state persistence
-- ✅ MLflow for managing interrupts
-- ✅ Approval UI or API endpoint (optional, can use CLI)
-
-## Use Cases
-
-### Critical Operations
-- **Deletions**: Review before removing data
-- **Financial**: Approve before spending money
-- **External Comms**: Review emails, messages, API calls
-
-### Compliance
-- **Audit Trail**: All approvals logged
-- **Policy Enforcement**: Require sign-off for regulated actions
-- **Risk Management**: Human oversight for high-risk operations
-
-### Quality Control
-- **Content Review**: Check generated content before publishing
-- **Data Validation**: Verify data transformations
-- **Testing**: Manual verification of agent decisions
-
-## Implementation Notes
-
-### State Persistence
-HITL requires a checkpointer to maintain state while waiting for approval:
-
-```yaml
-memory:
-  checkpointer:
-    type: postgres  # or lakebase
-    connection_string: ${POSTGRES_URL}
-```
-
-### Thread Management
-Each conversation needs a unique `thread_id` to track approvals:
-
-```python
-request = ResponsesAgentRequest(
-    input=[Message(role="user", content="Send email to customer")],
-    custom_inputs={
-        "configurable": {
-            "thread_id": "conversation_123",
-            "user_id": "reviewer_456"
-        }
-    }
-)
-```
-
-### Approval Response Format
-When the agent returns an interrupt, respond with:
-
-```python
-{
-    "action": "approve",  # or "edit" or "reject"
-    "modified_params": {...}  # Only needed for "edit"
-}
+✅ Issue #123 has been closed.
 ```
 
 ## Best Practices
 
-1. **Be Specific**: Write clear review prompts explaining what needs approval
-2. **Limit Scope**: Only require HITL for truly sensitive operations
-3. **Set Timeouts**: Handle cases where approval never comes
-4. **Log Everything**: Maintain audit trail of all approvals
-5. **Test Workflows**: Verify approval flows work end-to-end
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Best["✅ Best Practices"]
+        BP1["🎯 Be selective - only sensitive tools"]
+        BP2["📝 Clear tool descriptions"]
+        BP3["🔍 Log all approvals/rejections"]
+        BP4["⏰ Set timeout policies"]
+        BP5["🧠 Use memory for async approval"]
+    end
+
+    style Best fill:#e8f5e9,stroke:#2e7d32
+```
 
 ## Troubleshooting
 
-**"HITL state lost"**
-- Ensure checkpointer is configured
-- Verify database connectivity
-- Check thread_id is preserved across requests
-
-**"Interrupt not raised"**
-- Verify tool has `human_in_the_loop` configuration
-- Check tool is actually being called by agent
-- Review LangGraph interrupt conditions
-
-**"Modified parameters ignored"**
-- Ensure you're using "edit" decision, not "approve"
-- Verify modified_params matches tool schema
-- Check parameter validation logic
+| Issue | Solution |
+|-------|----------|
+| Tool executes without approval | Verify `human_in_the_loop: true` |
+| Approval state lost | Add memory persistence |
+| Too many interrupts | Reduce HITL tools, batch operations |
 
 ## Next Steps
 
-👉 **08_guardrails/** - Automated safety checks  
-👉 **13_orchestration/** - Multi-agent workflows with HITL  
-👉 **15_complete_applications/** - See HITL in production apps
+- **05_memory/** - Persist approval state
+- **08_guardrails/** - Combine with quality controls
+- **15_complete_applications/** - Production HITL patterns
 
 ## Related Documentation
 
-- [HITL Patterns](../../../docs/key-capabilities.md#human-in-the-loop)
-- [State Management](../../../docs/key-capabilities.md#state-management)
-- [Tool Configuration](../../../docs/configuration-reference.md#tools)
+- [Human-in-the-Loop](../../../docs/key-capabilities.md#human-in-the-loop)
+- [Memory Configuration](../05_memory/README.md)

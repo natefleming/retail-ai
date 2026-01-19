@@ -1,172 +1,269 @@
 # 11. Prompt Engineering
 
-**Prompt versioning, management, and automated optimization**
+**MLflow Prompt Registry integration**
 
-Advanced prompt management for production agents with version control and automated tuning.
+Manage, version, and optimize agent prompts using MLflow's Prompt Registry.
+
+## Architecture Overview
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0'}}}%%
+flowchart TB
+    subgraph Registry["📚 MLflow Prompt Registry"]
+        subgraph Prompts["Versioned Prompts"]
+            V1["v1: Initial prompt"]
+            V2["v2: Improved clarity"]
+            V3["v3: Added examples"]
+        end
+        
+        Alias["📌 Aliases<br/>━━━━━━━━━━━━━━━━<br/>production → v3<br/>staging → v4<br/>development → v5"]
+    end
+
+    subgraph Agent["🤖 DAO AI Agent"]
+        Ref["prompt: *system_prompt<br/><i>References registry</i>"]
+    end
+
+    subgraph Runtime["⚡ Runtime"]
+        Load["Load prompt by alias"]
+        Execute["Execute with prompt"]
+    end
+
+    Alias --> Ref
+    Ref --> Load
+    Load --> Execute
+
+    style Registry fill:#e3f2fd,stroke:#1565c0
+    style Agent fill:#e8f5e9,stroke:#2e7d32
+```
 
 ## Examples
 
-| File | Description | Approach |
-|------|-------------|----------|
-| `prompt_registry.yaml` | MLflow prompt registry integration | Version control, governance |
-| `prompt_optimization.yaml` | Automated prompt tuning with GEPA | Evolutionary optimization |
+| File | Description |
+|------|-------------|
+| [`prompt_registry.yaml`](./prompt_registry.yaml) | MLflow Prompt Registry integration |
+| [`gepa_optimization.yaml`](./gepa_optimization.yaml) | GEPA-based prompt optimization |
 
-## What You'll Learn
+## Benefits
 
-- **Prompt Registry** - Centralized prompt storage in MLflow
-- **Versioning** - Track prompt changes and rollback
-- **A/B Testing** - Compare prompt variations
-- **Automated Optimization** - Use GEPA to improve prompts
-- **Governance** - Review and approval workflows
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Benefits["✅ Registry Benefits"]
+        B1["📋 <b>Version Control</b><br/>Track prompt changes"]
+        B2["🔀 <b>A/B Testing</b><br/>Compare versions"]
+        B3["🚀 <b>Safe Deployment</b><br/>Rollback support"]
+        B4["📊 <b>Evaluation</b><br/>Track performance"]
+    end
+
+    style Benefits fill:#e8f5e9,stroke:#2e7d32
+```
+
+## Configuration
+
+### Define Prompts in Registry
+
+```yaml
+prompts:
+  # 📝 Prompt from MLflow Registry
+  system_prompt: &system_prompt
+    schema: *retail_schema           # Unity Catalog location
+    name: retail_assistant_prompt    # Prompt name in registry
+    version: production              # Alias or version number
+    
+    # 📋 Default template (used if not in registry)
+    default_template: |
+      You are a helpful retail assistant for a hardware store.
+      
+      Your responsibilities:
+      - Answer product questions accurately
+      - Check inventory when asked
+      - Provide helpful recommendations
+      
+      Always be professional and courteous.
+```
+
+### Use in Agent
+
+```yaml
+agents:
+  retail_agent: &retail_agent
+    name: retail_assistant
+    model: *default_llm
+    tools:
+      - *search_tool
+      - *inventory_tool
+    prompt: *system_prompt           # ← Reference registered prompt
+```
+
+## Prompt Workflow
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant 👩‍💻 as Developer
+    participant 📚 as MLflow Registry
+    participant 🏷️ as Aliases
+    participant 🤖 as Agent
+
+    👩‍💻->>📚: Create prompt v1
+    👩‍💻->>🏷️: Set alias: development → v1
+    👩‍💻->>🤖: Test with development alias
+    🤖-->>👩‍💻: Results
+    
+    Note over 👩‍💻: Iterate...
+    
+    👩‍💻->>📚: Create prompt v2
+    👩‍💻->>🏷️: Update: development → v2
+    👩‍💻->>🏷️: Set: staging → v1
+    
+    Note over 👩‍💻: After validation...
+    
+    👩‍💻->>🏷️: Set: production → v2
+    Note over 🤖: Production uses v2
+```
+
+## GEPA Optimization
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph GEPA["🔬 GEPA Optimization Loop"]
+        subgraph Generate["1️⃣ Generate"]
+            G["Create prompt variants"]
+        end
+        
+        subgraph Evaluate["2️⃣ Evaluate"]
+            E["Test on evaluation set"]
+        end
+        
+        subgraph Promote["3️⃣ Promote"]
+            P["Select best performer"]
+        end
+        
+        subgraph Apply["4️⃣ Apply"]
+            A["Update production alias"]
+        end
+    end
+
+    Generate --> Evaluate --> Promote --> Apply
+    Apply -.->|"Iterate"| Generate
+
+    style Generate fill:#e3f2fd,stroke:#1565c0
+    style Evaluate fill:#fff3e0,stroke:#e65100
+    style Promote fill:#e8f5e9,stroke:#2e7d32
+    style Apply fill:#fce4ec,stroke:#c2185b
+```
+
+**GEPA (Generate-Evaluate-Promote-Apply):**
+1. **Generate** - Create prompt variations
+2. **Evaluate** - Test against benchmark dataset
+3. **Promote** - Select best performing variant
+4. **Apply** - Deploy to production
+
+## Alias Strategy
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph LR
+    subgraph Strategy["📌 Alias Strategy"]
+        subgraph Dev["development"]
+            D["Latest experimental<br/><i>Rapid iteration</i>"]
+        end
+        
+        subgraph Staging["staging"]
+            S["Validated candidate<br/><i>Pre-production testing</i>"]
+        end
+        
+        subgraph Prod["production"]
+            P["Stable, tested<br/><i>Live traffic</i>"]
+        end
+    end
+
+    Dev -->|"promote"| Staging
+    Staging -->|"promote"| Prod
+
+    style Dev fill:#fff3e0,stroke:#e65100
+    style Staging fill:#e3f2fd,stroke:#1565c0
+    style Prod fill:#e8f5e9,stroke:#2e7d32
+```
+
+## Prompt Template Variables
+
+```yaml
+prompts:
+  parametric_prompt: &parametric_prompt
+    name: retail_assistant
+    default_template: |
+      You are a {role} for {company_name}.
+      
+      Store locations: {store_locations}
+      
+      Current promotions: {promotions}
+      
+      Respond in {language}.
+```
+
+Variables can be filled at runtime or from configuration.
 
 ## Quick Start
 
-### Use prompt registry
 ```bash
+# Validate prompt configuration
+dao-ai validate -c config/examples/11_prompt_engineering/prompt_registry.yaml
+
+# Run with registered prompt
 dao-ai chat -c config/examples/11_prompt_engineering/prompt_registry.yaml
 ```
 
-Prompts are loaded from MLflow registry, not hardcoded in YAML.
+## Creating Prompts in Registry
 
-### Run prompt optimization
-```bash
-dao-ai chat -c config/examples/11_prompt_engineering/prompt_optimization.yaml
-```
-
-GEPA will iteratively improve prompts based on evaluation data.
-
-## Prompt Registry Workflow
-
-```
-1. Define base prompt → 2. Register in MLflow → 3. Use in agent 
-                         ↓
-4. Deploy to production ← 3. Test and evaluate ← 2. Create variants
-```
-
-### Benefits
-- ✅ **Version control**: Track all prompt changes
-- ✅ **Rollback**: Quickly revert to previous version
-- ✅ **A/B testing**: Compare prompt variants
-- ✅ **Governance**: Review before production deployment
-- ✅ **Centralized**: One source of truth for all prompts
-
-## Automated Optimization (GEPA)
-
-**GEPA** = Generative Evolution of Prompts and Agents
-
-### How it works
-1. **Start** with a base prompt and evaluation dataset
-2. **Evaluate** current prompt performance
-3. **Generate** variations using LLM
-4. **Test** variations on evaluation data
-5. **Select** best performing prompt
-6. **Iterate** until convergence or max iterations
-
-### Configuration
-```yaml
-prompt_optimization:
-  training_data_path: "path/to/eval_data.json"
-  max_iterations: 10
-  population_size: 5
-  evaluation_metrics:
-    - accuracy
-    - relevance
-    - latency
-```
-
-## Prerequisites
-
-### For Prompt Registry
-- ✅ MLflow tracking server
-- ✅ Prompt registry access
-- ✅ Prompts registered in MLflow
-
-### For Prompt Optimization
-- ✅ Evaluation dataset with inputs and expected outputs
-- ✅ MLflow experiment for tracking
-- ✅ LLM for generating variations
-- ✅ Time (optimization can take 30min-2hrs)
-
-## Prompt Registry Setup
-
-### 1. Register a prompt
 ```python
 import mlflow
 
+# Create and register a prompt
+prompt_template = """
+You are a helpful retail assistant.
+Always be professional and accurate.
+"""
+
+# Log to MLflow
 with mlflow.start_run():
-    mlflow.log_param("prompt_name", "my_agent_prompt")
-    mlflow.log_param("prompt_text", "You are a helpful assistant...")
-    mlflow.log_param("version", "1.0")
+    mlflow.log_param("prompt_version", "v1")
+    mlflow.log_text(prompt_template, "prompt.txt")
 ```
 
-### 2. Reference in config
-```yaml
-agents:
-  my_agent:
-    prompt:
-      registry:
-        model_name: "my_agent_prompt"
-        model_version: "1"  # Or "latest"
+## Best Practices
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Best["✅ Best Practices"]
+        BP1["📋 Always provide default_template"]
+        BP2["🏷️ Use aliases, not version numbers"]
+        BP3["🧪 Test in staging before production"]
+        BP4["📊 Track performance metrics"]
+        BP5["🔙 Keep rollback plan ready"]
+    end
+
+    style Best fill:#e8f5e9,stroke:#2e7d32
 ```
-
-## Optimization Best Practices
-
-### Evaluation Data
-- **Quality over quantity**: 20-50 high-quality examples > 1000 poor examples
-- **Representative**: Cover key use cases and edge cases
-- **Diverse**: Include various input types and expected behaviors
-- **Labeled**: Clear expected outputs for each input
-
-### Metrics
-- **Accuracy**: Correctness of responses
-- **Relevance**: Response addresses the query
-- **Brevity**: Concise without losing information
-- **Format**: Follows expected structure
-- **Safety**: No hallucinations or harmful content
-
-### Iteration Strategy
-- **Start small**: 5-10 iterations with population of 3-5
-- **Monitor progress**: Track metrics after each generation
-- **Early stopping**: Stop if no improvement for 3 generations
-- **Cost awareness**: Each iteration calls LLM multiple times
-
-## Typical Results
-
-| Metric | Before Optimization | After GEPA | Improvement |
-|--------|---------------------|------------|-------------|
-| Accuracy | 65% | 82% | +17% |
-| Relevance | 70% | 88% | +18% |
-| Latency | 2.3s | 2.1s | -9% |
-
-*Results vary by use case and evaluation data quality*
-
-## Next Steps
-
-👉 **13_orchestration/** - Multi-agent prompt coordination  
-👉 **15_complete_applications/** - Production prompt management
 
 ## Troubleshooting
 
-**"Prompt not found in registry"**
-- Verify prompt name and version
-- Check MLflow tracking URI
-- Ensure prompt is registered
+| Issue | Solution |
+|-------|----------|
+| Prompt not found | Check schema, name, verify registration |
+| Wrong version loaded | Verify alias points to correct version |
+| Template variables missing | Provide defaults or check runtime |
 
-**"Optimization not converging"**
-- Review evaluation data quality
-- Reduce population size
-- Increase max iterations
-- Try different evaluation metrics
+## Next Steps
 
-**"High optimization costs"**
-- Reduce max iterations (start with 5-10)
-- Smaller population size (3-5)
-- Cache LLM responses
-- Use cheaper model for variation generation
+- **08_guardrails/** - Version guardrail prompts
+- **13_orchestration/** - Apply to multi-agent systems
+- **15_complete_applications/** - Production prompt management
 
 ## Related Documentation
 
-- [MLflow Prompt Registry](https://mlflow.org/docs/latest/prompts.html)
-- [GEPA Paper](https://arxiv.org/abs/2406.09769)
-- [Prompt Engineering Guide](../../../docs/key-capabilities.md)
-
+- [Prompt Registry](../../../docs/key-capabilities.md#prompt-engineering)
+- [MLflow Prompts](https://mlflow.org/docs/latest/llms/prompt-engineering.html)

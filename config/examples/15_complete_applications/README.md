@@ -1,308 +1,345 @@
 # 15. Complete Applications
 
-**Full-featured, production-ready agent applications**
+**Production-ready examples combining multiple features**
 
-Reference implementations of complete, production-grade agent systems. These examples combine multiple patterns from previous categories into cohesive applications.
+End-to-end configurations demonstrating best practices for real-world deployments.
+
+## Architecture Overview
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0'}}}%%
+flowchart TB
+    subgraph Complete["🏗️ Complete Application Architecture"]
+        subgraph UI["🖥️ User Interface"]
+            Chat["💬 Chat UI"]
+            API["🔌 REST API"]
+        end
+        
+        subgraph Core["🤖 DAO AI Core"]
+            subgraph Orchestration["🎭 Orchestration"]
+                Supervisor["👔 Supervisor"]
+                Swarm["🐝 Swarm"]
+            end
+            
+            subgraph Agents["👷 Specialized Agents"]
+                A1["🛒 Product"]
+                A2["📦 Inventory"]
+                A3["💬 General"]
+            end
+            
+            subgraph Features["✨ Features"]
+                F1["🧠 Memory"]
+                F2["🔒 PII Protection"]
+                F3["🛡️ Guardrails"]
+                F4["⏸️ HITL"]
+            end
+        end
+        
+        subgraph Data["☁️ Databricks Platform"]
+            LLM["🧠 LLM Endpoints"]
+            VS["🔍 Vector Search"]
+            Genie["🧞 Genie Rooms"]
+            MCP["🔌 MCP Servers"]
+            SQL["🗄️ SQL Warehouse"]
+        end
+    end
+
+    UI --> Core
+    Core --> Data
+
+    style UI fill:#e3f2fd,stroke:#1565c0
+    style Orchestration fill:#fff3e0,stroke:#e65100
+    style Agents fill:#e8f5e9,stroke:#2e7d32
+    style Features fill:#fce4ec,stroke:#c2185b
+    style Data fill:#f3e5f5,stroke:#7b1fa2
+```
 
 ## Examples
 
-| File | Description | Complexity |
-|------|-------------|------------|
-| `executive_assistant.yaml` | Comprehensive assistant (email, calendar, Slack) | ⭐⭐⭐⭐⭐ |
-| `deep_research.yaml` | Multi-step research agent with web search | ⭐⭐⭐⭐ |
-| `reservations_system.yaml` | Restaurant reservation management | ⭐⭐⭐ |
-| `genie_vector_search_hybrid.yaml` | Combined SQL and vector search | ⭐⭐⭐⭐ |
-| `genie_and_genie_mcp.yaml` | Multiple Genie instances via MCP | ⭐⭐⭐⭐ (experimental) |
+| File | Pattern | Description |
+|------|---------|-------------|
+| [`hardware_store_supervisor.yaml`](./hardware_store_supervisor.yaml) | 👔 Supervisor | Multi-agent supervisor with full features |
+| [`hardware_store_swarm.yaml`](./hardware_store_swarm.yaml) | 🐝 Swarm | Swarm orchestration with handoffs |
 
-## What You'll Learn
+## Hardware Store Supervisor Architecture
 
-- **System integration** - Combine multiple tools and services
-- **Production patterns** - Safety, monitoring, error handling
-- **Complex workflows** - Multi-step processes and decision trees
-- **Real-world architecture** - How to structure production agents
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph User["👤 Customer"]
+        Query["Do you have Dewalt drills?<br/>What's the price and stock?"]
+    end
 
-## Application Profiles
+    subgraph Supervisor["🎯 Supervisor Agent"]
+        Router["Routing LLM<br/>━━━━━━━━━━━━━━━━<br/>Analyzes request<br/>Routes to specialist"]
+    end
 
-### Executive Assistant
-**Use case**: Personal productivity and communication  
-**Tools**: Email (SMTP), Calendar, Slack, Web search, File management  
-**Patterns**: HITL for sensitive ops, structured output, memory
+    subgraph Specialists["👷 Specialized Agents"]
+        subgraph Product["🛒 Product Agent"]
+            PT["Tools:<br/>• vector_search<br/>• genie_query<br/>━━━━━━━━━━━━━━━━<br/>Details, specs, pricing"]
+        end
+        
+        subgraph Inventory["📦 Inventory Agent"]
+            IT["Tools:<br/>• inventory_search<br/>• stock_check<br/>━━━━━━━━━━━━━━━━<br/>Availability, locations"]
+        end
+        
+        subgraph General["💬 General Agent"]
+            GT["Tools:<br/>• policies_search<br/>━━━━━━━━━━━━━━━━<br/>Hours, policies, FAQs"]
+        end
+    end
 
-**Capabilities:**
-- 📧 Email management (read, send, search)
-- 📅 Calendar operations (schedule, find meetings)
-- 💬 Slack integration (send messages, check channels)
-- 🔍 Web search for information
-- 📁 Document management
+    subgraph Features["✨ Applied Features"]
+        Memory["🧠 PostgreSQL Memory"]
+        PII["🔒 PII Detection"]
+        Guard["🛡️ Guardrails"]
+    end
 
-### Deep Research
-**Use case**: Comprehensive research and analysis  
-**Tools**: Web search, Vector Search, Document processing  
-**Patterns**: Multi-step reasoning, caching, structured output
+    Query --> Router
+    Router --> Product
+    Router -.-> Inventory
+    Router -.-> General
+    Product --> Features
+    Inventory --> Features
+    General --> Features
 
-**Workflow:**
-1. Understand research question
-2. Search for relevant information
-3. Synthesize findings
-4. Generate structured report
-5. Iterate with follow-up questions
-
-### Reservations System
-**Use case**: Restaurant booking management  
-**Tools**: Database access, SMS/Email notifications, Calendar  
-**Patterns**: Structured output, validation, state management
-
-**Operations:**
-- 📞 Take reservations
-- 🔍 Check availability
-- ✉️ Send confirmations
-- 🔄 Handle modifications/cancellations
-- 📊 Generate reports
-
-### Genie + Vector Search Hybrid
-**Use case**: Comprehensive data access  
-**Tools**: Databricks Genie (SQL), Vector Search (semantic)  
-**Patterns**: Caching, intelligent routing
-
-**Capabilities:**
-- SQL queries for structured data
-- Semantic search for unstructured content
-- Intelligent query routing
-- Combined result synthesis
-
-## Prerequisites
-
-### General
-- ✅ All concepts from categories 01-06
-- ✅ Production Databricks workspace
-- ✅ MLflow for monitoring
-- ✅ PostgreSQL or Lakebase for state
-
-### Application-Specific
-
-**Executive Assistant:**
-- SMTP credentials or SendGrid API
-- Calendar API access (Google Calendar, Outlook)
-- Slack workspace and bot token
-
-**Deep Research:**
-- Web search API (DuckDuckGo or Serper)
-- Vector Search index
-- Document processing tools
-
-**Reservations:**
-- Database for bookings
-- SMS/Email service
-- Optional: POS system integration
-
-**Genie + Vector Search:**
-- Multiple Genie spaces
-- Vector Search indexes
-- Embedding models
-
-## Quick Start
-
-### Executive Assistant
-```bash
-# Set required credentials
-export SMTP_PASSWORD="your-password"
-export SLACK_BOT_TOKEN="xoxb-token"
-export CALENDAR_API_KEY="your-key"
-
-dao-ai chat -c config/examples/11_complete_applications/executive_assistant.yaml
+    style Supervisor fill:#fff3e0,stroke:#e65100
+    style Product fill:#e8f5e9,stroke:#2e7d32
+    style Features fill:#e3f2fd,stroke:#1565c0
 ```
 
-Example: *"Check my calendar for tomorrow and send a Slack message to #team with my availability"*
+## Hardware Store Swarm Architecture
 
-### Deep Research
-```bash
-dao-ai chat -c config/examples/11_complete_applications/deep_research.yaml
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph User["👤 Customer"]
+        Query["Compare Dewalt vs Milwaukee drills<br/>Check stock for both"]
+    end
+
+    subgraph Swarm["🐝 Agent Swarm"]
+        subgraph Product["🛒 Product Agent"]
+            PT["Tools:<br/>• search_products<br/>• <b>transfer_to_inventory</b><br/>• <b>transfer_to_comparison</b>"]
+        end
+        
+        subgraph Inventory["📦 Inventory Agent"]
+            IT["Tools:<br/>• check_stock<br/>• <b>transfer_to_product</b><br/>• <b>transfer_to_comparison</b>"]
+        end
+        
+        subgraph Comparison["⚖️ Comparison Agent"]
+            CT["Tools:<br/>• compare_products<br/>• <b>transfer_to_product</b><br/>• <b>transfer_to_inventory</b>"]
+        end
+    end
+
+    subgraph Features["✨ Applied Features"]
+        Memory["🧠 Memory"]
+        Middleware["🔒 Swarm Middleware"]
+    end
+
+    Query --> Product
+    Product <-->|"handoff"| Inventory
+    Product <-->|"handoff"| Comparison
+    Inventory <-->|"handoff"| Comparison
+    Swarm --> Features
+
+    style Swarm fill:#e8f5e9,stroke:#2e7d32
+    style Features fill:#e3f2fd,stroke:#1565c0
 ```
 
-Example: *"Research the latest developments in quantum computing and create a summary report"*
+## Feature Integration
 
-### Reservations
-```bash
-dao-ai chat -c config/examples/11_complete_applications/reservations_system.yaml
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Integration["🔗 Feature Integration"]
+        subgraph Memory["🧠 Memory"]
+            M1["checkpointer: postgres"]
+            M2["store: postgres"]
+            M3["summarizer: *default_llm"]
+        end
+        
+        subgraph Middleware["🔒 Middleware"]
+            MW1["pii_detection: local"]
+            MW2["pii_restoration: local"]
+            MW3["logger: INFO"]
+        end
+        
+        subgraph Guardrails["🛡️ Guardrails"]
+            G1["tone_check"]
+            G2["completeness_check"]
+            G3["num_retries: 2"]
+        end
+        
+        subgraph Tools["🔧 Tools"]
+            T1["Genie MCP"]
+            T2["Vector Search"]
+            T3["SQL Warehouse"]
+        end
+    end
+
+    style Memory fill:#e3f2fd,stroke:#1565c0
+    style Middleware fill:#e8f5e9,stroke:#2e7d32
+    style Guardrails fill:#fff3e0,stroke:#e65100
+    style Tools fill:#fce4ec,stroke:#c2185b
 ```
-
-Example: *"Make a reservation for 4 people tomorrow at 7pm"*
 
 ## Production Checklist
 
-Before deploying these applications:
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph Checklist["✅ Production Checklist"]
+        subgraph Security["🔐 Security"]
+            S1["☐ PII middleware enabled"]
+            S2["☐ Secrets in Unity Catalog"]
+            S3["☐ HITL for sensitive ops"]
+        end
+        
+        subgraph Reliability["🔄 Reliability"]
+            R1["☐ PostgreSQL memory"]
+            R2["☐ Guardrails configured"]
+            R3["☐ Error handling"]
+        end
+        
+        subgraph Observability["📊 Observability"]
+            O1["☐ MLflow tracing"]
+            O2["☐ Logging middleware"]
+            O3["☐ Metrics collection"]
+        end
+        
+        subgraph Scale["📈 Scale"]
+            SC1["☐ Load testing"]
+            SC2["☐ Rate limiting"]
+            SC3["☐ Model registration"]
+        end
+    end
 
-### Security
-- [ ] All credentials stored in Databricks Secrets
-- [ ] HITL enabled for sensitive operations
-- [ ] Input validation for all user queries
-- [ ] Rate limiting configured
-- [ ] Audit logging enabled
-
-### Reliability
-- [ ] Error handling for all tool calls
-- [ ] Fallback strategies defined
-- [ ] Timeout configuration
-- [ ] Retry logic for transient failures
-- [ ] State persistence configured
-
-### Monitoring
-- [ ] MLflow tracking enabled
-- [ ] Custom metrics logged
-- [ ] Alert thresholds defined
-- [ ] Performance dashboards created
-- [ ] Cost tracking configured
-
-### Quality
-- [ ] Guardrails enabled
-- [ ] Output validation
-- [ ] Response time SLAs
-- [ ] Accuracy targets defined
-- [ ] User feedback loop
-
-## Architecture Patterns
-
-### Layered Architecture
-```
-┌─────────────────────────────────┐
-│      User Interface             │
-├─────────────────────────────────┤
-│      Agent Orchestration        │
-├─────────────────────────────────┤
-│      Business Logic             │
-├─────────────────────────────────┤
-│      Tool Integrations          │
-├─────────────────────────────────┤
-│      Data & State Layer         │
-└─────────────────────────────────┘
+    style Security fill:#ffebee,stroke:#c62828
+    style Reliability fill:#e8f5e9,stroke:#2e7d32
+    style Observability fill:#e3f2fd,stroke:#1565c0
+    style Scale fill:#fff3e0,stroke:#e65100
 ```
 
-### Key Design Decisions
+## Configuration Structure
 
-1. **Separation of Concerns**: Each tool handles one responsibility
-2. **Idempotency**: Operations can be safely retried
-3. **State Management**: Clear state transitions and persistence
-4. **Error Boundaries**: Failures isolated and handled gracefully
-5. **Observability**: Comprehensive logging and tracing
-
-## Customization Guide
-
-These applications are starting points. To adapt for your needs:
-
-### 1. Identify Core Requirements
-- What are the must-have features?
-- What tools/services need integration?
-- What are the safety/compliance requirements?
-
-### 2. Select Base Application
-- Choose the example closest to your needs
-- Review its architecture and patterns
-
-### 3. Customize Configuration
-- Modify agents and tools
-- Adjust prompts for your domain
-- Configure security and validation
-
-### 4. Test Thoroughly
-- Unit test individual tools
-- Integration test workflows
-- Load test for expected traffic
-- Security test for vulnerabilities
-
-### 5. Deploy Gradually
-- Start with limited users/beta
-- Monitor metrics closely
-- Iterate based on feedback
-- Scale gradually
-
-## Performance Optimization
-
-### Caching Strategy
 ```yaml
-# Add caching from 04_genie
+# Complete Application Structure
+schemas:
+  retail_schema: &retail_schema           # Unity Catalog location
+
+resources:
+  llms:
+    default_llm: &default_llm             # Primary LLM
+    judge_llm: &judge_llm                 # Guardrail evaluator
+  vector_stores:
+    products_store: &products_store       # Semantic search
+  genie_rooms:
+    retail_genie: &retail_genie           # Natural language SQL
+
+prompts:
+  tone_prompt: &tone_prompt               # Guardrail prompts
+  agent_prompts: ...                      # Agent instructions
+
+middleware:
+  pii_detection: &pii_detection           # Input protection
+  pii_restoration: &pii_restoration       # Output restoration
+  logger: &logger                         # Audit logging
+
+guardrails:
+  tone_check: &tone_check                 # Response quality
+  completeness_check: &completeness_check
+
 tools:
-  - genie:
-      lru_cache: true
-      semantic_cache: true
-```
+  genie_tool: &genie_tool                 # Data queries
+  vector_tool: &vector_tool               # Semantic search
+  handoff_tools: ...                      # For swarm pattern
 
-### Parallel Execution
-```yaml
-# Tools that can run in parallel
 agents:
-  my_agent:
-    parallel_tool_calls: true
+  product_agent: &product_agent
+  inventory_agent: &inventory_agent
+  general_agent: &general_agent
+
+app:
+  name: hardware_store_assistant
+  agents: [*product_agent, *inventory_agent, *general_agent]
+  orchestration:
+    supervisor:                           # or swarm:
+      model: *default_llm
+      prompt: "Route to appropriate agent..."
+      middleware: [*pii_detection, *pii_restoration]
+    memory:
+      checkpointer:
+        type: postgres
+        connection_string: "{{secrets/scope/postgres}}"
 ```
 
-### Model Selection
-```yaml
-# Use faster models for simple tasks
-agents:
-  classifier:
-    model: *fast_model    # GPT-3.5, Claude Haiku
-  reasoner:
-    model: *smart_model   # GPT-4, Claude Opus
+## Quick Start
+
+```bash
+# Validate complete application
+dao-ai validate -c config/examples/15_complete_applications/hardware_store_supervisor.yaml
+
+# Run in chat mode
+dao-ai chat -c config/examples/15_complete_applications/hardware_store_supervisor.yaml
+
+# Visualize architecture
+dao-ai graph -c config/examples/15_complete_applications/hardware_store_supervisor.yaml -o architecture.png
+
+# Register as MLflow model
+dao-ai register -c config/examples/15_complete_applications/hardware_store_supervisor.yaml
 ```
 
-## Cost Management
+## Deployment Options
 
-| Component | Monthly Cost (est.) | Optimization |
-|-----------|---------------------|--------------|
-| LLM calls | $100-500 | Cache, use appropriate model size |
-| Vector Search | $50-200 | Limit query frequency, batch queries |
-| Database | $20-100 | Appropriate instance size, connection pooling |
-| Tools (APIs) | $0-300 | Rate limits, caching, choose cost-effective providers |
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph LR
+    subgraph Deploy["🚀 Deployment Options"]
+        subgraph Model["📦 MLflow Model"]
+            M["dao-ai register<br/>━━━━━━━━━━━━━━━━<br/>Versioned artifact<br/>Model serving ready"]
+        end
+        
+        subgraph App["🖥️ Databricks App"]
+            A["dao-ai-builder<br/>━━━━━━━━━━━━━━━━<br/>Web UI<br/>REST API"]
+        end
+        
+        subgraph Endpoint["⚡ Model Serving"]
+            E["Serverless Endpoint<br/>━━━━━━━━━━━━━━━━<br/>Auto-scaling<br/>Low latency"]
+        end
+    end
 
-**Total**: $170-1,100/month for moderate usage
+    style Model fill:#e3f2fd,stroke:#1565c0
+    style App fill:#e8f5e9,stroke:#2e7d32
+    style Endpoint fill:#fff3e0,stroke:#e65100
+```
+
+## Best Practices
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+graph TB
+    subgraph Best["✅ Best Practices"]
+        BP1["🔒 Use PII middleware in production"]
+        BP2["🧠 PostgreSQL for multi-process memory"]
+        BP3["🛡️ Guardrails for quality control"]
+        BP4["📊 Enable MLflow tracing"]
+        BP5["⏸️ HITL for write operations"]
+        BP6["📝 Version prompts in MLflow Registry"]
+    end
+
+    style Best fill:#e8f5e9,stroke:#2e7d32
+```
 
 ## Troubleshooting
 
-### High Latency
-- Enable caching (04_genie)
-- Use parallel tool calls
-- Optimize prompts (reduce tokens)
-- Use faster models where appropriate
-
-### High Costs
-- Review tool call frequency
-- Enable caching
-- Use smaller models for simple tasks
-- Set token limits
-
-### Low Accuracy
-- Improve prompts (11_prompt_engineering)
-- Add examples to prompts
-- Use more capable models
-- Add validation and guardrails
-
-## Next Steps
-
-🎉 **Congratulations!** You've completed the learning path.
-
-### Continue Learning
-- Review [Key Capabilities](../../../docs/key-capabilities.md)
-- Explore [Python API](../../../docs/python-api.md)
-- Read [Architecture Guide](../../../docs/architecture.md)
-
-### Build Your Own
-- Identify your use case
-- Start with relevant example
-- Customize step-by-step
-- Deploy to production
-
-### Contribute Back
-- Share your application
-- Report issues or improvements
-- Help other users
-- [Contributing Guide](../../../docs/contributing.md)
+| Issue | Solution |
+|-------|----------|
+| Memory not persisting | Check PostgreSQL connection |
+| Slow responses | Review guardrail num_retries |
+| Wrong agent routing | Improve supervisor prompt |
+| PII leaking | Verify middleware order |
 
 ## Related Documentation
 
-- [Deployment Guide](../../../docs/cli-reference.md#bundle)
-- [Production Best Practices](../../../docs/faq.md)
-- [MLflow Integration](../../../docs/key-capabilities.md)
-
----
-
-**Need help?** Check the [FAQ](../../../docs/faq.md) or open a [GitHub issue](https://github.com/your-org/dao-ai/issues).
-
+- [Architecture Overview](../../../docs/architecture.md)
+- [Configuration Reference](../../../docs/configuration-reference.md)
+- [Deployment Guide](../../../docs/deployment.md)
