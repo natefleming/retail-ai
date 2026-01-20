@@ -2985,14 +2985,40 @@ class GuidelineModel(BaseModel):
 
 
 class EvaluationModel(BaseModel):
+    """
+    Configuration for MLflow GenAI evaluation.
+
+    Attributes:
+        model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).
+               This model evaluates agent responses during evaluation.
+        table: Table to store evaluation results.
+        num_evals: Number of evaluation samples to generate.
+        agent_description: Description of the agent for evaluation data generation.
+        question_guidelines: Guidelines for generating evaluation questions.
+        custom_inputs: Custom inputs to pass to the agent during evaluation.
+        guidelines: List of guideline configurations for Guidelines scorers.
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: LLMModel
+    model: LLMModel = Field(
+        ..., description="LLM model used as the judge for LLM-based evaluation scorers"
+    )
     table: TableModel
     num_evals: int
     agent_description: Optional[str] = None
     question_guidelines: Optional[str] = None
     custom_inputs: dict[str, Any] = Field(default_factory=dict)
     guidelines: list[GuidelineModel] = Field(default_factory=list)
+
+    @property
+    def judge_model_endpoint(self) -> str:
+        """
+        Get the judge model endpoint string for MLflow scorers.
+
+        Returns:
+            Endpoint string in format 'endpoints:/model-name'
+        """
+        return f"endpoints:/{self.model.name}"
 
 
 class EvaluationDatasetExpectationsModel(BaseModel):
