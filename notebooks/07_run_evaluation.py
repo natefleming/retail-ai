@@ -76,7 +76,9 @@ from dao_ai.config import AppConfig
 
 from loguru import logger
 
-mlflow.langchain.autolog()
+# Enable autologging with trace support - IMPORTANT: log_traces=True is required
+# for trace-based scorers to receive trace objects
+mlflow.langchain.autolog(log_traces=True)
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
@@ -111,7 +113,7 @@ pprint(custom_inputs)
 # COMMAND ----------
 
 # DBTITLE 1,Load Model and Process Chat Messages
-from typing import Any
+from typing import Any, Optional
 
 import mlflow
 from mlflow import MlflowClient
@@ -129,103 +131,73 @@ latest_version: int = get_latest_model_version(registered_model_name)
 model_uri: str = f"models:/{registered_model_name}/{latest_version}"
 model_version: ModelVersion = mlflow_client.get_model_version(registered_model_name, str(latest_version))
 
-#loaded_agent = mlflow.pyfunc.load_model(model_uri)
-def predict_fn(messages: dict[str, Any]) -> dict[str, Any]:
+
+# Use @mlflow.trace decorator to ensure traces are created and linked to evaluation
+# This is CRITICAL for trace-based scorers like tool_call_efficiency to work
+@mlflow.trace(name="predict", span_type="CHAIN")
+def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Prediction function wrapped with MLflow tracing.
+    
+    Args:
+        messages: Chat messages in format [{"role": "user", "content": "..."}]
+    
+    Returns flat output format for MLflow 3.8+ scorer compatibility:
+    {"response": "..."} instead of {"outputs": {"response": "..."}}
+    """
+    # Keep the full messages payload visible in MLflow traces
     print(f"messages={messages}")
-    input = {"messages": messages}
+
+    input_data = {"messages": messages}
     if custom_inputs:
-        input["custom_inputs"] = custom_inputs
+        input_data["custom_inputs"] = custom_inputs
     response_content = ""
-    for chunk in process_messages_stream(app, **input):
+    for chunk in process_messages_stream(app, **input_data):
         # Handle different chunk types
-        if hasattr(chunk, "content") and chunk.content:
-            content = chunk.content
-            response_content += content
-        elif hasattr(chunk, "choices") and chunk.choices:
-            # Handle ChatCompletionChunk format
-            for choice in chunk.choices:
-                if (
-                    hasattr(choice, "delta")
-                    and choice.delta
-                    and choice.delta.content
-                ):
-                    content = choice.delta.content
-                    response_content += content
+        if isinstance(chunk, str):
+            response_content += chunk
+        else:
+            # Best-effort handling of streamed chunk objects without relying on hasattr/getattr
+            try:
+                content = chunk.content  # type: ignore[attr-defined]
+                if content:
+                    response_content += str(content)
+                    continue
+            except Exception:
+                pass
+
+            try:
+                choices = chunk.choices  # type: ignore[attr-defined]
+                for choice in choices:
+                    try:
+                        delta = choice.delta  # type: ignore[attr-defined]
+                        delta_content = delta.content  # type: ignore[attr-defined]
+                        if delta_content:
+                            response_content += str(delta_content)
+                    except Exception:
+                        continue
+            except Exception:
+                continue
 
     print(f"response_content={response_content}")
 
-    outputs: dict[str, Any] = {
-        "outputs": {
-            "response": response_content,
-        }
-    }
-    return outputs
+    # Return FLAT output format - this is what MLflow 3.8+ scorers expect
+    return {"response": response_content}
 
 # COMMAND ----------
 
-# DBTITLE 1,- Define and Evaluate Scoring Functions for Responses
-from mlflow.genai.scorers import scorer, Safety, Guidelines
+# DBTITLE 1,Import Scorers from DAO AI Evaluation Module
+# Import reusable scorers from dao_ai.evaluation module
+# These scorers are designed to work with MLflow 3.8+ patterns
+from dao_ai.evaluation import (
+    response_completeness,
+    tool_call_efficiency,
+    response_clarity,
+    create_guidelines_scorers,
+)
+from mlflow.genai.scorers import Safety, Guidelines
 from mlflow.entities import Feedback, Trace
-
-
-@scorer
-def response_completeness(outputs: dict[str, Any]) -> Feedback:
-
-    print(f"outputs={outputs}")
-
-    content = outputs["outputs"]["response"]
-
-    # Outputs is return value of your app. Here we assume it's a string.
-    if len(content.strip()) < 10:
-        return Feedback(
-            value=False,
-            rationale="Response too short to be meaningful"
-        )
-
-    if content.lower().endswith(("...", "etc", "and so on")):
-        return Feedback(
-            value=False,
-            rationale="Response appears incomplete"
-        )
-
-    return Feedback(
-        value=True,
-        rationale="Response appears complete"
-    )
-
-@scorer
-def tool_call_efficiency(trace: Trace) -> Feedback:
-    """Evaluate how effectively the app uses tools"""
-    # Retrieve all tool call spans from the trace
-    tool_calls = trace.search_spans(span_type="TOOL")
-
-    if not tool_calls:
-        return Feedback(
-            value=None,
-            rationale="No tool usage to evaluate"
-        )
-
-    # Check for redundant calls
-    tool_names = [span.name for span in tool_calls]
-    if len(tool_names) != len(set(tool_names)):
-        return Feedback(
-            value=False,
-            rationale=f"Redundant tool calls detected: {tool_names}"
-        )
-
-    # Check for errors
-    failed_calls = [s for s in tool_calls if s.status.status_code != "OK"]
-    if failed_calls:
-        return Feedback(
-            value=False,
-            rationale=f"{len(failed_calls)} tool calls failed"
-        )
-
-    return Feedback(
-        value=True,
-        rationale=f"Efficient tool usage: {len(tool_calls)} successful calls"
-    )
-    
+from typing import Optional
 
 
 # COMMAND ----------
@@ -246,7 +218,7 @@ display(eval_df)
 
 # COMMAND ----------
 
-# DBTITLE 1,- Evaluate Model with Custom Scorers and Log Results
+# DBTITLE 1,Evaluate Model with Custom Scorers and Log Results
 import mlflow
 from mlflow.models.model import ModelInfo
 from mlflow.entities.model_registry.model_version import ModelVersion
@@ -263,13 +235,57 @@ eval_df: pd.DataFrame = spark.read.table(payload_table).toPandas()
 
 evaluation_table_name: str = config.evaluation.table.full_name
 
-scorers = [Safety(), response_completeness, tool_call_efficiency]
-custom_scorers = []
+# Normalize evaluation inputs for Guidelines scorers: it expects a list of message dicts
+def normalize_eval_inputs_to_input_dict(raw_inputs: Any) -> dict[str, Any]:
+    """
+    MLflow requires the 'inputs' column to be a dict of field names -> values.
+    Guidelines scorers expect those inputs to contain chat messages. We standardize to:
+        {"messages": [{"role": "user", "content": "..."}]}
+    """
+    # If already dict-shaped, keep ONLY the keys that match predict_fn params.
+    # Our predict_fn takes only `messages`, so we must not pass extra keys.
+    if isinstance(raw_inputs, dict) and "messages" in raw_inputs:
+        messages_val = raw_inputs.get("messages")
+        if isinstance(messages_val, list):
+            return {"messages": messages_val}
+        return {"messages": [{"role": "user", "content": str(messages_val)}]}
 
+    # If inputs is already a list of message dicts, wrap it
+    if isinstance(raw_inputs, list) and (not raw_inputs or isinstance(raw_inputs[0], dict)):
+        return {"messages": raw_inputs}
+
+    # Common case: struct/dict with a request field
+    if isinstance(raw_inputs, dict) and "request" in raw_inputs:
+        return {"messages": [{"role": "user", "content": str(raw_inputs["request"])}]}
+
+    # Fallback: convert anything else to a single user message
+    return {"messages": [{"role": "user", "content": str(raw_inputs)}]}
+
+
+if "inputs" in eval_df.columns:
+    eval_df["inputs"] = eval_df["inputs"].apply(normalize_eval_inputs_to_input_dict)
+
+# Build scorer list with Safety and custom scorers from dao_ai.evaluation
+# The judge model is required for ALL LLM-based scorers (Safety, Guidelines)
+judge_model = config.evaluation.judge_model_endpoint
+print(f"Using judge model for LLM-based scorers: {judge_model}")
+
+# Safety scorer MUST have the judge model to work correctly on Databricks
+scorers = [
+    Safety(model=judge_model),
+    response_completeness,
+    response_clarity,
+    tool_call_efficiency,
+]
+
+# Add Guidelines scorers with proper judge model configuration
 if config.evaluation.guidelines:
-    custom_scorers = [Guidelines(name=guideline.name, guidelines=guideline.guidelines) for guideline in config.evaluation.guidelines]
-
-scorers += custom_scorers
+    custom_scorers = create_guidelines_scorers(
+        guidelines_config=config.evaluation.guidelines,
+        judge_model=judge_model,
+    )
+    scorers += custom_scorers
+    print(f"Added {len(custom_scorers)} Guidelines scorers")
 
 # Get the experiment ID from the model's run and set it as the current experiment
 # This is necessary because mlflow.genai.evaluate() internally searches for traces
@@ -285,4 +301,31 @@ with mlflow.start_run(run_id=model_version.run_id):
       scorers=scorers,
   )
 
+# COMMAND ----------
 
+# DBTITLE 1,Display Evaluation Results
+print("Evaluation Metrics:")
+for metric_name, metric_value in eval_results.metrics.items():
+    print(f"  {metric_name}: {metric_value}")
+
+# Display the evaluation results table
+# Note: The 'assessments' column contains complex objects that can't be
+# directly displayed in Databricks. We convert it to string representation.
+eval_results_df = eval_results.tables["eval_results"].copy()
+
+# Convert complex columns to string for display compatibility
+if "assessments" in eval_results_df.columns:
+    eval_results_df["assessments"] = eval_results_df["assessments"].astype(str)
+
+# Convert any other object columns that might cause Arrow conversion issues
+for col in eval_results_df.columns:
+    if eval_results_df[col].dtype == "object":
+        try:
+            # Try to keep as-is first, only convert if it fails
+            eval_results_df[col].to_list()
+        except Exception:
+            eval_results_df[col] = eval_results_df[col].astype(str)
+
+# Display limited rows to avoid performance issues with large result sets
+print(f"Total evaluation results: {len(eval_results_df)} rows")
+display(eval_results_df.head(100))

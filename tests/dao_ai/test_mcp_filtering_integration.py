@@ -575,23 +575,24 @@ class TestBuildConnectionConfigWithApp:
         mock_ws.apps.get.return_value = mock_app_instance
 
         app_model = DatabricksAppModel(name="test-app")
+        function = McpFunctionModel(app=app_model)
 
-        # Mock the workspace_client property
+        # IMPORTANT: McpFunctionModel.url resolution tries function.workspace_client first
+        # (it may have tool-level auth). Patch that, not just app_model.workspace_client.
         with patch.object(
-            type(app_model),
+            type(function),
             "workspace_client",
             new_callable=PropertyMock,
             return_value=mock_ws,
         ):
-            function = McpFunctionModel(app=app_model)
             config = _build_connection_config(function)
 
-            # Verify complete config structure - app URLs get /mcp suffix
-            assert config == {
-                "url": "https://test-app.azuredatabricks.net/mcp",
-                "transport": "http",
-                "auth": mock_auth,
-            }
+        # Verify complete config structure - app URLs get /mcp suffix
+        assert config == {
+            "url": "https://test-app.azuredatabricks.net/mcp",
+            "transport": "http",
+            "auth": mock_auth,
+        }
 
     @patch("dao_ai.tools.mcp.MultiServerMCPClient")
     @patch("databricks_mcp.DatabricksOAuthClientProvider")
