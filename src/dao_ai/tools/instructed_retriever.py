@@ -19,6 +19,43 @@ from mlflow.entities import SpanType
 
 from dao_ai.config import DecomposedQueries, LLMModel, SearchQuery
 
+
+def _get_databricks_compatible_schema() -> dict[str, Any]:
+    """Generate JSON schema for query decomposition structured output."""
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "decomposed_queries",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "queries": {
+                        "type": "array",
+                        "description": "List of decomposed search queries with filters",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {
+                                    "type": "string",
+                                    "description": "The search query text",
+                                },
+                                "filters": {
+                                    "type": "object",
+                                    "description": "Filters to apply in Databricks Vector Search syntax",
+                                },
+                            },
+                            "required": ["text"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["queries"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
 # Module-level cache for LLM clients
 _llm_cache: dict[str, BaseChatModel] = {}
 
@@ -120,12 +157,15 @@ def decompose_query(
 
     logger.trace("Decomposing query", query=query[:100], max_subqueries=max_subqueries)
 
-    # Use container model for stable structured output across providers
-    structured_llm = llm.with_structured_output(DecomposedQueries)
+    response_format = _get_databricks_compatible_schema()
+    bound_llm = llm.bind(response_format=response_format)
 
     try:
-        result: DecomposedQueries = structured_llm.invoke(prompt)
-        subqueries = result.queries[:max_subqueries]
+        response = bound_llm.invoke(prompt)
+        # Parse JSON response into Pydantic model
+        result_dict = json.loads(response.content)
+        parsed = DecomposedQueries.model_validate(result_dict)
+        subqueries = parsed.queries[:max_subqueries]
 
         # Log for observability
         mlflow.set_tag("num_subqueries", len(subqueries))

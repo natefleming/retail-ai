@@ -28,6 +28,47 @@ def _load_prompt_template() -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
+def _get_reranker_schema() -> dict[str, Any]:
+    """Generate JSON schema for ranking result structured output."""
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "ranking_result",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "rankings": {
+                        "type": "array",
+                        "description": "Ranked list of document indices with scores",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "index": {
+                                    "type": "integer",
+                                    "description": "Document index from the input list",
+                                },
+                                "score": {
+                                    "type": "number",
+                                    "description": "Relevance score between 0 and 1",
+                                },
+                                "reason": {
+                                    "type": "string",
+                                    "description": "Brief explanation for the score",
+                                },
+                            },
+                            "required": ["index", "score"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["rankings"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _format_documents(documents: list[Document]) -> str:
     """Format documents for the reranking prompt."""
     if not documents:
@@ -91,8 +132,11 @@ def instruction_aware_rerank(
 
     logger.trace("Instruction reranking", query=query[:100], num_docs=len(documents))
 
-    structured_llm = llm.with_structured_output(RankingResult)
-    result: RankingResult = structured_llm.invoke(prompt)
+    response_format = _get_reranker_schema()
+    bound_llm = llm.bind(response_format=response_format)
+    response = bound_llm.invoke(prompt)
+    result_dict = json.loads(response.content)
+    result = RankingResult.model_validate(result_dict)
 
     # Build reranked document list
     reranked: list[Document] = []

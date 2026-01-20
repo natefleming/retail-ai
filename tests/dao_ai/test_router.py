@@ -61,6 +61,16 @@ class TestRouterDecision:
 class TestRouteQuery:
     """Unit tests for route_query function."""
 
+    def _create_mock_llm(self, response_json: str) -> MagicMock:
+        """Helper to create mock LLM with bind() behavior."""
+        mock_llm = MagicMock()
+        mock_bound_llm = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = response_json
+        mock_llm.bind.return_value = mock_bound_llm
+        mock_bound_llm.invoke.return_value = mock_response
+        return mock_llm
+
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
     def test_routes_simple_query_to_standard(
@@ -68,11 +78,7 @@ class TestRouteQuery:
     ) -> None:
         """Test that simple queries route to standard mode."""
         mock_load_prompt.return_value = {"template": "Test prompt: {schema_description} {query}"}
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RouterDecision(mode="standard")
+        mock_llm = self._create_mock_llm('{"mode": "standard"}')
 
         result = route_query(
             llm=mock_llm,
@@ -90,11 +96,7 @@ class TestRouteQuery:
     ) -> None:
         """Test that queries with constraints route to instructed mode."""
         mock_load_prompt.return_value = {"template": "Test prompt: {schema_description} {query}"}
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RouterDecision(mode="instructed")
+        mock_llm = self._create_mock_llm('{"mode": "instructed"}')
 
         result = route_query(
             llm=mock_llm,
@@ -106,17 +108,16 @@ class TestRouteQuery:
         mock_mlflow.set_tag.assert_called_with("router.mode", "instructed")
 
     @patch("dao_ai.tools.router._load_prompt_template")
+    @patch("dao_ai.tools.router._get_router_schema")
     @patch("dao_ai.tools.router.mlflow")
-    def test_uses_structured_output(
-        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    def test_uses_response_format_for_databricks(
+        self, mock_mlflow: MagicMock, mock_get_schema: MagicMock, mock_load_prompt: MagicMock
     ) -> None:
-        """Test that route_query uses structured output for reliable parsing."""
+        """Test that route_query uses response_format for Databricks compatibility."""
         mock_load_prompt.return_value = {"template": "{schema_description} {query}"}
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RouterDecision(mode="standard")
+        test_schema = {"type": "json_schema", "json_schema": {"name": "test"}}
+        mock_get_schema.return_value = test_schema
+        mock_llm = self._create_mock_llm('{"mode": "standard"}')
 
         route_query(
             llm=mock_llm,
@@ -124,7 +125,8 @@ class TestRouteQuery:
             schema_description="test schema",
         )
 
-        mock_llm.with_structured_output.assert_called_once_with(RouterDecision)
+        # Verify bind() is called with response_format
+        mock_llm.bind.assert_called_once_with(response_format=test_schema)
 
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
@@ -133,11 +135,7 @@ class TestRouteQuery:
     ) -> None:
         """Test that the prompt is formatted with schema and query."""
         mock_load_prompt.return_value = {"template": "Schema: {schema_description}\nQuery: {query}"}
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RouterDecision(mode="standard")
+        mock_llm = self._create_mock_llm('{"mode": "standard"}')
 
         route_query(
             llm=mock_llm,
@@ -145,6 +143,8 @@ class TestRouteQuery:
             schema_description="my schema desc",
         )
 
-        call_args = mock_structured_llm.invoke.call_args[0][0]
+        # Get the bound LLM and check invoke args
+        bound_llm = mock_llm.bind.return_value
+        call_args = bound_llm.invoke.call_args[0][0]
         assert "my schema desc" in call_args
         assert "my test query" in call_args

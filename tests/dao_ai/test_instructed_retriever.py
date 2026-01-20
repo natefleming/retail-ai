@@ -305,22 +305,24 @@ class TestFormatHelpers:
 class TestDecomposeQuery:
     """Unit tests for query decomposition function."""
 
+    def _create_mock_llm(self, response_json: str) -> MagicMock:
+        """Helper to create mock LLM with bind() behavior."""
+        mock_llm = MagicMock()
+        mock_bound_llm = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = response_json
+        mock_llm.bind.return_value = mock_bound_llm
+        mock_bound_llm.invoke.return_value = mock_response
+        return mock_llm
+
     @patch("dao_ai.tools.instructed_retriever._load_prompt_template")
     def test_decompose_query_basic(self, mock_load_prompt: MagicMock) -> None:
         """Test basic query decomposition."""
         mock_load_prompt.return_value = {"template": "{query}"}
 
-        # Mock LLM with structured output
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-
-        # Mock response
-        mock_structured_llm.invoke.return_value = DecomposedQueries(
-            queries=[
-                SearchQuery(text="Milwaukee drills", filters={"brand_name": "Milwaukee"}),
-                SearchQuery(text="power tools under $200", filters={"price <": 200}),
-            ]
+        # Mock LLM with bind() for Databricks response_format
+        mock_llm = self._create_mock_llm(
+            '{"queries": [{"text": "Milwaukee drills", "filters": {"brand_name": "Milwaukee"}}, {"text": "power tools under $200", "filters": {"price <": 200}}]}'
         )
 
         result = decompose_query(
@@ -338,16 +340,11 @@ class TestDecomposeQuery:
         """Test that decomposition respects max_subqueries limit."""
         mock_load_prompt.return_value = {"template": "{query}"}
 
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-
         # Return more queries than allowed
-        mock_structured_llm.invoke.return_value = DecomposedQueries(
-            queries=[
-                SearchQuery(text=f"query{i}") for i in range(10)
-            ]
-        )
+        queries_json = '{"queries": [' + ",".join(
+            f'{{"text": "query{i}"}}' for i in range(10)
+        ) + "]}"
+        mock_llm = self._create_mock_llm(queries_json)
 
         result = decompose_query(
             llm=mock_llm,
@@ -364,9 +361,9 @@ class TestDecomposeQuery:
         mock_load_prompt.return_value = {"template": "{query}"}
 
         mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.side_effect = Exception("LLM error")
+        mock_bound_llm = MagicMock()
+        mock_llm.bind.return_value = mock_bound_llm
+        mock_bound_llm.invoke.side_effect = Exception("LLM error")
 
         with pytest.raises(Exception, match="LLM error"):
             decompose_query(

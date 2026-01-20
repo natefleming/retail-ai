@@ -141,6 +141,16 @@ class TestFormatDocuments:
 class TestInstructionAwareRerank:
     """Unit tests for instruction_aware_rerank function."""
 
+    def _create_mock_llm(self, response_json: str) -> MagicMock:
+        """Helper to create mock LLM with bind() behavior."""
+        mock_llm = MagicMock()
+        mock_bound_llm = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = response_json
+        mock_llm.bind.return_value = mock_bound_llm
+        mock_bound_llm.invoke.return_value = mock_response
+        return mock_llm
+
     def test_empty_documents_returns_empty(self) -> None:
         """Test that empty input returns empty output."""
         mock_llm = MagicMock()
@@ -150,7 +160,7 @@ class TestInstructionAwareRerank:
             documents=[],
         )
         assert result == []
-        mock_llm.with_structured_output.assert_not_called()
+        mock_llm.bind.assert_not_called()
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
@@ -161,15 +171,8 @@ class TestInstructionAwareRerank:
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {instructions} {documents}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RankingResult(
-            rankings=[
-                RankedDocument(index=1, score=0.9, reason="Best match"),
-                RankedDocument(index=0, score=0.7, reason="Second best"),
-            ]
+        mock_llm = self._create_mock_llm(
+            '{"rankings": [{"index": 1, "score": 0.9, "reason": "Best match"}, {"index": 0, "score": 0.7, "reason": "Second best"}]}'
         )
 
         docs = [
@@ -201,16 +204,8 @@ class TestInstructionAwareRerank:
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {instructions} {documents}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RankingResult(
-            rankings=[
-                RankedDocument(index=0, score=0.9),
-                RankedDocument(index=1, score=0.8),
-                RankedDocument(index=2, score=0.7),
-            ]
+        mock_llm = self._create_mock_llm(
+            '{"rankings": [{"index": 0, "score": 0.9}, {"index": 1, "score": 0.8}, {"index": 2, "score": 0.7}]}'
         )
 
         docs = [
@@ -228,19 +223,18 @@ class TestInstructionAwareRerank:
         assert len(result) == 2
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
+    @patch("dao_ai.tools.instruction_reranker._get_reranker_schema")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
-    def test_uses_structured_output(
-        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    def test_uses_response_format_for_databricks(
+        self, mock_mlflow: MagicMock, mock_get_schema: MagicMock, mock_load_prompt: MagicMock
     ) -> None:
-        """Test that instruction_aware_rerank uses structured output."""
+        """Test that instruction_aware_rerank uses response_format for Databricks compatibility."""
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {instructions} {documents}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RankingResult(rankings=[])
+        test_schema = {"type": "json_schema", "json_schema": {"name": "test"}}
+        mock_get_schema.return_value = test_schema
+        mock_llm = self._create_mock_llm('{"rankings": []}')
 
         docs = [Document(page_content="Test", metadata={})]
         instruction_aware_rerank(
@@ -249,7 +243,8 @@ class TestInstructionAwareRerank:
             documents=docs,
         )
 
-        mock_llm.with_structured_output.assert_called_once_with(RankingResult)
+        # Verify bind() is called with response_format
+        mock_llm.bind.assert_called_once_with(response_format=test_schema)
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
@@ -260,16 +255,8 @@ class TestInstructionAwareRerank:
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {instructions} {documents}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RankingResult(
-            rankings=[
-                RankedDocument(index=0, score=0.9),
-                RankedDocument(index=99, score=0.8),  # Invalid index
-                RankedDocument(index=-1, score=0.7),  # Negative index
-            ]
+        mock_llm = self._create_mock_llm(
+            '{"rankings": [{"index": 0, "score": 0.9}, {"index": 99, "score": 0.8}, {"index": -1, "score": 0.7}]}'
         )
 
         docs = [Document(page_content="Doc 0", metadata={})]
@@ -293,11 +280,7 @@ class TestInstructionAwareRerank:
         mock_load_prompt.return_value = {
             "template": "Instructions: {instructions} Query: {query} Schema: {schema_description} Docs: {documents}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RankingResult(rankings=[])
+        mock_llm = self._create_mock_llm('{"rankings": []}')
 
         docs = [Document(page_content="Test", metadata={})]
         instruction_aware_rerank(
@@ -307,7 +290,8 @@ class TestInstructionAwareRerank:
             instructions="Prioritize price constraints",
         )
 
-        call_args = mock_structured_llm.invoke.call_args[0][0]
+        bound_llm = mock_llm.bind.return_value
+        call_args = bound_llm.invoke.call_args[0][0]
         assert "Prioritize price constraints" in call_args
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
@@ -319,15 +303,8 @@ class TestInstructionAwareRerank:
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {instructions} {documents}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = RankingResult(
-            rankings=[
-                RankedDocument(index=0, score=0.8),
-                RankedDocument(index=1, score=0.6),
-            ]
+        mock_llm = self._create_mock_llm(
+            '{"rankings": [{"index": 0, "score": 0.8}, {"index": 1, "score": 0.6}]}'
         )
 
         docs = [

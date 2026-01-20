@@ -27,6 +27,45 @@ def _load_prompt_template() -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
+def _get_verifier_schema() -> dict[str, Any]:
+    """Generate JSON schema for verification result structured output."""
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "verification_result",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "passed": {
+                        "type": "boolean",
+                        "description": "Whether results satisfy the query constraints",
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "description": "Confidence score between 0 and 1",
+                    },
+                    "feedback": {
+                        "type": "string",
+                        "description": "Explanation of verification outcome",
+                    },
+                    "suggested_filter_relaxation": {
+                        "type": "object",
+                        "description": "Suggested filter adjustments for retry (key: action)",
+                    },
+                    "unmet_constraints": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of constraints not satisfied by results",
+                    },
+                },
+                "required": ["passed", "confidence"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _format_results_summary(documents: list[Document], max_docs: int = 5) -> str:
     """Format top documents for verification prompt."""
     if not documents:
@@ -88,8 +127,11 @@ def verify_results(
 
     logger.trace("Verifying results", query=query[:100], num_docs=len(documents))
 
-    structured_llm = llm.with_structured_output(VerificationResult)
-    result: VerificationResult = structured_llm.invoke(prompt)
+    response_format = _get_verifier_schema()
+    bound_llm = llm.bind(response_format=response_format)
+    response = bound_llm.invoke(prompt)
+    result_dict = json.loads(response.content)
+    result = VerificationResult.model_validate(result_dict)
 
     # Log for observability
     mlflow.log_text(

@@ -21,15 +21,15 @@ resources:
   llms:
     # Primary LLM for agent reasoning
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: databricks-claude-sonnet-4-5
       temperature: 0.1
       max_tokens: 8192
 
     # Fast LLM for pipeline components (Router, Decomposition, Reranker, Verifier)
     # IMPORTANT: Use small models to minimize latency
-    # Options: GPT-3.5-Turbo, Claude 3 Haiku, Llama 3 8B (~50-100ms vs 500ms+)
+    # Options: GPT-3.5-Turbo, Claude 4.5 Haiku, Llama 3 8B (~50-100ms vs 500ms+)
     fast_llm: &fast_llm
-      name: databricks-meta-llama-3-1-8b-instruct
+      name: databricks-claude-haiku-4-5
       temperature: 0.0
       max_tokens: 1024
 
@@ -54,11 +54,12 @@ resources:
       columns:
         - product_id
         - sku
+        - upc
         - brand_name
         - product_name
-        - category
-        - price
-        - updated_at
+        - merchandise_class
+        - class_cd
+        - description
 
 retrievers:
   # Full pipeline retriever with all components
@@ -67,11 +68,12 @@ retrievers:
     columns:
       - product_id
       - sku
+      - upc
       - brand_name
       - product_name
-      - category
-      - price
-      - updated_at
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:
       num_results: 50
       query_type: HYBRID
@@ -89,46 +91,52 @@ retrievers:
       decomposition_model: *fast_llm
       schema_description: |
         Products table columns:
-        - product_id (STRING): Unique product identifier
-        - sku (STRING): Stock keeping unit
-        - brand_name (STRING): Brand/manufacturer (Milwaukee, DeWalt, Makita, etc.)
+        - product_id (BIGINT): Unique product identifier
+        - sku (STRING): Stock keeping unit - internal product code
+        - upc (STRING): Universal Product Code - barcode number
+        - brand_name (STRING): Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)
         - product_name (STRING): Product display name
-        - category (STRING): Product category (Power Tools, Hand Tools, Paint, etc.)
-        - price (DOUBLE): Price in USD
-        - updated_at (TIMESTAMP): Last update timestamp (ISO format)
+        - merchandise_class (STRING): Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)
+        - class_cd (STRING): Category code
+        - description (STRING): Detailed product description
 
         Valid filter operators for Databricks Vector Search:
         - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
-        - Comparison: {"column >": value}, {"column <": value}
         - Exclusion: {"column NOT": "value"}
         - Pattern: {"column LIKE": "pattern"}
       constraints:
-        - "Prefer products updated within the last 6 months when recency is relevant"
-        - "Apply price filters when budget constraints are mentioned"
+        - "Use merchandise_class for category filtering"
+        - "Use brand_name for brand filtering"
+        - "Only use columns listed in schema_description"
       max_subqueries: 3
       rrf_k: 60
       examples:
-        - query: "cheap Milwaukee drills"
-          filters: {"price <": 200, "brand_name": "Milwaukee"}
+        - query: "Milwaukee drills"
+          filters: {"brand_name": "MILWAUKEE"}
         - query: "cordless power tools excluding DeWalt"
-          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DeWalt"}
-        - query: "paint products under $50"
-          filters: {"category": "Paint", "price <": 50}
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+        - query: "paint products"
+          filters: {"merchandise_class": "PAINT"}
+        - query: "Milwaukee or DeWalt tools"
+          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
 
-    # Reranking: FlashRank + Instruction-Aware
+    # Reranking: Databricks columns + Instruction-Aware LLM
+    # Using columns instead of FlashRank model due to ONNX bug: https://github.com/huggingface/optimum/issues/1500
     rerank:
-      model: ms-marco-MiniLM-L-12-v2
-      top_n: 20                         # FlashRank outputs 20 candidates
+      columns:                            # Databricks server-side reranking
+        - merchandise_class
+        - product_name
+        - brand_name
+      top_n: 20                           # Databricks reranker outputs 20 candidates
       instruction_aware:
         enabled: true
         model: *fast_llm
         instructions: |
           Prioritize results based on user constraints:
-          - Price constraints: prefer items within budget
           - Brand preferences: boost specified brands, demote excluded brands
-          - Category: prefer exact category matches
-          - Recency: prefer recently updated when mentioned
-        top_n: 10                       # Final count after instruction reranking
+          - Category: prefer exact merchandise_class matches
+          - Product type: match specific product types mentioned
+        top_n: 10                         # Final count after instruction reranking
 
     # Verifier: Validates results and provides feedback for retry
     verifier:
@@ -150,7 +158,7 @@ tools:
           Intelligent product search with automatic query routing.
           - Simple queries: Fast standard search path
           - Complex queries: Full pipeline with decomposition, RRF, and verification
-          Handles price constraints, brand preferences, category filters, and time constraints.
+          Handles brand preferences, category filters, and product exclusions.
 
 agents:
   intelligent_search_agent: &intelligent_search_agent
@@ -196,11 +204,30 @@ app:
   input_example:
     input:
       - role: user
-        content: Find me Milwaukee power drills under $200 from the last 6 months
+        content: Find me Milwaukee power drills
     custom_inputs:
       configurable:
         user_id: demo_user
       session: {}
+
+# ==============================================================================
+# DATASETS
+# ==============================================================================
+# Source data for provisioning tables and vector search indexes
+
+datasets:
+  - table:
+      schema: *retail_schema
+      name: products
+    ddl: ../data/hardware_store/products.sql
+    data: ../data/hardware_store/products.snappy.parquet
+    format: parquet
+  - table:
+      schema: *retail_schema
+      name: inventory
+    ddl: ../data/hardware_store/inventory.sql
+    data: ../data/hardware_store/inventory.snappy.parquet
+    format: parquet
 
 # ==============================================================================
 # PIPELINE BEHAVIOR
@@ -213,7 +240,7 @@ app:
 #   4. (auto_bypass skips Instruction Reranker + Verifier)
 #   5. Results returned (~150ms)
 #
-# Complex Query ("Milwaukee drills under $200 from last month"):
+# Complex Query ("Milwaukee drills excluding DeWalt"):
 #   1. Router → "instructed"
 #   2. Decompose query into subqueries with filters
 #   3. Parallel vector searches

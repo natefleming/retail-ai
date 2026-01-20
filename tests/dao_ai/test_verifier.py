@@ -193,6 +193,16 @@ class TestAddVerificationMetadata:
 class TestVerifyResults:
     """Unit tests for verify_results function."""
 
+    def _create_mock_llm(self, response_json: str) -> MagicMock:
+        """Helper to create mock LLM with bind() behavior."""
+        mock_llm = MagicMock()
+        mock_bound_llm = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = response_json
+        mock_llm.bind.return_value = mock_bound_llm
+        mock_bound_llm.invoke.return_value = mock_response
+        return mock_llm
+
     @patch("dao_ai.tools.verifier._load_prompt_template")
     @patch("dao_ai.tools.verifier.mlflow")
     def test_returns_verification_result(
@@ -202,13 +212,7 @@ class TestVerifyResults:
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {constraints} {num_results} {results_summary} {previous_feedback}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = VerificationResult(
-            passed=True, confidence=0.9
-        )
+        mock_llm = self._create_mock_llm('{"passed": true, "confidence": 0.9}')
 
         docs = [Document(page_content="Test", metadata={})]
         result = verify_results(
@@ -223,21 +227,18 @@ class TestVerifyResults:
         assert result.confidence == 0.9
 
     @patch("dao_ai.tools.verifier._load_prompt_template")
+    @patch("dao_ai.tools.verifier._get_verifier_schema")
     @patch("dao_ai.tools.verifier.mlflow")
-    def test_uses_structured_output(
-        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    def test_uses_response_format_for_databricks(
+        self, mock_mlflow: MagicMock, mock_get_schema: MagicMock, mock_load_prompt: MagicMock
     ) -> None:
-        """Test that verify_results uses structured output."""
+        """Test that verify_results uses response_format for Databricks compatibility."""
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {constraints} {num_results} {results_summary} {previous_feedback}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = VerificationResult(
-            passed=True, confidence=0.9
-        )
+        test_schema = {"type": "json_schema", "json_schema": {"name": "test"}}
+        mock_get_schema.return_value = test_schema
+        mock_llm = self._create_mock_llm('{"passed": true, "confidence": 0.9}')
 
         docs = [Document(page_content="Test", metadata={})]
         verify_results(
@@ -247,7 +248,8 @@ class TestVerifyResults:
             schema_description="schema",
         )
 
-        mock_llm.with_structured_output.assert_called_once_with(VerificationResult)
+        # Verify bind() is called with response_format
+        mock_llm.bind.assert_called_once_with(response_format=test_schema)
 
     @patch("dao_ai.tools.verifier._load_prompt_template")
     @patch("dao_ai.tools.verifier.mlflow")
@@ -258,13 +260,7 @@ class TestVerifyResults:
         mock_load_prompt.return_value = {
             "template": "Feedback: {previous_feedback} Query: {query} Schema: {schema_description} Constraints: {constraints} Results: {results_summary} Count: {num_results}"
         }
-
-        mock_llm = MagicMock()
-        mock_structured_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = mock_structured_llm
-        mock_structured_llm.invoke.return_value = VerificationResult(
-            passed=True, confidence=0.9
-        )
+        mock_llm = self._create_mock_llm('{"passed": true, "confidence": 0.9}')
 
         docs = [Document(page_content="Test", metadata={})]
         verify_results(
@@ -275,5 +271,6 @@ class TestVerifyResults:
             previous_feedback="Previous attempt failed",
         )
 
-        call_args = mock_structured_llm.invoke.call_args[0][0]
+        bound_llm = mock_llm.bind.return_value
+        call_args = bound_llm.invoke.call_args[0][0]
         assert "Previous attempt failed" in call_args

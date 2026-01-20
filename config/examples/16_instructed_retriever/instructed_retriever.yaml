@@ -9,13 +9,13 @@ resources:
   llms:
     # Primary LLM for agent reasoning
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: databricks-claude-sonnet-4-5
       temperature: 0.1
       max_tokens: 8192
 
     # Fast LLM for query decomposition (smaller model = lower latency)
     decomposition_llm: &decomposition_llm
-      name: databricks-meta-llama-3-1-8b-instruct
+      name: databricks-claude-haiku-4-5
       temperature: 0.0
       max_tokens: 1024
 
@@ -40,11 +40,12 @@ resources:
       columns:
         - product_id
         - sku
+        - upc
         - brand_name
         - product_name
-        - category
-        - price
-        - updated_at
+        - merchandise_class
+        - class_cd
+        - description
 
 retrievers:
   # Standard retriever (no instructed retrieval)
@@ -53,11 +54,12 @@ retrievers:
     columns:
       - product_id
       - sku
+      - upc
       - brand_name
       - product_name
-      - category
-      - price
-      - updated_at
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:
       num_results: 10
       query_type: ANN
@@ -68,11 +70,12 @@ retrievers:
     columns:
       - product_id
       - sku
+      - upc
       - brand_name
       - product_name
-      - category
-      - price
-      - updated_at
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:
       num_results: 50
       query_type: HYBRID
@@ -81,34 +84,50 @@ retrievers:
       decomposition_model: *decomposition_llm
       schema_description: |
         Products table columns:
-        - product_id (STRING): Unique product identifier
-        - sku (STRING): Stock keeping unit
-        - brand_name (STRING): Brand/manufacturer name (e.g., Milwaukee, DeWalt, Makita)
+        - product_id (BIGINT): Unique product identifier
+        - sku (STRING): Stock keeping unit - internal product code
+        - upc (STRING): Universal Product Code - barcode number
+        - brand_name (STRING): Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)
         - product_name (STRING): Product display name
-        - category (STRING): Product category (e.g., Power Tools, Hand Tools, Paint)
-        - price (DOUBLE): Price in USD
-        - updated_at (TIMESTAMP): Last update timestamp (ISO format)
+        - merchandise_class (STRING): Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)
+        - class_cd (STRING): Category code
+        - description (STRING): Detailed product description
         
         Valid filter operators for Databricks Vector Search:
         - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
-        - Comparison: {"column >": value}, {"column >=": value}, {"column <": value}, {"column <=": value}
         - Exclusion: {"column NOT": "value"}
         - Pattern: {"column LIKE": "pattern"}
       constraints:
-        - "Prefer products updated within the last 6 months when recency is relevant"
-        - "When price constraints are mentioned, generate appropriate comparison filters"
+        - "Use merchandise_class for category filtering"
+        - "Use brand_name for brand filtering"
+        - "Only use columns listed in schema_description"
       max_subqueries: 3
       rrf_k: 60
       examples:
-        - query: "cheap Milwaukee drills"
-          filters: {"price <": 200, "brand_name": "Milwaukee"}
+        - query: "Milwaukee drills"
+          filters: {"brand_name": "MILWAUKEE"}
         - query: "cordless power tools excluding DeWalt"
-          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DeWalt"}
-        - query: "paint products under $50 updated recently"
-          filters: {"category": "Paint", "price <": 50}
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+        - query: "paint products"
+          filters: {"merchandise_class": "PAINT"}
+        - query: "Milwaukee or DeWalt tools"
+          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+    # Reranking: Databricks columns + Instruction-Aware LLM
     rerank:
-      model: ms-marco-MiniLM-L-12-v2
-      top_n: 10
+      columns:                            # Databricks server-side reranking
+        - merchandise_class
+        - product_name
+        - brand_name
+      top_n: 20                           # Databricks reranker outputs 20 candidates
+      instruction_aware:
+        enabled: true
+        model: *decomposition_llm
+        instructions: |
+          Prioritize results based on user constraints:
+          - Brand preferences: boost specified brands, demote excluded brands
+          - Category: prefer exact merchandise_class matches
+          - Product type: match specific product types mentioned
+        top_n: 10                         # Final count after instruction reranking
 
 tools:
   # Standard search tool (baseline)
@@ -137,10 +156,9 @@ tools:
           Search for products with intelligent query decomposition.
           Automatically extracts metadata filters from natural language.
           Best for queries with:
-          - Price constraints ("under $100")
           - Brand preferences ("Milwaukee", "excluding DeWalt")
           - Category filters ("power tools", "paint")
-          - Time constraints ("recent", "from last month")
+          - Product exclusions ("not Makita")
 
 agents:
   # Agent using standard search
@@ -169,15 +187,14 @@ agents:
       You are an intelligent product search assistant with advanced search capabilities.
       
       Use the instructed_product_search tool for queries that include:
-      - Price constraints (e.g., "under $100", "between $50 and $200")
       - Brand preferences (e.g., "Milwaukee", "not DeWalt")
       - Category filters (e.g., "power tools", "paint")
-      - Time constraints (e.g., "recently added", "from last month")
+      - Product exclusions (e.g., "excluding Makita")
 
       The search tool automatically extracts filters from your query.
       Simply pass the customer's request naturally.
     handoff_prompt: |
-      Product searches with price, brand, category, or time constraints
+      Product searches with brand or category constraints
 
 app:
   name: instructed_retriever_demo
@@ -203,8 +220,27 @@ app:
   input_example:
     input:
       - role: user
-        content: Find me Milwaukee power drills under $200
+        content: Find me Milwaukee power drills
     custom_inputs:
       configurable:
         user_id: demo_user
       session: {}
+
+# ==============================================================================
+# DATASETS
+# ==============================================================================
+# Source data for provisioning tables and vector search indexes
+
+datasets:
+  - table:
+      schema: *retail_schema
+      name: products
+    ddl: ../data/hardware_store/products.sql
+    data: ../data/hardware_store/products.snappy.parquet
+    format: parquet
+  - table:
+      schema: *retail_schema
+      name: inventory
+    ddl: ../data/hardware_store/inventory.sql
+    data: ../data/hardware_store/inventory.snappy.parquet
+    format: parquet
