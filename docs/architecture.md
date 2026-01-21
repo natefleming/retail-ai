@@ -196,9 +196,13 @@ DAO supports both approaches for multi-agent coordination:
 A central "supervisor" agent reads each user request and decides which specialist agent should handle it. Think of it like a call center manager routing calls to different departments.
 
 **Example use case:** Hardware store assistant
-- User asks about product availability → Routes to **Product Agent**
+- User asks about product availability → Routes to **Inventory Agent**
 - User asks about order status → Routes to **Orders Agent**  
 - User asks for DIY advice → Routes to **DIY Agent**
+- User asks for product details → Routes to **Product Agent**
+- User wants product comparison → Routes to **Comparison Agent**
+- User needs product suggestions → Routes to **Recommendation Agent**
+- General inquiries → Routes to **General Agent**
 
 **Configuration:**
 
@@ -213,18 +217,30 @@ orchestration:
 ```mermaid
 graph TB
     supervisor[Supervisor]
+    general[General<br/>Agent]
     product[Product<br/>Agent]
+    inventory[Inventory<br/>Agent]
     orders[Orders<br/>Agent]
     diy[DIY<br/>Agent]
+    comparison[Comparison<br/>Agent]
+    recommendation[Recommendation<br/>Agent]
     
+    supervisor --> general
     supervisor --> product
+    supervisor --> inventory
     supervisor --> orders
     supervisor --> diy
+    supervisor --> comparison
+    supervisor --> recommendation
     
     style supervisor fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style general fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
     style product fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style inventory fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
     style orders fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
     style diy fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style comparison fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style recommendation fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
 ```
 
 ### 2. Swarm Pattern
@@ -235,8 +251,10 @@ Agents work more autonomously and can directly hand off tasks to each other. Thi
 
 **Example use case:** Complex customer inquiry
 1. User: *"I need a drill for a home project, do we have any in stock, and can you suggest how to use it?"*
-2. **Product Agent** checks inventory → Finds drill in stock → Hands off to **DIY Agent**
-3. **DIY Agent** provides usage instructions → Done
+2. **General Agent** (entry point) → Hands off to **Product Agent** for product info
+3. **Product Agent** checks details → Hands off to **Inventory Agent** for stock
+4. **Inventory Agent** confirms availability → Hands off to **DIY Agent** for usage tips
+5. **DIY Agent** provides instructions → Done
 
 No central supervisor needed — agents decide collaboratively.
 
@@ -245,26 +263,50 @@ No central supervisor needed — agents decide collaboratively.
 ```yaml
 orchestration:
   swarm:
-    default_agent: *general_agent    # Where to start
+    default_agent: *general    # Entry point for new conversations
     handoffs:
-      product_agent: [orders_agent, diy_agent]  # Product agent can hand off to these
-      orders_agent: [product_agent]             # Orders agent can hand off to Product
+      general: ~               # Can hand off to ANY agent (universal router)
+      diy:                     # DIY can hand off to specific agents
+        - product
+        - inventory
+        - recommendation
+      inventory: []            # Terminal agent - no outbound handoffs
 ```
 
 ```mermaid
 graph TB
+    general[General<br/>Agent]
     product[Product<br/>Agent]
+    inventory[Inventory<br/>Agent]
     orders[Orders<br/>Agent]
     diy[DIY<br/>Agent]
+    comparison[Comparison<br/>Agent]
+    recommendation[Recommendation<br/>Agent]
     
-    product <-->|handoff| orders
-    product -->|handoff| diy
-    orders -->|handoff| diy
+    general -->|handoff| product
+    general -->|handoff| inventory
+    general -->|handoff| orders
+    general -->|handoff| diy
+    general -->|handoff| comparison
+    general -->|handoff| recommendation
     
+    diy -->|handoff| product
+    diy -->|handoff| inventory
+    diy -->|handoff| recommendation
+    
+    style general fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
     style product fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style inventory fill:#42BA91,stroke:#00875C,stroke-width:3px,color:#1B3139
     style orders fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
     style diy fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style comparison fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style recommendation fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
 ```
+
+**Legend:**
+- **Blue** (General): Entry point / universal router
+- **Orange**: Standard agents with handoff capabilities  
+- **Green** (Inventory): Terminal agent (no outbound handoffs)
 
 ---
 
