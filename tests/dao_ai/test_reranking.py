@@ -20,10 +20,10 @@ class TestReRankParametersModel:
     """Unit tests for ReRankParametersModel configuration."""
 
     def test_default_values(self) -> None:
-        """Test that ReRankParametersModel has sensible defaults."""
+        """Test that RerankParametersModel has sensible defaults."""
         rerank = RerankParametersModel()
 
-        assert rerank.model == "ms-marco-MiniLM-L-12-v2"
+        assert rerank.model is None  # No FlashRank by default (use columns for Databricks)
         assert rerank.top_n is None
         assert rerank.cache_dir == "~/.dao_ai/cache/flashrank"
 
@@ -68,13 +68,13 @@ class TestRetrieverModelWithReranker:
     """Unit tests for RetrieverModel with reranking configuration."""
 
     def test_rerank_as_bool_true(self) -> None:
-        """Test that rerank=True is converted to ReRankParametersModel with defaults."""
+        """Test that rerank=True is converted to RerankParametersModel with defaults."""
         vector_store = create_mock_vector_store()
 
         retriever = RetrieverModel(vector_store=vector_store, rerank=True)
 
         assert isinstance(retriever.rerank, RerankParametersModel)
-        assert retriever.rerank.model == "ms-marco-MiniLM-L-12-v2"
+        assert retriever.rerank.model is None  # No FlashRank by default
         assert retriever.rerank.top_n is None
 
     def test_rerank_as_bool_false(self) -> None:
@@ -116,6 +116,8 @@ class TestVectorSearchToolCreation:
         retriever_config = Mock(spec=RetrieverModel)
         retriever_config.rerank = None
         retriever_config.instructed = None
+        retriever_config.router = None
+        retriever_config.verifier = None
         retriever_config.columns = ["text"]
         retriever_config.search_parameters = Mock()
         retriever_config.search_parameters.model_dump.return_value = {"num_results": 10}
@@ -222,6 +224,8 @@ class TestVectorSearchToolCreation:
         retriever_config = Mock(spec=RetrieverModel)
         retriever_config.rerank = reranker_config
         retriever_config.instructed = None
+        retriever_config.router = None
+        retriever_config.verifier = None
         retriever_config.columns = ["text"]
         retriever_config.search_parameters = Mock()
         retriever_config.search_parameters.model_dump.return_value = {"num_results": 20}
@@ -310,6 +314,8 @@ class TestRerankingE2E:
         retriever_config = Mock(spec=RetrieverModel)
         retriever_config.rerank = RerankParametersModel()
         retriever_config.instructed = None
+        retriever_config.router = None
+        retriever_config.verifier = None
         retriever_config.columns = ["text"]
         retriever_config.search_parameters = Mock()
         retriever_config.search_parameters.model_dump.return_value = {"num_results": 10}

@@ -1804,41 +1804,45 @@ class InstructionAwareRerankModel(BaseModel):
 
 class RerankParametersModel(BaseModel):
     """
-    Configuration for reranking retrieved documents using FlashRank.
+    Configuration for reranking retrieved documents.
 
-    FlashRank provides fast, local reranking without API calls using lightweight
-    cross-encoder models. Reranking improves retrieval quality by reordering results
-    based on semantic relevance to the query.
+    Supports three reranking options that can be combined:
+    1. FlashRank (local cross-encoder) - set `model`
+    2. Databricks server-side reranking - set `columns`
+    3. LLM instruction-aware reranking - set `instruction_aware`
 
-    Typical workflow:
-    1. Retrieve more documents than needed (e.g., 50 via num_results)
-    2. Rerank all retrieved documents
-    3. Return top_n best matches (e.g., 5)
-
-    Example:
+    Example with Databricks columns + instruction-aware (no FlashRank):
         ```yaml
-        retriever:
-          search_parameters:
-            num_results: 50  # Retrieve more candidates
-          rerank:
-            model: ms-marco-MiniLM-L-12-v2
-            top_n: 5  # Return top 5 after reranking
+        rerank:
+          columns:                    # Databricks server-side reranking
+            - product_name
+            - brand_name
+          instruction_aware:          # LLM-based constraint reranking
+            enabled: true
+            model: *fast_llm
+            instructions: "Prioritize by brand preferences"
+            top_n: 10
         ```
 
-    Available models (see https://github.com/PrithivirajDamodaran/FlashRank):
+    Example with FlashRank:
+        ```yaml
+        rerank:
+          model: ms-marco-MiniLM-L-12-v2  # FlashRank model
+          top_n: 10
+        ```
+
+    Available FlashRank models (see https://github.com/PrithivirajDamodaran/FlashRank):
     - "ms-marco-TinyBERT-L-2-v2" (~4MB, fastest)
-    - "ms-marco-MiniLM-L-12-v2" (~34MB, best cross-encoder, default)
+    - "ms-marco-MiniLM-L-12-v2" (~34MB, best cross-encoder)
     - "rank-T5-flan" (~110MB, best non cross-encoder)
     - "ms-marco-MultiBERT-L-12" (~150MB, multilingual 100+ languages)
-    - "ce-esci-MiniLM-L12-v2" (e-commerce optimized, Amazon ESCI)
-    - "miniReranker_arabic_v1" (Arabic language)
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    model: str = Field(
-        default="ms-marco-MiniLM-L-12-v2",
-        description="FlashRank model name. Default provides good balance of speed and accuracy.",
+    model: Optional[str] = Field(
+        default=None,
+        description="FlashRank model name. If None, FlashRank is not used (use columns for Databricks reranking).",
     )
     top_n: Optional[int] = Field(
         default=None,
