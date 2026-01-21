@@ -58,15 +58,16 @@ resources:
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-sonnet-4-5
       temperature: 0.1
       max_tokens: 8192
 
 
 
     # LLM for evaluating and judging responses (guardrails)
+    # Note: Claude models support structured output (response_schema) for Literal feedback types
     judge_llm: &judge_llm
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-sonnet-4-5
       temperature: 0.5                              # Higher temperature for diverse judgments
       max_tokens: 8192
 
