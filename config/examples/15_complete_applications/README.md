@@ -318,8 +318,8 @@ dao-ai chat -c config/examples/15_complete_applications/hardware_store.yaml
 # Visualize architecture
 dao-ai graph -c config/examples/15_complete_applications/hardware_store.yaml -o architecture.png
 
-# Register as MLflow model
-dao-ai register -c config/examples/15_complete_applications/hardware_store.yaml
+# Deploy to Databricks
+dao-ai bundle --deploy -c config/examples/15_complete_applications/hardware_store.yaml
 ```
 
 ## Deployment Options

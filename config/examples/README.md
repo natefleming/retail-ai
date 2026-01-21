@@ -274,7 +274,7 @@ Each example is a starting point for your own agents:
 
 5. **Deploy** to Databricks:
    ```bash
-   dao-ai bundle --deploy -c config/my_agent.yaml
+   dao-ai bundle --deploy --run -c config/my_agent.yaml
    ```
 
 ---
