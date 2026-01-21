@@ -22,9 +22,13 @@ flowchart TB
             end
             
             subgraph Agents["👷 Specialized Agents"]
-                A1["🛒 Product"]
-                A2["📦 Inventory"]
-                A3["💬 General"]
+                A1["💬 General"]
+                A2["📋 Orders"]
+                A3["🔧 DIY"]
+                A4["🛒 Product"]
+                A5["📦 Inventory"]
+                A6["⚖️ Comparison"]
+                A7["💡 Recommendation"]
             end
             
             subgraph Features["✨ Features"]
@@ -56,6 +60,7 @@ flowchart TB
 
 ## Examples
 
+<<<<<<< HEAD
 | File | Pattern | Description | Complexity |
 |------|---------|-------------|------------|
 | [`hardware_store_supervisor.yaml`](./hardware_store_supervisor.yaml) | 👔 Supervisor | Multi-agent supervisor with full features | ⭐⭐⭐⭐ |
@@ -64,6 +69,13 @@ flowchart TB
 | [`deep_research.yaml`](./deep_research.yaml) | 🔬 Research | Multi-step research agent with web search | ⭐⭐⭐⭐ |
 | [`genie_vector_search_hybrid.yaml`](./genie_vector_search_hybrid.yaml) | 🔀 Hybrid | Combined SQL and vector search | ⭐⭐⭐⭐ |
 | [`hardware_store_instructed.yaml`](./hardware_store_instructed.yaml) | 🎯 Instructed | Hardware store with instructed retrieval | ⭐⭐⭐⭐ |
+=======
+| File | Pattern | Description |
+|------|---------|-------------|
+| [`hardware_store.yaml`](./hardware_store.yaml) | 👔 Supervisor | Multi-agent supervisor with full features |
+| [`hardware_store_swarm.yaml`](./hardware_store_swarm.yaml) | 🐝 Swarm | Swarm orchestration with handoffs |
+| [`hardware_store_lakebase.yaml`](./hardware_store_lakebase.yaml) | 👔 Supervisor + 🧠 Lakebase | Supervisor with PostgreSQL memory persistence |
+>>>>>>> 2ee0605 (added additional agents to diagram)
 
 ## Hardware Store Supervisor Architecture
 
@@ -78,36 +90,38 @@ flowchart TB
         Router["Routing LLM<br/>━━━━━━━━━━━━━━━━<br/>Analyzes request<br/>Routes to specialist"]
     end
 
-    subgraph Specialists["👷 Specialized Agents"]
-        subgraph Product["🛒 Product Agent"]
-            PT["Tools:<br/>• vector_search<br/>• genie_query<br/>━━━━━━━━━━━━━━━━<br/>Details, specs, pricing"]
+    subgraph Specialists["👷 Specialized Agents (7 Total)"]
+        subgraph Row1[""]
+            General["💬 General<br/>━━━━━━━━━━━━<br/>Hours, policies"]
+            Orders["📋 Orders<br/>━━━━━━━━━━━━<br/>Order tracking"]
+            DIY["🔧 DIY<br/>━━━━━━━━━━━━<br/>How-to advice"]
+            Product["🛒 Product<br/>━━━━━━━━━━━━<br/>Details, specs"]
         end
-        
-        subgraph Inventory["📦 Inventory Agent"]
-            IT["Tools:<br/>• inventory_search<br/>• stock_check<br/>━━━━━━━━━━━━━━━━<br/>Availability, locations"]
-        end
-        
-        subgraph General["💬 General Agent"]
-            GT["Tools:<br/>• policies_search<br/>━━━━━━━━━━━━━━━━<br/>Hours, policies, FAQs"]
+        subgraph Row2[""]
+            Inventory["📦 Inventory<br/>━━━━━━━━━━━━<br/>Stock levels"]
+            Comparison["⚖️ Comparison<br/>━━━━━━━━━━━━<br/>Compare items"]
+            Recommendation["💡 Recommendation<br/>━━━━━━━━━━━━<br/>Suggestions"]
         end
     end
 
     subgraph Features["✨ Applied Features"]
-        Memory["🧠 PostgreSQL Memory"]
-        PII["🔒 PII Detection"]
+        Memory["🧠 Memory"]
+        Middleware["🔒 Middleware"]
         Guard["🛡️ Guardrails"]
     end
 
     Query --> Router
+    Router --> General
+    Router --> Orders
+    Router --> DIY
     Router --> Product
-    Router -.-> Inventory
-    Router -.-> General
-    Product --> Features
-    Inventory --> Features
-    General --> Features
+    Router --> Inventory
+    Router --> Comparison
+    Router --> Recommendation
+    Specialists --> Features
 
     style Supervisor fill:#fff3e0,stroke:#e65100
-    style Product fill:#e8f5e9,stroke:#2e7d32
+    style Specialists fill:#e8f5e9,stroke:#2e7d32
     style Features fill:#e3f2fd,stroke:#1565c0
 ```
 
@@ -120,17 +134,18 @@ flowchart TB
         Query["Compare Dewalt vs Milwaukee drills<br/>Check stock for both"]
     end
 
-    subgraph Swarm["🐝 Agent Swarm"]
-        subgraph Product["🛒 Product Agent"]
-            PT["Tools:<br/>• search_products<br/>• <b>transfer_to_inventory</b><br/>• <b>transfer_to_comparison</b>"]
+    subgraph Swarm["🐝 Agent Swarm (7 Agents)"]
+        subgraph EntryPoint["🚪 Entry Point"]
+            General["💬 General<br/><i>Can handoff to ANY agent</i>"]
         end
         
-        subgraph Inventory["📦 Inventory Agent"]
-            IT["Tools:<br/>• check_stock<br/>• <b>transfer_to_product</b><br/>• <b>transfer_to_comparison</b>"]
-        end
-        
-        subgraph Comparison["⚖️ Comparison Agent"]
-            CT["Tools:<br/>• compare_products<br/>• <b>transfer_to_product</b><br/>• <b>transfer_to_inventory</b>"]
+        subgraph Workers["👷 Specialist Agents"]
+            Orders["📋 Orders"]
+            DIY["🔧 DIY<br/><i>→ product, inventory, recommendation</i>"]
+            Product["🛒 Product"]
+            Inventory["📦 Inventory<br/><i>(terminal - no outbound)</i>"]
+            Comparison["⚖️ Comparison"]
+            Recommendation["💡 Recommendation"]
         end
     end
 
@@ -139,15 +154,29 @@ flowchart TB
         Middleware["🔒 Swarm Middleware"]
     end
 
-    Query --> Product
-    Product <-->|"handoff"| Inventory
-    Product <-->|"handoff"| Comparison
-    Inventory <-->|"handoff"| Comparison
+    Query --> General
+    General -->|"handoff"| Orders
+    General -->|"handoff"| DIY
+    General -->|"handoff"| Product
+    General -->|"handoff"| Inventory
+    General -->|"handoff"| Comparison
+    General -->|"handoff"| Recommendation
+    DIY -->|"handoff"| Product
+    DIY -->|"handoff"| Inventory
+    DIY -->|"handoff"| Recommendation
     Swarm --> Features
 
+    style EntryPoint fill:#1565c0,stroke:#0d47a1,color:#fff
+    style General fill:#1565c0,stroke:#0d47a1,color:#fff
+    style Inventory fill:#42BA91,stroke:#00875C
     style Swarm fill:#e8f5e9,stroke:#2e7d32
     style Features fill:#e3f2fd,stroke:#1565c0
 ```
+
+**Swarm Handoff Configuration:**
+- **General** (entry point): Can handoff to any agent (`~` = universal router)
+- **DIY**: Can handoff to product, inventory, recommendation
+- **Inventory**: Terminal agent (no outbound handoffs)
 
 ## Feature Integration
 
@@ -258,13 +287,24 @@ tools:
   handoff_tools: ...                      # For swarm pattern
 
 agents:
-  product_agent: &product_agent
-  inventory_agent: &inventory_agent
-  general_agent: &general_agent
+  general_agent: &general_agent         # General store inquiries
+  orders_agent: &orders_agent           # Order tracking
+  diy_agent: &diy_agent                 # DIY advice & tutorials
+  product_agent: &product_agent         # Product details
+  inventory_agent: &inventory_agent     # Stock levels
+  comparison_agent: &comparison_agent   # Product comparisons
+  recommendation_agent: &recommendation_agent  # Product suggestions
 
 app:
   name: hardware_store_assistant
-  agents: [*product_agent, *inventory_agent, *general_agent]
+  agents:
+    - *general_agent
+    - *orders_agent
+    - *diy_agent
+    - *product_agent
+    - *inventory_agent
+    - *comparison_agent
+    - *recommendation_agent
   orchestration:
     supervisor:                           # or swarm:
       model: *default_llm
@@ -280,16 +320,16 @@ app:
 
 ```bash
 # Validate complete application
-dao-ai validate -c config/examples/15_complete_applications/hardware_store_supervisor.yaml
+dao-ai validate -c config/examples/15_complete_applications/hardware_store.yaml
 
 # Run in chat mode
-dao-ai chat -c config/examples/15_complete_applications/hardware_store_supervisor.yaml
+dao-ai chat -c config/examples/15_complete_applications/hardware_store.yaml
 
 # Visualize architecture
-dao-ai graph -c config/examples/15_complete_applications/hardware_store_supervisor.yaml -o architecture.png
+dao-ai graph -c config/examples/15_complete_applications/hardware_store.yaml -o architecture.png
 
 # Register as MLflow model
-dao-ai register -c config/examples/15_complete_applications/hardware_store_supervisor.yaml
+dao-ai register -c config/examples/15_complete_applications/hardware_store.yaml
 ```
 
 ## Deployment Options
