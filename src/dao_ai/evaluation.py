@@ -169,42 +169,154 @@ def tool_call_efficiency(trace: Optional[Trace]) -> Feedback:
     )
 
 
-@scorer
-def response_clarity(outputs: ScorerOutputs) -> Feedback:
-    """
-    Basic clarity check for responses.
+# -----------------------------------------------------------------------------
+# Response Clarity Scorer
+# -----------------------------------------------------------------------------
 
-    Checks if the response is structured and readable.
+# Instructions for the response clarity judge
+RESPONSE_CLARITY_INSTRUCTIONS = """Evaluate the clarity and readability of the response in {{ outputs }}.
+
+Consider:
+- Is the response easy to understand?
+- Is the information well-organized?
+- Does it avoid unnecessary jargon or explain technical terms when used?
+- Is the sentence structure clear and coherent?
+- Does the response directly address what was asked in {{ inputs }}?
+
+Return "clear" if the response is clear and readable, "unclear" if it is confusing or poorly structured."""
+
+
+def create_response_clarity_scorer(
+    judge_model: str,
+    name: str = "response_clarity",
+) -> Any:
+    """
+    Create a response clarity scorer using MLflow's make_judge.
+
+    This scorer evaluates whether a response is clear, well-organized,
+    and easy to understand. It uses an LLM judge for nuanced assessment
+    of qualities like:
+    - Sentence structure and coherence
+    - Information organization
+    - Appropriate use of technical language
+    - Overall readability
 
     Args:
-        outputs: Model outputs - can be a string, dict with "response" key,
-                 or nested dict with "outputs.response".
+        judge_model: The model endpoint to use for evaluation.
+                     Example: "databricks:/databricks-claude-3-7-sonnet"
+        name: Name for this scorer instance.
 
     Returns:
-        Feedback: Pass/Fail feedback with rationale
-    """
-    content, error = _extract_response_content(outputs)
+        A judge scorer created by make_judge
 
-    if error:
-        return Feedback(value=False, rationale=error)
+    Example:
+        ```python
+        from dao_ai.evaluation import create_response_clarity_scorer
 
-    if not content:
-        return Feedback(value=False, rationale="No response content found")
-
-    # Check for basic readability indicators
-    has_sentences = "." in content or "?" in content or "!" in content
-    has_reasonable_length = 10 < len(content) < 50000
-
-    if not has_sentences:
-        return Feedback(value=False, rationale="Response lacks sentence structure")
-
-    if not has_reasonable_length:
-        return Feedback(
-            value=False,
-            rationale=f"Response length ({len(content)}) outside reasonable bounds",
+        # Create the scorer with a judge model
+        clarity_scorer = create_response_clarity_scorer(
+            judge_model="databricks:/databricks-claude-3-7-sonnet",
         )
 
-    return Feedback(value=True, rationale="Response appears clear and well-structured")
+        # Use in evaluation
+        mlflow.genai.evaluate(
+            data=eval_data,
+            predict_fn=predict_fn,
+            scorers=[clarity_scorer],
+        )
+        ```
+    """
+    # Note: Using "databricks" as the model to use the default Databricks judge.
+    # This works around MLflow bug #18045 where custom endpoint URIs are misrouted.
+    # The judge_model parameter is currently ignored.
+    from typing import Literal
+
+    from mlflow.genai.judges import make_judge
+
+    return make_judge(
+        name=name,
+        instructions=RESPONSE_CLARITY_INSTRUCTIONS,
+        feedback_value_type=Literal["clear", "unclear"],
+        model="databricks",
+    )
+
+
+# -----------------------------------------------------------------------------
+# Agent Routing Scorer
+# -----------------------------------------------------------------------------
+
+# Instructions for the agent routing judge
+# Note: When using {{ trace }}, it must be the ONLY template variable per MLflow make_judge rules
+AGENT_ROUTING_INSTRUCTIONS = """Evaluate whether the agent routing was appropriate for the user's request.
+
+Analyze the {{ trace }} to determine:
+1. What was the user's original query or request
+2. Which agents, chains, or components were invoked to handle it
+3. Whether the routing sequence was logical and appropriate
+
+Consider:
+- **Relevance**: Based on the names of the components invoked, do they seem appropriate for the question type?
+- **Logical Flow**: Does the sequence of invocations make sense for answering the query?
+- **Completeness**: Were the right types of components invoked to fully address the query?
+
+Note: You may not know all possible agents in the system. Focus on whether the components that WERE invoked seem reasonable given the user's query found in the trace.
+
+Return "appropriate" if routing was appropriate, "inappropriate" if it was clearly wrong."""
+
+
+def create_agent_routing_scorer(
+    judge_model: str,
+    name: str = "agent_routing",
+) -> Any:
+    """
+    Create an agent routing scorer using MLflow's make_judge.
+
+    This scorer analyzes the execution trace to evaluate whether the routing
+    decisions were appropriate for the user's query. It uses MLflow's built-in
+    trace-based judge functionality.
+
+    The scorer is general-purpose and does not require knowledge of specific
+    agent names - it relies on the LLM to interpret whether the components
+    invoked (based on their names and context) were suitable for the query.
+
+    Args:
+        judge_model: The model endpoint to use for evaluation.
+                     Example: "databricks:/databricks-claude-3-7-sonnet"
+        name: Name for this scorer instance.
+
+    Returns:
+        A judge scorer created by make_judge
+
+    Example:
+        ```python
+        from dao_ai.evaluation import create_agent_routing_scorer
+
+        # Create the scorer with a judge model
+        agent_routing = create_agent_routing_scorer(
+            judge_model="databricks:/databricks-claude-3-7-sonnet",
+        )
+
+        # Use in evaluation
+        mlflow.genai.evaluate(
+            data=eval_data,
+            predict_fn=predict_fn,
+            scorers=[agent_routing],
+        )
+        ```
+    """
+    # Note: Using "databricks" as the model to use the default Databricks judge.
+    # This works around MLflow bug #18045 where custom endpoint URIs are misrouted.
+    # The judge_model parameter is currently ignored.
+    from typing import Literal
+
+    from mlflow.genai.judges import make_judge
+
+    return make_judge(
+        name=name,
+        instructions=AGENT_ROUTING_INSTRUCTIONS,
+        feedback_value_type=Literal["appropriate", "inappropriate"],
+        model="databricks",
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -251,7 +363,7 @@ def create_guidelines_scorers(
 
     Args:
         guidelines_config: List of guideline configurations with name and guidelines
-        judge_model: The model endpoint to use for evaluation (e.g., "endpoints:/model-name")
+        judge_model: The model endpoint to use for evaluation (e.g., "databricks:/model-name")
 
     Returns:
         List of configured Guidelines scorers
@@ -273,6 +385,7 @@ def create_guidelines_scorers(
 
 def get_default_scorers(
     include_trace_scorers: bool = True,
+    include_agent_routing: bool = False,
     judge_model: Optional[str] = None,
 ) -> list[Any]:
     """
@@ -280,11 +393,18 @@ def get_default_scorers(
 
     Args:
         include_trace_scorers: Whether to include trace-based scorers like tool_call_efficiency
-        judge_model: The model endpoint to use for LLM-based scorers (e.g., Safety).
-                     Format: "endpoints:/model-name" for Databricks serving endpoints.
+        include_agent_routing: Currently ignored due to MLflow bug #18045.
+                               The agent routing scorer is disabled until the bug is fixed.
+        judge_model: The model endpoint to use for Safety scorer.
 
     Returns:
         List of scorer instances
+
+    Note:
+        The make_judge based scorers (response_clarity, agent_routing) are temporarily
+        disabled due to MLflow bug #18045 which causes endpoint routing issues.
+        Use create_response_clarity_scorer() and create_agent_routing_scorer() directly
+        when the bug is fixed.
     """
     # Safety requires a judge model for LLM-based evaluation
     if judge_model:
@@ -299,11 +419,20 @@ def get_default_scorers(
     scorers: list[Any] = [
         safety_scorer,
         response_completeness,
-        response_clarity,
+        # NOTE: make_judge scorers disabled due to MLflow bug #18045
+        # Uncomment when fixed:
+        # create_response_clarity_scorer(judge_model="databricks"),
     ]
 
     if include_trace_scorers:
         scorers.append(tool_call_efficiency)
+
+    # NOTE: agent_routing scorer disabled due to MLflow bug #18045
+    if include_agent_routing:
+        logger.warning(
+            "Agent routing scorer is temporarily disabled due to MLflow bug #18045. "
+            "Use create_agent_routing_scorer() directly when the bug is fixed."
+        )
 
     return scorers
 
