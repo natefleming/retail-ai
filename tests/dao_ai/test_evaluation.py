@@ -268,15 +268,14 @@ class TestResponseClarityScorer:
             mock_make_judge.return_value = MagicMock()
 
             create_response_clarity_scorer(
-                judge_model="databricks:/test-model",
+                judge_model="databricks-gpt-5-2",
                 name="custom_clarity",
             )
 
             call_kwargs = mock_make_judge.call_args[1]
             assert call_kwargs["name"] == "custom_clarity"
             assert call_kwargs["instructions"] == RESPONSE_CLARITY_INSTRUCTIONS
-            # Note: judge_model is ignored, always uses "databricks" (MLflow bug #18045 workaround)
-            assert call_kwargs["model"] == "databricks"
+            assert call_kwargs["model"] == "databricks-gpt-5-2"
 
     @pytest.mark.unit
     def test_factory_uses_default_name(self) -> None:
@@ -286,7 +285,7 @@ class TestResponseClarityScorer:
         with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
             mock_make_judge.return_value = MagicMock()
 
-            create_response_clarity_scorer(judge_model="databricks:/test-model")
+            create_response_clarity_scorer(judge_model="databricks-gpt-5-2")
 
             call_kwargs = mock_make_judge.call_args[1]
             assert call_kwargs["name"] == "response_clarity"
@@ -304,7 +303,7 @@ class TestAgentRoutingScorer:
             mock_scorer = MagicMock()
             mock_make_judge.return_value = mock_scorer
 
-            scorer = create_agent_routing_scorer(judge_model="databricks:/test-model")
+            scorer = create_agent_routing_scorer(judge_model="databricks-gpt-5-2")
 
             mock_make_judge.assert_called_once()
             assert scorer is mock_scorer
@@ -321,15 +320,14 @@ class TestAgentRoutingScorer:
             mock_make_judge.return_value = MagicMock()
 
             create_agent_routing_scorer(
-                judge_model="databricks:/test-model",
+                judge_model="databricks-gpt-5-2",
                 name="custom_routing",
             )
 
             call_kwargs = mock_make_judge.call_args[1]
             assert call_kwargs["name"] == "custom_routing"
             assert call_kwargs["instructions"] == AGENT_ROUTING_INSTRUCTIONS
-            # Note: judge_model is ignored, always uses "databricks" (MLflow bug #18045 workaround)
-            assert call_kwargs["model"] == "databricks"
+            assert call_kwargs["model"] == "databricks-gpt-5-2"
 
     @pytest.mark.unit
     def test_factory_uses_default_name(self) -> None:
@@ -339,7 +337,7 @@ class TestAgentRoutingScorer:
         with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
             mock_make_judge.return_value = MagicMock()
 
-            create_agent_routing_scorer(judge_model="databricks:/test-model")
+            create_agent_routing_scorer(judge_model="databricks-gpt-5-2")
 
             call_kwargs = mock_make_judge.call_args[1]
             assert call_kwargs["name"] == "agent_routing"
@@ -371,7 +369,7 @@ class TestHelperFunctions:
 
         scorers = get_default_scorers(include_trace_scorers=True)
 
-        # make_judge scorers disabled due to MLflow bug #18045
+        # Without judge_model: clarity scorer not added
         # Returns: Safety (default), response_completeness, tool_call_efficiency
         assert len(scorers) == 3
 
@@ -382,10 +380,10 @@ class TestHelperFunctions:
 
         scorers = get_default_scorers(
             include_trace_scorers=True,
-            judge_model="databricks-claude-3-7-sonnet",
+            judge_model="databricks-gpt-5-2",
         )
 
-        # make_judge scorers disabled due to MLflow bug #18045
+        # make_judge scorers disabled until Databricks endpoints support them
         # Returns: Safety, response_completeness, tool_call_efficiency
         assert len(scorers) == 3
 
@@ -394,24 +392,26 @@ class TestHelperFunctions:
         """Test that trace scorers can be excluded."""
         from dao_ai.evaluation import get_default_scorers
 
-        scorers = get_default_scorers(include_trace_scorers=False)
+        scorers = get_default_scorers(
+            include_trace_scorers=False,
+            judge_model="databricks-gpt-5-2",
+        )
 
-        # make_judge scorers disabled due to MLflow bug #18045
-        # Returns: Safety (default), response_completeness
+        # Without trace scorers: Safety, response_completeness
         assert len(scorers) == 2
 
     @pytest.mark.unit
-    def test_get_default_scorers_agent_routing_disabled(self) -> None:
-        """Test that agent routing scorer is disabled due to MLflow bug."""
+    def test_get_default_scorers_with_agent_routing(self) -> None:
+        """Test that agent routing scorer param is ignored (disabled)."""
         from dao_ai.evaluation import get_default_scorers
 
         scorers = get_default_scorers(
             include_trace_scorers=True,
-            include_agent_routing=True,  # This is now ignored
-            judge_model="databricks-claude-3-7-sonnet",
+            include_agent_routing=True,
+            judge_model="databricks-gpt-5-2",
         )
 
-        # Agent routing is disabled due to MLflow bug #18045
+        # make_judge scorers disabled, so agent_routing is ignored
         # Returns: Safety, response_completeness, tool_call_efficiency
         assert len(scorers) == 3
 

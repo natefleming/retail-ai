@@ -268,17 +268,15 @@ if "inputs" in eval_df.columns:
 
 # Build scorer list with Safety and custom scorers from dao_ai.evaluation
 judge_model = config.evaluation.judge_model_endpoint
-print(f"Using judge model for Safety/Guidelines scorers: {judge_model}")
+print(f"Using judge model: {judge_model}")
 
-# NOTE: make_judge scorers (clarity, agent_routing) are temporarily disabled
-# due to MLflow bug #18045 which causes endpoint routing issues.
 scorers = [
     Safety(model=judge_model),
     response_completeness,
     tool_call_efficiency,
-    # Disabled due to MLflow bug #18045:
-    # create_response_clarity_scorer(judge_model="databricks"),
-    # create_agent_routing_scorer(judge_model="databricks"),
+    # TODO: Re-enable when Databricks endpoints support response_schema
+    # create_response_clarity_scorer(judge_model=judge_model),
+    # create_agent_routing_scorer(judge_model=judge_model),
 ]
 
 # Add Guidelines scorers with proper judge model configuration

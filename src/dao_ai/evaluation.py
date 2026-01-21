@@ -226,18 +226,14 @@ def create_response_clarity_scorer(
         )
         ```
     """
-    # Note: Using "databricks" as the model to use the default Databricks judge.
-    # This works around MLflow bug #18045 where custom endpoint URIs are misrouted.
-    # The judge_model parameter is currently ignored.
-    from typing import Literal
-
     from mlflow.genai.judges import make_judge
 
     return make_judge(
         name=name,
         instructions=RESPONSE_CLARITY_INSTRUCTIONS,
-        feedback_value_type=Literal["clear", "unclear"],
-        model="databricks",
+        # No feedback_value_type - avoids response_schema parameter
+        # which Databricks endpoints don't support
+        model=judge_model,
     )
 
 
@@ -304,18 +300,14 @@ def create_agent_routing_scorer(
         )
         ```
     """
-    # Note: Using "databricks" as the model to use the default Databricks judge.
-    # This works around MLflow bug #18045 where custom endpoint URIs are misrouted.
-    # The judge_model parameter is currently ignored.
-    from typing import Literal
-
     from mlflow.genai.judges import make_judge
 
     return make_judge(
         name=name,
         instructions=AGENT_ROUTING_INSTRUCTIONS,
-        feedback_value_type=Literal["appropriate", "inappropriate"],
-        model="databricks",
+        # No feedback_value_type - avoids response_schema parameter
+        # which Databricks endpoints don't support
+        model=judge_model,
     )
 
 
@@ -393,18 +385,12 @@ def get_default_scorers(
 
     Args:
         include_trace_scorers: Whether to include trace-based scorers like tool_call_efficiency
-        include_agent_routing: Currently ignored due to MLflow bug #18045.
-                               The agent routing scorer is disabled until the bug is fixed.
-        judge_model: The model endpoint to use for Safety scorer.
+        include_agent_routing: Whether to include the agent routing scorer
+        judge_model: The model endpoint to use for LLM-based scorers (Safety, clarity, routing).
+                     Example: "databricks-gpt-5-2"
 
     Returns:
         List of scorer instances
-
-    Note:
-        The make_judge based scorers (response_clarity, agent_routing) are temporarily
-        disabled due to MLflow bug #18045 which causes endpoint routing issues.
-        Use create_response_clarity_scorer() and create_agent_routing_scorer() directly
-        when the bug is fixed.
     """
     # Safety requires a judge model for LLM-based evaluation
     if judge_model:
@@ -419,20 +405,18 @@ def get_default_scorers(
     scorers: list[Any] = [
         safety_scorer,
         response_completeness,
-        # NOTE: make_judge scorers disabled due to MLflow bug #18045
-        # Uncomment when fixed:
-        # create_response_clarity_scorer(judge_model="databricks"),
     ]
+
+    # TODO: Re-enable when Databricks endpoints support make_judge
+    # if judge_model:
+    #     scorers.append(create_response_clarity_scorer(judge_model=judge_model))
 
     if include_trace_scorers:
         scorers.append(tool_call_efficiency)
 
-    # NOTE: agent_routing scorer disabled due to MLflow bug #18045
-    if include_agent_routing:
-        logger.warning(
-            "Agent routing scorer is temporarily disabled due to MLflow bug #18045. "
-            "Use create_agent_routing_scorer() directly when the bug is fixed."
-        )
+    # TODO: Re-enable when Databricks endpoints support make_judge
+    # if include_agent_routing and judge_model:
+    #     scorers.append(create_agent_routing_scorer(judge_model=judge_model))
 
     return scorers
 

@@ -3016,9 +3016,9 @@ class EvaluationModel(BaseModel):
         Get the judge model endpoint string for MLflow scorers.
 
         Returns:
-            Endpoint string in format 'endpoints:/model-name'
+            Endpoint string in format 'databricks:/model-name'
         """
-        return f"endpoints:/{self.model.name}"
+        return f"databricks:/{self.model.name}"
 
 
 class EvaluationDatasetExpectationsModel(BaseModel):
