@@ -76,21 +76,17 @@ flowchart TB
     end
 
     subgraph Supervisor["🎯 Supervisor Agent"]
-        Router["Routing LLM<br/>━━━━━━━━━━━━━━━━<br/>Analyzes request<br/>Routes to specialist"]
+        Router["Routing LLM<br/>Analyzes request<br/>Routes to specialist"]
     end
 
-    subgraph Specialists["👷 Specialized Agents (7 Total)"]
-        subgraph Row1[""]
-            General["💬 General<br/>━━━━━━━━━━━━<br/>Hours, policies"]
-            Orders["📋 Orders<br/>━━━━━━━━━━━━<br/>Order tracking"]
-            DIY["🔧 DIY<br/>━━━━━━━━━━━━<br/>How-to advice"]
-            Product["🛒 Product<br/>━━━━━━━━━━━━<br/>Details, specs"]
-        end
-        subgraph Row2[""]
-            Inventory["📦 Inventory<br/>━━━━━━━━━━━━<br/>Stock levels"]
-            Comparison["⚖️ Comparison<br/>━━━━━━━━━━━━<br/>Compare items"]
-            Recommendation["💡 Recommendation<br/>━━━━━━━━━━━━<br/>Suggestions"]
-        end
+    subgraph Specialists["👷 Specialized Agents"]
+        General["💬 General"]
+        Orders["📋 Orders"]
+        DIY["🔧 DIY"]
+        Product["🛒 Product"]
+        Inventory["📦 Inventory"]
+        Comparison["⚖️ Comparison"]
+        Recommendation["💡 Recommendation"]
     end
 
     subgraph Features["✨ Applied Features"]
@@ -123,19 +119,14 @@ flowchart TB
         Query["Compare Dewalt vs Milwaukee drills<br/>Check stock for both"]
     end
 
-    subgraph Swarm["🐝 Agent Swarm (7 Agents)"]
-        subgraph EntryPoint["🚪 Entry Point"]
-            General["💬 General<br/><i>Can handoff to ANY agent</i>"]
-        end
-        
-        subgraph Workers["👷 Specialist Agents"]
-            Orders["📋 Orders"]
-            DIY["🔧 DIY<br/><i>→ product, inventory, recommendation</i>"]
-            Product["🛒 Product"]
-            Inventory["📦 Inventory<br/><i>(terminal - no outbound)</i>"]
-            Comparison["⚖️ Comparison"]
-            Recommendation["💡 Recommendation"]
-        end
+    subgraph Swarm["🐝 Agent Swarm"]
+        General["💬 General<br/>Entry Point"]
+        Orders["📋 Orders"]
+        DIY["🔧 DIY"]
+        Product["🛒 Product"]
+        Inventory["📦 Inventory<br/>Terminal"]
+        Comparison["⚖️ Comparison"]
+        Recommendation["💡 Recommendation"]
     end
 
     subgraph Features["✨ Applied Features"]
@@ -144,18 +135,17 @@ flowchart TB
     end
 
     Query --> General
-    General -->|"handoff"| Orders
-    General -->|"handoff"| DIY
-    General -->|"handoff"| Product
-    General -->|"handoff"| Inventory
-    General -->|"handoff"| Comparison
-    General -->|"handoff"| Recommendation
-    DIY -->|"handoff"| Product
-    DIY -->|"handoff"| Inventory
-    DIY -->|"handoff"| Recommendation
+    General -->|handoff| Orders
+    General -->|handoff| DIY
+    General -->|handoff| Product
+    General -->|handoff| Inventory
+    General -->|handoff| Comparison
+    General -->|handoff| Recommendation
+    DIY -->|handoff| Product
+    DIY -->|handoff| Inventory
+    DIY -->|handoff| Recommendation
     Swarm --> Features
 
-    style EntryPoint fill:#1565c0,stroke:#0d47a1,color:#fff
     style General fill:#1565c0,stroke:#0d47a1,color:#fff
     style Inventory fill:#42BA91,stroke:#00875C
     style Swarm fill:#e8f5e9,stroke:#2e7d32
@@ -163,9 +153,9 @@ flowchart TB
 ```
 
 **Swarm Handoff Configuration:**
-- **General** (entry point): Can handoff to any agent (`~` = universal router)
+- **General** (blue, entry point): Can handoff to any agent
 - **DIY**: Can handoff to product, inventory, recommendation
-- **Inventory**: Terminal agent (no outbound handoffs)
+- **Inventory** (green): Terminal agent with no outbound handoffs
 
 ## Feature Integration
 
