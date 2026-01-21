@@ -237,78 +237,112 @@ class TestToolCallEfficiency:
         assert "error" in str(result.error).lower()
 
 
-class TestResponseClarity:
-    """Unit tests for response_clarity scorer."""
+class TestResponseClarityScorer:
+    """Unit tests for create_response_clarity_scorer factory."""
 
     @pytest.mark.unit
-    def test_clear_response_passes(self) -> None:
-        """Test that a clear response passes."""
-        from dao_ai.evaluation import response_clarity
+    def test_factory_returns_callable(self) -> None:
+        """Test that the factory returns a callable scorer."""
+        from dao_ai.evaluation import create_response_clarity_scorer
 
-        outputs = {"response": "This is a clear response. It has proper sentences."}
-        result = response_clarity(outputs)
+        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
+            mock_scorer = MagicMock()
+            mock_make_judge.return_value = mock_scorer
 
-        assert isinstance(result, Feedback)
-        assert result.value is True
-        assert "clear" in result.rationale.lower()
+            scorer = create_response_clarity_scorer(
+                judge_model="databricks:/test-model"
+            )
 
-    @pytest.mark.unit
-    def test_no_sentences_fails(self) -> None:
-        """Test that response without sentence structure fails."""
-        from dao_ai.evaluation import response_clarity
-
-        outputs = {"response": "no punctuation here at all just words"}
-        result = response_clarity(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-        assert "sentence" in result.rationale.lower()
+            mock_make_judge.assert_called_once()
+            assert scorer is mock_scorer
 
     @pytest.mark.unit
-    def test_question_mark_counts_as_sentence(self) -> None:
-        """Test that question marks are valid sentence endings."""
-        from dao_ai.evaluation import response_clarity
+    def test_factory_passes_correct_parameters(self) -> None:
+        """Test that the factory passes correct parameters to make_judge."""
+        from dao_ai.evaluation import (
+            RESPONSE_CLARITY_INSTRUCTIONS,
+            create_response_clarity_scorer,
+        )
 
-        outputs = {"response": "Would you like me to help you?"}
-        result = response_clarity(outputs)
+        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
+            mock_make_judge.return_value = MagicMock()
 
-        assert isinstance(result, Feedback)
-        assert result.value is True
+            create_response_clarity_scorer(
+                judge_model="databricks:/test-model",
+                name="custom_clarity",
+            )
 
-    @pytest.mark.unit
-    def test_exclamation_counts_as_sentence(self) -> None:
-        """Test that exclamation marks are valid sentence endings."""
-        from dao_ai.evaluation import response_clarity
-
-        outputs = {"response": "Great question! I can help with that!"}
-        result = response_clarity(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is True
-
-    @pytest.mark.unit
-    def test_string_output_passes(self) -> None:
-        """Test that a direct string output passes."""
-        from dao_ai.evaluation import response_clarity
-
-        outputs = "This is a clear response. It has proper sentences."
-        result = response_clarity(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is True
-        assert "clear" in result.rationale.lower()
+            call_kwargs = mock_make_judge.call_args[1]
+            assert call_kwargs["name"] == "custom_clarity"
+            assert call_kwargs["instructions"] == RESPONSE_CLARITY_INSTRUCTIONS
+            # Note: judge_model is ignored, always uses "databricks" (MLflow bug #18045 workaround)
+            assert call_kwargs["model"] == "databricks"
 
     @pytest.mark.unit
-    def test_string_no_sentences_fails(self) -> None:
-        """Test that string without sentence structure fails."""
-        from dao_ai.evaluation import response_clarity
+    def test_factory_uses_default_name(self) -> None:
+        """Test that the factory uses default name when not specified."""
+        from dao_ai.evaluation import create_response_clarity_scorer
 
-        outputs = "no punctuation here at all just words"
-        result = response_clarity(outputs)
+        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
+            mock_make_judge.return_value = MagicMock()
 
-        assert isinstance(result, Feedback)
-        assert result.value is False
-        assert "sentence" in result.rationale.lower()
+            create_response_clarity_scorer(judge_model="databricks:/test-model")
+
+            call_kwargs = mock_make_judge.call_args[1]
+            assert call_kwargs["name"] == "response_clarity"
+
+
+class TestAgentRoutingScorer:
+    """Unit tests for create_agent_routing_scorer factory."""
+
+    @pytest.mark.unit
+    def test_factory_returns_callable(self) -> None:
+        """Test that the factory returns a callable scorer."""
+        from dao_ai.evaluation import create_agent_routing_scorer
+
+        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
+            mock_scorer = MagicMock()
+            mock_make_judge.return_value = mock_scorer
+
+            scorer = create_agent_routing_scorer(judge_model="databricks:/test-model")
+
+            mock_make_judge.assert_called_once()
+            assert scorer is mock_scorer
+
+    @pytest.mark.unit
+    def test_factory_passes_correct_parameters(self) -> None:
+        """Test that the factory passes correct parameters to make_judge."""
+        from dao_ai.evaluation import (
+            AGENT_ROUTING_INSTRUCTIONS,
+            create_agent_routing_scorer,
+        )
+
+        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
+            mock_make_judge.return_value = MagicMock()
+
+            create_agent_routing_scorer(
+                judge_model="databricks:/test-model",
+                name="custom_routing",
+            )
+
+            call_kwargs = mock_make_judge.call_args[1]
+            assert call_kwargs["name"] == "custom_routing"
+            assert call_kwargs["instructions"] == AGENT_ROUTING_INSTRUCTIONS
+            # Note: judge_model is ignored, always uses "databricks" (MLflow bug #18045 workaround)
+            assert call_kwargs["model"] == "databricks"
+
+    @pytest.mark.unit
+    def test_factory_uses_default_name(self) -> None:
+        """Test that the factory uses default name when not specified."""
+        from dao_ai.evaluation import create_agent_routing_scorer
+
+        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
+            mock_make_judge.return_value = MagicMock()
+
+            create_agent_routing_scorer(judge_model="databricks:/test-model")
+
+            call_kwargs = mock_make_judge.call_args[1]
+            assert call_kwargs["name"] == "agent_routing"
 
 
 class TestHelperFunctions:
@@ -331,17 +365,29 @@ class TestHelperFunctions:
             assert result == {"response": "test response"}
 
     @pytest.mark.unit
-    def test_get_default_scorers_includes_expected(self) -> None:
-        """Test that default scorers include expected scorers."""
-
-        from dao_ai.evaluation import (
-            get_default_scorers,
-        )
+    def test_get_default_scorers_without_judge_model(self) -> None:
+        """Test default scorers without judge model."""
+        from dao_ai.evaluation import get_default_scorers
 
         scorers = get_default_scorers(include_trace_scorers=True)
 
-        # Should include Safety, response_completeness, response_clarity, tool_call_efficiency
-        assert len(scorers) == 4
+        # make_judge scorers disabled due to MLflow bug #18045
+        # Returns: Safety (default), response_completeness, tool_call_efficiency
+        assert len(scorers) == 3
+
+    @pytest.mark.unit
+    def test_get_default_scorers_with_judge_model(self) -> None:
+        """Test default scorers with judge model."""
+        from dao_ai.evaluation import get_default_scorers
+
+        scorers = get_default_scorers(
+            include_trace_scorers=True,
+            judge_model="databricks-claude-3-7-sonnet",
+        )
+
+        # make_judge scorers disabled due to MLflow bug #18045
+        # Returns: Safety, response_completeness, tool_call_efficiency
+        assert len(scorers) == 3
 
     @pytest.mark.unit
     def test_get_default_scorers_excludes_trace_scorers(self) -> None:
@@ -350,7 +396,23 @@ class TestHelperFunctions:
 
         scorers = get_default_scorers(include_trace_scorers=False)
 
-        # Should exclude tool_call_efficiency
+        # make_judge scorers disabled due to MLflow bug #18045
+        # Returns: Safety (default), response_completeness
+        assert len(scorers) == 2
+
+    @pytest.mark.unit
+    def test_get_default_scorers_agent_routing_disabled(self) -> None:
+        """Test that agent routing scorer is disabled due to MLflow bug."""
+        from dao_ai.evaluation import get_default_scorers
+
+        scorers = get_default_scorers(
+            include_trace_scorers=True,
+            include_agent_routing=True,  # This is now ignored
+            judge_model="databricks-claude-3-7-sonnet",
+        )
+
+        # Agent routing is disabled due to MLflow bug #18045
+        # Returns: Safety, response_completeness, tool_call_efficiency
         assert len(scorers) == 3
 
     @pytest.mark.unit
@@ -364,7 +426,7 @@ class TestHelperFunctions:
             guidelines = ["Be helpful", "Be accurate"]
 
         guidelines = [MockGuideline()]
-        judge_model = "endpoints:/test-model"
+        judge_model = "databricks:/test-model"
 
         scorers = create_guidelines_scorers(guidelines, judge_model)
 
@@ -381,10 +443,9 @@ class TestEvaluationIntegration:
     """Integration tests for MLflow evaluation."""
 
     @pytest.mark.integration
-    def test_scorers_return_feedback_objects(self) -> None:
-        """Test that all scorers return valid Feedback objects."""
+    def test_heuristic_scorers_return_feedback_objects(self) -> None:
+        """Test that heuristic scorers return valid Feedback objects."""
         from dao_ai.evaluation import (
-            response_clarity,
             response_completeness,
             tool_call_efficiency,
         )
@@ -394,13 +455,33 @@ class TestEvaluationIntegration:
         assert isinstance(result1, Feedback)
         assert result1.value is not None or result1.rationale is not None
 
-        # Test response_clarity
-        result2 = response_clarity({"response": "Test response here."})
+        # Test tool_call_efficiency with None trace
+        result2 = tool_call_efficiency(None)
         assert isinstance(result2, Feedback)
 
-        # Test tool_call_efficiency with None trace
-        result3 = tool_call_efficiency(None)
-        assert isinstance(result3, Feedback)
+    @pytest.mark.integration
+    def test_llm_scorer_factories_create_valid_scorers(self) -> None:
+        """Test that LLM-based scorer factories create valid scorers."""
+        from dao_ai.evaluation import (
+            create_agent_routing_scorer,
+            create_response_clarity_scorer,
+        )
+
+        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
+            mock_scorer = MagicMock()
+            mock_make_judge.return_value = mock_scorer
+
+            # Test response clarity scorer factory
+            clarity_scorer = create_response_clarity_scorer(
+                judge_model="databricks:/test-model"
+            )
+            assert clarity_scorer is mock_scorer
+
+            # Test agent routing scorer factory
+            routing_scorer = create_agent_routing_scorer(
+                judge_model="databricks:/test-model"
+            )
+            assert routing_scorer is mock_scorer
 
     @pytest.mark.integration
     def test_setup_evaluation_tracking(self) -> None:

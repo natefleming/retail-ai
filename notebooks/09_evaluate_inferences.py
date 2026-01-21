@@ -133,29 +133,12 @@ def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
 from dao_ai.evaluation import (
     response_completeness,
     tool_call_efficiency,
-    response_clarity,
+    create_response_clarity_scorer,
+    create_agent_routing_scorer,
     create_guidelines_scorers,
 )
 from mlflow.genai.scorers import Safety, Guidelines
 from mlflow.entities import Feedback, Trace
-
-# Create clarity Guidelines scorer with proper judge model configuration
-# The judge model is required for LLM-based evaluation to work
-if config.evaluation and config.evaluation.model:
-    judge_model = config.evaluation.judge_model_endpoint
-    clarity = Guidelines(
-        name="clarity",
-        guidelines=["The response must be clear, coherent, and concise"],
-        model=judge_model,
-    )
-    print(f"Created clarity scorer with judge model: {judge_model}")
-else:
-    # Fallback - may not work without judge model
-    clarity = Guidelines(
-        name="clarity",
-        guidelines=["The response must be clear, coherent, and concise"],
-    )
-    print("Warning: No judge model configured for clarity scorer")
 
 # COMMAND ----------
 
@@ -227,17 +210,18 @@ if not config.evaluation:
 evaluation_table_name: str = config.evaluation.table.full_name
 
 # Build scorer list with Safety and custom scorers from dao_ai.evaluation
-# The judge model is required for ALL LLM-based scorers (Safety, Guidelines)
 judge_model = config.evaluation.judge_model_endpoint
-print(f"Using judge model for LLM-based scorers: {judge_model}")
+print(f"Using judge model for Safety/Guidelines scorers: {judge_model}")
 
-# Safety scorer MUST have the judge model to work correctly on Databricks
+# NOTE: make_judge scorers (clarity, agent_routing) are temporarily disabled
+# due to MLflow bug #18045 which causes endpoint routing issues.
 scorers_list = [
     Safety(model=judge_model),
-    clarity,
     response_completeness,
-    response_clarity,
     tool_call_efficiency,
+    # Disabled due to MLflow bug #18045:
+    # create_response_clarity_scorer(judge_model="databricks"),
+    # create_agent_routing_scorer(judge_model="databricks"),
 ]
 
 # Add Guidelines scorers from config with proper judge model

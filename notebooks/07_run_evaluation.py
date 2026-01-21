@@ -192,7 +192,8 @@ def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
 from dao_ai.evaluation import (
     response_completeness,
     tool_call_efficiency,
-    response_clarity,
+    create_response_clarity_scorer,
+    create_agent_routing_scorer,
     create_guidelines_scorers,
 )
 from mlflow.genai.scorers import Safety, Guidelines
@@ -266,16 +267,18 @@ if "inputs" in eval_df.columns:
     eval_df["inputs"] = eval_df["inputs"].apply(normalize_eval_inputs_to_input_dict)
 
 # Build scorer list with Safety and custom scorers from dao_ai.evaluation
-# The judge model is required for ALL LLM-based scorers (Safety, Guidelines)
 judge_model = config.evaluation.judge_model_endpoint
-print(f"Using judge model for LLM-based scorers: {judge_model}")
+print(f"Using judge model for Safety/Guidelines scorers: {judge_model}")
 
-# Safety scorer MUST have the judge model to work correctly on Databricks
+# NOTE: make_judge scorers (clarity, agent_routing) are temporarily disabled
+# due to MLflow bug #18045 which causes endpoint routing issues.
 scorers = [
     Safety(model=judge_model),
     response_completeness,
-    response_clarity,
     tool_call_efficiency,
+    # Disabled due to MLflow bug #18045:
+    # create_response_clarity_scorer(judge_model="databricks"),
+    # create_agent_routing_scorer(judge_model="databricks"),
 ]
 
 # Add Guidelines scorers with proper judge model configuration
