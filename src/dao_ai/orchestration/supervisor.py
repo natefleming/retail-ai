@@ -13,7 +13,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware as LangchainAgentMiddleware
 from langchain.tools import ToolRuntime, tool
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph
@@ -75,15 +75,30 @@ def _create_handoff_back_to_supervisor_tool() -> BaseTool:
         tool_call_id: str = runtime.tool_call_id
         logger.debug("Agent handing back to supervisor", summary_preview=summary[:100])
 
+        # Get the AIMessage that triggered this handoff (required for tool_use/tool_result pairing)
+        # LLMs expect tool calls to be paired with their responses, so we must include both
+        # the AIMessage containing the tool call and the ToolMessage acknowledging it.
+        messages: list[BaseMessage] = runtime.state.get("messages", [])
+        last_ai_message: AIMessage | None = None
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                last_ai_message = msg
+                break
+
+        # Build message list with proper pairing
+        update_messages: list[BaseMessage] = []
+        if last_ai_message:
+            update_messages.append(last_ai_message)
+        update_messages.append(
+            ToolMessage(
+                content=f"Task completed: {summary}",
+                tool_call_id=tool_call_id,
+            )
+        )
+
         return Command(
             update={
-                "active_agent": None,
-                "messages": [
-                    ToolMessage(
-                        content=f"Task completed: {summary}",
-                        tool_call_id=tool_call_id,
-                    )
-                ],
+                "messages": update_messages,
             },
             goto=SUPERVISOR_NODE,
             graph=Command.PARENT,

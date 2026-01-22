@@ -1631,9 +1631,11 @@
     },
     "EvaluationModel": {
       "additionalProperties": false,
+      "description": "Configuration for MLflow GenAI evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.",
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLMModel"
+          "$ref": "#/$defs/LLMModel",
+          "description": "LLM model used as the judge for LLM-based evaluation scorers"
         },
         "table": {
           "$ref": "#/$defs/TableModel"
@@ -2491,6 +2493,23 @@
           "default": null,
           "description": "Few-shot examples for domain-specific filter translation",
           "title": "Examples"
+        },
+        "normalize_filter_case": {
+          "anyOf": [
+            {
+              "enum": [
+                "uppercase",
+                "lowercase"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Auto-normalize filter string values to uppercase or lowercase",
+          "title": "Normalize Filter Case"
         }
       },
       "required": [

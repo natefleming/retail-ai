@@ -227,15 +227,31 @@ def create_handoff_tool(
         tool_call_id: str = runtime.tool_call_id
         logger.debug("Handoff to agent", target_agent=target_agent_name)
 
+        # Get the AIMessage that triggered this handoff (required for tool_use/tool_result pairing)
+        # LLMs expect tool calls to be paired with their responses, so we must include both
+        # the AIMessage containing the tool call and the ToolMessage acknowledging it.
+        messages: list[BaseMessage] = runtime.state.get("messages", [])
+        last_ai_message: AIMessage | None = None
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                last_ai_message = msg
+                break
+
+        # Build message list with proper pairing
+        update_messages: list[BaseMessage] = []
+        if last_ai_message:
+            update_messages.append(last_ai_message)
+        update_messages.append(
+            ToolMessage(
+                content=f"Transferred to {target_agent_name}",
+                tool_call_id=tool_call_id,
+            )
+        )
+
         return Command(
             update={
                 "active_agent": target_agent_name,
-                "messages": [
-                    ToolMessage(
-                        content=f"Transferred to {target_agent_name}",
-                        tool_call_id=tool_call_id,
-                    )
-                ],
+                "messages": update_messages,
             },
             goto=target_agent_name,
             graph=Command.PARENT,
