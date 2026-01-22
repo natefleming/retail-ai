@@ -1931,6 +1931,10 @@ class InstructedRetrieverModel(BaseModel):
         default=None,
         description="Few-shot examples for domain-specific filter translation",
     )
+    normalize_filter_case: Optional[Literal["uppercase", "lowercase"]] = Field(
+        default=None,
+        description="Auto-normalize filter string values to uppercase or lowercase",
+    )
 
 
 class RouterModel(BaseModel):

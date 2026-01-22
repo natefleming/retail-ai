@@ -394,8 +394,31 @@ def create_vector_search_tool(
                     query_type=search_parameters.query_type or "ANN",
                 )
 
+            def normalize_filter_values(
+                filters: dict[str, Any], case: str | None
+            ) -> dict[str, Any]:
+                """Normalize string filter values to specified case."""
+                if not case or not filters:
+                    return filters
+                normalized = {}
+                for key, value in filters.items():
+                    if isinstance(value, str):
+                        normalized[key] = value.upper() if case == "uppercase" else value.lower()
+                    elif isinstance(value, list):
+                        normalized[key] = [
+                            v.upper() if case == "uppercase" else v.lower()
+                            if isinstance(v, str) else v
+                            for v in value
+                        ]
+                    else:
+                        normalized[key] = value
+                return normalized
+
             def execute_search(sq: SearchQuery) -> list[Document]:
-                combined_filters = {**(sq.filters or {}), **base_filters}
+                sq_filters = normalize_filter_values(
+                    sq.filters or {}, instructed_config.normalize_filter_case
+                )
+                combined_filters = {**sq_filters, **base_filters}
                 return vs.similarity_search(
                     query=sq.text,
                     k=search_parameters.num_results or 5,

@@ -82,6 +82,7 @@ retrievers:
     instructed:
       enabled: true
       decomposition_model: *decomposition_llm
+      normalize_filter_case: uppercase
       schema_description: |
         Products table columns:
         - product_id (BIGINT): Unique product identifier

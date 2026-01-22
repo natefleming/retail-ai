@@ -42,5 +42,5 @@ template: |
   - passed: boolean (true if results are satisfactory)
   - confidence: float (0.0-1.0, your confidence in the assessment)
   - feedback: string (brief explanation of issues, if any)
-  - suggested_filter_relaxation: object (filter changes for retry, e.g., {"brand_name": "REMOVE"})
+  - suggested_filter_relaxation: object (filter changes for retry, e.g., {{"brand_name": "REMOVE"}})
   - unmet_constraints: array of strings (list of constraints not satisfied)
