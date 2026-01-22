@@ -1,0 +1,260 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# FULL INSTRUCTED RETRIEVER PIPELINE
+# ==============================================================================
+# Demonstrates the complete pipeline with Router, Instructed Retrieval,
+# Instruction-Aware Reranking, and Verifier components.
+#
+# Pipeline Flow (Complex Query):
+#   Router → Decompose → Parallel Search → RRF → FlashRank → Instruction Rerank → Verifier
+#
+# Pipeline Flow (Simple Query with auto_bypass):
+#   Router → Standard Search → FlashRank → Results
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+
+resources:
+  llms:
+    # Primary LLM for agent reasoning
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+      temperature: 0.1
+      max_tokens: 8192
+
+    # Fast LLM for pipeline components (Router, Decomposition, Reranker, Verifier)
+    # IMPORTANT: Use small models to minimize latency
+    # Options: GPT-3.5-Turbo, Claude 4.5 Haiku, Llama 3 8B (~50-100ms vs 500ms+)
+    fast_llm: &fast_llm
+      name: databricks-claude-haiku-4-5
+      temperature: 0.0
+      max_tokens: 1024
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: products_index
+      source_table:
+        schema: *retail_schema
+        name: products
+      primary_key: product_id
+      doc_uri: ~
+      embedding_source_column: description
+      columns:
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
+
+retrievers:
+  # Full pipeline retriever with all components
+  full_pipeline_retriever: &full_pipeline_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID
+
+    # Router: Selects execution mode based on query complexity
+    router:
+      enabled: true
+      model: *fast_llm
+      default_mode: standard            # Fallback if router fails
+      auto_bypass: true                 # Skip Instruction Reranker + Verifier for standard mode
+
+    # Instructed Retrieval: Query decomposition and RRF merging
+    instructed:
+      enabled: true
+      decomposition_model: *fast_llm
+      normalize_filter_case: uppercase
+      schema_description: |
+        Products table columns:
+        - product_id (BIGINT): Unique product identifier
+        - sku (STRING): Stock keeping unit - internal product code
+        - upc (STRING): Universal Product Code - barcode number
+        - brand_name (STRING): Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)
+        - product_name (STRING): Product display name
+        - merchandise_class (STRING): Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)
+        - class_cd (STRING): Category code
+        - description (STRING): Detailed product description
+
+        Valid filter operators for Databricks Vector Search:
+        - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
+        - Exclusion: {"column NOT": "value"}
+        - Pattern: {"column LIKE": "pattern"}
+      constraints:
+        - "Use merchandise_class for category filtering"
+        - "Use brand_name for brand filtering"
+        - "Only use columns listed in schema_description"
+      max_subqueries: 3
+      rrf_k: 60
+      examples:
+        - query: "Milwaukee drills"
+          filters: {"brand_name": "MILWAUKEE"}
+        - query: "cordless power tools excluding DeWalt"
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+        - query: "paint products"
+          filters: {"merchandise_class": "PAINT"}
+        - query: "Milwaukee or DeWalt tools"
+          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+
+    # Reranking: Databricks columns + Instruction-Aware LLM
+    # Using columns instead of FlashRank model due to ONNX bug: https://github.com/huggingface/optimum/issues/1500
+    rerank:
+      columns:                            # Databricks server-side reranking
+        - merchandise_class
+        - product_name
+        - brand_name
+      top_n: 20                           # Databricks reranker outputs 20 candidates
+      instruction_aware:
+        enabled: true
+        model: *fast_llm
+        instructions: |
+          Prioritize results based on user constraints:
+          - Brand preferences: boost specified brands, demote excluded brands
+          - Category: prefer exact merchandise_class matches
+          - Product type: match specific product types mentioned
+        top_n: 10                         # Final count after instruction reranking
+
+    # Verifier: Validates results and provides feedback for retry
+    verifier:
+      enabled: true
+      model: *fast_llm
+      on_failure: warn_and_retry        # Options: warn, retry, warn_and_retry
+      max_retries: 1
+
+tools:
+  full_pipeline_search_tool: &full_pipeline_search_tool
+    name: intelligent_product_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *full_pipeline_retriever
+        name: intelligent_product_search
+        description: |
+          Intelligent product search with automatic query routing.
+          - Simple queries: Fast standard search path
+          - Complex queries: Full pipeline with decomposition, RRF, and verification
+          Handles brand preferences, category filters, and product exclusions.
+
+agents:
+  intelligent_search_agent: &intelligent_search_agent
+    name: intelligent_search
+    description: "Product search with intelligent query routing and verification"
+    model: *default_llm
+    tools:
+      - *full_pipeline_search_tool
+    prompt: |
+      You are an intelligent product search assistant.
+
+      Use the intelligent_product_search tool for all product queries.
+      The tool automatically:
+      - Routes simple queries through a fast path
+      - Routes complex queries (with constraints) through the full pipeline
+      - Verifies results match user intent
+      - Retries with adjusted filters if needed
+
+      Simply pass the user's query naturally - the tool handles the complexity.
+    handoff_prompt: |
+      All product searches - automatically routes to optimal execution path
+
+app:
+  name: full_pipeline_demo
+  description: "Full instructed retriever pipeline with Router, Verifier, and Instruction-Aware Reranking"
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: full_pipeline_demo
+  endpoint_name: full_pipeline_agent
+  tags:
+    demo: full_pipeline
+    feature: instructed_retriever
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
+  agents:
+    - *intelligent_search_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    input:
+      - role: user
+        content: Find me Milwaukee power drills
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+      session: {}
+
+# ==============================================================================
+# DATASETS
+# ==============================================================================
+# Source data for provisioning tables and vector search indexes
+
+datasets:
+  - table:
+      schema: *retail_schema
+      name: products
+    ddl: ../data/hardware_store/products.sql
+    data: ../data/hardware_store/products.snappy.parquet
+    format: parquet
+  - table:
+      schema: *retail_schema
+      name: inventory
+    ddl: ../data/hardware_store/inventory.sql
+    data: ../data/hardware_store/inventory.snappy.parquet
+    format: parquet
+
+# ==============================================================================
+# PIPELINE BEHAVIOR
+# ==============================================================================
+#
+# Simple Query ("drill bits"):
+#   1. Router → "standard"
+#   2. Standard vector search
+#   3. FlashRank reranking
+#   4. (auto_bypass skips Instruction Reranker + Verifier)
+#   5. Results returned (~150ms)
+#
+# Complex Query ("Milwaukee drills excluding DeWalt"):
+#   1. Router → "instructed"
+#   2. Decompose query into subqueries with filters
+#   3. Parallel vector searches
+#   4. RRF merge results
+#   5. FlashRank reranking
+#   6. Instruction-aware reranking
+#   7. Verifier checks results
+#   8. Results returned (~800-1200ms)
+#
+# OBSERVABILITY TAGS (set in MLflow):
+#   - router.mode: "standard" or "instructed"
+#   - router.fallback: "true" if router LLM failed
+#   - router.bypassed_stages: "true" if auto_bypass triggered
+#   - verifier.outcome: "passed", "warned", "retried", "exhausted"
+#   - verifier.retries: number of retry attempts
+#   - reranker.instruction_avg_score: average score of returned results

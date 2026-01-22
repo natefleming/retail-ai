@@ -1,0 +1,37 @@
+name: router_query_classification
+version: "1.0"
+description: Classify query to determine execution mode (standard vs instructed)
+
+template: |
+  You are a query classification system. Your task is to determine the best execution mode for a search query.
+
+  ## Execution Modes
+
+  **standard**: Use for simple keyword or product searches without specific constraints.
+  - General questions about products
+  - Simple keyword searches
+  - Broad category browsing
+
+  **instructed**: Use for queries with explicit constraints that require metadata filtering.
+  - Price constraints ("under $100", "between $50 and $200")
+  - Brand preferences ("Milwaukee", "not DeWalt", "excluding Makita")
+  - Category filters ("power tools", "paint supplies")
+  - Time/recency constraints ("recent", "from last month", "updated this year")
+  - Comparison queries ("compare X and Y")
+  - Multiple combined constraints
+
+  ## Available Schema for Filtering
+
+  {schema_description}
+
+  ## Query to Classify
+
+  "{query}"
+
+  ## Instructions
+
+  Analyze the query and determine:
+  1. Does it contain explicit constraints that can be translated to metadata filters?
+  2. Would the query benefit from being decomposed into subqueries?
+
+  Return your classification as a JSON object with a single field "mode" set to either "standard" or "instructed".

@@ -1,0 +1,247 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+
+resources:
+  llms:
+    # Primary LLM for agent reasoning
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+      temperature: 0.1
+      max_tokens: 8192
+
+    # Fast LLM for query decomposition (smaller model = lower latency)
+    decomposition_llm: &decomposition_llm
+      name: databricks-claude-haiku-4-5
+      temperature: 0.0
+      max_tokens: 1024
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: products_index
+      source_table:
+        schema: *retail_schema
+        name: products
+      primary_key: product_id
+      doc_uri: ~
+      embedding_source_column: description
+      columns:
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
+
+retrievers:
+  # Standard retriever (no instructed retrieval)
+  standard_retriever: &standard_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:
+      num_results: 10
+      query_type: ANN
+
+  # Instructed retriever with query decomposition and RRF merging
+  instructed_retriever: &instructed_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID
+    instructed:
+      enabled: true
+      decomposition_model: *decomposition_llm
+      normalize_filter_case: uppercase
+      schema_description: |
+        Products table columns:
+        - product_id (BIGINT): Unique product identifier
+        - sku (STRING): Stock keeping unit - internal product code
+        - upc (STRING): Universal Product Code - barcode number
+        - brand_name (STRING): Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)
+        - product_name (STRING): Product display name
+        - merchandise_class (STRING): Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)
+        - class_cd (STRING): Category code
+        - description (STRING): Detailed product description
+        
+        Valid filter operators for Databricks Vector Search:
+        - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
+        - Exclusion: {"column NOT": "value"}
+        - Pattern: {"column LIKE": "pattern"}
+      constraints:
+        - "Use merchandise_class for category filtering"
+        - "Use brand_name for brand filtering"
+        - "Only use columns listed in schema_description"
+      max_subqueries: 3
+      rrf_k: 60
+      examples:
+        - query: "Milwaukee drills"
+          filters: {"brand_name": "MILWAUKEE"}
+        - query: "cordless power tools excluding DeWalt"
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+        - query: "paint products"
+          filters: {"merchandise_class": "PAINT"}
+        - query: "Milwaukee or DeWalt tools"
+          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+    # Reranking: Databricks columns + Instruction-Aware LLM
+    rerank:
+      columns:                            # Databricks server-side reranking
+        - merchandise_class
+        - product_name
+        - brand_name
+      top_n: 20                           # Databricks reranker outputs 20 candidates
+      instruction_aware:
+        enabled: true
+        model: *decomposition_llm
+        instructions: |
+          Prioritize results based on user constraints:
+          - Brand preferences: boost specified brands, demote excluded brands
+          - Category: prefer exact merchandise_class matches
+          - Product type: match specific product types mentioned
+        top_n: 10                         # Final count after instruction reranking
+
+tools:
+  # Standard search tool (baseline)
+  standard_search_tool: &standard_search_tool
+    name: standard_product_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *standard_retriever
+        name: standard_product_search
+        description: |
+          Search for products using standard vector similarity search.
+          Use this for simple queries without complex constraints.
+
+  # Instructed search tool
+  instructed_search_tool: &instructed_search_tool
+    name: instructed_product_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *instructed_retriever
+        name: instructed_product_search
+        description: |
+          Search for products with intelligent query decomposition.
+          Automatically extracts metadata filters from natural language.
+          Best for queries with:
+          - Brand preferences ("Milwaukee", "excluding DeWalt")
+          - Category filters ("power tools", "paint")
+          - Product exclusions ("not Makita")
+
+agents:
+  # Agent using standard search
+  standard_search_agent: &standard_search_agent
+    name: standard_search
+    description: "Product search using standard vector similarity"
+    model: *default_llm
+    tools:
+      - *standard_search_tool
+    prompt: |
+      You are a product search assistant. Use the standard_product_search tool
+      to find products based on customer queries.
+
+      For best results, include relevant keywords from the customer's request.
+    handoff_prompt: |
+      Simple product searches without complex constraints
+
+  # Agent using instructed search
+  instructed_search_agent: &instructed_search_agent
+    name: instructed_search
+    description: "Product search with intelligent query decomposition"
+    model: *default_llm
+    tools:
+      - *instructed_search_tool
+    prompt: |
+      You are an intelligent product search assistant with advanced search capabilities.
+      
+      Use the instructed_product_search tool for queries that include:
+      - Brand preferences (e.g., "Milwaukee", "not DeWalt")
+      - Category filters (e.g., "power tools", "paint")
+      - Product exclusions (e.g., "excluding Makita")
+
+      The search tool automatically extracts filters from your query.
+      Simply pass the customer's request naturally.
+    handoff_prompt: |
+      Product searches with brand or category constraints
+
+app:
+  name: instructed_retriever_demo
+  description: "Demonstrates instructed retrieval with query decomposition and RRF merging"
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: instructed_retriever_demo
+  endpoint_name: instructed_retriever_agent
+  tags:
+    demo: instructed_retriever
+    feature: query_decomposition
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
+  agents:
+    - *standard_search_agent
+    - *instructed_search_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    input:
+      - role: user
+        content: Find me Milwaukee power drills
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+      session: {}
+
+# ==============================================================================
+# DATASETS
+# ==============================================================================
+# Source data for provisioning tables and vector search indexes
+
+datasets:
+  - table:
+      schema: *retail_schema
+      name: products
+    ddl: ../data/hardware_store/products.sql
+    data: ../data/hardware_store/products.snappy.parquet
+    format: parquet
+  - table:
+      schema: *retail_schema
+      name: inventory
+    ddl: ../data/hardware_store/inventory.sql
+    data: ../data/hardware_store/inventory.snappy.parquet
+    format: parquet

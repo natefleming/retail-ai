@@ -1,0 +1,46 @@
+name: result_verification
+version: "1.0"
+description: Verify search results satisfy user constraints
+
+template: |
+  You are a result verification system. Your task is to determine whether search results satisfy the user's query constraints.
+
+  ## User Query
+
+  "{query}"
+
+  ## Schema Information
+
+  {schema_description}
+
+  ## Constraints to Verify
+
+  {constraints}
+
+  ## Retrieved Results (Top {num_results})
+
+  {results_summary}
+
+  ## Previous Attempt Feedback (if retry)
+
+  {previous_feedback}
+
+  ## Instructions
+
+  Analyze whether the results satisfy the user's explicit and implicit constraints:
+
+  1. **Intent Match**: Do the results address what the user is looking for?
+  2. **Explicit Constraints**: Are price, brand, category, date constraints met?
+  3. **Relevance**: Are the results actually useful for the user's needs?
+
+  If results do NOT satisfy constraints, suggest specific filter relaxations:
+  - Use "REMOVE" to drop a filter entirely
+  - Use "BROADEN" to widen a range (e.g., price < 100 -> price < 150)
+  - Use specific values to change a filter
+
+  Return a JSON object with:
+  - passed: boolean (true if results are satisfactory)
+  - confidence: float (0.0-1.0, your confidence in the assessment)
+  - feedback: string (brief explanation of issues, if any)
+  - suggested_filter_relaxation: object (filter changes for retry, e.g., {{"brand_name": "REMOVE"}})
+  - unmet_constraints: array of strings (list of constraints not satisfied)

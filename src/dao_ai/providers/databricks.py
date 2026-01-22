@@ -397,6 +397,8 @@ class DatabricksProvider(ServiceProvider):
 
             pip_requirements += get_installed_packages()
 
+        code_paths = list(dict.fromkeys(code_paths))
+
         logger.trace("Pip requirements prepared", count=len(pip_requirements))
         logger.trace("Code paths prepared", count=len(code_paths))
 
@@ -434,19 +436,38 @@ class DatabricksProvider(ServiceProvider):
             pip_packages_count=len(pip_requirements),
         )
 
-        with mlflow.start_run(run_name=run_name):
-            mlflow.set_tag("type", "agent")
-            mlflow.set_tag("dao_ai", dao_ai_version())
-            logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
-                python_model=model_path.as_posix(),
-                code_paths=code_paths,
-                model_config=config.model_dump(mode="json", by_alias=True),
-                name="agent",
-                conda_env=conda_env,
-                input_example=input_example,
-                # resources=all_resources,
-                auth_policy=auth_policy,
+        # End any stale runs before starting to ensure clean state on retry
+        if mlflow.active_run():
+            logger.warning(
+                "Ending stale MLflow run before creating new agent",
+                run_id=mlflow.active_run().info.run_id,
             )
+            mlflow.end_run()
+
+        try:
+            with mlflow.start_run(run_name=run_name):
+                mlflow.set_tag("type", "agent")
+                mlflow.set_tag("dao_ai", dao_ai_version())
+                logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
+                    python_model=model_path.as_posix(),
+                    code_paths=code_paths,
+                    model_config=config.model_dump(mode="json", by_alias=True),
+                    name="agent",
+                    conda_env=conda_env,
+                    input_example=input_example,
+                    # resources=all_resources,
+                    auth_policy=auth_policy,
+                )
+        except Exception as e:
+            # Ensure run is ended on failure to prevent stale state on retry
+            if mlflow.active_run():
+                mlflow.end_run(status="FAILED")
+            logger.error(
+                "Failed to log model",
+                run_name=run_name,
+                error=str(e),
+            )
+            raise
 
         registered_model_name: str = config.app.registered_model.full_name
 

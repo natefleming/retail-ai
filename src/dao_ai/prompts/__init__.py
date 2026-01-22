@@ -2,9 +2,11 @@
 Prompt utilities for DAO AI agents.
 
 This module provides utilities for creating dynamic prompts using
-LangChain v1's @dynamic_prompt middleware decorator pattern.
+LangChain v1's @dynamic_prompt middleware decorator pattern, as well as
+paths to prompt template files.
 """
 
+from pathlib import Path
 from typing import Any, Optional
 
 from langchain.agents.middleware import (
@@ -17,6 +19,13 @@ from loguru import logger
 
 from dao_ai.config import PromptModel
 from dao_ai.state import Context
+
+PROMPTS_DIR = Path(__file__).parent
+
+
+def get_prompt_path(name: str) -> Path:
+    """Get the path to a prompt template file."""
+    return PROMPTS_DIR / name
 
 
 def make_prompt(
