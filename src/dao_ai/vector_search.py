@@ -64,7 +64,9 @@ def index_exists(
         return True
     except Exception as e:
         # Check if this is a "not exists" error or something else
-        if "RESOURCE_DOES_NOT_EXIST" not in str(e):
+        # Handle both "RESOURCE_DOES_NOT_EXIST" and "does not exist" error patterns
+        error_str = str(e).lower()
+        if "does not exist" not in error_str and "resource_does_not_exist" not in error_str:
             # For unexpected errors, provide a more helpful message
             print(
                 "Unexpected error describing the index. This could be a permission issue."
@@ -106,6 +108,9 @@ def find_index(
             return (True, endpoint_name)
         except Exception:
             # Index not on this endpoint, try next
+            # Catches both "does not exist" and "RESOURCE_DOES_NOT_EXIST" errors,
+            # as well as other errors (permission issues, etc.) - we continue
+            # searching other endpoints regardless of error type
             continue
 
     return (False, None)
