@@ -45,7 +45,7 @@ from dao_ai.tools.instructed_retriever import (
 )
 from dao_ai.tools.router import route_query
 from dao_ai.tools.verifier import add_verification_metadata, verify_results
-from dao_ai.utils import normalize_host
+from dao_ai.utils import is_in_model_serving, normalize_host
 
 # Create FilterItem model at module level so it can be used in type hints
 FilterItem = create_model(
@@ -265,8 +265,62 @@ def create_vector_search_tool(
             top_n=rerank_config.top_n or "auto",
         )
         try:
-            cache_dir = os.path.expanduser(rerank_config.cache_dir)
+            # Use /tmp for cache in Model Serving (home dir may not be writable)
+            if is_in_model_serving():
+                cache_dir = "/tmp/dao_ai/cache/flashrank"
+                if rerank_config.cache_dir != cache_dir:
+                    logger.warning(
+                        "FlashRank cache_dir overridden in Model Serving",
+                        configured=rerank_config.cache_dir,
+                        actual=cache_dir,
+                    )
+            else:
+                cache_dir = os.path.expanduser(rerank_config.cache_dir)
             ranker = Ranker(model_name=rerank_config.model, cache_dir=cache_dir)
+
+            # Patch rerank to always include token_type_ids for ONNX compatibility
+            # Some ONNX runtimes require token_type_ids even when the model doesn't use them
+            # FlashRank conditionally excludes them when all zeros, but ONNX may still expect them
+            # See: https://github.com/huggingface/optimum/issues/1500
+            if hasattr(ranker, "session") and ranker.session is not None:
+                import numpy as np
+
+                _original_rerank = ranker.rerank
+
+                def _patched_rerank(request):
+                    query = request.query
+                    passages = request.passages
+                    query_passage_pairs = [[query, p["text"]] for p in passages]
+
+                    input_text = ranker.tokenizer.encode_batch(query_passage_pairs)
+                    input_ids = np.array([e.ids for e in input_text])
+                    token_type_ids = np.array([e.type_ids for e in input_text])
+                    attention_mask = np.array([e.attention_mask for e in input_text])
+
+                    # Always include token_type_ids (the fix for ONNX compatibility)
+                    onnx_input = {
+                        "input_ids": input_ids.astype(np.int64),
+                        "attention_mask": attention_mask.astype(np.int64),
+                        "token_type_ids": token_type_ids.astype(np.int64),
+                    }
+
+                    outputs = ranker.session.run(None, onnx_input)
+                    logits = outputs[0]
+
+                    if logits.shape[1] == 1:
+                        scores = 1 / (1 + np.exp(-logits.flatten()))
+                    else:
+                        exp_logits = np.exp(logits)
+                        scores = exp_logits[:, 1] / np.sum(exp_logits, axis=1)
+
+                    for score, passage in zip(scores, passages):
+                        passage["score"] = score
+
+                    passages.sort(key=lambda x: x["score"], reverse=True)
+                    return passages
+
+                ranker.rerank = _patched_rerank
+
             logger.success("FlashRank ranker initialized", model=rerank_config.model)
         except Exception as e:
             logger.warning("Failed to initialize FlashRank ranker", error=str(e))
