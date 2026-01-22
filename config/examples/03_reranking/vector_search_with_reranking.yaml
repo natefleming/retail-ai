@@ -3,7 +3,7 @@
 schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods        # Unity Catalog name
-    schema_name: store_ops                     # Schema within the catalog
+    schema_name: hardware_store                # Schema within the catalog
 
 resources:
   llms:
@@ -29,26 +29,32 @@ resources:
       source_table:                                 # Table containing source data
         schema: *retail_schema
         name: products
-      primary_key: item_id                          # Primary key column
+      primary_key: product_id                        # Primary key column
       doc_uri: ~                                    # Optional document URI column (null in this case)
-      embedding_source_column: item_description     # Column to create embeddings from
+      embedding_source_column: description          # Column to create embeddings from
       columns:                                      # Columns to include in vector store
-        - item_id
-        - item_name
-        - item_description
-        - category
-        - price
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
 
 retrievers:
   # Standard retriever WITHOUT reranking
   standard_retriever: &standard_retriever
     vector_store: *products_vector_store            # Reference to vector store defined above
     columns:                                        # Columns to return in search results
-      - item_id
-      - item_name
-      - item_description
-      - category
-      - price
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:                              # Search configuration
       num_results: 10                               # Number of results to return
       filters: {}                                   # Additional filters (empty in this case)
@@ -58,11 +64,14 @@ retrievers:
   default_reranked_retriever: &default_reranked_retriever
     vector_store: *products_vector_store
     columns:
-      - item_id
-      - item_name
-      - item_description
-      - category
-      - price
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:
       num_results: 50                               # Retrieve more candidates for reranking
       filters: {}
@@ -73,11 +82,14 @@ retrievers:
   fast_reranked_retriever: &fast_reranked_retriever
     vector_store: *products_vector_store
     columns:
-      - item_id
-      - item_name
-      - item_description
-      - category
-      - price
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:
       num_results: 100                              # Cast wide net for reranking
       filters: {}
@@ -91,11 +103,14 @@ retrievers:
   accurate_reranked_retriever: &accurate_reranked_retriever
     vector_store: *products_vector_store
     columns:
-      - item_id
-      - item_name
-      - item_description
-      - category
-      - price
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:
       num_results: 50
       filters: {}
@@ -218,7 +233,7 @@ agents:
 app:
   name: vector_search_with_reranking_dao
   description: "Demonstrates vector search with and without reranking"
-  log_level: INFO
+  log_level: TRACE
   registered_model:
     schema: *retail_schema
     name: vector_search_with_reranking_dao
