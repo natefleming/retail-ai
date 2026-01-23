@@ -16,6 +16,7 @@ from loguru import logger
 from mlflow.entities import SpanType
 
 from dao_ai.config import VerificationResult
+from dao_ai.utils import invoke_with_structured_output
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "verifier.yaml"
@@ -25,45 +26,6 @@ def _load_prompt_template() -> dict[str, Any]:
     """Load the verifier prompt template from YAML."""
     with open(_PROMPT_PATH) as f:
         return yaml.safe_load(f)
-
-
-def _get_verifier_schema() -> dict[str, Any]:
-    """Generate JSON schema for verification result structured output."""
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "verification_result",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "passed": {
-                        "type": "boolean",
-                        "description": "Whether results satisfy the query constraints",
-                    },
-                    "confidence": {
-                        "type": "number",
-                        "description": "Confidence score between 0 and 1",
-                    },
-                    "feedback": {
-                        "type": "string",
-                        "description": "Explanation of verification outcome",
-                    },
-                    "suggested_filter_relaxation": {
-                        "type": "object",
-                        "description": "Suggested filter adjustments for retry (key: action)",
-                    },
-                    "unmet_constraints": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of constraints not satisfied by results",
-                    },
-                },
-                "required": ["passed", "confidence"],
-                "additionalProperties": False,
-            },
-        },
-    }
 
 
 def _format_results_summary(documents: list[Document], max_docs: int = 5) -> str:
@@ -132,11 +94,17 @@ def verify_results(
 
     logger.trace("Verifying results", query=query[:100], num_docs=len(documents))
 
-    response_format = _get_verifier_schema()
-    bound_llm = llm.bind(response_format=response_format)
-    response = bound_llm.invoke(prompt)
-    result_dict = json.loads(response.content)
-    result = VerificationResult.model_validate(result_dict)
+    # Use Databricks-compatible structured output with proper response_format
+    result = invoke_with_structured_output(llm, prompt, VerificationResult)
+
+    # Handle None result (can happen if LLM doesn't produce valid output)
+    if result is None:
+        logger.warning("Verifier returned None, treating as passed with low confidence")
+        return VerificationResult(
+            passed=True,
+            confidence=0.0,
+            feedback="Verification failed to produce a valid result",
+        )
 
     # Log for observability
     mlflow.log_text(

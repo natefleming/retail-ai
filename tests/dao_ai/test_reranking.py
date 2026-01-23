@@ -70,13 +70,14 @@ class TestRetrieverModelWithReranker:
     """Unit tests for RetrieverModel with reranking configuration."""
 
     def test_rerank_as_bool_true(self) -> None:
-        """Test that rerank=True is converted to RerankParametersModel with defaults."""
+        """Test that rerank=True is converted to RerankParametersModel with FlashRank default."""
         vector_store = create_mock_vector_store()
 
         retriever = RetrieverModel(vector_store=vector_store, rerank=True)
 
         assert isinstance(retriever.rerank, RerankParametersModel)
-        assert retriever.rerank.model is None  # No FlashRank by default
+        # When rerank=True, the default FlashRank model is set
+        assert retriever.rerank.model == "ms-marco-MiniLM-L-12-v2"
         assert retriever.rerank.top_n is None
 
     def test_rerank_as_bool_false(self) -> None:
@@ -131,6 +132,7 @@ class TestVectorSearchToolCreation:
         vector_store.doc_uri = "https://docs.example.com"
         vector_store.embedding_source_column = "text"
         vector_store.workspace_client = None
+        add_databricks_resource_attrs(vector_store)
         retriever_config.vector_store = vector_store
 
         # Create tool
@@ -144,7 +146,8 @@ class TestVectorSearchToolCreation:
         # but has .invoke() method)
         assert hasattr(tool, "invoke")
         assert tool.name == "test_tool"
-        assert tool.description == "Test description"
+        # Description includes filter columns when columns are specified
+        assert tool.description.startswith("Test description")
 
     @patch("dao_ai.providers.databricks.DatabricksProvider")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
@@ -185,7 +188,9 @@ class TestVectorSearchToolCreation:
         # Verify tool was created
         assert hasattr(tool, "invoke")
         assert tool.name == "test_tool"
-        assert tool.description == "Test description"
+        # Description includes filter columns when columns are specified
+        assert tool.description.startswith("Test description")
+        assert "Available filter columns: text, metadata" in tool.description
 
         # DatabricksVectorSearch uses lazy initialization - it's only created when
         # the tool is invoked. Verify the tool structure is correct without invoking.
@@ -239,6 +244,7 @@ class TestVectorSearchToolCreation:
         vector_store.doc_uri = "https://docs.example.com"
         vector_store.embedding_source_column = "text"
         vector_store.workspace_client = None
+        add_databricks_resource_attrs(vector_store)
         retriever_config.vector_store = vector_store
 
         # Create tool
@@ -252,7 +258,8 @@ class TestVectorSearchToolCreation:
         # but has .invoke() method)
         assert hasattr(tool, "invoke")
         assert tool.name == "reranking_tool"
-        assert tool.description == "Reranking test"
+        # Description includes filter columns when columns are specified
+        assert tool.description.startswith("Reranking test")
 
 
 @pytest.mark.integration
@@ -329,6 +336,7 @@ class TestRerankingE2E:
         vector_store.doc_uri = "https://docs.example.com"
         vector_store.embedding_source_column = "text"
         vector_store.workspace_client = None
+        add_databricks_resource_attrs(vector_store)
         retriever_config.vector_store = vector_store
 
         # Create tool

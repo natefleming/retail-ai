@@ -18,44 +18,7 @@ from loguru import logger
 from mlflow.entities import SpanType
 
 from dao_ai.config import DecomposedQueries, LLMModel, SearchQuery
-
-
-def _get_databricks_compatible_schema() -> dict[str, Any]:
-    """Generate JSON schema for query decomposition structured output."""
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "decomposed_queries",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "queries": {
-                        "type": "array",
-                        "description": "List of decomposed search queries with filters",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "text": {
-                                    "type": "string",
-                                    "description": "The search query text",
-                                },
-                                "filters": {
-                                    "type": "object",
-                                    "description": "Filters to apply in Databricks Vector Search syntax",
-                                },
-                            },
-                            "required": ["text"],
-                            "additionalProperties": False,
-                        },
-                    }
-                },
-                "required": ["queries"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
+from dao_ai.utils import invoke_with_structured_output
 
 # Module-level cache for LLM clients
 _llm_cache: dict[str, BaseChatModel] = {}
@@ -96,7 +59,11 @@ def _format_constraints(constraints: list[str] | None) -> str:
 
 
 def _format_examples(examples: list[dict[str, Any]] | None) -> str:
-    """Format few-shot examples for prompt injection."""
+    """Format few-shot examples for prompt injection.
+
+    Converts dict-style filters from config to FilterItem array format
+    to match the expected JSON schema output.
+    """
     if not examples:
         return "No examples provided."
 
@@ -104,8 +71,10 @@ def _format_examples(examples: list[dict[str, Any]] | None) -> str:
     for i, ex in enumerate(examples, 1):
         query = ex.get("query", "")
         filters = ex.get("filters", {})
+        # Convert dict to FilterItem array format
+        filter_items = [{"key": k, "value": v} for k, v in filters.items()]
         formatted.append(
-            f'Example {i}:\n  Query: "{query}"\n  Filters: {json.dumps(filters)}'
+            f'Example {i}:\n  Query: "{query}"\n  Filters: {json.dumps(filter_items)}'
         )
     return "\n".join(formatted)
 
@@ -163,34 +132,34 @@ def decompose_query(
 
     logger.trace("Decomposing query", query=query[:100], max_subqueries=max_subqueries)
 
-    response_format = _get_databricks_compatible_schema()
-    bound_llm = llm.bind(response_format=response_format)
-
+    # Use Databricks-compatible structured output with proper response_format
     try:
-        response = bound_llm.invoke(prompt)
-        # Parse JSON response into Pydantic model
-        result_dict = json.loads(response.content)
-        parsed = DecomposedQueries.model_validate(result_dict)
-        subqueries = parsed.queries[:max_subqueries]
-
-        # Log for observability
-        mlflow.set_tag("num_subqueries", len(subqueries))
-        mlflow.log_text(
-            json.dumps([sq.model_dump() for sq in subqueries], indent=2),
-            "decomposition.json",
-        )
-
-        logger.debug(
-            "Query decomposed",
-            num_subqueries=len(subqueries),
-            queries=[sq.text[:50] for sq in subqueries],
-        )
-
-        return subqueries
-
+        result = invoke_with_structured_output(llm, prompt, DecomposedQueries)
     except Exception as e:
         logger.warning("Query decomposition failed", error=str(e))
         raise
+
+    # Handle None result (can happen if LLM doesn't produce valid output)
+    if result is None:
+        logger.warning("Query decomposition returned None")
+        raise ValueError("Query decomposition returned no valid result")
+
+    subqueries = result.queries[:max_subqueries]
+
+    # Log for observability
+    mlflow.set_tag("num_subqueries", len(subqueries))
+    mlflow.log_text(
+        json.dumps([sq.model_dump() for sq in subqueries], indent=2),
+        "decomposition.json",
+    )
+
+    logger.debug(
+        "Query decomposed",
+        num_subqueries=len(subqueries),
+        queries=[sq.text[:50] for sq in subqueries],
+    )
+
+    return subqueries
 
 
 def rrf_merge(

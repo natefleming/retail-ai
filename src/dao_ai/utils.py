@@ -1,16 +1,21 @@
 import importlib
 import importlib.metadata
+import json
 import os
 import re
 import site
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Sequence, TypeVar
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from loguru import logger
+from pydantic import BaseModel
 
 import dao_ai
+
+T = TypeVar("T", bound=BaseModel)
 
 
 def is_lib_provided(lib_name: str, pip_requirements: Sequence[str]) -> bool:
@@ -152,7 +157,7 @@ def get_installed_packages() -> dict[str, str]:
 
     packages: Sequence[str] = [
         f"databricks-agents=={version('databricks-agents')}",
-        f"databricks-langchain=={version('databricks-langchain')}",
+        f"databricks-langchain[memory]=={version('databricks-langchain')}",
         f"databricks-mcp=={version('databricks-mcp')}",
         f"databricks-sdk[openai]=={version('databricks-sdk')}",
         f"ddgs=={version('ddgs')}",
@@ -322,3 +327,178 @@ def is_in_model_serving() -> bool:
         return True
 
     return False
+
+
+def get_databricks_response_format(model_class: type[BaseModel]) -> dict[str, Any]:
+    """Create a Databricks-compatible response_format for structured output.
+
+    Databricks requires the json_schema response format to have a 'name' field.
+    This function creates the properly formatted response_format dictionary
+    from a Pydantic model.
+
+    Args:
+        model_class: A Pydantic model class to use as the output schema
+
+    Returns:
+        A dictionary suitable for use with llm.bind(response_format=...)
+
+    Example:
+        >>> response_format = get_databricks_response_format(MyModel)
+        >>> bound_llm = llm.bind(response_format=response_format)
+        >>> result = bound_llm.invoke(prompt)
+    """
+    schema = model_class.model_json_schema()
+
+    # Remove $defs from the schema - Databricks doesn't support complex refs
+    # We need to inline any referenced definitions
+    if "$defs" in schema:
+        schema = _inline_schema_defs(schema)
+
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": model_class.__name__,
+            "schema": schema,
+            "strict": True,
+        },
+    }
+
+
+def _inline_schema_defs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Inline $defs references in a JSON schema.
+
+    Databricks doesn't support $ref and complex nested definitions,
+    so we need to inline them.
+
+    Args:
+        schema: The original JSON schema with $defs
+
+    Returns:
+        A schema with all references inlined
+    """
+    defs = schema.pop("$defs", {})
+    if not defs:
+        return schema
+
+    def resolve_refs(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            if "$ref" in obj:
+                # Extract the definition name from #/$defs/DefinitionName
+                ref_path = obj["$ref"]
+                if ref_path.startswith("#/$defs/"):
+                    def_name = ref_path[len("#/$defs/") :]
+                    if def_name in defs:
+                        # Return a copy of the definition with refs resolved
+                        return resolve_refs(defs[def_name].copy())
+                return obj
+            return {k: resolve_refs(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [resolve_refs(item) for item in obj]
+        return obj
+
+    return resolve_refs(schema)
+
+
+def _repair_json(content: str) -> str | None:
+    """Attempt to repair malformed JSON from LLM output.
+
+    Handles common issues:
+    - Extra text before/after JSON object
+    - Truncated JSON (unclosed brackets/braces)
+    - Trailing commas
+
+    Args:
+        content: The potentially malformed JSON string
+
+    Returns:
+        Repaired JSON string if successful, None otherwise
+    """
+    # 1. Extract JSON object if wrapped in extra text
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or start >= end:
+        return None
+    content = content[start : end + 1]
+
+    # 2. Try parsing as-is first
+    try:
+        json.loads(content)
+        return content
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Fix trailing commas before closing brackets
+    content = re.sub(r",\s*}", "}", content)
+    content = re.sub(r",\s*]", "]", content)
+
+    # 4. Try to close unclosed brackets/braces
+    open_braces = content.count("{") - content.count("}")
+    open_brackets = content.count("[") - content.count("]")
+
+    if open_braces > 0 or open_brackets > 0:
+        # Remove trailing comma if present
+        content = content.rstrip().rstrip(",")
+        content += "]" * open_brackets + "}" * open_braces
+
+    # 5. Final validation
+    try:
+        json.loads(content)
+        return content
+    except json.JSONDecodeError:
+        return None
+
+
+def invoke_with_structured_output(
+    llm: BaseChatModel,
+    prompt: str,
+    model_class: type[T],
+) -> T | None:
+    """Invoke an LLM with Databricks-compatible structured output.
+
+    Uses response_format with json_schema type and proper 'name' field
+    as required by Databricks Foundation Model APIs.
+
+    Args:
+        llm: The language model to invoke
+        prompt: The prompt to send to the model
+        model_class: The Pydantic model class for the expected output
+
+    Returns:
+        An instance of model_class, or None if parsing fails
+    """
+    response_format = get_databricks_response_format(model_class)
+    bound_llm = llm.bind(response_format=response_format)
+
+    response = bound_llm.invoke(prompt)
+
+    content = response.content
+    if not isinstance(content, str):
+        return None
+
+    try:
+        # Try parsing the JSON directly
+        result_dict = json.loads(content)
+        return model_class.model_validate(result_dict)
+    except json.JSONDecodeError as e:
+        # Attempt JSON repair
+        repaired = _repair_json(content)
+        if repaired:
+            try:
+                result_dict = json.loads(repaired)
+                logger.debug("JSON repair successful", model_class=model_class.__name__)
+                return model_class.model_validate(result_dict)
+            except (json.JSONDecodeError, Exception):
+                pass
+        logger.warning(
+            "Failed to parse structured output",
+            error=str(e),
+            model_class=model_class.__name__,
+        )
+        return None
+    except Exception as e:
+        logger.warning(
+            "Failed to parse structured output",
+            error=str(e),
+            model_class=model_class.__name__,
+        )
+        return None

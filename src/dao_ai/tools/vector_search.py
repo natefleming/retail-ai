@@ -22,9 +22,9 @@ from langchain_core.documents import Document
 from langchain_core.tools import StructuredTool
 from loguru import logger
 from mlflow.entities import SpanType
-from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from dao_ai.config import (
+    FilterItem,
     InstructedRetrieverModel,
     RerankParametersModel,
     RetrieverModel,
@@ -46,97 +46,6 @@ from dao_ai.tools.instruction_reranker import instruction_aware_rerank
 from dao_ai.tools.router import route_query
 from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import is_in_model_serving, normalize_host
-
-# Create FilterItem model at module level so it can be used in type hints
-FilterItem = create_model(
-    "FilterItem",
-    key=(
-        str,
-        Field(
-            description="The filter key, which includes the column name and can include operators like 'NOT', '<', '>=', 'LIKE', 'OR'"
-        ),
-    ),
-    value=(
-        Any,
-        Field(
-            description="The filter value, which can be a single value or an array of values"
-        ),
-    ),
-    __config__=ConfigDict(extra="forbid"),
-)
-
-
-def _create_dynamic_input_schema(
-    index_name: str, workspace_client: WorkspaceClient
-) -> type[BaseModel]:
-    """
-    Create dynamic input schema with column information from the table.
-
-    Args:
-        index_name: Full name of the vector search index
-        workspace_client: Workspace client to query table metadata
-
-    Returns:
-        Pydantic model class for tool input
-    """
-
-    # Try to get column information
-    column_descriptions = []
-    try:
-        table_info = workspace_client.tables.get(full_name=index_name)
-        for column_info in table_info.columns:
-            name = column_info.name
-            col_type = column_info.type_name.name
-            if not name.startswith("__"):
-                column_descriptions.append(f"{name} ({col_type})")
-    except Exception:
-        logger.debug(
-            "Could not retrieve column information for dynamic schema",
-            index=index_name,
-        )
-
-    # Build filter description matching VectorSearchRetrieverTool format
-    filter_description = (
-        "Optional filters to refine vector search results as an array of key-value pairs. "
-        "IMPORTANT: If unsure about filter values, try searching WITHOUT filters first to get broad results, "
-        "then optionally add filters to narrow down if needed. This ensures you don't miss relevant results due to incorrect filter values. "
-    )
-
-    if column_descriptions:
-        filter_description += (
-            f"Available columns for filtering: {', '.join(column_descriptions)}. "
-        )
-
-    filter_description += (
-        "Supports the following operators:\n\n"
-        '- Inclusion: [{"key": "column", "value": value}] or [{"key": "column", "value": [value1, value2]}] (matches if the column equals any of the provided values)\n'
-        '- Exclusion: [{"key": "column NOT", "value": value}]\n'
-        '- Comparisons: [{"key": "column <", "value": value}], [{"key": "column >=", "value": value}], etc.\n'
-        '- Pattern match: [{"key": "column LIKE", "value": "word"}] (matches full tokens separated by whitespace)\n'
-        '- OR logic: [{"key": "column1 OR column2", "value": [value1, value2]}] '
-        "(matches if column1 equals value1 or column2 equals value2; matches are position-specific)\n\n"
-        "Examples:\n"
-        '- Filter by category: [{"key": "category", "value": "electronics"}]\n'
-        '- Filter by price range: [{"key": "price >=", "value": 100}, {"key": "price <", "value": 500}]\n'
-        '- Exclude specific status: [{"key": "status NOT", "value": "archived"}]\n'
-        '- Pattern matching: [{"key": "description LIKE", "value": "wireless"}]'
-    )
-
-    # Create the input model
-    VectorSearchInput = create_model(
-        "VectorSearchInput",
-        query=(
-            str,
-            Field(description="The search query string to find relevant documents"),
-        ),
-        filters=(
-            Optional[list[FilterItem]],
-            Field(default=None, description=filter_description),
-        ),
-        __config__=ConfigDict(extra="forbid"),
-    )
-
-    return VectorSearchInput
 
 
 @mlflow.trace(name="rerank_documents", span_type=SpanType.RETRIEVER)
@@ -163,6 +72,11 @@ def _rerank_documents(
         documents_count=len(documents),
         model=rerank_config.model,
     )
+
+    # Early return if no documents to rerank
+    if not documents:
+        logger.debug("No documents to rerank, skipping")
+        return documents
 
     # Prepare passages for reranking
     passages: list[dict[str, Any]] = [
@@ -249,7 +163,7 @@ def create_vector_search_tool(
         raise ValueError("vector_store.index is required for vector search")
 
     index_name: str = vector_store.index.full_name
-    columns: list[str] = list(retriever.columns or [])
+    columns: list[str] = list(retriever.columns or vector_store.index.columns or [])
     search_parameters: SearchParametersModel = retriever.search_parameters
     router_config: Optional[RouterModel] = retriever.router
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
@@ -282,7 +196,7 @@ def create_vector_search_tool(
             # Some ONNX runtimes require token_type_ids even when the model doesn't use them
             # FlashRank conditionally excludes them when all zeros, but ONNX may still expect them
             # See: https://github.com/huggingface/optimum/issues/1500
-            if hasattr(ranker, "session") and ranker.session is not None:
+            if ranker.session is not None:
                 import numpy as np
 
                 _original_rerank = ranker.rerank
@@ -326,43 +240,60 @@ def create_vector_search_tool(
             logger.warning("Failed to initialize FlashRank ranker", error=str(e))
             rerank_config = None
 
+    # Log instructed retrieval configuration
+    if instructed_config:
+        logger.success(
+            "Instructed retrieval configured",
+            decomposition_model=instructed_config.decomposition_model.name
+            if instructed_config.decomposition_model
+            else None,
+            max_subqueries=instructed_config.max_subqueries,
+            rrf_k=instructed_config.rrf_k,
+        )
+
+    # Log instruction-aware reranking configuration
+    if rerank_config and rerank_config.instruction_aware:
+        logger.success(
+            "Instruction-aware reranking configured",
+            model=rerank_config.instruction_aware.model.name
+            if rerank_config.instruction_aware.model
+            else None,
+            top_n=rerank_config.instruction_aware.top_n,
+        )
+
     # Build client_args for VectorSearchClient
-    # Use getattr to safely access attributes that may not exist (e.g., in mocks)
     client_args: dict[str, Any] = {}
     has_explicit_auth = any(
         [
             os.environ.get("DATABRICKS_TOKEN"),
             os.environ.get("DATABRICKS_CLIENT_ID"),
-            getattr(vector_store, "pat", None),
-            getattr(vector_store, "client_id", None),
-            getattr(vector_store, "on_behalf_of_user", None),
+            vector_store.pat,
+            vector_store.client_id,
+            vector_store.on_behalf_of_user,
         ]
     )
 
     if has_explicit_auth:
         databricks_host = os.environ.get("DATABRICKS_HOST")
-        if (
-            not databricks_host
-            and getattr(vector_store, "_workspace_client", None) is not None
-        ):
-            databricks_host = vector_store.workspace_client.config.host
+        if not databricks_host and vector_store.workspace_host:
+            databricks_host = value_of(vector_store.workspace_host)
         if databricks_host:
             client_args["workspace_url"] = normalize_host(databricks_host)
 
         token = os.environ.get("DATABRICKS_TOKEN")
-        if not token and getattr(vector_store, "pat", None):
+        if not token and vector_store.pat:
             token = value_of(vector_store.pat)
         if token:
             client_args["personal_access_token"] = token
 
         client_id = os.environ.get("DATABRICKS_CLIENT_ID")
-        if not client_id and getattr(vector_store, "client_id", None):
+        if not client_id and vector_store.client_id:
             client_id = value_of(vector_store.client_id)
         if client_id:
             client_args["service_principal_client_id"] = client_id
 
         client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET")
-        if not client_secret and getattr(vector_store, "client_secret", None):
+        if not client_secret and vector_store.client_secret:
             client_secret = value_of(vector_store.client_secret)
         if client_secret:
             client_args["service_principal_client_secret"] = client_secret
@@ -415,8 +346,22 @@ def create_vector_search_tool(
 
     # Determine tool name and description
     tool_name: str = name or f"vector_search_{vector_store.index.name}"
-    tool_description: str = description or f"Search documents in {index_name}"
 
+    # Build tool description with available columns for filtering
+    base_description: str = description or f"Search documents in {index_name}"
+    if columns:
+        columns_list = ", ".join(columns)
+        tool_description = (
+            f"{base_description}. "
+            f"Available filter columns: {columns_list}. "
+            f"Filter operators: 'column' for equality, 'column NOT' for exclusion, "
+            f"'column <', 'column <=', 'column >', 'column >=' for comparison, "
+            f"'column LIKE' for token matching, 'column NOT LIKE' to exclude tokens."
+        )
+    else:
+        tool_description = base_description
+
+    @mlflow.trace(name="execute_instructed_retrieval", span_type=SpanType.RETRIEVER)
     def _execute_instructed_retrieval(
         vs: DatabricksVectorSearch,
         query: str,
@@ -424,6 +369,9 @@ def create_vector_search_tool(
         previous_feedback: str | None = None,
     ) -> list[Document]:
         """Execute instructed retrieval with query decomposition and RRF merging."""
+        logger.trace(
+            "Executing instructed retrieval", query=query, base_filters=base_filters
+        )
         try:
             decomposition_llm = _get_cached_llm(instructed_config.decomposition_model)
 
@@ -452,6 +400,7 @@ def create_vector_search_tool(
                 filters: dict[str, Any], case: str | None
             ) -> dict[str, Any]:
                 """Normalize string filter values to specified case."""
+                logger.trace("Normalizing filter values", filters=filters, case=case)
                 if not case or not filters:
                     return filters
                 normalized = {}
@@ -474,15 +423,30 @@ def create_vector_search_tool(
                 return normalized
 
             def execute_search(sq: SearchQuery) -> list[Document]:
+                logger.trace("Executing search", query=sq.text, filters=sq.filters)
+                # Convert FilterItem list to dict
+                sq_filters_dict: dict[str, Any] = {}
+                if sq.filters:
+                    for item in sq.filters:
+                        sq_filters_dict[item.key] = item.value
                 sq_filters = normalize_filter_values(
-                    sq.filters or {}, instructed_config.normalize_filter_case
+                    sq_filters_dict, instructed_config.normalize_filter_case
                 )
-                combined_filters = {**sq_filters, **base_filters}
+                k: int = search_parameters.num_results or 5
+                query_type: str = search_parameters.query_type or "ANN"
+                combined_filters: dict[str, Any] = {**sq_filters, **base_filters}
+                logger.trace(
+                    "Executing search",
+                    query=sq.text,
+                    k=k,
+                    query_type=query_type,
+                    filters=combined_filters,
+                )
                 return vs.similarity_search(
                     query=sq.text,
-                    k=search_parameters.num_results or 5,
+                    k=k,
                     filter=combined_filters if combined_filters else None,
-                    query_type=search_parameters.query_type or "ANN",
+                    query_type=query_type,
                 )
 
             logger.debug(
@@ -523,6 +487,7 @@ def create_vector_search_tool(
                 query_type=search_parameters.query_type or "ANN",
             )
 
+    @mlflow.trace(name="execute_standard_search", span_type=SpanType.RETRIEVER)
     def _execute_standard_search(
         vs: DatabricksVectorSearch,
         query: str,
@@ -537,6 +502,7 @@ def create_vector_search_tool(
             query_type=search_parameters.query_type or "ANN",
         )
 
+    @mlflow.trace(name="apply_post_processing", span_type=SpanType.RETRIEVER)
     def _apply_post_processing(
         documents: list[Document],
         query: str,
@@ -550,11 +516,7 @@ def create_vector_search_tool(
             return documents
 
         # Apply instruction-aware reranking if configured
-        if (
-            rerank_config
-            and rerank_config.instruction_aware
-            and rerank_config.instruction_aware.enabled
-        ):
+        if rerank_config and rerank_config.instruction_aware:
             instruction_config = rerank_config.instruction_aware
             instruction_llm = (
                 _get_cached_llm(instruction_config.model)
@@ -576,7 +538,7 @@ def create_vector_search_tool(
                 )
 
         # Apply verification if configured
-        if verifier_config and verifier_config.enabled:
+        if verifier_config:
             verifier_llm = (
                 _get_cached_llm(verifier_config.model)
                 if verifier_config.model
@@ -637,11 +599,15 @@ def create_vector_search_tool(
 
     # Use @tool decorator for proper ToolRuntime injection
     @tool(name_or_callable=tool_name, description=tool_description)
-    def vector_search_func(
+    def _vector_search_tool(
         query: Annotated[str, "The search query to find relevant documents"],
         filters: Annotated[
             Optional[list[FilterItem]],
-            "Optional filters to apply to the search results",
+            "Optional filters as key-value pairs. "
+            "Key operators: 'column' (equality), 'column NOT' (exclusion), "
+            "'column <', '<=', '>', '>=' (comparison), "
+            "'column LIKE' (token match), 'column NOT LIKE' (exclude token). "
+            f"Valid columns: {', '.join(columns) if columns else 'none'}.",
         ] = None,
         runtime: ToolRuntime[Context] = None,
     ) -> str:
@@ -663,7 +629,16 @@ def create_vector_search_tool(
         mode: Literal["standard", "instructed"] = "standard"
         auto_bypass = True
 
-        if router_config and router_config.enabled:
+        logger.trace("Router configuration", router_config=router_config)
+        logger.trace("Instructed configuration", instructed_config=instructed_config)
+        logger.trace(
+            "Instruction-aware rerank configuration",
+            instruction_aware=rerank_config.instruction_aware
+            if rerank_config
+            else None,
+        )
+
+        if router_config:
             router_llm = (
                 _get_cached_llm(router_config.model) if router_config.model else None
             )
@@ -685,15 +660,20 @@ def create_vector_search_tool(
                     mode = router_config.default_mode
             else:
                 mode = router_config.default_mode
-        elif instructed_config and instructed_config.enabled:
-            # No router but instructed is enabled - use instructed mode
+        elif instructed_config:
+            # No router but instructed is configured - use instructed mode
             mode = "instructed"
             auto_bypass = False
+        elif rerank_config and rerank_config.instruction_aware:
+            # No router/instructed but instruction_aware reranking is configured
+            # Disable auto_bypass to ensure instruction_aware reranking runs
+            auto_bypass = False
 
+        logger.trace("Routing mode", mode=mode, auto_bypass=auto_bypass)
         mlflow.set_tag("router.mode", mode)
 
         # Execute search based on mode
-        if mode == "instructed" and instructed_config and instructed_config.enabled:
+        if mode == "instructed" and instructed_config:
             documents = _execute_instructed_retrieval(vs, query, base_filters)
         else:
             documents = _execute_standard_search(vs, query, base_filters)
@@ -727,4 +707,4 @@ def create_vector_search_tool(
 
     logger.success("Vector search tool created", name=tool_name, index=index_name)
 
-    return vector_search_func
+    return _vector_search_tool

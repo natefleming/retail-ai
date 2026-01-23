@@ -80,14 +80,12 @@ retrievers:
 
     # Router: Selects execution mode based on query complexity
     router:
-      enabled: true
       model: *fast_llm
       default_mode: standard            # Fallback if router fails
       auto_bypass: true                 # Skip Instruction Reranker + Verifier for standard mode
 
     # Instructed Retrieval: Query decomposition and RRF merging
     instructed:
-      enabled: true
       decomposition_model: *fast_llm
       normalize_filter_case: uppercase
       schema_description: |
@@ -130,7 +128,6 @@ retrievers:
         - brand_name
       top_n: 20                           # Databricks reranker outputs 20 candidates
       instruction_aware:
-        enabled: true
         model: *fast_llm
         instructions: |
           Prioritize results based on user constraints:
@@ -141,7 +138,6 @@ retrievers:
 
     # Verifier: Validates results and provides feedback for retry
     verifier:
-      enabled: true
       model: *fast_llm
       on_failure: warn_and_retry        # Options: warn, retry, warn_and_retry
       max_retries: 1

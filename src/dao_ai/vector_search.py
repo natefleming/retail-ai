@@ -66,7 +66,10 @@ def index_exists(
         # Check if this is a "not exists" error or something else
         # Handle both "RESOURCE_DOES_NOT_EXIST" and "does not exist" error patterns
         error_str = str(e).lower()
-        if "does not exist" not in error_str and "resource_does_not_exist" not in error_str:
+        if (
+            "does not exist" not in error_str
+            and "resource_does_not_exist" not in error_str
+        ):
             # For unexpected errors, provide a more helpful message
             print(
                 "Unexpected error describing the index. This could be a permission issue."

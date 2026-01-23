@@ -80,7 +80,6 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      enabled: true
       decomposition_model: *decomposition_llm
       normalize_filter_case: uppercase
       schema_description: |
@@ -121,7 +120,6 @@ retrievers:
         - brand_name
       top_n: 20                           # Databricks reranker outputs 20 candidates
       instruction_aware:
-        enabled: true
         model: *decomposition_llm
         instructions: |
           Prioritize results based on user constraints:

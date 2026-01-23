@@ -1,15 +1,18 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
 # ==============================================================================
-# INSTRUCTION-AWARE RERANKING EXAMPLE
+# INSTRUCTED RETRIEVAL + INSTRUCTION-AWARE RERANKING EXAMPLE
 # ==============================================================================
-# Demonstrates LLM-based reranking that considers user instructions and
-# constraints, running AFTER FlashRank for constraint-aware result ordering.
+# Demonstrates the full instructed retrieval pipeline:
+# 1. Query Decomposition - LLM extracts filters from natural language
+# 2. Parallel Search + RRF - Multiple subqueries merged via Reciprocal Rank Fusion
+# 3. FlashRank Reranking - Cross-encoder semantic reranking
+# 4. Instruction-Aware Reranking - LLM-based constraint-aware final ordering
 
 schemas:
   retail_schema: &retail_schema
     catalog_name: retail_consumer_goods
-    schema_name: store_ops
+    schema_name: hardware_store
 
 resources:
   llms:
@@ -41,53 +44,72 @@ resources:
       source_table:
         schema: *retail_schema
         name: products
-      primary_key: item_id
+      primary_key: product_id
       doc_uri: ~
-      embedding_source_column: item_description
+      embedding_source_column: description
       columns:
-        - item_id
-        - item_name
-        - item_description
-        - category
-        - price
-        - brand
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - class_cd
+        - description
 
 retrievers:
-  # FlashRank only (baseline)
-  flashrank_only_retriever: &flashrank_only_retriever
-    vector_store: *products_vector_store
-    columns:
-      - item_id
-      - item_name
-      - item_description
-      - category
-      - price
-      - brand
-    search_parameters:
-      num_results: 50
-      query_type: HYBRID
-    rerank:
-      model: ms-marco-MiniLM-L-12-v2
-      top_n: 10
-
   # FlashRank + Instruction-Aware Reranking
   instruction_aware_retriever: &instruction_aware_retriever
     vector_store: *products_vector_store
     columns:
-      - item_id
-      - item_name
-      - item_description
-      - category
-      - price
-      - brand
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
     search_parameters:
       num_results: 50
       query_type: HYBRID
+    instructed:
+      decomposition_model: *reranker_llm
+      normalize_filter_case: uppercase
+      schema_description: |
+        Products table columns:
+        - product_id (BIGINT): Unique product identifier
+        - sku (STRING): Stock keeping unit - internal product code
+        - upc (STRING): Universal Product Code - barcode number
+        - brand_name (STRING): Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)
+        - product_name (STRING): Product display name
+        - merchandise_class (STRING): Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)
+        - class_cd (STRING): Category code
+        - description (STRING): Detailed product description
+        
+        Valid filter operators for Databricks Vector Search:
+        - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
+        - Exclusion: {"column NOT": "value"}
+        - Pattern: {"column LIKE": "pattern"}
+      constraints:
+        - "Use merchandise_class for category filtering"
+        - "Use brand_name for brand filtering"
+        - "Only use columns listed in schema_description"
+      max_subqueries: 3
+      rrf_k: 60
+      examples:
+        - query: "Milwaukee drills"
+          filters: {"brand_name": "MILWAUKEE"}
+        - query: "cordless power tools excluding DeWalt"
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+        - query: "paint products"
+          filters: {"merchandise_class": "PAINT"}
+        - query: "Milwaukee or DeWalt tools"
+          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
     rerank:
-      model: ms-marco-MiniLM-L-12-v2
+      model: ms-marco-MiniLM-L-12-v2            # FlashRank cross-encoder model
       top_n: 20                                  # FlashRank returns 20 candidates
       instruction_aware:
-        enabled: true
         model: *reranker_llm
         instructions: |
           Prioritize results that match explicit user constraints:
@@ -99,19 +121,6 @@ retrievers:
         top_n: 10                                # Final count after instruction reranking
 
 tools:
-  # Tool with FlashRank only
-  flashrank_search_tool: &flashrank_search_tool
-    name: flashrank_product_search
-    function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *flashrank_only_retriever
-        name: flashrank_product_search
-        description: |
-          Search for products with FlashRank semantic reranking.
-          Good for general queries without specific constraints.
-
   # Tool with FlashRank + Instruction-Aware Reranking
   instruction_aware_search_tool: &instruction_aware_search_tool
     name: instruction_aware_product_search
@@ -130,19 +139,6 @@ tools:
           Results are reranked to prioritize constraint matches.
 
 agents:
-  # Agent using FlashRank only
-  flashrank_search_agent: &flashrank_search_agent
-    name: flashrank_search
-    description: "Product search with FlashRank semantic reranking"
-    model: *default_llm
-    tools:
-      - *flashrank_search_tool
-    prompt: |
-      You are a product search assistant with semantic reranking.
-      Use the flashrank_product_search tool for general queries.
-    handoff_prompt: |
-      General product searches without specific constraints
-
   # Agent using instruction-aware reranking
   instruction_aware_search_agent: &instruction_aware_search_agent
     name: instruction_aware_search
@@ -161,9 +157,9 @@ agents:
       Product searches with price, brand, or category constraints
 
 app:
-  name: instruction_aware_reranking_demo
-  description: "Demonstrates instruction-aware reranking on top of FlashRank"
-  log_level: INFO
+  name: instructed_retrieval_demo
+  description: "Demonstrates instructed retrieval with query decomposition, RRF merging, and instruction-aware reranking"
+  log_level: TRACE
   registered_model:
     schema: *retail_schema
     name: instruction_aware_reranking_demo
@@ -176,7 +172,7 @@ app:
       entitlements:
         - CAN_QUERY
   agents:
-    - *flashrank_search_agent
+
     - *instruction_aware_search_agent
   orchestration:
     supervisor:
@@ -184,31 +180,34 @@ app:
   input_example:
     input:
       - role: user
-        content: Find me power tools under $150 from Milwaukee
+        content: Find me Milwaukee brand drills
     custom_inputs:
       configurable:
         user_id: demo_user
       session: {}
 
 # ==============================================================================
-# INSTRUCTION-AWARE RERANKING EXPLAINED
+# INSTRUCTED RETRIEVAL + RERANKING EXPLAINED
 # ==============================================================================
 #
-# Reranking Pipeline:
-# 1. Vector Search (HYBRID) → 50 candidates
-# 2. FlashRank (semantic) → 20 candidates (~10ms)
-# 3. Instruction-Aware (constraint) → 10 final results (~100ms)
+# Full Pipeline:
+# 1. Query Decomposition (LLM) → Extracts filters from natural language (~100ms)
+# 2. Parallel Vector Search (HYBRID) → Multiple subqueries, 50 candidates each
+# 3. RRF Merge → Combines results via Reciprocal Rank Fusion
+# 4. FlashRank (semantic) → 20 candidates (~10ms)
+# 5. Instruction-Aware (constraint) → 10 final results (~100ms)
 #
 # When to Use:
 # - Queries with explicit price, brand, or category constraints
-# - When FlashRank alone misses user intent nuances
-# - Complex queries requiring constraint prioritization
+# - Natural language filters ("Milwaukee drills", "excluding DeWalt")
+# - Complex queries requiring metadata filtering + semantic ranking
 #
 # Configuration Tips:
-# - Use small/fast LLM for instruction reranking (GPT-3.5, Haiku, Llama 3 8B)
-# - Set FlashRank top_n higher than instruction_aware top_n (e.g., 20 → 10)
-# - Custom instructions can be tailored to your domain
+# - Use small/fast LLM for decomposition and instruction reranking
+# - schema_description must accurately describe filterable columns
+# - examples help the LLM generate correct filter syntax
+# - normalize_filter_case ensures filter values match stored data
 #
 # Latency Profile:
-# - FlashRank only: ~110ms (100ms search + 10ms rerank)
-# - With instruction-aware: ~210ms (100ms search + 10ms FlashRank + 100ms LLM)
+# - Standard search: ~100ms
+# - With instructed + reranking: ~310ms (100ms decomp + 100ms search + 10ms FlashRank + 100ms LLM)

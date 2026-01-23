@@ -2,7 +2,7 @@ name: instructed_retriever_decomposition
 description: Decomposes user queries into multiple search queries with metadata filters
 
 template: |
-  You are a search query decomposition expert. Your task is to break down a user query into one or more focused search queries with appropriate metadata filters.
+  You are a search query decomposition expert. Your task is to break down a user query into one or more focused search queries with appropriate metadata filters. Respond with a JSON object.
 
   ## Current Time
   {current_time}
@@ -41,4 +41,18 @@ output_format: |
   The output must be a JSON object with a "queries" field containing an array of search query objects.
   Each search query object has:
   - "text": The search query string
-  - "filters": A dictionary of filters in Databricks Vector Search syntax, or null if no filters
+  - "filters": An array of filter objects, each with "key" (column + optional operator) and "value", or null if no filters
+  
+  Supported filter operators (append to column name):
+  - Equality: {"key": "column", "value": "val"} or {"key": "column", "value": ["val1", "val2"]}
+  - Exclusion: {"key": "column NOT", "value": "val"}
+  - Comparison: {"key": "column <", "value": 100}, also <=, >, >=
+  - Token match: {"key": "column LIKE", "value": "word"}
+  - Exclude token: {"key": "column NOT LIKE", "value": "word"}
+  
+  Examples:
+  - [{"key": "brand_name", "value": "MILWAUKEE"}]
+  - [{"key": "price <", "value": 100}]
+  - [{"key": "brand_name NOT", "value": "DEWALT"}]
+  - [{"key": "brand_name", "value": ["MILWAUKEE", "DEWALT"]}]
+  - [{"key": "description LIKE", "value": "cordless"}]

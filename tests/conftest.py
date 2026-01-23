@@ -1,9 +1,17 @@
 import os
+
+# Disable MLflow tracing BEFORE importing mlflow to prevent the async trace logging
+# queue from being initialized. This avoids the slow "Flushing the async trace logging
+# queue" message at the end of test runs.
+os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"] = "false"
+os.environ["MLFLOW_TRACE_SAMPLING_RATIO"] = "0"
+
 import sys
 from pathlib import Path
 from typing import Any, Sequence
 from unittest.mock import MagicMock
 
+import mlflow
 import pytest
 from dotenv import find_dotenv, load_dotenv
 from langchain_core.messages import AIMessage
@@ -18,6 +26,9 @@ from dao_ai.logging import configure_logging
 from dao_ai.models import create_agent
 
 configure_logging(level="INFO")
+
+# Also disable tracing programmatically as a backup
+mlflow.tracing.disable()
 
 
 root_dir: Path = Path(__file__).parents[1]

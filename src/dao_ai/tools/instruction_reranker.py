@@ -5,7 +5,6 @@ Runs after FlashRank to apply user instructions and constraints to the ranking.
 General-purpose component usable with any retrieval strategy.
 """
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +14,10 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from loguru import logger
 from mlflow.entities import SpanType
+from pydantic import ValidationError
 
 from dao_ai.config import RankingResult
+from dao_ai.utils import invoke_with_structured_output
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "instruction_reranker.yaml"
@@ -26,47 +27,6 @@ def _load_prompt_template() -> dict[str, Any]:
     """Load the instruction reranker prompt template from YAML."""
     with open(_PROMPT_PATH) as f:
         return yaml.safe_load(f)
-
-
-def _get_reranker_schema() -> dict[str, Any]:
-    """Generate JSON schema for ranking result structured output."""
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "ranking_result",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "rankings": {
-                        "type": "array",
-                        "description": "Ranked list of document indices with scores",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "index": {
-                                    "type": "integer",
-                                    "description": "Document index from the input list",
-                                },
-                                "score": {
-                                    "type": "number",
-                                    "description": "Relevance score between 0 and 1",
-                                },
-                                "reason": {
-                                    "type": "string",
-                                    "description": "Brief explanation for the score",
-                                },
-                            },
-                            "required": ["index", "score"],
-                            "additionalProperties": False,
-                        },
-                    }
-                },
-                "required": ["rankings"],
-                "additionalProperties": False,
-            },
-        },
-    }
 
 
 def _format_documents(documents: list[Document]) -> str:
@@ -136,11 +96,32 @@ def instruction_aware_rerank(
 
     logger.trace("Instruction reranking", query=query[:100], num_docs=len(documents))
 
-    response_format = _get_reranker_schema()
-    bound_llm = llm.bind(response_format=response_format)
-    response = bound_llm.invoke(prompt)
-    result_dict = json.loads(response.content)
-    result = RankingResult.model_validate(result_dict)
+    # Use Databricks-compatible structured output with proper response_format
+    try:
+        result = invoke_with_structured_output(llm, prompt, RankingResult)
+    except (ValidationError, Exception) as e:
+        logger.warning(
+            "Failed to get structured output from reranker, returning original order",
+            error=str(e),
+        )
+        result = None
+
+    # Handle None result (can happen if LLM doesn't produce valid output)
+    if result is None:
+        logger.warning(
+            "Reranker returned None, returning original order",
+        )
+        return [
+            Document(
+                page_content=doc.page_content,
+                metadata={
+                    **doc.metadata,
+                    "instruction_rerank_score": 1.0 - (i / len(documents)),
+                    "instruction_rerank_reason": "fallback: no valid response",
+                },
+            )
+            for i, doc in enumerate(documents[:top_n] if top_n else documents)
+        ]
 
     # Build reranked document list
     reranked: list[Document] = []

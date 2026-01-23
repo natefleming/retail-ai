@@ -44,7 +44,7 @@ classifiers = [
 ]
 dependencies = [
     "databricks-agents>=1.9.0",
-    "databricks-langchain[memory]>=0.12.1",
+    "databricks-langchain[memory]>=0.13.0",
     "databricks-mcp>=0.5.0",
     "databricks-sdk[openai]>=0.77.0",
     "ddgs>=9.10.0",

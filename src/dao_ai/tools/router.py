@@ -6,7 +6,6 @@ Routes to internal execution modes within the same retriever instance:
 - instructed: Decompose -> Parallel Search -> RRF for constrained queries
 """
 
-import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -17,6 +16,8 @@ from loguru import logger
 from mlflow.entities import SpanType
 from pydantic import BaseModel, ConfigDict, Field
 
+from dao_ai.utils import invoke_with_structured_output
+
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "router.yaml"
 
@@ -25,29 +26,6 @@ def _load_prompt_template() -> dict[str, Any]:
     """Load the router prompt template from YAML."""
     with open(_PROMPT_PATH) as f:
         return yaml.safe_load(f)
-
-
-def _get_router_schema() -> dict[str, Any]:
-    """Generate JSON schema for router decision structured output."""
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "router_decision",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["standard", "instructed"],
-                        "description": "Execution mode: 'standard' for simple queries, 'instructed' for constrained queries",
-                    }
-                },
-                "required": ["mode"],
-                "additionalProperties": False,
-            },
-        },
-    }
 
 
 class RouterDecision(BaseModel):
@@ -86,11 +64,13 @@ def route_query(
 
     logger.trace("Routing query", query=query[:100])
 
-    response_format = _get_router_schema()
-    bound_llm = llm.bind(response_format=response_format)
-    response = bound_llm.invoke(prompt)
-    result_dict = json.loads(response.content)
-    decision = RouterDecision.model_validate(result_dict)
+    # Use Databricks-compatible structured output with proper response_format
+    decision = invoke_with_structured_output(llm, prompt, RouterDecision)
+
+    # Handle None result (can happen if LLM doesn't produce valid output)
+    if decision is None:
+        logger.warning("Router returned None, defaulting to standard mode")
+        return "standard"
 
     logger.debug("Router decision", mode=decision.mode, query=query[:50])
     mlflow.set_tag("router.mode", decision.mode)

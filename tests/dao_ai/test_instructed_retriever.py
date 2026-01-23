@@ -8,6 +8,7 @@ from langchain_core.documents import Document
 
 from dao_ai.config import (
     DecomposedQueries,
+    FilterItem,
     InstructedRetrieverModel,
     LLMModel,
     RetrieverModel,
@@ -36,18 +37,26 @@ class TestSearchQueryModel:
         """Test creating a SearchQuery with filters."""
         sq = SearchQuery(
             text="Milwaukee drills",
-            filters={"brand_name": "Milwaukee", "price <": 200},
+            filters=[
+                FilterItem(key="brand_name", value="Milwaukee"),
+                FilterItem(key="price <", value=200),
+            ],
         )
         assert sq.text == "Milwaukee drills"
-        assert sq.filters["brand_name"] == "Milwaukee"
-        assert sq.filters["price <"] == 200
+        assert len(sq.filters) == 2
+        assert sq.filters[0].key == "brand_name"
+        assert sq.filters[0].value == "Milwaukee"
+        assert sq.filters[1].key == "price <"
+        assert sq.filters[1].value == 200
 
     def test_serialization(self) -> None:
         """Test that SearchQuery can be serialized."""
-        sq = SearchQuery(text="test", filters={"col": "val"})
+        sq = SearchQuery(text="test", filters=[FilterItem(key="col", value="val")])
         dumped = sq.model_dump()
         assert dumped["text"] == "test"
-        assert dumped["filters"] == {"col": "val"}
+        assert len(dumped["filters"]) == 1
+        assert dumped["filters"][0]["key"] == "col"
+        assert dumped["filters"][0]["value"] == "val"
 
 
 @pytest.mark.unit
@@ -58,12 +67,14 @@ class TestDecomposedQueriesModel:
         """Test creating DecomposedQueries with a list of queries."""
         queries = [
             SearchQuery(text="query1"),
-            SearchQuery(text="query2", filters={"col": "val"}),
+            SearchQuery(text="query2", filters=[FilterItem(key="col", value="val")]),
         ]
         dq = DecomposedQueries(queries=queries)
         assert len(dq.queries) == 2
         assert dq.queries[0].text == "query1"
-        assert dq.queries[1].filters == {"col": "val"}
+        assert len(dq.queries[1].filters) == 1
+        assert dq.queries[1].filters[0].key == "col"
+        assert dq.queries[1].filters[0].value == "val"
 
     def test_empty_queries(self) -> None:
         """Test creating DecomposedQueries with empty list."""
@@ -78,7 +89,6 @@ class TestInstructedRetrieverModel:
     def test_default_values(self) -> None:
         """Test that InstructedRetrieverModel has sensible defaults."""
         model = InstructedRetrieverModel(schema_description="Test schema")
-        assert model.enabled is False
         assert model.decomposition_model is None
         assert model.constraints is None
         assert model.max_subqueries == 3
@@ -89,7 +99,6 @@ class TestInstructedRetrieverModel:
         """Test InstructedRetrieverModel with all fields."""
         llm = LLMModel(name="test-model")
         model = InstructedRetrieverModel(
-            enabled=True,
             decomposition_model=llm,
             schema_description="Products table with columns...",
             constraints=["Prefer recent products"],
@@ -97,7 +106,6 @@ class TestInstructedRetrieverModel:
             rrf_k=40,
             examples=[{"query": "test", "filters": {"col": "val"}}],
         )
-        assert model.enabled is True
         assert model.decomposition_model.name == "test-model"
         assert len(model.constraints) == 1
         assert model.max_subqueries == 5
@@ -129,7 +137,6 @@ class TestRetrieverModelWithInstructed:
         vector_store = create_mock_vector_store()
 
         instructed = InstructedRetrieverModel(
-            enabled=True,
             schema_description="Test schema",
         )
 
@@ -139,7 +146,7 @@ class TestRetrieverModelWithInstructed:
         )
 
         assert retriever.instructed is not None
-        assert retriever.instructed.enabled is True
+        assert retriever.instructed.schema_description == "Test schema"
 
     def test_retriever_without_instructed(self) -> None:
         """Test that RetrieverModel works without instructed."""
@@ -309,25 +316,39 @@ class TestFormatHelpers:
 class TestDecomposeQuery:
     """Unit tests for query decomposition function."""
 
-    def _create_mock_llm(self, response_json: str) -> MagicMock:
-        """Helper to create mock LLM with bind() behavior."""
+    def _create_mock_llm(self, result: DecomposedQueries) -> MagicMock:
+        """Helper to create mock LLM with bind() behavior for invoke_with_structured_output."""
         mock_llm = MagicMock()
         mock_bound_llm = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = response_json
         mock_llm.bind.return_value = mock_bound_llm
+        # invoke_with_structured_output expects response.content to be JSON string
+        mock_response = MagicMock()
+        mock_response.content = result.model_dump_json()
         mock_bound_llm.invoke.return_value = mock_response
         return mock_llm
 
     @patch("dao_ai.tools.instructed_retriever._load_prompt_template")
-    def test_decompose_query_basic(self, mock_load_prompt: MagicMock) -> None:
+    @patch("dao_ai.tools.instructed_retriever.mlflow")
+    def test_decompose_query_basic(
+        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    ) -> None:
         """Test basic query decomposition."""
         mock_load_prompt.return_value = {"template": "{query}"}
 
-        # Mock LLM with bind() for Databricks response_format
-        mock_llm = self._create_mock_llm(
-            '{"queries": [{"text": "Milwaukee drills", "filters": {"brand_name": "Milwaukee"}}, {"text": "power tools under $200", "filters": {"price <": 200}}]}'
+        # Create DecomposedQueries result with FilterItem array format
+        decomposed = DecomposedQueries(
+            queries=[
+                SearchQuery(
+                    text="Milwaukee drills",
+                    filters=[FilterItem(key="brand_name", value="Milwaukee")],
+                ),
+                SearchQuery(
+                    text="power tools under $200",
+                    filters=[FilterItem(key="price <", value=200)],
+                ),
+            ]
         )
+        mock_llm = self._create_mock_llm(decomposed)
 
         result = decompose_query(
             llm=mock_llm,
@@ -337,22 +358,22 @@ class TestDecomposeQuery:
 
         assert len(result) == 2
         assert result[0].text == "Milwaukee drills"
-        assert result[0].filters["brand_name"] == "Milwaukee"
+        assert result[0].filters[0].key == "brand_name"
+        assert result[0].filters[0].value == "Milwaukee"
 
     @patch("dao_ai.tools.instructed_retriever._load_prompt_template")
+    @patch("dao_ai.tools.instructed_retriever.mlflow")
     def test_decompose_query_respects_max_subqueries(
-        self, mock_load_prompt: MagicMock
+        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
     ) -> None:
         """Test that decomposition respects max_subqueries limit."""
         mock_load_prompt.return_value = {"template": "{query}"}
 
         # Return more queries than allowed
-        queries_json = (
-            '{"queries": ['
-            + ",".join(f'{{"text": "query{i}"}}' for i in range(10))
-            + "]}"
+        decomposed = DecomposedQueries(
+            queries=[SearchQuery(text=f"query{i}") for i in range(10)]
         )
-        mock_llm = self._create_mock_llm(queries_json)
+        mock_llm = self._create_mock_llm(decomposed)
 
         result = decompose_query(
             llm=mock_llm,

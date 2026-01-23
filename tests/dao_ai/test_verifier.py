@@ -21,7 +21,6 @@ class TestVerifierModel:
     def test_default_values(self) -> None:
         """Test that VerifierModel has sensible defaults."""
         model = VerifierModel()
-        assert model.enabled is False
         assert model.model is None
         assert model.on_failure == "warn"
         assert model.max_retries == 1
@@ -29,11 +28,9 @@ class TestVerifierModel:
     def test_custom_values(self) -> None:
         """Test VerifierModel with custom configuration."""
         model = VerifierModel(
-            enabled=True,
             on_failure="warn_and_retry",
             max_retries=2,
         )
-        assert model.enabled is True
         assert model.on_failure == "warn_and_retry"
         assert model.max_retries == 2
 
@@ -193,13 +190,15 @@ class TestAddVerificationMetadata:
 class TestVerifyResults:
     """Unit tests for verify_results function."""
 
-    def _create_mock_llm(self, response_json: str) -> MagicMock:
-        """Helper to create mock LLM with bind() behavior."""
+    def _create_mock_llm(self, passed: bool, confidence: float) -> MagicMock:
+        """Helper to create mock LLM with bind() behavior for invoke_with_structured_output."""
         mock_llm = MagicMock()
         mock_bound_llm = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = response_json
         mock_llm.bind.return_value = mock_bound_llm
+        # invoke_with_structured_output expects response.content to be JSON string
+        mock_result = VerificationResult(passed=passed, confidence=confidence)
+        mock_response = MagicMock()
+        mock_response.content = mock_result.model_dump_json()
         mock_bound_llm.invoke.return_value = mock_response
         return mock_llm
 
@@ -212,7 +211,7 @@ class TestVerifyResults:
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {constraints} {num_results} {results_summary} {previous_feedback}"
         }
-        mock_llm = self._create_mock_llm('{"passed": true, "confidence": 0.9}')
+        mock_llm = self._create_mock_llm(passed=True, confidence=0.9)
 
         docs = [Document(page_content="Test", metadata={})]
         result = verify_results(
@@ -227,21 +226,17 @@ class TestVerifyResults:
         assert result.confidence == 0.9
 
     @patch("dao_ai.tools.verifier._load_prompt_template")
-    @patch("dao_ai.tools.verifier._get_verifier_schema")
     @patch("dao_ai.tools.verifier.mlflow")
-    def test_uses_response_format_for_databricks(
+    def test_uses_bind_with_response_format(
         self,
         mock_mlflow: MagicMock,
-        mock_get_schema: MagicMock,
         mock_load_prompt: MagicMock,
     ) -> None:
-        """Test that verify_results uses response_format for Databricks compatibility."""
+        """Test that verify_results uses bind() with response_format for parsing."""
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {constraints} {num_results} {results_summary} {previous_feedback}"
         }
-        test_schema = {"type": "json_schema", "json_schema": {"name": "test"}}
-        mock_get_schema.return_value = test_schema
-        mock_llm = self._create_mock_llm('{"passed": true, "confidence": 0.9}')
+        mock_llm = self._create_mock_llm(passed=True, confidence=0.9)
 
         docs = [Document(page_content="Test", metadata={})]
         verify_results(
@@ -251,8 +246,14 @@ class TestVerifyResults:
             schema_description="schema",
         )
 
-        # Verify bind() is called with response_format
-        mock_llm.bind.assert_called_once_with(response_format=test_schema)
+        # Verify bind() is called with response_format containing VerificationResult schema
+        mock_llm.bind.assert_called_once()
+        call_kwargs = mock_llm.bind.call_args[1]
+        assert "response_format" in call_kwargs
+        assert (
+            call_kwargs["response_format"]["json_schema"]["name"]
+            == "VerificationResult"
+        )
 
     @patch("dao_ai.tools.verifier._load_prompt_template")
     @patch("dao_ai.tools.verifier.mlflow")
@@ -263,7 +264,7 @@ class TestVerifyResults:
         mock_load_prompt.return_value = {
             "template": "Feedback: {previous_feedback} Query: {query} Schema: {schema_description} Constraints: {constraints} Results: {results_summary} Count: {num_results}"
         }
-        mock_llm = self._create_mock_llm('{"passed": true, "confidence": 0.9}')
+        mock_llm = self._create_mock_llm(passed=True, confidence=0.9)
 
         docs = [Document(page_content="Test", metadata={})]
         verify_results(

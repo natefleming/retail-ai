@@ -15,7 +15,6 @@ class TestRouterModel:
     def test_default_values(self) -> None:
         """Test that RouterModel has sensible defaults."""
         model = RouterModel()
-        assert model.enabled is False
         assert model.model is None
         assert model.default_mode == "standard"
         assert model.auto_bypass is True
@@ -23,11 +22,9 @@ class TestRouterModel:
     def test_custom_values(self) -> None:
         """Test RouterModel with custom configuration."""
         model = RouterModel(
-            enabled=True,
             default_mode="instructed",
             auto_bypass=False,
         )
-        assert model.enabled is True
         assert model.default_mode == "instructed"
         assert model.auto_bypass is False
 
@@ -61,13 +58,15 @@ class TestRouterDecision:
 class TestRouteQuery:
     """Unit tests for route_query function."""
 
-    def _create_mock_llm(self, response_json: str) -> MagicMock:
-        """Helper to create mock LLM with bind() behavior."""
+    def _create_mock_llm(self, mode: str) -> MagicMock:
+        """Helper to create mock LLM with bind() behavior for invoke_with_structured_output."""
         mock_llm = MagicMock()
         mock_bound_llm = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = response_json
         mock_llm.bind.return_value = mock_bound_llm
+        # invoke_with_structured_output expects response.content to be JSON string
+        mock_decision = RouterDecision(mode=mode)
+        mock_response = MagicMock()
+        mock_response.content = mock_decision.model_dump_json()
         mock_bound_llm.invoke.return_value = mock_response
         return mock_llm
 
@@ -80,7 +79,7 @@ class TestRouteQuery:
         mock_load_prompt.return_value = {
             "template": "Test prompt: {schema_description} {query}"
         }
-        mock_llm = self._create_mock_llm('{"mode": "standard"}')
+        mock_llm = self._create_mock_llm("standard")
 
         result = route_query(
             llm=mock_llm,
@@ -100,7 +99,7 @@ class TestRouteQuery:
         mock_load_prompt.return_value = {
             "template": "Test prompt: {schema_description} {query}"
         }
-        mock_llm = self._create_mock_llm('{"mode": "instructed"}')
+        mock_llm = self._create_mock_llm("instructed")
 
         result = route_query(
             llm=mock_llm,
@@ -112,19 +111,15 @@ class TestRouteQuery:
         mock_mlflow.set_tag.assert_called_with("router.mode", "instructed")
 
     @patch("dao_ai.tools.router._load_prompt_template")
-    @patch("dao_ai.tools.router._get_router_schema")
     @patch("dao_ai.tools.router.mlflow")
-    def test_uses_response_format_for_databricks(
+    def test_uses_bind_with_response_format(
         self,
         mock_mlflow: MagicMock,
-        mock_get_schema: MagicMock,
         mock_load_prompt: MagicMock,
     ) -> None:
-        """Test that route_query uses response_format for Databricks compatibility."""
+        """Test that route_query uses bind() with response_format for parsing."""
         mock_load_prompt.return_value = {"template": "{schema_description} {query}"}
-        test_schema = {"type": "json_schema", "json_schema": {"name": "test"}}
-        mock_get_schema.return_value = test_schema
-        mock_llm = self._create_mock_llm('{"mode": "standard"}')
+        mock_llm = self._create_mock_llm("standard")
 
         route_query(
             llm=mock_llm,
@@ -132,8 +127,11 @@ class TestRouteQuery:
             schema_description="test schema",
         )
 
-        # Verify bind() is called with response_format
-        mock_llm.bind.assert_called_once_with(response_format=test_schema)
+        # Verify bind() is called with response_format containing RouterDecision schema
+        mock_llm.bind.assert_called_once()
+        call_kwargs = mock_llm.bind.call_args[1]
+        assert "response_format" in call_kwargs
+        assert call_kwargs["response_format"]["json_schema"]["name"] == "RouterDecision"
 
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
@@ -144,7 +142,7 @@ class TestRouteQuery:
         mock_load_prompt.return_value = {
             "template": "Schema: {schema_description}\nQuery: {query}"
         }
-        mock_llm = self._create_mock_llm('{"mode": "standard"}')
+        mock_llm = self._create_mock_llm("standard")
 
         route_query(
             llm=mock_llm,

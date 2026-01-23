@@ -2424,14 +2424,8 @@
     },
     "InstructedRetrieverModel": {
       "additionalProperties": false,
-      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nInstructed retrieval decomposes user queries into multiple subqueries with\nmetadata filters, executes them in parallel, and merges results using\nReciprocal Rank Fusion (RRF) before reranking.\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        enabled: true\n        decomposition_model: *fast_llm\n        schema_description: |\n          Products table: product_id, brand_name, category, price, updated_at\n          Filter operators: {\"col\": val}, {\"col >\": val}, {\"col NOT\": val}\n        constraints:\n          - \"Prefer recent products\"\n        max_subqueries: 3\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
+      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nInstructed retrieval decomposes user queries into multiple subqueries with\nmetadata filters, executes them in parallel, and merges results using\nReciprocal Rank Fusion (RRF) before reranking.\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        decomposition_model: *fast_llm\n        schema_description: |\n          Products table: product_id, brand_name, category, price, updated_at\n          Filter operators: {\"col\": val}, {\"col >\": val}, {\"col NOT\": val}\n        constraints:\n          - \"Prefer recent products\"\n        max_subqueries: 3\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
       "properties": {
-        "enabled": {
-          "default": false,
-          "description": "Enable instructed retrieval",
-          "title": "Enabled",
-          "type": "boolean"
-        },
         "decomposition_model": {
           "anyOf": [
             {
@@ -2520,14 +2514,8 @@
     },
     "InstructionAwareRerankModel": {
       "additionalProperties": false,
-      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    rerank:\n      model: ms-marco-MiniLM-L-12-v2\n      top_n: 20\n      instruction_aware:\n        enabled: true\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
+      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    rerank:\n      model: ms-marco-MiniLM-L-12-v2\n      top_n: 20\n      instruction_aware:\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
       "properties": {
-        "enabled": {
-          "default": false,
-          "description": "Enable instruction-aware reranking",
-          "title": "Enabled",
-          "type": "boolean"
-        },
         "model": {
           "anyOf": [
             {
@@ -3625,7 +3613,7 @@
     },
     "RerankParametersModel": {
       "additionalProperties": false,
-      "description": "Configuration for reranking retrieved documents.\n\nSupports three reranking options that can be combined:\n1. FlashRank (local cross-encoder) - set `model`\n2. Databricks server-side reranking - set `columns`\n3. LLM instruction-aware reranking - set `instruction_aware`\n\nExample with Databricks columns + instruction-aware (no FlashRank):\n    ```yaml\n    rerank:\n      columns:                    # Databricks server-side reranking\n        - product_name\n        - brand_name\n      instruction_aware:          # LLM-based constraint reranking\n        enabled: true\n        model: *fast_llm\n        instructions: \"Prioritize by brand preferences\"\n        top_n: 10\n    ```\n\nExample with FlashRank:\n    ```yaml\n    rerank:\n      model: ms-marco-MiniLM-L-12-v2  # FlashRank model\n      top_n: 10\n    ```\n\nAvailable FlashRank models (see https://github.com/PrithivirajDamodaran/FlashRank):\n- \"ms-marco-TinyBERT-L-2-v2\" (~4MB, fastest)\n- \"ms-marco-MiniLM-L-12-v2\" (~34MB, best cross-encoder)\n- \"rank-T5-flan\" (~110MB, best non cross-encoder)\n- \"ms-marco-MultiBERT-L-12\" (~150MB, multilingual 100+ languages)",
+      "description": "Configuration for reranking retrieved documents.\n\nSupports three reranking options that can be combined:\n1. FlashRank (local cross-encoder) - set `model`\n2. Databricks server-side reranking - set `columns`\n3. LLM instruction-aware reranking - set `instruction_aware`\n\nExample with Databricks columns + instruction-aware (no FlashRank):\n    ```yaml\n    rerank:\n      columns:                    # Databricks server-side reranking\n        - product_name\n        - brand_name\n      instruction_aware:          # LLM-based constraint reranking\n        model: *fast_llm\n        instructions: \"Prioritize by brand preferences\"\n        top_n: 10\n    ```\n\nExample with FlashRank:\n    ```yaml\n    rerank:\n      model: ms-marco-MiniLM-L-12-v2  # FlashRank model\n      top_n: 10\n    ```\n\nAvailable FlashRank models (see https://github.com/PrithivirajDamodaran/FlashRank):\n- \"ms-marco-TinyBERT-L-2-v2\" (~4MB, fastest)\n- \"ms-marco-MiniLM-L-12-v2\" (~34MB, best cross-encoder)\n- \"rank-T5-flan\" (~110MB, best non cross-encoder)\n- \"ms-marco-MultiBERT-L-12\" (~150MB, multilingual 100+ languages)",
       "properties": {
         "model": {
           "anyOf": [
@@ -3892,14 +3880,8 @@
     },
     "RouterModel": {
       "additionalProperties": false,
-      "description": "Select internal execution mode based on query characteristics.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nRoutes to internal modes within the same retriever, not external retrievers.\nCross-index routing belongs at the agent/tool-selection level.\n\nExecution Modes:\n- \"standard\": Single similarity_search() for simple keyword/product searches\n- \"instructed\": Decompose -> Parallel Search -> RRF for constrained queries\n\nExample:\n    ```yaml\n    retriever:\n      router:\n        enabled: true\n        model: *fast_llm\n        default_mode: standard\n        auto_bypass: true\n    ```",
+      "description": "Select internal execution mode based on query characteristics.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nRoutes to internal modes within the same retriever, not external retrievers.\nCross-index routing belongs at the agent/tool-selection level.\n\nExecution Modes:\n- \"standard\": Single similarity_search() for simple keyword/product searches\n- \"instructed\": Decompose -> Parallel Search -> RRF for constrained queries\n\nExample:\n    ```yaml\n    retriever:\n      router:\n        model: *fast_llm\n        default_mode: standard\n        auto_bypass: true\n    ```",
       "properties": {
-        "enabled": {
-          "default": false,
-          "description": "Enable query routing",
-          "title": "Enabled",
-          "type": "boolean"
-        },
         "model": {
           "anyOf": [
             {
@@ -3914,7 +3896,7 @@
         },
         "default_mode": {
           "default": "standard",
-          "description": "Fallback mode if routing fails or is disabled",
+          "description": "Fallback mode if routing fails",
           "enum": [
             "standard",
             "instructed"
@@ -4979,14 +4961,8 @@
     },
     "VerifierModel": {
       "additionalProperties": false,
-      "description": "Validate results against user constraints with structured feedback.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nSkipped for 'standard' mode when auto_bypass=true in router config.\nReturns structured feedback for intelligent retry, not blind retry.\n\nExample:\n    ```yaml\n    retriever:\n      verifier:\n        enabled: true\n        model: *fast_llm\n        on_failure: warn_and_retry\n        max_retries: 1\n    ```",
+      "description": "Validate results against user constraints with structured feedback.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nSkipped for 'standard' mode when auto_bypass=true in router config.\nReturns structured feedback for intelligent retry, not blind retry.\n\nExample:\n    ```yaml\n    retriever:\n      verifier:\n        model: *fast_llm\n        on_failure: warn_and_retry\n        max_retries: 1\n    ```",
       "properties": {
-        "enabled": {
-          "default": false,
-          "description": "Enable result verification",
-          "title": "Enabled",
-          "type": "boolean"
-        },
         "model": {
           "anyOf": [
             {

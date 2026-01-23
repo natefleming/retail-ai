@@ -1777,7 +1777,6 @@ class InstructionAwareRerankModel(BaseModel):
           model: ms-marco-MiniLM-L-12-v2
           top_n: 20
           instruction_aware:
-            enabled: true
             model: *fast_llm
             instructions: |
               Prioritize results matching price and brand constraints.
@@ -1787,9 +1786,6 @@ class InstructionAwareRerankModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    enabled: bool = Field(
-        default=False, description="Enable instruction-aware reranking"
-    )
     model: Optional["LLMModel"] = Field(
         default=None,
         description="LLM for instruction reranking (fast model recommended)",
@@ -1820,7 +1816,6 @@ class RerankParametersModel(BaseModel):
             - product_name
             - brand_name
           instruction_aware:          # LLM-based constraint reranking
-            enabled: true
             model: *fast_llm
             instructions: "Prioritize by brand preferences"
             top_n: 10
@@ -1863,13 +1858,37 @@ class RerankParametersModel(BaseModel):
     )
 
 
+class FilterItem(BaseModel):
+    """A single filter key-value pair for Databricks Vector Search.
+
+    Used for both tool input filters and instructed retrieval query decomposition.
+
+    Supported key formats (operator appended to column name):
+    - 'column' - Equality match
+    - 'column NOT' - Exclusion (not equal)
+    - 'column <', 'column <=', 'column >', 'column >=' - Comparison
+    - 'column LIKE' - Token matching (whitespace-separated words)
+    - 'column NOT LIKE' - Exclude matching tokens
+    - 'column1 OR column2' - Match either column (value must be array)
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(
+        description="Column name with optional operator suffix: NOT, <, <=, >, >=, LIKE, NOT LIKE, OR"
+    )
+    value: Union[str, int, float, bool, list[Union[str, int, float, bool]]] = Field(
+        description="Filter value - single value or array of values for equality/OR operators"
+    )
+
+
 class SearchQuery(BaseModel):
     """A decomposed search query with optional filters for instructed retrieval."""
 
     model_config = ConfigDict(extra="forbid")
     text: str = Field(description="The search query text")
-    filters: Optional[dict[str, Any]] = Field(
-        default=None, description="Filters to apply in Databricks Vector Search syntax"
+    filters: Optional[list[FilterItem]] = Field(
+        default=None,
+        description="Filters as key-value pairs where key includes column and optional operator",
     )
 
 
@@ -1895,7 +1914,6 @@ class InstructedRetrieverModel(BaseModel):
         retriever:
           vector_store: *products_vector_store
           instructed:
-            enabled: true
             decomposition_model: *fast_llm
             schema_description: |
               Products table: product_id, brand_name, category, price, updated_at
@@ -1911,7 +1929,6 @@ class InstructedRetrieverModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    enabled: bool = Field(default=False, description="Enable instructed retrieval")
     decomposition_model: Optional["LLMModel"] = Field(
         default=None,
         description="LLM for query decomposition (smaller/faster model recommended)",
@@ -1955,7 +1972,6 @@ class RouterModel(BaseModel):
         ```yaml
         retriever:
           router:
-            enabled: true
             model: *fast_llm
             default_mode: standard
             auto_bypass: true
@@ -1964,14 +1980,13 @@ class RouterModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    enabled: bool = Field(default=False, description="Enable query routing")
     model: Optional["LLMModel"] = Field(
         default=None,
         description="LLM for routing decision (fast model recommended)",
     )
     default_mode: Literal["standard", "instructed"] = Field(
         default="standard",
-        description="Fallback mode if routing fails or is disabled",
+        description="Fallback mode if routing fails",
     )
     auto_bypass: bool = Field(
         default=True,
@@ -2010,7 +2025,6 @@ class VerifierModel(BaseModel):
         ```yaml
         retriever:
           verifier:
-            enabled: true
             model: *fast_llm
             on_failure: warn_and_retry
             max_retries: 1
@@ -2019,7 +2033,6 @@ class VerifierModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    enabled: bool = Field(default=False, description="Enable result verification")
     model: Optional["LLMModel"] = Field(
         default=None,
         description="LLM for verification (fast model recommended)",
@@ -2091,9 +2104,13 @@ class RetrieverModel(BaseModel):
 
     @model_validator(mode="after")
     def set_default_reranker(self) -> Self:
-        """Convert bool to ReRankParametersModel with defaults."""
+        """Convert bool to ReRankParametersModel with defaults.
+
+        When rerank: true is used, sets the default FlashRank model
+        (ms-marco-MiniLM-L-12-v2) to enable reranking.
+        """
         if isinstance(self.rerank, bool) and self.rerank:
-            self.rerank = RerankParametersModel()
+            self.rerank = RerankParametersModel(model="ms-marco-MiniLM-L-12-v2")
         return self
 
 

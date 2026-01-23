@@ -311,7 +311,6 @@ rerank:
   model: ms-marco-MiniLM-L-12-v2
   top_n: 20                          # FlashRank outputs 20 candidates
   instruction_aware:
-    enabled: true
     model: *fast_llm                 # Use small model for speed
     instructions: |
       Prioritize results matching price and brand constraints.

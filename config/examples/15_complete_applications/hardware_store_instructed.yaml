@@ -152,7 +152,6 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      enabled: true
       decomposition_model: *decomposition_llm
       schema_description: |
         Products table for a hardware/home improvement store.
