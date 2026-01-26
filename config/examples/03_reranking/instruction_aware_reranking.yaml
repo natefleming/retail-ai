@@ -25,9 +25,9 @@ resources:
     # Fast LLM for instruction-aware reranking (minimize latency)
     # Use small models: GPT-3.5, Haiku, Llama 3 8B (~100ms vs 500ms+ for large models)
     reranker_llm: &reranker_llm
+      #name: databricks-meta-llama-3-1-8b-instruct
+      #name: databricks-meta-llama-3-3-70b-instruct
       name: databricks-meta-llama-3-1-8b-instruct
-      temperature: 0.0
-      max_tokens: 512
 
     embedding_model: &embedding_model
       name: databricks-gte-large-en

@@ -2121,41 +2121,19 @@ class VerifierModel(BaseModel):
 
 
 class RankedDocument(BaseModel):
-    """A document ranking with relevance score and justification."""
+    """Single ranked document."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    index: int = Field(
-        description="0-based index of the document from the input list"
-    )
-    score: float = Field(
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Relevance score from 0.0 to 1.0. "
-            "1.0 = perfect match to query and instructions. "
-            "0.0 = completely irrelevant. "
-            "Exclude documents with score < 0.1."
-        ),
-    )
-    reason: str = Field(
-        description=(
-            "Brief 1-2 sentence explanation for the score. "
-            "Cite specific constraints or instructions that were matched or missed."
-        )
-    )
+    index: int = Field(description="Document index from input list")
+    score: float = Field(description="0.0-1.0 relevance score")
+    reason: str = Field(default="", description="Why this score")
 
 
 class RankingResult(BaseModel):
-    """Reranked document results sorted by relevance score."""
-
-    model_config = ConfigDict(extra="forbid")
+    """Reranking output."""
 
     rankings: list[RankedDocument] = Field(
-        description=(
-            "Documents sorted by score (highest first). "
-            "Only include documents with score > 0.1."
-        )
+        default_factory=list,
+        description="Ranked documents, highest score first",
     )
 
 

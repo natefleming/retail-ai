@@ -17,7 +17,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import Runnable
 from loguru import logger
 from mlflow.entities import SpanType
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from dao_ai.config import (
@@ -261,9 +260,7 @@ def decompose_query(
         # Convert dynamic schema objects to SearchQuery for consistent return type
         filters: list[FilterItem] | None = None
         if query_obj.filters:
-            filters = [
-                FilterItem(key=f.key, value=f.value) for f in query_obj.filters
-            ]
+            filters = [FilterItem(key=f.key, value=f.value) for f in query_obj.filters]
         subqueries.append(SearchQuery(text=query_obj.text, filters=filters))
 
     # Log for observability

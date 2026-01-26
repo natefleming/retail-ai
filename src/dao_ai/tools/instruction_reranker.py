@@ -14,10 +14,8 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from loguru import logger
 from mlflow.entities import SpanType
-from pydantic import ValidationError
 
 from dao_ai.config import ColumnInfo, RankingResult
-from dao_ai.utils import invoke_with_structured_output
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "instruction_reranker.yaml"
@@ -104,42 +102,57 @@ def instruction_aware_rerank(
             "Prefer more specific matches over general results."
         )
 
-    # Auto-generate schema_description from columns if not provided
-    effective_schema_description = schema_description
-    if not effective_schema_description and columns:
-        effective_schema_description = f"Available columns: {_format_column_info(columns)}"
+    # Build effective instructions - use columns for context (ignore verbose schema_description)
+    effective_instructions = instructions or default_instructions
+
+    # Add column context if available (simpler than full schema_description)
+    if columns:
+        effective_instructions += (
+            f"\n\nAvailable metadata fields: {_format_column_info(columns)}"
+        )
 
     prompt = prompt_template.format(
         query=query,
-        schema_description=effective_schema_description or "No schema information provided.",
-        instructions=instructions or default_instructions,
+        instructions=effective_instructions,
         documents=_format_documents(documents),
     )
 
     logger.trace("Instruction reranking", query=query[:100], num_docs=len(documents))
 
-    # Use Databricks-compatible structured output with proper response_format
+    logger.debug(
+        "Invoking structured output for reranking",
+        query=query[:50],
+        num_docs=len(documents),
+        prompt_length=len(prompt),
+    )
+
     try:
-        result = invoke_with_structured_output(llm, prompt, RankingResult)
-    except (ValidationError, Exception) as e:
+        structured_llm = llm.with_structured_output(RankingResult)
+        result: RankingResult = structured_llm.invoke(prompt)
+        logger.debug(
+            "Structured output succeeded",
+            num_rankings=len(result.rankings),
+        )
+    except Exception as e:
         logger.warning(
-            "Failed to get structured output from reranker, returning original order",
+            "Structured output invocation failed",
             error=str(e),
+            query=query[:50],
         )
         result = None
-
-    # Handle None result (can happen if LLM doesn't produce valid output)
-    if result is None:
+    if result is None or not result.rankings:
         logger.warning(
-            "Reranker returned None, returning original order",
+            "Failed to get structured output from reranker, returning original order",
+            query=query[:50],
         )
+        # Return fallback with decreasing scores based on original order
         return [
             Document(
                 page_content=doc.page_content,
                 metadata={
                     **doc.metadata,
                     "instruction_rerank_score": 1.0 - (i / len(documents)),
-                    "instruction_rerank_reason": "fallback: no valid response",
+                    "instruction_rerank_reason": "fallback: extraction failed",
                 },
             )
             for i, doc in enumerate(documents[:top_n] if top_n else documents)
@@ -163,7 +176,13 @@ def instruction_aware_rerank(
         )
         reranked.append(reranked_doc)
 
-    # Apply top_n limit
+    # Sort by score (highest first) - don't rely on LLM to sort
+    reranked.sort(
+        key=lambda d: d.metadata.get("instruction_rerank_score", 0),
+        reverse=True,
+    )
+
+    # Apply top_n limit after sorting
     if top_n is not None and len(reranked) > top_n:
         reranked = reranked[:top_n]
 
