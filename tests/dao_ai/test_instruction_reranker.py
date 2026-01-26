@@ -38,29 +38,23 @@ class TestRankedDocument:
     """Unit tests for RankedDocument structured output."""
 
     def test_basic_creation(self) -> None:
-        """Test creating a RankedDocument."""
-        rd = RankedDocument(index=0, score=0.9)
+        """Test creating a RankedDocument with required fields."""
+        rd = RankedDocument(index=0, score=0.9, reason="Good match")
         assert rd.index == 0
         assert rd.score == 0.9
-        assert rd.reason is None
+        assert rd.reason == "Good match"
 
-    def test_with_reason(self) -> None:
-        """Test creating a RankedDocument with reason."""
-        rd = RankedDocument(
-            index=1,
-            score=0.8,
-            reason="Matches price constraint",
-        )
-        assert rd.index == 1
-        assert rd.score == 0.8
-        assert rd.reason == "Matches price constraint"
+    def test_reason_is_optional(self) -> None:
+        """Test that reason is optional with default empty string."""
+        rd = RankedDocument(index=0, score=0.9)
+        assert rd.reason == ""
 
-    def test_score_bounds(self) -> None:
-        """Test that score must be between 0 and 1."""
-        with pytest.raises(ValueError):
-            RankedDocument(index=0, score=1.5)
-        with pytest.raises(ValueError):
-            RankedDocument(index=0, score=-0.1)
+    def test_score_accepts_any_float(self) -> None:
+        """Test that score accepts any float (no validation)."""
+        rd1 = RankedDocument(index=0, score=1.5, reason="test")
+        assert rd1.score == 1.5
+        rd2 = RankedDocument(index=0, score=-0.1, reason="test")
+        assert rd2.score == -0.1
 
 
 @pytest.mark.unit
@@ -70,8 +64,8 @@ class TestRankingResult:
     def test_basic_creation(self) -> None:
         """Test creating a RankingResult with rankings."""
         rankings = [
-            RankedDocument(index=1, score=0.9),
-            RankedDocument(index=0, score=0.7),
+            RankedDocument(index=1, score=0.9, reason="Best match"),
+            RankedDocument(index=0, score=0.7, reason="Good match"),
         ]
         result = RankingResult(rankings=rankings)
         assert len(result.rankings) == 2
@@ -138,16 +132,18 @@ class TestFormatDocuments:
 class TestInstructionAwareRerank:
     """Unit tests for instruction_aware_rerank function."""
 
-    def _create_mock_llm(self, rankings: list[dict]) -> MagicMock:
-        """Helper to create mock LLM with bind() behavior for invoke_with_structured_output."""
+    def _create_mock_ranking_result(self, rankings: list[dict]) -> RankingResult:
+        """Create mock RankingResult."""
+        return RankingResult(rankings=[RankedDocument(**r) for r in rankings])
+
+    def _setup_mock_llm(self, rankings: list[dict]) -> MagicMock:
+        """Set up a mock LLM with with_structured_output behavior."""
         mock_llm = MagicMock()
-        mock_bound_llm = MagicMock()
-        mock_llm.bind.return_value = mock_bound_llm
-        # invoke_with_structured_output expects response.content to be JSON string
-        mock_result = RankingResult(rankings=[RankedDocument(**r) for r in rankings])
-        mock_response = MagicMock()
-        mock_response.content = mock_result.model_dump_json()
-        mock_bound_llm.invoke.return_value = mock_response
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.invoke.return_value = self._create_mock_ranking_result(
+            rankings
+        )
+        mock_llm.with_structured_output.return_value = mock_structured_llm
         return mock_llm
 
     def test_empty_documents_returns_empty(self) -> None:
@@ -159,7 +155,6 @@ class TestInstructionAwareRerank:
             documents=[],
         )
         assert result == []
-        mock_llm.with_structured_output.assert_not_called()
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
@@ -168,9 +163,9 @@ class TestInstructionAwareRerank:
     ) -> None:
         """Test that documents are reranked based on LLM response."""
         mock_load_prompt.return_value = {
-            "template": "{query} {schema_description} {instructions} {documents}"
+            "template": "{query} {instructions} {documents}"
         }
-        mock_llm = self._create_mock_llm(
+        mock_llm = self._setup_mock_llm(
             [
                 {"index": 1, "score": 0.9, "reason": "Best match"},
                 {"index": 0, "score": 0.7, "reason": "Second best"},
@@ -189,7 +184,7 @@ class TestInstructionAwareRerank:
         )
 
         assert len(result) == 2
-        # Doc 1 should be first (higher score)
+        # Doc 1 should be first (higher score) - sorted by Python
         assert result[0].page_content == "Doc 1"
         assert result[0].metadata["instruction_rerank_score"] == 0.9
         assert result[0].metadata["instruction_rerank_reason"] == "Best match"
@@ -202,15 +197,15 @@ class TestInstructionAwareRerank:
     def test_applies_top_n_limit(
         self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
     ) -> None:
-        """Test that top_n limit is applied."""
+        """Test that top_n limit is applied after sorting."""
         mock_load_prompt.return_value = {
-            "template": "{query} {schema_description} {instructions} {documents}"
+            "template": "{query} {instructions} {documents}"
         }
-        mock_llm = self._create_mock_llm(
+        mock_llm = self._setup_mock_llm(
             [
-                {"index": 0, "score": 0.9},
-                {"index": 1, "score": 0.8},
-                {"index": 2, "score": 0.7},
+                {"index": 0, "score": 0.9, "reason": "Best match"},
+                {"index": 1, "score": 0.8, "reason": "Good match"},
+                {"index": 2, "score": 0.7, "reason": "Okay match"},
             ]
         )
 
@@ -227,16 +222,16 @@ class TestInstructionAwareRerank:
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
-    def test_uses_bind_with_response_format(
+    def test_uses_with_structured_output(
         self,
         mock_mlflow: MagicMock,
         mock_load_prompt: MagicMock,
     ) -> None:
-        """Test that instruction_aware_rerank uses bind() with response_format for parsing."""
+        """Test that instruction_aware_rerank uses with_structured_output."""
         mock_load_prompt.return_value = {
-            "template": "{query} {schema_description} {instructions} {documents}"
+            "template": "{query} {instructions} {documents}"
         }
-        mock_llm = self._create_mock_llm([])
+        mock_llm = self._setup_mock_llm([])
 
         docs = [Document(page_content="Test", metadata={})]
         instruction_aware_rerank(
@@ -245,11 +240,8 @@ class TestInstructionAwareRerank:
             documents=docs,
         )
 
-        # Verify bind() is called with response_format containing RankingResult schema
-        mock_llm.bind.assert_called_once()
-        call_kwargs = mock_llm.bind.call_args[1]
-        assert "response_format" in call_kwargs
-        assert call_kwargs["response_format"]["json_schema"]["name"] == "RankingResult"
+        # Verify with_structured_output is called with RankingResult
+        mock_llm.with_structured_output.assert_called_once_with(RankingResult)
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
@@ -258,13 +250,13 @@ class TestInstructionAwareRerank:
     ) -> None:
         """Test that invalid document indices are handled gracefully."""
         mock_load_prompt.return_value = {
-            "template": "{query} {schema_description} {instructions} {documents}"
+            "template": "{query} {instructions} {documents}"
         }
-        mock_llm = self._create_mock_llm(
+        mock_llm = self._setup_mock_llm(
             [
-                {"index": 0, "score": 0.9},
-                {"index": 99, "score": 0.8},
-                {"index": -1, "score": 0.7},
+                {"index": 0, "score": 0.9, "reason": "Valid match"},
+                {"index": 99, "score": 0.8, "reason": "Invalid index"},
+                {"index": -1, "score": 0.7, "reason": "Negative index"},
             ]
         )
 
@@ -287,9 +279,9 @@ class TestInstructionAwareRerank:
     ) -> None:
         """Test that custom instructions are included in the prompt."""
         mock_load_prompt.return_value = {
-            "template": "Instructions: {instructions} Query: {query} Schema: {schema_description} Docs: {documents}"
+            "template": "Instructions: {instructions} Query: {query} Docs: {documents}"
         }
-        mock_llm = self._create_mock_llm([])
+        mock_llm = self._setup_mock_llm([])
 
         docs = [Document(page_content="Test", metadata={})]
         instruction_aware_rerank(
@@ -299,8 +291,9 @@ class TestInstructionAwareRerank:
             instructions="Prioritize price constraints",
         )
 
-        bound_llm = mock_llm.bind.return_value
-        call_args = bound_llm.invoke.call_args[0][0]
+        # Verify the prompt contains the custom instructions
+        structured_llm = mock_llm.with_structured_output.return_value
+        call_args = structured_llm.invoke.call_args[0][0]
         assert "Prioritize price constraints" in call_args
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
@@ -310,12 +303,12 @@ class TestInstructionAwareRerank:
     ) -> None:
         """Test that average instruction rerank score is logged."""
         mock_load_prompt.return_value = {
-            "template": "{query} {schema_description} {instructions} {documents}"
+            "template": "{query} {instructions} {documents}"
         }
-        mock_llm = self._create_mock_llm(
+        mock_llm = self._setup_mock_llm(
             [
-                {"index": 0, "score": 0.8},
-                {"index": 1, "score": 0.6},
+                {"index": 0, "score": 0.8, "reason": "Good match"},
+                {"index": 1, "score": 0.6, "reason": "Okay match"},
             ]
         )
 
@@ -336,3 +329,35 @@ class TestInstructionAwareRerank:
         mock_mlflow.set_tag.assert_called_with(
             "reranker.instruction_avg_score", "0.700"
         )
+
+    @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
+    @patch("dao_ai.tools.instruction_reranker.mlflow")
+    def test_sorts_results_by_score(
+        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    ) -> None:
+        """Test that results are sorted by score (highest first) in Python."""
+        mock_load_prompt.return_value = {
+            "template": "{query} {instructions} {documents}"
+        }
+        # Return unsorted rankings - Python should sort them
+        mock_llm = self._setup_mock_llm(
+            [
+                {"index": 0, "score": 0.5, "reason": "Low score"},
+                {"index": 1, "score": 0.9, "reason": "High score"},
+                {"index": 2, "score": 0.7, "reason": "Medium score"},
+            ]
+        )
+
+        docs = [Document(page_content=f"Doc {i}", metadata={}) for i in range(3)]
+
+        result = instruction_aware_rerank(
+            llm=mock_llm,
+            query="test",
+            documents=docs,
+        )
+
+        # Results should be sorted by score (highest first)
+        assert len(result) == 3
+        assert result[0].metadata["instruction_rerank_score"] == 0.9
+        assert result[1].metadata["instruction_rerank_score"] == 0.7
+        assert result[2].metadata["instruction_rerank_score"] == 0.5

@@ -7,6 +7,7 @@ from conftest import add_databricks_resource_attrs
 from langchain_core.documents import Document
 
 from dao_ai.config import (
+    ColumnInfo,
     DecomposedQueries,
     FilterItem,
     InstructedRetrieverModel,
@@ -18,6 +19,7 @@ from dao_ai.config import (
 from dao_ai.tools.instructed_retriever import (
     _format_constraints,
     _format_examples,
+    create_decomposition_schema,
     decompose_query,
     rrf_merge,
 )
@@ -317,14 +319,12 @@ class TestDecomposeQuery:
     """Unit tests for query decomposition function."""
 
     def _create_mock_llm(self, result: DecomposedQueries) -> MagicMock:
-        """Helper to create mock LLM with bind() behavior for invoke_with_structured_output."""
+        """Helper to create mock LLM with with_structured_output behavior."""
         mock_llm = MagicMock()
-        mock_bound_llm = MagicMock()
-        mock_llm.bind.return_value = mock_bound_llm
-        # invoke_with_structured_output expects response.content to be JSON string
-        mock_response = MagicMock()
-        mock_response.content = result.model_dump_json()
-        mock_bound_llm.invoke.return_value = mock_response
+        mock_structured_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+        # with_structured_output returns Pydantic instance directly
+        mock_structured_llm.invoke.return_value = result
         return mock_llm
 
     @patch("dao_ai.tools.instructed_retriever._load_prompt_template")
@@ -390,9 +390,9 @@ class TestDecomposeQuery:
         mock_load_prompt.return_value = {"template": "{query}"}
 
         mock_llm = MagicMock()
-        mock_bound_llm = MagicMock()
-        mock_llm.bind.return_value = mock_bound_llm
-        mock_bound_llm.invoke.side_effect = Exception("LLM error")
+        mock_structured_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+        mock_structured_llm.invoke.side_effect = Exception("LLM error")
 
         with pytest.raises(Exception, match="LLM error"):
             decompose_query(
@@ -400,6 +400,181 @@ class TestDecomposeQuery:
                 query="test",
                 schema_description="Test schema",
             )
+
+
+@pytest.mark.unit
+class TestDynamicSchemaGeneration:
+    """Unit tests for dynamic schema-aware model generation."""
+
+    def test_returns_generic_model_without_columns(self) -> None:
+        """Test that factory returns DecomposedQueries when no columns provided."""
+        result = create_decomposition_schema(None)
+        assert result is DecomposedQueries
+
+        result = create_decomposition_schema([])
+        assert result is DecomposedQueries
+
+    def test_returns_dynamic_model_with_columns(self) -> None:
+        """Test that factory returns a dynamic model when columns provided."""
+        columns = [
+            ColumnInfo(name="brand_name", type="string"),
+            ColumnInfo(name="price", type="number"),
+        ]
+        result = create_decomposition_schema(columns)
+
+        # Should not be the generic class
+        assert result is not DecomposedQueries
+        # Should have queries field
+        assert "queries" in result.model_fields
+
+    def test_dynamic_model_has_column_names_in_description(self) -> None:
+        """Test that column names appear in the dynamic model's field descriptions."""
+        columns = [
+            ColumnInfo(name="brand_name", type="string"),
+            ColumnInfo(name="price", type="number"),
+            ColumnInfo(name="category", type="string"),
+        ]
+        result = create_decomposition_schema(columns)
+
+        # Get the JSON schema to check descriptions
+        schema = result.model_json_schema()
+
+        # Column names should appear somewhere in the schema
+        schema_str = str(schema)
+        assert "brand_name" in schema_str
+        assert "price" in schema_str
+        assert "category" in schema_str
+
+    def test_dynamic_model_can_be_instantiated(self) -> None:
+        """Test that the dynamic model can be instantiated with valid data."""
+        columns = [
+            ColumnInfo(name="brand_name", type="string"),
+            ColumnInfo(name="price", type="number"),
+        ]
+        SchemaModel = create_decomposition_schema(columns)
+
+        # Create an instance with nested data
+        instance = SchemaModel(
+            queries=[
+                {
+                    "text": "power tools",
+                    "filters": [{"key": "brand_name", "value": "MILWAUKEE"}],
+                }
+            ]
+        )
+
+        assert len(instance.queries) == 1
+        assert instance.queries[0].text == "power tools"
+        assert instance.queries[0].filters[0].key == "brand_name"
+
+    @patch("dao_ai.tools.instructed_retriever._load_prompt_template")
+    @patch("dao_ai.tools.instructed_retriever.mlflow")
+    def test_decompose_query_uses_dynamic_schema(
+        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    ) -> None:
+        """Test that decompose_query uses dynamic schema when columns provided."""
+        mock_load_prompt.return_value = {"template": "{query}"}
+
+        columns = [
+            ColumnInfo(name="brand_name", type="string"),
+            ColumnInfo(name="price", type="number"),
+        ]
+
+        # Create a mock that returns a result compatible with the dynamic schema
+        mock_llm = MagicMock()
+        mock_structured_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        # Create a mock result that has the expected structure
+        mock_query = MagicMock()
+        mock_query.text = "Milwaukee drills"
+        mock_filter = MagicMock()
+        mock_filter.key = "brand_name"
+        mock_filter.value = "MILWAUKEE"
+        mock_query.filters = [mock_filter]
+
+        mock_result = MagicMock()
+        mock_result.queries = [mock_query]
+        mock_structured_llm.invoke.return_value = mock_result
+
+        result = decompose_query(
+            llm=mock_llm,
+            query="Find Milwaukee drills",
+            schema_description="Test schema",
+            columns=columns,
+        )
+
+        # Verify the schema passed to with_structured_output is not the generic one
+        call_args = mock_llm.with_structured_output.call_args[0]
+        schema_class = call_args[0]
+        assert schema_class is not DecomposedQueries
+
+        # Verify result is converted to SearchQuery
+        assert len(result) == 1
+        assert isinstance(result[0], SearchQuery)
+        assert result[0].text == "Milwaukee drills"
+
+    def test_dynamic_model_includes_column_types(self) -> None:
+        """Test that column types appear in the schema descriptions."""
+        columns = [
+            ColumnInfo(name="brand_name", type="string"),
+            ColumnInfo(name="price", type="number"),
+            ColumnInfo(name="in_stock", type="boolean"),
+        ]
+        result = create_decomposition_schema(columns)
+
+        # Get the JSON schema to check descriptions
+        schema = result.model_json_schema()
+        schema_str = str(schema)
+
+        # Column types should appear in the description
+        assert "brand_name (string)" in schema_str
+        assert "price (number)" in schema_str
+        assert "in_stock (boolean)" in schema_str
+
+    def test_dynamic_model_uses_per_column_operators(self) -> None:
+        """Test that operators are derived from column definitions, not hardcoded."""
+        # Define columns with restricted operators (no LIKE for numeric)
+        columns = [
+            ColumnInfo(
+                name="price",
+                type="number",
+                operators=["", "<", "<=", ">", ">="],
+            ),
+            ColumnInfo(
+                name="brand_name",
+                type="string",
+                operators=["", "NOT", "LIKE"],
+            ),
+        ]
+        result = create_decomposition_schema(columns)
+
+        # Get the JSON schema
+        schema = result.model_json_schema()
+        schema_str = str(schema)
+
+        # Operators from columns should appear
+        assert "<" in schema_str
+        assert "LIKE" in schema_str
+        assert "NOT" in schema_str
+
+        # NOT LIKE should NOT appear since no column has it
+        # (This tests that we're using column operators, not hardcoded list)
+        assert "NOT LIKE" not in schema_str
+
+    def test_dynamic_model_with_equality_only_operators(self) -> None:
+        """Test schema when columns only support equality operator."""
+        columns = [
+            ColumnInfo(name="id", type="string", operators=[""]),
+            ColumnInfo(name="name", type="string", operators=[""]),
+        ]
+        result = create_decomposition_schema(columns)
+
+        schema = result.model_json_schema()
+        schema_str = str(schema)
+
+        # Should show "equality only" when no named operators
+        assert "equality only" in schema_str
 
 
 @pytest.mark.unit

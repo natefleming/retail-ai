@@ -24,6 +24,7 @@ from loguru import logger
 from mlflow.entities import SpanType
 
 from dao_ai.config import (
+    ColumnInfo,
     FilterItem,
     InstructedRetrieverModel,
     RerankParametersModel,
@@ -48,7 +49,7 @@ from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import is_in_model_serving, normalize_host
 
 
-@mlflow.trace(name="rerank_documents", span_type=SpanType.RETRIEVER)
+@mlflow.trace(name="rerank_documents", span_type=SpanType.RERANKER)
 def _rerank_documents(
     query: str,
     documents: list[Document],
@@ -375,6 +376,11 @@ def create_vector_search_tool(
         try:
             decomposition_llm = _get_cached_llm(instructed_config.decomposition_model)
 
+            # Fall back to retriever columns if instructed columns not provided
+            instructed_columns: list[ColumnInfo] | None = instructed_config.columns
+            if instructed_columns is None and columns:
+                instructed_columns = [ColumnInfo(name=col) for col in columns]
+
             subqueries: list[SearchQuery] = decompose_query(
                 llm=decomposition_llm,
                 query=query,
@@ -383,6 +389,7 @@ def create_vector_search_tool(
                 max_subqueries=instructed_config.max_subqueries,
                 examples=instructed_config.examples,
                 previous_feedback=previous_feedback,
+                columns=instructed_columns,
             )
 
             if not subqueries:
@@ -528,12 +535,20 @@ def create_vector_search_tool(
                 schema_desc = (
                     instructed_config.schema_description if instructed_config else None
                 )
+                # Get columns for dynamic instruction generation
+                rerank_columns: list[ColumnInfo] | None = None
+                if instructed_config and instructed_config.columns:
+                    rerank_columns = instructed_config.columns
+                elif columns:
+                    rerank_columns = [ColumnInfo(name=col) for col in columns]
+
                 documents = instruction_aware_rerank(
                     llm=instruction_llm,
                     query=query,
                     documents=documents,
                     instructions=instruction_config.instructions,
                     schema_description=schema_desc,
+                    columns=rerank_columns,
                     top_n=instruction_config.top_n,
                 )
 

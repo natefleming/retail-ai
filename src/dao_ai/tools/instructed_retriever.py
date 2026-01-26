@@ -8,17 +8,24 @@ subqueries with metadata filters and merging results using Reciprocal Rank Fusio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 import mlflow
 import yaml
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import Runnable
 from loguru import logger
 from mlflow.entities import SpanType
+from pydantic import BaseModel, ConfigDict, Field
 
-from dao_ai.config import DecomposedQueries, LLMModel, SearchQuery
-from dao_ai.utils import invoke_with_structured_output
+from dao_ai.config import (
+    ColumnInfo,
+    DecomposedQueries,
+    FilterItem,
+    LLMModel,
+    SearchQuery,
+)
 
 # Module-level cache for LLM clients
 _llm_cache: dict[str, BaseChatModel] = {}
@@ -79,6 +86,99 @@ def _format_examples(examples: list[dict[str, Any]] | None) -> str:
     return "\n".join(formatted)
 
 
+def create_decomposition_schema(
+    columns: list[ColumnInfo] | None = None,
+) -> type[BaseModel]:
+    """Create schema-aware DecomposedQueries model with dynamic descriptions.
+
+    When columns are provided, the column names and valid operators are embedded
+    directly into the JSON schema that with_structured_output sends to the LLM.
+    This improves accuracy by making valid filter keys explicit in the schema.
+
+    Args:
+        columns: List of column metadata for dynamic schema generation
+
+    Returns:
+        A DecomposedQueries-compatible Pydantic model class
+    """
+    if not columns:
+        # Fall back to generic models
+        return DecomposedQueries
+
+    # Build column info with types for the schema description
+    column_info = ", ".join(f"{c.name} ({c.type})" for c in columns)
+
+    # Build operator list from column definitions (union of all column operators)
+    all_operators: set[str] = set()
+    for col in columns:
+        all_operators.update(col.operators)
+    # Remove empty string (equality) and sort for consistent output
+    named_operators = sorted(all_operators - {""})
+    operator_list = ", ".join(named_operators) if named_operators else "equality only"
+
+    # Build valid key examples with operators
+    key_examples: list[str] = []
+    for col in columns[:3]:  # Show examples for first 3 columns
+        key_examples.append(f"'{col.name}'")
+        if "<" in col.operators:
+            key_examples.append(f"'{col.name} <'")
+        if "NOT" in col.operators:
+            key_examples.append(f"'{col.name} NOT'")
+
+    # Create dynamic FilterItem with schema-aware description
+    class SchemaFilterItem(BaseModel):
+        """A metadata filter for vector search with schema-specific columns."""
+
+        model_config = ConfigDict(extra="forbid")
+        key: str = Field(
+            description=(
+                f"Column name with optional operator suffix. "
+                f"Valid columns: {column_info}. "
+                f"Operators: (none) for equality, {operator_list}. "
+                f"Examples: {', '.join(key_examples[:5])}"
+            )
+        )
+        value: Union[str, int, float, bool, list[Union[str, int, float, bool]]] = Field(
+            description="The filter value matching the column type."
+        )
+
+    # Create dynamic SearchQuery using SchemaFilterItem
+    class SchemaSearchQuery(BaseModel):
+        """A search query with schema-aware filters."""
+
+        model_config = ConfigDict(extra="forbid")
+        text: str = Field(
+            description=(
+                "Natural language search query text optimized for semantic similarity. "
+                "Should be focused on a single search intent. "
+                "Do NOT include filter criteria in the text; use the filters field instead."
+            )
+        )
+        filters: Optional[list[SchemaFilterItem]] = Field(
+            default=None,
+            description=(
+                f"Metadata filters to constrain search results. "
+                f"Valid filter columns: {column_info}. "
+                f"Set to null if no filters apply."
+            ),
+        )
+
+    # Create dynamic DecomposedQueries using SchemaSearchQuery
+    class SchemaDecomposedQueries(BaseModel):
+        """Decomposed search queries with schema-aware filters."""
+
+        model_config = ConfigDict(extra="forbid")
+        queries: list[SchemaSearchQuery] = Field(
+            description=(
+                "List of search queries extracted from the user request. "
+                "Each query should target a distinct search intent. "
+                "Order queries by importance, with the most relevant first."
+            )
+        )
+
+    return SchemaDecomposedQueries
+
+
 @mlflow.trace(name="decompose_query", span_type=SpanType.LLM)
 def decompose_query(
     llm: BaseChatModel,
@@ -88,12 +188,14 @@ def decompose_query(
     max_subqueries: int = 3,
     examples: list[dict[str, Any]] | None = None,
     previous_feedback: str | None = None,
+    columns: list[ColumnInfo] | None = None,
 ) -> list[SearchQuery]:
     """
     Decompose a user query into multiple search queries with filters.
 
     Uses structured output for reliable parsing and injects current time
-    for resolving relative date references.
+    for resolving relative date references. When columns are provided,
+    schema-aware Pydantic models are used for improved filter accuracy.
 
     Args:
         llm: Language model for decomposition
@@ -103,6 +205,7 @@ def decompose_query(
         max_subqueries: Maximum number of subqueries to generate
         examples: Few-shot examples for domain-specific filter translation
         previous_feedback: Feedback from failed verification (for retry)
+        columns: Structured column info for dynamic schema generation
 
     Returns:
         List of SearchQuery objects with text and optional filters
@@ -130,21 +233,35 @@ def decompose_query(
         + feedback_section
     )
 
-    logger.trace("Decomposing query", query=query[:100], max_subqueries=max_subqueries)
+    logger.trace(
+        "Decomposing query",
+        query=query[:100],
+        max_subqueries=max_subqueries,
+        dynamic_schema=columns is not None,
+    )
 
-    # Use Databricks-compatible structured output with proper response_format
+    # Create schema-aware model when columns are provided
+    DecompositionSchema: type[BaseModel] = create_decomposition_schema(columns)
+
+    # Use LangChain's with_structured_output for automatic strategy selection
+    # (JSON schema vs tool calling based on model capabilities)
     try:
-        result = invoke_with_structured_output(llm, prompt, DecomposedQueries)
+        structured_llm: Runnable[str, BaseModel] = llm.with_structured_output(
+            DecompositionSchema
+        )
+        result: BaseModel = structured_llm.invoke(prompt)
     except Exception as e:
         logger.warning("Query decomposition failed", error=str(e))
         raise
 
-    # Handle None result (can happen if LLM doesn't produce valid output)
-    if result is None:
-        logger.warning("Query decomposition returned None")
-        raise ValueError("Query decomposition returned no valid result")
-
-    subqueries = result.queries[:max_subqueries]
+    # Extract queries from result (works with both static and dynamic schemas)
+    subqueries: list[SearchQuery] = []
+    for query_obj in result.queries[:max_subqueries]:
+        # Convert dynamic schema objects to SearchQuery for consistent return type
+        filters: list[FilterItem] | None = None
+        if query_obj.filters:
+            filters = [FilterItem(key=f.key, value=f.value) for f in query_obj.filters]
+        subqueries.append(SearchQuery(text=query_obj.text, filters=filters))
 
     # Log for observability
     mlflow.set_tag("num_subqueries", len(subqueries))

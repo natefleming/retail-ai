@@ -191,15 +191,14 @@ class TestVerifyResults:
     """Unit tests for verify_results function."""
 
     def _create_mock_llm(self, passed: bool, confidence: float) -> MagicMock:
-        """Helper to create mock LLM with bind() behavior for invoke_with_structured_output."""
+        """Helper to create mock LLM with with_structured_output behavior."""
         mock_llm = MagicMock()
-        mock_bound_llm = MagicMock()
-        mock_llm.bind.return_value = mock_bound_llm
-        # invoke_with_structured_output expects response.content to be JSON string
-        mock_result = VerificationResult(passed=passed, confidence=confidence)
-        mock_response = MagicMock()
-        mock_response.content = mock_result.model_dump_json()
-        mock_bound_llm.invoke.return_value = mock_response
+        mock_structured_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+        # with_structured_output returns Pydantic instance directly
+        mock_structured_llm.invoke.return_value = VerificationResult(
+            passed=passed, confidence=confidence
+        )
         return mock_llm
 
     @patch("dao_ai.tools.verifier._load_prompt_template")
@@ -227,12 +226,12 @@ class TestVerifyResults:
 
     @patch("dao_ai.tools.verifier._load_prompt_template")
     @patch("dao_ai.tools.verifier.mlflow")
-    def test_uses_bind_with_response_format(
+    def test_uses_with_structured_output(
         self,
         mock_mlflow: MagicMock,
         mock_load_prompt: MagicMock,
     ) -> None:
-        """Test that verify_results uses bind() with response_format for parsing."""
+        """Test that verify_results uses with_structured_output for parsing."""
         mock_load_prompt.return_value = {
             "template": "{query} {schema_description} {constraints} {num_results} {results_summary} {previous_feedback}"
         }
@@ -246,14 +245,8 @@ class TestVerifyResults:
             schema_description="schema",
         )
 
-        # Verify bind() is called with response_format containing VerificationResult schema
-        mock_llm.bind.assert_called_once()
-        call_kwargs = mock_llm.bind.call_args[1]
-        assert "response_format" in call_kwargs
-        assert (
-            call_kwargs["response_format"]["json_schema"]["name"]
-            == "VerificationResult"
-        )
+        # Verify with_structured_output is called with VerificationResult schema
+        mock_llm.with_structured_output.assert_called_once_with(VerificationResult)
 
     @patch("dao_ai.tools.verifier._load_prompt_template")
     @patch("dao_ai.tools.verifier.mlflow")
@@ -275,6 +268,6 @@ class TestVerifyResults:
             previous_feedback="Previous attempt failed",
         )
 
-        bound_llm = mock_llm.bind.return_value
-        call_args = bound_llm.invoke.call_args[0][0]
+        structured_llm = mock_llm.with_structured_output.return_value
+        call_args = structured_llm.invoke.call_args[0][0]
         assert "Previous attempt failed" in call_args
