@@ -16,7 +16,7 @@ from loguru import logger
 from mlflow.entities import SpanType
 from pydantic import ValidationError
 
-from dao_ai.config import RankingResult
+from dao_ai.config import ColumnInfo, RankingResult
 from dao_ai.utils import invoke_with_structured_output
 
 # Load prompt template
@@ -53,6 +53,13 @@ def _format_documents(documents: list[Document]) -> str:
     return "\n\n".join(formatted)
 
 
+def _format_column_info(columns: list[ColumnInfo] | None) -> str:
+    """Format column info for the reranking prompt."""
+    if not columns:
+        return ""
+    return ", ".join(f"{c.name} ({c.type})" for c in columns)
+
+
 @mlflow.trace(name="instruction_aware_rerank", span_type=SpanType.LLM)
 def instruction_aware_rerank(
     llm: BaseChatModel,
@@ -60,6 +67,7 @@ def instruction_aware_rerank(
     documents: list[Document],
     instructions: str | None = None,
     schema_description: str | None = None,
+    columns: list[ColumnInfo] | None = None,
     top_n: int | None = None,
 ) -> list[Document]:
     """
@@ -71,6 +79,7 @@ def instruction_aware_rerank(
         documents: Documents to rerank (typically FlashRank output)
         instructions: Custom reranking instructions
         schema_description: Column names and types for context
+        columns: Structured column info for dynamic instruction generation
         top_n: Number of documents to return (None = all scored documents)
 
     Returns:
@@ -82,14 +91,27 @@ def instruction_aware_rerank(
     prompt_config = _load_prompt_template()
     prompt_template = prompt_config["template"]
 
-    default_instructions = (
-        "Prioritize results that best match the user's explicit constraints "
-        "(price, brand, category, date). Prefer more specific matches over general results."
-    )
+    # Build dynamic default instructions based on columns
+    if columns:
+        column_names = ", ".join(c.name for c in columns)
+        default_instructions = (
+            f"Prioritize results that best match the user's explicit constraints "
+            f"on these columns: {column_names}. Prefer more specific matches over general results."
+        )
+    else:
+        default_instructions = (
+            "Prioritize results that best match the user's explicit constraints. "
+            "Prefer more specific matches over general results."
+        )
+
+    # Auto-generate schema_description from columns if not provided
+    effective_schema_description = schema_description
+    if not effective_schema_description and columns:
+        effective_schema_description = f"Available columns: {_format_column_info(columns)}"
 
     prompt = prompt_template.format(
         query=query,
-        schema_description=schema_description or "No schema information provided.",
+        schema_description=effective_schema_description or "No schema information provided.",
         instructions=instructions or default_instructions,
         documents=_format_documents(documents),
     )

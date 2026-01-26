@@ -12,11 +12,10 @@ from typing import Any, Literal
 import mlflow
 import yaml
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import Runnable
 from loguru import logger
 from mlflow.entities import SpanType
 from pydantic import BaseModel, ConfigDict, Field
-
-from dao_ai.utils import invoke_with_structured_output
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "router.yaml"
@@ -29,11 +28,20 @@ def _load_prompt_template() -> dict[str, Any]:
 
 
 class RouterDecision(BaseModel):
-    """Structured output for router decision."""
+    """Classification of a search query into an execution mode.
+
+    Analyze whether the query contains explicit constraints that map to
+    filterable metadata columns, or is a simple semantic search.
+    """
 
     model_config = ConfigDict(extra="forbid")
     mode: Literal["standard", "instructed"] = Field(
-        description="Execution mode: 'standard' for simple queries, 'instructed' for constrained queries"
+        description=(
+            "The execution mode. "
+            "Use 'standard' for simple semantic searches without constraints. "
+            "Use 'instructed' when the query contains explicit constraints "
+            "that can be translated to metadata filters."
+        )
     )
 
 
@@ -64,12 +72,15 @@ def route_query(
 
     logger.trace("Routing query", query=query[:100])
 
-    # Use Databricks-compatible structured output with proper response_format
-    decision = invoke_with_structured_output(llm, prompt, RouterDecision)
-
-    # Handle None result (can happen if LLM doesn't produce valid output)
-    if decision is None:
-        logger.warning("Router returned None, defaulting to standard mode")
+    # Use LangChain's with_structured_output for automatic strategy selection
+    # (JSON schema vs tool calling based on model capabilities)
+    try:
+        structured_llm: Runnable[str, RouterDecision] = llm.with_structured_output(
+            RouterDecision
+        )
+        decision: RouterDecision = structured_llm.invoke(prompt)
+    except Exception as e:
+        logger.warning("Router failed, defaulting to standard mode", error=str(e))
         return "standard"
 
     logger.debug("Router decision", mode=decision.mode, query=query[:50])

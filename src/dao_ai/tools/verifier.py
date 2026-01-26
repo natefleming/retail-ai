@@ -12,11 +12,11 @@ import mlflow
 import yaml
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import Runnable
 from loguru import logger
 from mlflow.entities import SpanType
 
 from dao_ai.config import VerificationResult
-from dao_ai.utils import invoke_with_structured_output
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "verifier.yaml"
@@ -94,12 +94,17 @@ def verify_results(
 
     logger.trace("Verifying results", query=query[:100], num_docs=len(documents))
 
-    # Use Databricks-compatible structured output with proper response_format
-    result = invoke_with_structured_output(llm, prompt, VerificationResult)
-
-    # Handle None result (can happen if LLM doesn't produce valid output)
-    if result is None:
-        logger.warning("Verifier returned None, treating as passed with low confidence")
+    # Use LangChain's with_structured_output for automatic strategy selection
+    # (JSON schema vs tool calling based on model capabilities)
+    try:
+        structured_llm: Runnable[str, VerificationResult] = llm.with_structured_output(
+            VerificationResult
+        )
+        result: VerificationResult = structured_llm.invoke(prompt)
+    except Exception as e:
+        logger.warning(
+            "Verifier failed, treating as passed with low confidence", error=str(e)
+        )
         return VerificationResult(
             passed=True,
             confidence=0.0,

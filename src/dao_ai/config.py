@@ -1859,45 +1859,90 @@ class RerankParametersModel(BaseModel):
 
 
 class FilterItem(BaseModel):
-    """A single filter key-value pair for Databricks Vector Search.
+    """A metadata filter for vector search.
 
-    Used for both tool input filters and instructed retrieval query decomposition.
-
-    Supported key formats (operator appended to column name):
-    - 'column' - Equality match
-    - 'column NOT' - Exclusion (not equal)
-    - 'column <', 'column <=', 'column >', 'column >=' - Comparison
-    - 'column LIKE' - Token matching (whitespace-separated words)
-    - 'column NOT LIKE' - Exclude matching tokens
-    - 'column1 OR column2' - Match either column (value must be array)
+    Filters constrain search results by matching column values.
+    Use column names from the provided schema description.
     """
 
     model_config = ConfigDict(extra="forbid")
     key: str = Field(
-        description="Column name with optional operator suffix: NOT, <, <=, >, >=, LIKE, NOT LIKE, OR"
+        description=(
+            "Column name with optional operator suffix. "
+            "Operators: (none) for equality, NOT for exclusion, "
+            "< <= > >= for numeric comparison, "
+            "LIKE for token match, NOT LIKE to exclude tokens."
+        )
     )
     value: Union[str, int, float, bool, list[Union[str, int, float, bool]]] = Field(
-        description="Filter value - single value or array of values for equality/OR operators"
+        description=(
+            "The filter value matching the column type. "
+            "Use an array for IN-style matching multiple values."
+        )
     )
 
 
 class SearchQuery(BaseModel):
-    """A decomposed search query with optional filters for instructed retrieval."""
+    """A single search query with optional metadata filters.
+
+    Represents one focused search intent extracted from the user's request.
+    The text should be a natural language query optimized for semantic search.
+    Filters constrain results to match specific metadata values.
+    """
 
     model_config = ConfigDict(extra="forbid")
-    text: str = Field(description="The search query text")
+    text: str = Field(
+        description=(
+            "Natural language search query text optimized for semantic similarity. "
+            "Should be focused on a single search intent. "
+            "Do NOT include filter criteria in the text; use the filters field instead."
+        )
+    )
     filters: Optional[list[FilterItem]] = Field(
         default=None,
-        description="Filters as key-value pairs where key includes column and optional operator",
+        description=(
+            "Metadata filters to constrain search results. "
+            "Set to null if no filters apply. "
+            "Extract filter values from explicit constraints in the user query."
+        ),
     )
 
 
 class DecomposedQueries(BaseModel):
-    """Container for structured output from query decomposition."""
+    """Decomposed search queries extracted from a user request.
+
+    Break down complex user queries into multiple focused search queries.
+    Each query targets a distinct search intent with appropriate filters.
+    Generate 1-3 queries depending on the complexity of the user request.
+    """
 
     model_config = ConfigDict(extra="forbid")
     queries: list[SearchQuery] = Field(
-        description="List of decomposed search queries with filters"
+        description=(
+            "List of search queries extracted from the user request. "
+            "Each query should target a distinct search intent. "
+            "Order queries by importance, with the most relevant first."
+        )
+    )
+
+
+class ColumnInfo(BaseModel):
+    """Column metadata for dynamic schema generation in structured output.
+
+    When provided, column information is embedded directly into the JSON schema
+    that with_structured_output sends to the LLM, improving filter accuracy.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(description="Column name as it appears in the database")
+    type: Literal["string", "number", "boolean", "datetime"] = Field(
+        default="string",
+        description="Column data type for value validation",
+    )
+    operators: list[str] = Field(
+        default=["", "NOT", "<", "<=", ">", ">=", "LIKE", "NOT LIKE"],
+        description="Valid filter operators for this column",
     )
 
 
@@ -1918,6 +1963,12 @@ class InstructedRetrieverModel(BaseModel):
             schema_description: |
               Products table: product_id, brand_name, category, price, updated_at
               Filter operators: {"col": val}, {"col >": val}, {"col NOT": val}
+            columns:
+              - name: brand_name
+                type: string
+              - name: price
+                type: number
+                operators: ["", "<", "<=", ">", ">="]
             constraints:
               - "Prefer recent products"
             max_subqueries: 3
@@ -1935,6 +1986,13 @@ class InstructedRetrieverModel(BaseModel):
     )
     schema_description: str = Field(
         description="Column names, types, and valid filter syntax for the LLM"
+    )
+    columns: Optional[list[ColumnInfo]] = Field(
+        default=None,
+        description=(
+            "Structured column info for dynamic schema generation. "
+            "When provided, column names are embedded in the JSON schema for better LLM accuracy."
+        ),
     )
     constraints: Optional[list[str]] = Field(
         default=None, description="Default constraints to always apply"
@@ -1995,21 +2053,36 @@ class RouterModel(BaseModel):
 
 
 class VerificationResult(BaseModel):
-    """Structured feedback from result verification for intelligent retry."""
+    """Verification of whether search results satisfy the user's constraints.
+
+    Analyze the retrieved results against the original query and any explicit
+    constraints to determine if a retry with modified filters is needed.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    passed: bool = Field(description="Whether results satisfy user constraints")
-    confidence: float = Field(ge=0.0, le=1.0, description="Confidence score (0.0-1.0)")
+    passed: bool = Field(
+        description="True if results satisfy the user's query intent and constraints."
+    )
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Confidence in the verification decision, from 0.0 (uncertain) to 1.0 (certain).",
+    )
     feedback: Optional[str] = Field(
-        default=None, description="Human-readable explanation of issues"
+        default=None,
+        description="Explanation of why verification passed or failed. Include specific issues found.",
     )
     suggested_filter_relaxation: Optional[dict[str, Any]] = Field(
         default=None,
-        description="Suggested filter changes for retry (e.g., {'brand_name': 'REMOVE'})",
+        description=(
+            "Suggested filter modifications for retry. "
+            "Keys are column names, values indicate changes (e.g., 'REMOVE', 'WIDEN', or new values)."
+        ),
     )
     unmet_constraints: Optional[list[str]] = Field(
-        default=None, description="List of constraints that were not satisfied"
+        default=None,
+        description="List of user constraints that the results failed to satisfy.",
     )
 
 
@@ -2048,26 +2121,41 @@ class VerifierModel(BaseModel):
 
 
 class RankedDocument(BaseModel):
-    """Single document ranking result from instruction-aware reranking."""
+    """A document ranking with relevance score and justification."""
 
     model_config = ConfigDict(extra="forbid")
 
-    index: int = Field(description="Original document index (0-based)")
-    score: float = Field(
-        ge=0.0, le=1.0, description="Relevance score to instructions (0.0-1.0)"
+    index: int = Field(
+        description="0-based index of the document from the input list"
     )
-    reason: Optional[str] = Field(
-        default=None, description="Brief explanation for the ranking"
+    score: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Relevance score from 0.0 to 1.0. "
+            "1.0 = perfect match to query and instructions. "
+            "0.0 = completely irrelevant. "
+            "Exclude documents with score < 0.1."
+        ),
+    )
+    reason: str = Field(
+        description=(
+            "Brief 1-2 sentence explanation for the score. "
+            "Cite specific constraints or instructions that were matched or missed."
+        )
     )
 
 
 class RankingResult(BaseModel):
-    """Structured output from instruction-aware reranking."""
+    """Reranked document results sorted by relevance score."""
 
     model_config = ConfigDict(extra="forbid")
 
     rankings: list[RankedDocument] = Field(
-        description="Ordered list of document rankings"
+        description=(
+            "Documents sorted by score (highest first). "
+            "Only include documents with score > 0.1."
+        )
     )
 
 

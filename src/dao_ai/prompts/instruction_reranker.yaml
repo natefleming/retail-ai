@@ -21,17 +21,17 @@ template: |
 
   {documents}
 
-  ## Instructions
+  ## Evaluation Criteria
 
   Rerank the documents based on:
-  1. **Constraint Match**: How well does the document satisfy explicit constraints (price, brand, category, date)?
+  1. **Constraint Match**: How well does the document satisfy explicit constraints on the available columns (see Schema Information above)?
   2. **Query Relevance**: How directly does the document address the user's intent?
   3. **Instruction Adherence**: How well does the document follow the custom reranking instructions?
 
   For each document, provide:
   - index: The original 0-based index of the document
   - score: A relevance score from 0.0 to 1.0 (1.0 = perfect match)
-  - reason: A brief explanation (1-2 sentences) for the score
+  - reason: A brief explanation (1-2 sentences) for the score, citing specific constraints matched or missed
 
   Return a JSON object with a "rankings" array containing all documents sorted by score (highest first).
   Only include documents with score > 0.1 (filter out clearly irrelevant results).

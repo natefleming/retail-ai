@@ -38,29 +38,23 @@ class TestRankedDocument:
     """Unit tests for RankedDocument structured output."""
 
     def test_basic_creation(self) -> None:
-        """Test creating a RankedDocument."""
-        rd = RankedDocument(index=0, score=0.9)
+        """Test creating a RankedDocument with required fields."""
+        rd = RankedDocument(index=0, score=0.9, reason="Good match")
         assert rd.index == 0
         assert rd.score == 0.9
-        assert rd.reason is None
+        assert rd.reason == "Good match"
 
-    def test_with_reason(self) -> None:
-        """Test creating a RankedDocument with reason."""
-        rd = RankedDocument(
-            index=1,
-            score=0.8,
-            reason="Matches price constraint",
-        )
-        assert rd.index == 1
-        assert rd.score == 0.8
-        assert rd.reason == "Matches price constraint"
+    def test_reason_is_required(self) -> None:
+        """Test that reason is required."""
+        with pytest.raises(ValueError):
+            RankedDocument(index=0, score=0.9)  # type: ignore
 
     def test_score_bounds(self) -> None:
         """Test that score must be between 0 and 1."""
         with pytest.raises(ValueError):
-            RankedDocument(index=0, score=1.5)
+            RankedDocument(index=0, score=1.5, reason="test")
         with pytest.raises(ValueError):
-            RankedDocument(index=0, score=-0.1)
+            RankedDocument(index=0, score=-0.1, reason="test")
 
 
 @pytest.mark.unit
@@ -70,8 +64,8 @@ class TestRankingResult:
     def test_basic_creation(self) -> None:
         """Test creating a RankingResult with rankings."""
         rankings = [
-            RankedDocument(index=1, score=0.9),
-            RankedDocument(index=0, score=0.7),
+            RankedDocument(index=1, score=0.9, reason="Best match"),
+            RankedDocument(index=0, score=0.7, reason="Good match"),
         ]
         result = RankingResult(rankings=rankings)
         assert len(result.rankings) == 2
@@ -159,7 +153,7 @@ class TestInstructionAwareRerank:
             documents=[],
         )
         assert result == []
-        mock_llm.with_structured_output.assert_not_called()
+        mock_llm.bind.assert_not_called()
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
@@ -208,9 +202,9 @@ class TestInstructionAwareRerank:
         }
         mock_llm = self._create_mock_llm(
             [
-                {"index": 0, "score": 0.9},
-                {"index": 1, "score": 0.8},
-                {"index": 2, "score": 0.7},
+                {"index": 0, "score": 0.9, "reason": "Best match"},
+                {"index": 1, "score": 0.8, "reason": "Good match"},
+                {"index": 2, "score": 0.7, "reason": "Okay match"},
             ]
         )
 
@@ -262,9 +256,9 @@ class TestInstructionAwareRerank:
         }
         mock_llm = self._create_mock_llm(
             [
-                {"index": 0, "score": 0.9},
-                {"index": 99, "score": 0.8},
-                {"index": -1, "score": 0.7},
+                {"index": 0, "score": 0.9, "reason": "Valid match"},
+                {"index": 99, "score": 0.8, "reason": "Invalid index"},
+                {"index": -1, "score": 0.7, "reason": "Negative index"},
             ]
         )
 
@@ -314,8 +308,8 @@ class TestInstructionAwareRerank:
         }
         mock_llm = self._create_mock_llm(
             [
-                {"index": 0, "score": 0.8},
-                {"index": 1, "score": 0.6},
+                {"index": 0, "score": 0.8, "reason": "Good match"},
+                {"index": 1, "score": 0.6, "reason": "Okay match"},
             ]
         )
 
