@@ -570,6 +570,52 @@
       "title": "CheckpointerModel",
       "type": "object"
     },
+    "ColumnInfo": {
+      "additionalProperties": false,
+      "description": "Column metadata for dynamic schema generation in structured output.\n\nWhen provided, column information is embedded directly into the JSON schema\nthat with_structured_output sends to the LLM, improving filter accuracy.",
+      "properties": {
+        "name": {
+          "description": "Column name as it appears in the database",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "default": "string",
+          "description": "Column data type for value validation",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "datetime"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "operators": {
+          "default": [
+            "",
+            "NOT",
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "LIKE",
+            "NOT LIKE"
+          ],
+          "description": "Valid filter operators for this column",
+          "items": {
+            "type": "string"
+          },
+          "title": "Operators",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ColumnInfo",
+      "type": "object"
+    },
     "CompositeVariableModel": {
       "properties": {
         "default_value": {
@@ -785,7 +831,7 @@
     },
     "DatabaseModel": {
       "additionalProperties": false,
-      "description": "Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nNote: `instance_name` and `host` are mutually exclusive. Provide one or the other.\n\nExample Databricks Lakebase with Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    instance_name: my-lakebase-instance\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Databricks Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    name: my-database\n    instance_name: my-lakebase-instance\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
+      "description": "Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nNote: For Lakebase connections, `name` is optional and defaults to `instance_name`.\nFor PostgreSQL connections, `name` is required.\n\nExample Databricks Lakebase (minimal):\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance  # name defaults to instance_name\n```\n\nExample Databricks Lakebase with Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Databricks Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -943,8 +989,16 @@
           "title": "Pat"
         },
         "name": {
-          "title": "Name",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
         },
         "instance_name": {
           "anyOf": [
@@ -1200,9 +1254,6 @@
           "title": "Password"
         }
       },
-      "required": [
-        "name"
-      ],
       "title": "DatabaseModel",
       "type": "object"
     },
@@ -2424,7 +2475,7 @@
     },
     "InstructedRetrieverModel": {
       "additionalProperties": false,
-      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nInstructed retrieval decomposes user queries into multiple subqueries with\nmetadata filters, executes them in parallel, and merges results using\nReciprocal Rank Fusion (RRF) before reranking.\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        decomposition_model: *fast_llm\n        schema_description: |\n          Products table: product_id, brand_name, category, price, updated_at\n          Filter operators: {\"col\": val}, {\"col >\": val}, {\"col NOT\": val}\n        constraints:\n          - \"Prefer recent products\"\n        max_subqueries: 3\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
+      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nInstructed retrieval decomposes user queries into multiple subqueries with\nmetadata filters, executes them in parallel, and merges results using\nReciprocal Rank Fusion (RRF) before reranking.\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        decomposition_model: *fast_llm\n        schema_description: |\n          Products table: product_id, brand_name, category, price, updated_at\n          Filter operators: {\"col\": val}, {\"col >\": val}, {\"col NOT\": val}\n        columns:\n          - name: brand_name\n            type: string\n          - name: price\n            type: number\n            operators: [\"\", \"<\", \"<=\", \">\", \">=\"]\n        constraints:\n          - \"Prefer recent products\"\n        max_subqueries: 3\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
       "properties": {
         "decomposition_model": {
           "anyOf": [
@@ -2442,6 +2493,22 @@
           "description": "Column names, types, and valid filter syntax for the LLM",
           "title": "Schema Description",
           "type": "string"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ColumnInfo"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Structured column info for dynamic schema generation. When provided, column names are embedded in the JSON schema for better LLM accuracy.",
+          "title": "Columns"
         },
         "constraints": {
           "anyOf": [

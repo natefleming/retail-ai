@@ -1007,6 +1007,122 @@ def test_database_model_auth_validation_obo_mixed_error():
 
 
 @pytest.mark.unit
+def test_database_model_name_defaults_to_instance_name():
+    """Test that name defaults to instance_name for Lakebase connections."""
+    from unittest.mock import MagicMock, PropertyMock, patch
+
+    mock_ws_client = MagicMock()
+    mock_ws_client.current_user.me.return_value = MagicMock(user_name="test_user")
+
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=PropertyMock
+    ) as mock_prop:
+        mock_prop.return_value = mock_ws_client
+
+        # Create database with only instance_name (no name provided)
+        database = DatabaseModel(
+            instance_name="my-lakebase-instance",
+        )
+
+        # name should default to instance_name
+        assert database.name == "my-lakebase-instance"
+        assert database.instance_name == "my-lakebase-instance"
+
+
+@pytest.mark.unit
+def test_database_model_connection_params_auto_fetches_host():
+    """Test connection_params auto-fetches host for Lakebase without OBO."""
+    from unittest.mock import MagicMock, PropertyMock, patch
+
+    mock_ws_client = MagicMock()
+    mock_instance = MagicMock()
+    mock_instance.read_write_dns = "test-instance.database.databricks.com"
+    mock_ws_client.database.get_database_instance.return_value = mock_instance
+    mock_ws_client.database.generate_database_credential.return_value = MagicMock(
+        token="test-token"
+    )
+    mock_ws_client.current_user.me.return_value = MagicMock(user_name="test_user")
+
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=PropertyMock
+    ) as mock_prop:
+        mock_prop.return_value = mock_ws_client
+
+        database = DatabaseModel(
+            instance_name="test_db",
+            # No name provided - should default to instance_name
+            # No host provided - should auto-fetch
+            # No on_behalf_of_user - should still work
+        )
+
+        params = database.connection_params
+
+        assert params["host"] == "test-instance.database.databricks.com"
+        mock_ws_client.database.get_database_instance.assert_called_once_with(
+            name="test_db"
+        )
+
+
+@pytest.mark.unit
+def test_postgres_pool_manager_uses_lakebase_pool():
+    """Test PostgresPoolManager uses LakebasePool for Lakebase connections."""
+    from unittest.mock import MagicMock, PropertyMock, patch
+
+    from dao_ai.memory.postgres import PostgresPoolManager
+
+    # Reset class state before test
+    PostgresPoolManager._pools = {}
+    PostgresPoolManager._lakebase_pools = {}
+
+    mock_ws_client = MagicMock()
+    mock_ws_client.current_user.me.return_value = MagicMock(user_name="test_user")
+
+    # Mock the LakebasePool
+    mock_lakebase_pool_instance = MagicMock()
+    mock_underlying_pool = MagicMock()
+    mock_lakebase_pool_instance.pool = mock_underlying_pool
+
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=PropertyMock
+    ) as mock_ws_prop:
+        mock_ws_prop.return_value = mock_ws_client
+
+        with patch("dao_ai.memory.postgres.LakebasePool") as mock_lakebase_pool_class:
+            mock_lakebase_pool_class.return_value = mock_lakebase_pool_instance
+
+            # Create a Lakebase database model
+            database = DatabaseModel(
+                instance_name="test-lakebase-instance",
+            )
+
+            # Get the pool
+            pool = PostgresPoolManager.get_pool(database)
+
+            # Verify LakebasePool was used
+            mock_lakebase_pool_class.assert_called_once_with(
+                instance_name="test-lakebase-instance",
+                workspace_client=mock_ws_client,
+                min_size=1,
+                max_size=database.max_pool_size,
+                timeout=float(database.timeout_seconds),
+            )
+
+            # Verify the underlying pool is returned
+            assert pool is mock_underlying_pool
+
+            # Verify LakebasePool instance is tracked for cleanup
+            assert database.name in PostgresPoolManager._lakebase_pools
+            assert (
+                PostgresPoolManager._lakebase_pools[database.name]
+                is mock_lakebase_pool_instance
+            )
+
+    # Clean up
+    PostgresPoolManager._pools = {}
+    PostgresPoolManager._lakebase_pools = {}
+
+
+@pytest.mark.unit
 def test_database_model_workspace_client_uses_configured_auth():
     """Test that DatabaseModel.workspace_client uses configured authentication.
 
