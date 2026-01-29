@@ -296,7 +296,8 @@ class LRUCacheService(GenieServiceBase):
         result: CacheResult = self.impl.ask_question(question, conversation_id)
         with self._lock:
             self._put(key, result.response)
-        return CacheResult(response=result.response, cache_hit=False, served_by=None)
+        # Propagate the inner cache's result - if it was a hit there, preserve that info
+        return result
 
     @property
     def space_id(self) -> str:
