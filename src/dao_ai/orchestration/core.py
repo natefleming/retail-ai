@@ -9,7 +9,7 @@ This module provides the foundational utilities for multi-agent orchestration:
 - Main orchestration graph factory
 """
 
-from typing import Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -179,8 +179,16 @@ def create_agent_node_handler(
             "messages": filtered_messages,
         }
 
-        # Invoke the agent
-        result: AgentState = await agent.ainvoke(agent_state, context=runtime.context)
+        # Build config with configurable from context for langmem compatibility
+        # langmem tools expect user_id to be in config.configurable
+        config: dict[str, Any] = {}
+        if runtime.context:
+            config = {"configurable": runtime.context.model_dump()}
+
+        # Invoke the agent with both context and config
+        result: AgentState = await agent.ainvoke(
+            agent_state, context=runtime.context, config=config
+        )
 
         # Extract agent response based on output mode
         result_messages = result.get("messages", [])

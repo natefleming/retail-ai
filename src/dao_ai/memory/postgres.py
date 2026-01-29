@@ -3,6 +3,7 @@ import atexit
 import threading
 from typing import Any, Optional
 
+from databricks_ai_bridge.lakebase import AsyncLakebasePool, LakebasePool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres import ShallowPostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncShallowPostgresSaver
@@ -86,13 +87,22 @@ async def _create_async_pool(
 
 
 class AsyncPostgresPoolManager:
+    """
+    Asynchronous PostgreSQL connection pool manager that shares pools
+    based on database configuration.
+
+    For Lakebase connections (when instance_name is provided), uses AsyncLakebasePool
+    from databricks_ai_bridge which handles automatic token rotation and host resolution.
+    For standard PostgreSQL connections, uses psycopg_pool.AsyncConnectionPool.
+    """
+
     _pools: dict[str, AsyncConnectionPool] = {}
+    _lakebase_pools: dict[str, AsyncLakebasePool] = {}
     _lock: asyncio.Lock = asyncio.Lock()
 
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
         connection_key: str = database.name
-        connection_params: dict[str, Any] = database.connection_params
 
         async with cls._lock:
             if connection_key in cls._pools:
@@ -103,19 +113,43 @@ class AsyncPostgresPoolManager:
 
             logger.debug("Creating new async PostgreSQL pool", database=database.name)
 
-            kwargs: dict[str, Any] = {
-                "row_factory": dict_row,
-                "autocommit": True,
-            } | database.connection_kwargs or {}
+            if database.is_lakebase:
+                # Use AsyncLakebasePool for Lakebase connections
+                # AsyncLakebasePool handles automatic token rotation and host resolution
+                lakebase_pool = AsyncLakebasePool(
+                    instance_name=database.instance_name,
+                    workspace_client=database.workspace_client,
+                    min_size=1,
+                    max_size=database.max_pool_size,
+                    timeout=float(database.timeout_seconds),
+                )
+                # Open the async pool
+                await lakebase_pool.open()
+                # Store the AsyncLakebasePool for proper cleanup
+                cls._lakebase_pools[connection_key] = lakebase_pool
+                # Get the underlying AsyncConnectionPool
+                pool = lakebase_pool.pool
+                logger.success(
+                    "Async Lakebase connection pool created",
+                    database=database.name,
+                    instance_name=database.instance_name,
+                    pool_size=database.max_pool_size,
+                )
+            else:
+                # Use standard async PostgreSQL pool for non-Lakebase connections
+                connection_params: dict[str, Any] = database.connection_params
+                kwargs: dict[str, Any] = {
+                    "row_factory": dict_row,
+                    "autocommit": True,
+                } | database.connection_kwargs or {}
 
-            # Create connection pool
-            pool: AsyncConnectionPool = await _create_async_pool(
-                connection_params=connection_params,
-                database_name=database.name,
-                max_pool_size=database.max_pool_size,
-                timeout_seconds=database.timeout_seconds,
-                kwargs=kwargs,
-            )
+                pool = await _create_async_pool(
+                    connection_params=connection_params,
+                    database_name=database.name,
+                    max_pool_size=database.max_pool_size,
+                    timeout_seconds=database.timeout_seconds,
+                    kwargs=kwargs,
+                )
 
             cls._pools[connection_key] = pool
             return pool
@@ -125,7 +159,13 @@ class AsyncPostgresPoolManager:
         connection_key: str = database.name
 
         async with cls._lock:
-            if connection_key in cls._pools:
+            # Close AsyncLakebasePool if it exists (handles underlying pool cleanup)
+            if connection_key in cls._lakebase_pools:
+                lakebase_pool = cls._lakebase_pools.pop(connection_key)
+                await lakebase_pool.close()
+                cls._pools.pop(connection_key, None)
+                logger.debug("Async Lakebase pool closed", database=database.name)
+            elif connection_key in cls._pools:
                 pool = cls._pools.pop(connection_key)
                 await pool.close()
                 logger.debug("Async PostgreSQL pool closed", database=database.name)
@@ -133,9 +173,32 @@ class AsyncPostgresPoolManager:
     @classmethod
     async def close_all_pools(cls):
         async with cls._lock:
+            # Close all AsyncLakebasePool instances first
+            for connection_key, lakebase_pool in cls._lakebase_pools.items():
+                try:
+                    await asyncio.wait_for(lakebase_pool.close(), timeout=2.0)
+                    logger.debug("Async Lakebase pool closed", pool=connection_key)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Timeout closing async Lakebase pool, forcing closure",
+                        pool=connection_key,
+                    )
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "Async Lakebase pool closure cancelled (shutdown in progress)",
+                        pool=connection_key,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Error closing async Lakebase pool",
+                        pool=connection_key,
+                        error=str(e),
+                    )
+            cls._lakebase_pools.clear()
+
+            # Close any remaining standard async PostgreSQL pools
             for connection_key, pool in cls._pools.items():
                 try:
-                    # Use a short timeout to avoid blocking on pool closure
                     await asyncio.wait_for(pool.close(), timeout=2.0)
                     logger.debug("Async PostgreSQL pool closed", pool=connection_key)
                 except asyncio.TimeoutError:
@@ -309,15 +372,19 @@ class PostgresPoolManager:
     """
     Synchronous PostgreSQL connection pool manager that shares pools
     based on database configuration.
+
+    For Lakebase connections (when instance_name is provided), uses LakebasePool
+    from databricks_ai_bridge which handles automatic token rotation and host resolution.
+    For standard PostgreSQL connections, uses psycopg_pool.ConnectionPool.
     """
 
     _pools: dict[str, ConnectionPool] = {}
+    _lakebase_pools: dict[str, LakebasePool] = {}
     _lock: threading.Lock = threading.Lock()
 
     @classmethod
     def get_pool(cls, database: DatabaseModel) -> ConnectionPool:
         connection_key: str = str(database.name)
-        connection_params: dict[str, Any] = database.connection_params
 
         with cls._lock:
             if connection_key in cls._pools:
@@ -326,19 +393,41 @@ class PostgresPoolManager:
 
             logger.debug("Creating new PostgreSQL pool", database=database.name)
 
-            kwargs: dict[str, Any] = {
-                "row_factory": dict_row,
-                "autocommit": True,
-            } | database.connection_kwargs or {}
+            if database.is_lakebase:
+                # Use LakebasePool for Lakebase connections
+                # LakebasePool handles automatic token rotation and host resolution
+                lakebase_pool = LakebasePool(
+                    instance_name=database.instance_name,
+                    workspace_client=database.workspace_client,
+                    min_size=1,
+                    max_size=database.max_pool_size,
+                    timeout=float(database.timeout_seconds),
+                )
+                # Store the LakebasePool for proper cleanup
+                cls._lakebase_pools[connection_key] = lakebase_pool
+                # Get the underlying ConnectionPool
+                pool = lakebase_pool.pool
+                logger.success(
+                    "Lakebase connection pool created",
+                    database=database.name,
+                    instance_name=database.instance_name,
+                    pool_size=database.max_pool_size,
+                )
+            else:
+                # Use standard PostgreSQL pool for non-Lakebase connections
+                connection_params: dict[str, Any] = database.connection_params
+                kwargs: dict[str, Any] = {
+                    "row_factory": dict_row,
+                    "autocommit": True,
+                } | database.connection_kwargs or {}
 
-            # Create connection pool
-            pool: ConnectionPool = _create_pool(
-                connection_params=connection_params,
-                database_name=database.name,
-                max_pool_size=database.max_pool_size,
-                timeout_seconds=database.timeout_seconds,
-                kwargs=kwargs,
-            )
+                pool = _create_pool(
+                    connection_params=connection_params,
+                    database_name=database.name,
+                    max_pool_size=database.max_pool_size,
+                    timeout_seconds=database.timeout_seconds,
+                    kwargs=kwargs,
+                )
 
             cls._pools[connection_key] = pool
             return pool
@@ -348,7 +437,13 @@ class PostgresPoolManager:
         connection_key: str = database.name
 
         with cls._lock:
-            if connection_key in cls._pools:
+            # Close LakebasePool if it exists (handles underlying pool cleanup)
+            if connection_key in cls._lakebase_pools:
+                lakebase_pool = cls._lakebase_pools.pop(connection_key)
+                lakebase_pool.close()
+                cls._pools.pop(connection_key, None)
+                logger.debug("Lakebase pool closed", database=database.name)
+            elif connection_key in cls._pools:
                 pool = cls._pools.pop(connection_key)
                 pool.close()
                 logger.debug("PostgreSQL pool closed", database=database.name)
@@ -356,16 +451,32 @@ class PostgresPoolManager:
     @classmethod
     def close_all_pools(cls):
         with cls._lock:
-            for connection_key, pool in cls._pools.items():
+            # Close all LakebasePool instances first
+            for connection_key, lakebase_pool in cls._lakebase_pools.items():
                 try:
-                    pool.close()
-                    logger.debug("PostgreSQL pool closed", pool=connection_key)
+                    lakebase_pool.close()
+                    logger.debug("Lakebase pool closed", pool=connection_key)
                 except Exception as e:
                     logger.error(
-                        "Error closing PostgreSQL pool",
+                        "Error closing Lakebase pool",
                         pool=connection_key,
                         error=str(e),
                     )
+            cls._lakebase_pools.clear()
+
+            # Close any remaining standard PostgreSQL pools
+            for connection_key, pool in cls._pools.items():
+                # Skip if already closed via LakebasePool
+                if connection_key not in cls._lakebase_pools:
+                    try:
+                        pool.close()
+                        logger.debug("PostgreSQL pool closed", pool=connection_key)
+                    except Exception as e:
+                        logger.error(
+                            "Error closing PostgreSQL pool",
+                            pool=connection_key,
+                            error=str(e),
+                        )
             cls._pools.clear()
 
 

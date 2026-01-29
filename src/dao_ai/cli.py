@@ -521,14 +521,19 @@ def handle_chat_command(options: Namespace) -> None:
                             )
                             continue
 
+                # Normalize user_id for memory namespace compatibility (replace . with _)
+                # This matches the normalization in models.py _convert_to_context
+                if configurable.get("user_id"):
+                    configurable["user_id"] = configurable["user_id"].replace(".", "_")
+
                 # Create Context object from configurable dict
                 from dao_ai.state import Context
 
                 context = Context(**configurable)
 
-                # Prepare config with thread_id for checkpointer
-                # Note: thread_id is needed in config for checkpointer/memory
-                config = {"configurable": {"thread_id": options.thread_id}}
+                # Prepare config with all context fields for checkpointer/memory
+                # Note: langmem tools require user_id in config.configurable for namespace resolution
+                config = {"configurable": context.model_dump()}
 
                 # Invoke the graph and handle interrupts (HITL)
                 # Wrap in async function to maintain connection pool throughout

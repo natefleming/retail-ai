@@ -1402,13 +1402,20 @@ class DatabaseModel(IsDatabricksResource):
     - Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)
     - Standard PostgreSQL: Provide `host` (authentication required via user/password)
 
-    Note: `instance_name` and `host` are mutually exclusive. Provide one or the other.
+    Note: For Lakebase connections, `name` is optional and defaults to `instance_name`.
+    For PostgreSQL connections, `name` is required.
+
+    Example Databricks Lakebase (minimal):
+    ```yaml
+    databases:
+      my_lakebase:
+        instance_name: my-lakebase-instance  # name defaults to instance_name
+    ```
 
     Example Databricks Lakebase with Service Principal:
     ```yaml
     databases:
       my_lakebase:
-        name: my-database
         instance_name: my-lakebase-instance
         service_principal:
           client_id:
@@ -1424,7 +1431,6 @@ class DatabaseModel(IsDatabricksResource):
     ```yaml
     databases:
       my_lakebase:
-        name: my-database
         instance_name: my-lakebase-instance
         on_behalf_of_user: true
     ```
@@ -1444,7 +1450,7 @@ class DatabaseModel(IsDatabricksResource):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
+    name: Optional[str] = None
     instance_name: Optional[str] = None
     description: Optional[str] = None
     host: Optional[AnyVariable] = None
@@ -1490,6 +1496,17 @@ class DatabaseModel(IsDatabricksResource):
         if not self.instance_name and not self.host:
             raise ValueError(
                 "Either instance_name (Databricks Lakebase) or host (PostgreSQL) must be provided."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def populate_name_from_instance_name(self) -> Self:
+        """Populate name from instance_name if not provided for Lakebase connections."""
+        if self.name is None and self.instance_name:
+            self.name = self.instance_name
+        elif self.name is None:
+            raise ValueError(
+                "Either 'name' or 'instance_name' must be provided for DatabaseModel."
             )
         return self
 
@@ -1590,10 +1607,10 @@ class DatabaseModel(IsDatabricksResource):
         username: str | None = None
         password_value: str | None = None
 
-        # Resolve host - may need to fetch at runtime for OBO mode
+        # Resolve host - fetch from API at runtime for Lakebase if not provided
         host_value: Any = self.host
-        if host_value is None and self.is_lakebase and self.on_behalf_of_user:
-            # Fetch host at runtime for OBO mode
+        if host_value is None and self.is_lakebase:
+            # Fetch host from Lakebase instance API
             existing_instance: DatabaseInstance = (
                 self.workspace_client.database.get_database_instance(
                     name=self.instance_name
