@@ -259,6 +259,10 @@ The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions 
 | `table_name` | `genie_semantic_cache` | Table name for cache storage |
 | `context_window_size` | 3 | Number of previous conversation turns to include |
 | `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
+| `question_weight` | 0.6 | Weight for question similarity in combined score (0.0-1.0) |
+| `context_weight` | 0.4 | Weight for context similarity (computed as 1 - question_weight if not set) |
+| `embedding_dims` | Auto-detected | Embedding vector dimensions (auto-detected from model if not specified) |
+| `max_context_tokens` | 2000 | Maximum token length for conversation context embeddings |
 
 **Best for:** Catching rephrased questions like:
 - "What's our inventory status?" ≈ "Show me stock levels"
@@ -270,6 +274,12 @@ The semantic cache tracks conversation history to resolve ambiguous references:
 - **User:** "What about *them* in the warehouse?" ← Uses context to understand "them" = low stock products
 
 This works by embedding both the current question *and* recent conversation turns, then computing a weighted similarity score. This dramatically improves cache hits in multi-turn conversations where users naturally use pronouns and references.
+
+**Weight Configuration:**  
+The `question_weight` and `context_weight` parameters control how question vs conversation context similarity are combined into the final score:
+- Both weights must sum to 1.0 (if only one is provided, the other is computed automatically)
+- Higher `question_weight` prioritizes matching the exact question wording
+- Higher `context_weight` prioritizes matching the conversation context, useful for multi-turn conversations with pronouns and references
 
 ### Cache Behavior
 
@@ -286,8 +296,6 @@ This works by embedding both the current question *and* recent conversation turn
 4. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The semantic cache is shared across all instances via PostgreSQL.
 
 5. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
-
-For more details on semantic cache configuration, see [docs/semantic_cache_weight_configuration.md](semantic_cache_weight_configuration.md).
 
 ## 5. Vector Search Reranking
 
