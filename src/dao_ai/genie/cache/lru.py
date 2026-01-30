@@ -143,6 +143,16 @@ class LRUCacheService(GenieServiceBase):
 
     def _put(self, key: str, response: GenieResponse) -> None:
         """Store SQL query in cache, evicting if at capacity."""
+        # Skip caching if query is empty or whitespace
+        if not response.query or not response.query.strip():
+            logger.warning(
+                "Not caching: response has no SQL query",
+                layer=self.name,
+                key=key[:50],
+                description=response.description[:80] if response.description else None,
+            )
+            return
+
         if key in self._cache:
             del self._cache[key]
 
@@ -175,6 +185,16 @@ class LRUCacheService(GenieServiceBase):
         Returns:
             DataFrame with results, or error message string
         """
+        # Validate SQL is not empty
+        if not sql or not sql.strip():
+            error_msg: str = "Cannot execute empty SQL query"
+            logger.error(
+                "SQL execution failed: empty query",
+                layer=self.name,
+                sql=repr(sql),
+            )
+            return error_msg
+
         w: WorkspaceClient = self.warehouse.workspace_client
         warehouse_id: str = str(self.warehouse.warehouse_id)
 
@@ -256,33 +276,48 @@ class LRUCacheService(GenieServiceBase):
             cached: SQLCacheEntry | None = self._get(key)
 
         if cached is not None:
-            cache_age_seconds = (datetime.now() - cached.created_at).total_seconds()
-            logger.info(
-                "Cache HIT",
-                layer=self.name,
-                question=question[:80],
-                conversation_id=conversation_id,
-                cached_sql=cached.query[:80] if cached.query else None,
-                cache_age_seconds=round(cache_age_seconds, 1),
-                cache_size=self.size,
-                capacity=self.capacity,
-                ttl_seconds=self.parameters.time_to_live_seconds,
-            )
+            # Defensive check: if cached query is empty, treat as cache miss
+            if not cached.query or not cached.query.strip():
+                logger.warning(
+                    "Cache HIT but query is empty, treating as MISS",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    key=key[:50],
+                )
+                # Invalidate this bad cache entry
+                with self._lock:
+                    if key in self._cache:
+                        del self._cache[key]
+                # Fall through to cache miss logic below
+            else:
+                cache_age_seconds = (datetime.now() - cached.created_at).total_seconds()
+                logger.info(
+                    "Cache HIT",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    cached_sql=cached.query[:80] if cached.query else None,
+                    cache_age_seconds=round(cache_age_seconds, 1),
+                    cache_size=self.size,
+                    capacity=self.capacity,
+                    ttl_seconds=self.parameters.time_to_live_seconds,
+                )
 
-            # Re-execute the cached SQL to get fresh data
-            result: pd.DataFrame | str = self._execute_sql(cached.query)
+                # Re-execute the cached SQL to get fresh data
+                result: pd.DataFrame | str = self._execute_sql(cached.query)
 
-            # Use current conversation_id, not the cached one
-            response: GenieResponse = GenieResponse(
-                result=result,
-                query=cached.query,
-                description=cached.description,
-                conversation_id=conversation_id
-                if conversation_id
-                else cached.conversation_id,
-            )
+                # Use current conversation_id, not the cached one
+                response: GenieResponse = GenieResponse(
+                    result=result,
+                    query=cached.query,
+                    description=cached.description,
+                    conversation_id=conversation_id
+                    if conversation_id
+                    else cached.conversation_id,
+                )
 
-            return CacheResult(response=response, cache_hit=True, served_by=self.name)
+                return CacheResult(response=response, cache_hit=True, served_by=self.name)
 
         # Cache miss - delegate to wrapped service
         logger.info(
