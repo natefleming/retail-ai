@@ -2789,14 +2789,13 @@ class TestLRUPlusSemanticCacheIntegration:
         assert mock_genie_service.call_count == 1
 
         # Second call with DIFFERENT but similar question
-        # LRU uses ask_question() interface which doesn't propagate cache_hit
-        # but semantic cache DID hit (no new Genie call)
+        # LRU misses (different question text), but semantic cache hits
         result = lru_cache.ask_question_with_cache_info("Show me inventory count")
 
-        # LRU misses (different question text), but semantic hit internally
-        # LRU returns cache_hit=False because LRU itself missed
-        # However, no new Genie call was made (semantic cache served it)
-        assert result.cache_hit is False  # LRU reports its own miss
+        # LRU propagates the semantic cache hit status
+        # No new Genie call was made (semantic cache served it)
+        assert result.cache_hit is True  # Propagated from semantic cache hit
+        assert result.served_by == "SemanticCacheService"  # Semantic cache served it
         assert mock_genie_service.call_count == 1  # No new Genie call - semantic hit!
 
         # Verify LRU now has this new question cached
@@ -2895,10 +2894,10 @@ class TestLRUPlusSemanticCacheIntegration:
         assert lru_cache.size == 0
 
         # First call - LRU miss, but semantic cache has the data
-        # LRU reports cache_hit=False (because LRU itself missed)
-        # but semantic cache served it (no Genie call)
+        # LRU propagates the semantic cache hit status
         result1 = lru_cache.ask_question_with_cache_info("Similar question here")
-        assert result1.cache_hit is False  # LRU reports its own miss
+        assert result1.cache_hit is True  # Propagated from semantic cache hit
+        assert result1.served_by == "SemanticCacheService"  # Semantic cache served it
 
         # LRU should now have stored this result (learned from semantic)
         assert lru_cache.size == 1
