@@ -25,13 +25,19 @@ from pydantic import BaseModel
 from dao_ai.config import (
     AnyVariable,
     CompositeVariableModel,
+    GenieInMemorySemanticCacheParametersModel,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
     GenieSemanticCacheParametersModel,
     value_of,
 )
 from dao_ai.genie import GenieService, GenieServiceBase
-from dao_ai.genie.cache import CacheResult, LRUCacheService, SemanticCacheService
+from dao_ai.genie.cache import (
+    CacheResult,
+    InMemorySemanticCacheService,
+    LRUCacheService,
+    SemanticCacheService,
+)
 from dao_ai.state import AgentState, Context, SessionState
 
 
@@ -67,6 +73,9 @@ def create_genie_tool(
     semantic_cache_parameters: GenieSemanticCacheParametersModel
     | dict[str, Any]
     | None = None,
+    in_memory_semantic_cache_parameters: GenieInMemorySemanticCacheParametersModel
+    | dict[str, Any]
+    | None = None,
 ) -> Callable[..., Command]:
     """
     Create a tool for interacting with Databricks Genie for natural language queries to databases.
@@ -84,7 +93,9 @@ def create_genie_tool(
         truncate_results: Whether to truncate large query results to fit token limits
         lru_cache_parameters: Optional LRU cache configuration for SQL query caching
         semantic_cache_parameters: Optional semantic cache configuration using pg_vector
-            for similarity-based query matching
+            for similarity-based query matching (requires PostgreSQL/Lakebase)
+        in_memory_semantic_cache_parameters: Optional in-memory semantic cache configuration
+            for similarity-based query matching (no database required)
 
     Returns:
         A LangGraph tool that processes natural language queries through Genie
@@ -97,6 +108,7 @@ def create_genie_tool(
         name=name,
         has_lru_cache=lru_cache_parameters is not None,
         has_semantic_cache=semantic_cache_parameters is not None,
+        has_in_memory_semantic_cache=in_memory_semantic_cache_parameters is not None,
     )
 
     if isinstance(genie_room, dict):
@@ -108,6 +120,11 @@ def create_genie_tool(
     if isinstance(semantic_cache_parameters, dict):
         semantic_cache_parameters = GenieSemanticCacheParametersModel(
             **semantic_cache_parameters
+        )
+
+    if isinstance(in_memory_semantic_cache_parameters, dict):
+        in_memory_semantic_cache_parameters = GenieInMemorySemanticCacheParametersModel(
+            **in_memory_semantic_cache_parameters
         )
 
     space_id: AnyVariable = genie_room.space_id or os.environ.get(
@@ -165,11 +182,19 @@ GenieResponse: A response object containing the conversation ID and result from 
 
         genie_service: GenieServiceBase = GenieService(genie)
 
-        # Wrap with semantic cache first (checked second due to decorator pattern)
+        # Wrap with semantic cache first (checked second/third due to decorator pattern)
         if semantic_cache_parameters is not None:
             genie_service = SemanticCacheService(
                 impl=genie_service,
                 parameters=semantic_cache_parameters,
+                workspace_client=workspace_client,
+            ).initialize()
+
+        # Wrap with in-memory semantic cache (alternative to PostgreSQL semantic cache)
+        if in_memory_semantic_cache_parameters is not None:
+            genie_service = InMemorySemanticCacheService(
+                impl=genie_service,
+                parameters=in_memory_semantic_cache_parameters,
                 workspace_client=workspace_client,
             ).initialize()
 

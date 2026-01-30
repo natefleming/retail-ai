@@ -330,7 +330,8 @@ The `config/examples/` directory contains ready-to-use configurations organized 
 
 - `01_getting_started/minimal.yaml` - Simplest possible agent
 - `02_tools/vector_search_with_reranking.yaml` - RAG with improved accuracy
-- `04_genie/genie_semantic_cache.yaml` - NL-to-SQL with two-tier caching
+- `04_genie/genie_semantic_cache.yaml` - NL-to-SQL with PostgreSQL semantic caching
+- `04_genie/genie_in_memory_semantic_cache.yaml` - NL-to-SQL with in-memory semantic caching (no database)
 - `05_memory/conversation_summarization.yaml` - Long conversation handling
 - `06_on_behalf_of_user/obo_basic.yaml` - User-level access control
 - `07_human_in_the_loop/human_in_the_loop.yaml` - Approval workflows

@@ -497,6 +497,7 @@ class SemanticCacheService(GenieServiceBase):
         conversation_context: str,
         question_embedding: list[float],
         context_embedding: list[float],
+        conversation_id: str | None = None,
     ) -> tuple[SQLCacheEntry, float] | None:
         """
         Find a semantically similar cached entry using dual embedding matching.
@@ -509,6 +510,7 @@ class SemanticCacheService(GenieServiceBase):
             conversation_context: The conversation context string
             question_embedding: The embedding vector of just the question
             context_embedding: The embedding vector of the conversation context
+            conversation_id: Optional conversation ID (for logging)
 
         Returns:
             Tuple of (SQLCacheEntry, combined_similarity_score) if found, None otherwise
@@ -576,8 +578,9 @@ class SemanticCacheService(GenieServiceBase):
                     logger.info(
                         "Cache MISS (no entries)",
                         layer=self.name,
-                        question_prefix=question[:50],
+                        question=question[:50],
                         space=self.space_id,
+                        delegating_to=type(self.impl).__name__,
                     )
                     return None
 
@@ -602,8 +605,8 @@ class SemanticCacheService(GenieServiceBase):
                     context_sim=f"{context_similarity:.4f}",
                     combined_sim=f"{combined_similarity:.4f}",
                     is_valid=is_valid,
-                    cached_question_prefix=cached_question[:50],
-                    cached_context_prefix=cached_context[:80],
+                    cached_question=cached_question[:50],
+                    cached_context=cached_context[:80],
                 )
 
                 # Check BOTH similarity thresholds (dual embedding precision check)
@@ -613,6 +616,7 @@ class SemanticCacheService(GenieServiceBase):
                         layer=self.name,
                         question_sim=f"{question_similarity:.4f}",
                         threshold=self.parameters.similarity_threshold,
+                        delegating_to=type(self.impl).__name__,
                     )
                     return None
 
@@ -622,6 +626,7 @@ class SemanticCacheService(GenieServiceBase):
                         layer=self.name,
                         context_sim=f"{context_similarity:.4f}",
                         threshold=self.parameters.context_similarity_threshold,
+                        delegating_to=type(self.impl).__name__,
                     )
                     return None
 
@@ -635,17 +640,32 @@ class SemanticCacheService(GenieServiceBase):
                         layer=self.name,
                         combined_sim=f"{combined_similarity:.4f}",
                         ttl_seconds=ttl_seconds,
-                        cached_question_prefix=cached_question[:50],
+                        cached_question=cached_question[:50],
+                        delegating_to=type(self.impl).__name__,
                     )
                     return None
 
+                from datetime import datetime as dt
+
+                cache_age_seconds = (
+                    (dt.now(created_at.tzinfo) - created_at).total_seconds()
+                    if created_at
+                    else None
+                )
                 logger.info(
                     "Cache HIT",
                     layer=self.name,
-                    question_sim=f"{question_similarity:.4f}",
-                    context_sim=f"{context_similarity:.4f}",
-                    combined_sim=f"{combined_similarity:.4f}",
-                    cached_question_prefix=cached_question[:50],
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    matched_question=cached_question[:80],
+                    cache_age_seconds=round(cache_age_seconds, 1)
+                    if cache_age_seconds
+                    else None,
+                    question_similarity=f"{question_similarity:.4f}",
+                    context_similarity=f"{context_similarity:.4f}",
+                    combined_similarity=f"{combined_similarity:.4f}",
+                    cached_sql=sql_query[:80] if sql_query else None,
+                    ttl_seconds=self.parameters.time_to_live_seconds,
                 )
 
                 entry = SQLCacheEntry(
@@ -696,12 +716,12 @@ class SemanticCacheService(GenieServiceBase):
                         response.conversation_id,
                     ),
                 )
-                logger.info(
+                logger.debug(
                     "Stored cache entry",
                     layer=self.name,
-                    question_prefix=question[:50],
-                    context_prefix=conversation_context[:80],
-                    sql_prefix=response.query[:50] if response.query else None,
+                    question=question[:50],
+                    context=conversation_context[:80],
+                    sql=response.query[:50] if response.query else None,
                     space=self.space_id,
                     table=self.table_name,
                 )
@@ -796,7 +816,11 @@ class SemanticCacheService(GenieServiceBase):
 
         # Check cache using dual embedding similarity
         cache_result: tuple[SQLCacheEntry, float] | None = self._find_similar(
-            question, conversation_context, question_embedding, context_embedding
+            question,
+            conversation_context,
+            question_embedding,
+            context_embedding,
+            conversation_id,
         )
 
         if cache_result is not None:
@@ -805,7 +829,8 @@ class SemanticCacheService(GenieServiceBase):
                 "Semantic cache hit",
                 layer=self.name,
                 combined_similarity=f"{combined_similarity:.3f}",
-                question_prefix=question[:50],
+                question=question[:50],
+                conversation_id=conversation_id,
             )
 
             # Re-execute the cached SQL to get fresh data
@@ -825,16 +850,25 @@ class SemanticCacheService(GenieServiceBase):
             return CacheResult(response=response, cache_hit=True, served_by=self.name)
 
         # Cache miss - delegate to wrapped service
-        logger.trace("Cache miss", layer=self.name, question_prefix=question[:50])
+        logger.info(
+            "Cache MISS",
+            layer=self.name,
+            question=question[:80],
+            conversation_id=conversation_id,
+            space_id=self.space_id,
+            similarity_threshold=self.similarity_threshold,
+            delegating_to=type(self.impl).__name__,
+        )
 
         result: CacheResult = self.impl.ask_question(question, conversation_id)
 
         # Store in cache if we got a SQL query
         if result.response.query:
-            logger.info(
+            logger.debug(
                 "Storing new cache entry",
                 layer=self.name,
-                question_prefix=question[:50],
+                question=question[:50],
+                conversation_id=conversation_id,
                 space=self.space_id,
             )
             self._store_entry(
@@ -848,7 +882,7 @@ class SemanticCacheService(GenieServiceBase):
             logger.warning(
                 "Not caching: response has no SQL query",
                 layer=self.name,
-                question_prefix=question[:50],
+                question=question[:50],
             )
 
         return CacheResult(response=result.response, cache_hit=False, served_by=None)

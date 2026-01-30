@@ -52,7 +52,8 @@ Or jump directly to the category that matches your current need.
 **Natural language to SQL**
 - Basic Genie integration
 - LRU caching for performance
-- Semantic caching with embeddings
+- PostgreSQL semantic caching with embeddings
+- In-memory semantic caching (no database required)
 
 👉 Query data with natural language, optimized with caching
 

@@ -1773,6 +1773,105 @@ class GenieSemanticCacheParametersModel(BaseModel):
         return self
 
 
+# Memory estimation for capacity planning:
+# - Each entry: ~20KB (8KB question embedding + 8KB context embedding + 4KB strings/overhead)
+# - 1,000 entries: ~20MB (0.4% of 8GB)
+# - 5,000 entries: ~100MB (2% of 8GB)
+# - 10,000 entries: ~200MB (4-5% of 8GB) - default for ~30 users
+# - 20,000 entries: ~400MB (8-10% of 8GB)
+# Default 10,000 entries provides ~330 queries per user for 30 users.
+class GenieInMemorySemanticCacheParametersModel(BaseModel):
+    """
+    Configuration for in-memory semantic cache (no database required).
+
+    This cache stores embeddings and cache entries entirely in memory, providing
+    semantic similarity matching without requiring external database dependencies
+    like PostgreSQL or Databricks Lakebase.
+
+    Default settings are tuned for ~30 users on an 8GB machine:
+    - Capacity: 10,000 entries (~200MB memory, ~330 queries per user)
+    - Eviction: LRU (Least Recently Used) - keeps frequently accessed queries
+    - TTL: 1 week (accommodates weekly work patterns and batch jobs)
+    - Memory overhead: ~4-5% of 8GB system
+
+    The LRU eviction strategy ensures hot queries stay cached while cold queries
+    are evicted, providing better hit rates than FIFO eviction.
+
+    For larger deployments or memory-constrained environments, adjust capacity and TTL accordingly.
+
+    Use this when:
+    - No external database access is available
+    - Single-instance deployments (cache not shared across instances)
+    - Cache persistence across restarts is not required
+    - Cache sizes are moderate (hundreds to low thousands of entries)
+
+    For multi-instance deployments or large cache sizes, use GenieSemanticCacheParametersModel
+    with PostgreSQL backend instead.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    time_to_live_seconds: int | None = (
+        60 * 60 * 24 * 7
+    )  # 1 week default (604800 seconds), None or negative = never expires
+    similarity_threshold: float = 0.85  # Minimum similarity for question matching (L2 distance converted to 0-1 scale)
+    context_similarity_threshold: float = 0.80  # Minimum similarity for context matching (L2 distance converted to 0-1 scale)
+    question_weight: Optional[float] = (
+        0.6  # Weight for question similarity in combined score (0-1). If not provided, computed as 1 - context_weight
+    )
+    context_weight: Optional[float] = (
+        None  # Weight for context similarity in combined score (0-1). If not provided, computed as 1 - question_weight
+    )
+    embedding_model: str | LLMModel = "databricks-gte-large-en"
+    embedding_dims: int | None = None  # Auto-detected if None
+    warehouse: WarehouseModel
+    capacity: int | None = (
+        10000  # Maximum cache entries. ~200MB for 10000 entries (1024-dim embeddings). LRU eviction when full. None = unlimited (not recommended for production).
+    )
+    context_window_size: int = 3  # Number of previous turns to include for context
+    max_context_tokens: int = (
+        2000  # Maximum context length to prevent extremely long embeddings
+    )
+
+    @model_validator(mode="after")
+    def compute_and_validate_weights(self) -> Self:
+        """
+        Compute missing weight and validate that question_weight + context_weight = 1.0.
+
+        Either question_weight or context_weight (or both) can be provided.
+        The missing one will be computed as 1.0 - provided_weight.
+        If both are provided, they must sum to 1.0.
+        """
+        if self.question_weight is None and self.context_weight is None:
+            # Both missing - use defaults
+            self.question_weight = 0.6
+            self.context_weight = 0.4
+        elif self.question_weight is None:
+            # Compute question_weight from context_weight
+            if not (0.0 <= self.context_weight <= 1.0):
+                raise ValueError(
+                    f"context_weight must be between 0.0 and 1.0, got {self.context_weight}"
+                )
+            self.question_weight = 1.0 - self.context_weight
+        elif self.context_weight is None:
+            # Compute context_weight from question_weight
+            if not (0.0 <= self.question_weight <= 1.0):
+                raise ValueError(
+                    f"question_weight must be between 0.0 and 1.0, got {self.question_weight}"
+                )
+            self.context_weight = 1.0 - self.question_weight
+        else:
+            # Both provided - validate they sum to 1.0
+            total_weight = self.question_weight + self.context_weight
+            if not abs(total_weight - 1.0) < 0.0001:  # Allow small floating point error
+                raise ValueError(
+                    f"question_weight ({self.question_weight}) + context_weight ({self.context_weight}) "
+                    f"must equal 1.0 (got {total_weight}). These weights determine the relative importance "
+                    f"of question vs context similarity in the combined score."
+                )
+
+        return self
+
+
 class SearchParametersModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     num_results: Optional[int] = 10
