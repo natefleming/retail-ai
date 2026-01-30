@@ -38,7 +38,7 @@ def execute_sql_via_warehouse(
     w: WorkspaceClient = warehouse.workspace_client
     warehouse_id: str = str(warehouse.warehouse_id)
 
-    logger.trace("Executing cached SQL", layer=layer_name, sql_prefix=sql[:100])
+    logger.trace("Executing cached SQL", layer=layer_name, sql=sql[:100])
 
     statement_response: StatementResponse = w.statement_execution.execute_statement(
         statement=sql,

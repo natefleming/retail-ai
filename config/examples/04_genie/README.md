@@ -52,9 +52,19 @@ flowchart TB
 
 | File | Description |
 |------|-------------|
-| [`genie_cached.yaml`](./genie_cached.yaml) | Two-tier caching with LRU and semantic cache |
+| [`genie_cached.yaml`](./genie_cached.yaml) | Two-tier caching with LRU and PostgreSQL semantic cache |
+| [`genie_in_memory_semantic_cache.yaml`](./genie_in_memory_semantic_cache.yaml) | In-memory semantic cache (no database required) |
 
 ## Cache Tiers
+
+DAO provides two L2 semantic cache implementations:
+
+| Implementation | Best For | Database Required |
+|----------------|----------|-------------------|
+| **PostgreSQL Semantic Cache** | Production multi-instance deployments, large cache sizes (thousands+), cross-instance sharing | Yes (PostgreSQL with pg_vector) |
+| **In-Memory Semantic Cache** | Single-instance deployments, dev/test, no database access, moderate cache sizes (hundreds to low thousands) | No (in-memory only) |
+
+Both use the same L2 distance algorithm and support conversation context awareness for consistent behavior.
 
 ```mermaid
 %%{init: {'theme': 'base'}}%%
@@ -70,8 +80,9 @@ graph TB
         subgraph L2["🧠 L2: Semantic Cache"]
             SEM1["<b>Type:</b> Similarity match"]
             SEM2["<b>Speed:</b> ~50ms"]
-            SEM3["<b>Threshold:</b> 0.95"]
-            SEM4["<b>TTL:</b> ttl: 3600 (1 hour)"]
+            SEM3["<b>Options:</b> PostgreSQL or In-Memory"]
+            SEM4["<b>Threshold:</b> 0.85-0.95"]
+            SEM5["<b>TTL:</b> ttl: 3600 (1 hour)"]
         end
     end
 
@@ -81,21 +92,56 @@ graph TB
 
 ## Configuration
 
+### PostgreSQL Semantic Cache (Multi-Instance)
+
 ```yaml
-resources:
-  genie_rooms:
-    retail_genie_room: &retail_genie_room
-      space_id: "01efabcd1234567890abcdef12345678"
+genie_tool:
+  function:
+    type: factory
+    name: dao_ai.tools.create_genie_tool
+    args:
+      genie_room: *retail_genie_room
       
       # ⚡ L1: LRU Cache - Exact match
-      lru_cache:
-        maxsize: 100              # Max cached queries
+      lru_cache_parameters:
+        warehouse: *warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
       
-      # 🧠 L2: Semantic Cache - Similar queries
-      semantic_cache:
-        similarity_threshold: 0.95  # How similar (0.0-1.0)
-        ttl: 3600                   # Time-to-live in seconds
-        max_results: 1000           # Max cached embeddings
+      # 🧠 L2: PostgreSQL Semantic Cache - Similar queries
+      semantic_cache_parameters:
+        database: *postgres_db
+        warehouse: *warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 3600
+        context_window_size: 3
+```
+
+### In-Memory Semantic Cache (Single-Instance)
+
+```yaml
+genie_tool:
+  function:
+    type: factory
+    name: dao_ai.tools.create_genie_tool
+    args:
+      genie_room: *retail_genie_room
+      
+      # Optional L1: LRU Cache - Exact match
+      # lru_cache_parameters:
+      #   warehouse: *warehouse
+      #   capacity: 100
+      #   time_to_live_seconds: 3600
+      
+      # 🧠 In-Memory Semantic Cache - No database required
+      in_memory_semantic_cache_parameters:
+        warehouse: *warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 604800  # 1 week
+        capacity: 1000                # LRU eviction when full
+        context_window_size: 3
 ```
 
 ## Cache Flow
@@ -210,13 +256,27 @@ agents:
 
 ## Quick Start
 
+### PostgreSQL Semantic Cache
+
 ```bash
-# Run with caching enabled
+# Run with PostgreSQL semantic cache
 dao-ai chat -c config/examples/04_genie/genie_cached.yaml
 
 # Test caching behavior
 > What are the total sales for Q4?    # First query - Genie hit
 > What are the total sales for Q4?    # LRU cache hit (~1ms)
+> Show me Q4 revenue                  # Semantic cache hit (~50ms)
+```
+
+### In-Memory Semantic Cache
+
+```bash
+# Run with in-memory semantic cache (no database required)
+dao-ai chat -c config/examples/04_genie/genie_in_memory_semantic_cache.yaml
+
+# Test caching behavior
+> What are the total sales for Q4?    # First query - Genie hit
+> What are the total sales for Q4?    # Semantic cache hit (~50ms)
 > Show me Q4 revenue                  # Semantic cache hit (~50ms)
 ```
 

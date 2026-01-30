@@ -202,7 +202,7 @@ graph TB
     l1_cache["L1: LRU Cache (In-Memory)<br/>• Capacity: 1000 entries<br/>• Hash-based lookup<br/>• O(1) exact string match"]
     l1_hit{Hit?}
     
-    l2_cache["L2: Semantic Cache (PostgreSQL)<br/>• pg_vector embeddings<br/>• Conversation context aware<br/>• L2 distance similarity<br/>• Partitioned by Genie space ID"]
+    l2_cache["L2: Semantic Cache<br/>• PostgreSQL (pg_vector) OR In-Memory<br/>• Dual embeddings (question + context)<br/>• L2 distance similarity<br/>• Conversation context aware<br/>• Partitioned by Genie space ID"]
     l2_hit{Hit?}
     
     genie["Genie API<br/>(Expensive call)<br/>Natural language to SQL"]
@@ -247,7 +247,11 @@ The **LRU (Least Recently Used) Cache** provides instant lookups for exact quest
 
 ### Semantic Cache (L2)
 
-The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions even when worded differently. It includes **conversation context awareness** to improve matching in multi-turn conversations:
+The **Semantic Cache** finds similar questions even when worded differently using vector embeddings and similarity search. It includes **conversation context awareness** to improve matching in multi-turn conversations. DAO provides two implementations:
+
+#### PostgreSQL-Based Semantic Cache
+
+Uses PostgreSQL with pg_vector for persistent, multi-instance shared caching:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -263,6 +267,58 @@ The **Semantic Cache** uses PostgreSQL with pg_vector to find similar questions 
 | `context_weight` | 0.4 | Weight for context similarity (computed as 1 - question_weight if not set) |
 | `embedding_dims` | Auto-detected | Embedding vector dimensions (auto-detected from model if not specified) |
 | `max_context_tokens` | 2000 | Maximum token length for conversation context embeddings |
+
+**Best for:** Production deployments with multiple instances, large cache sizes (thousands+), and cross-instance cache sharing
+
+#### In-Memory Semantic Cache
+
+Uses in-memory storage without external database dependencies:
+
+```yaml
+genie_tool:
+  function:
+    type: factory
+    name: dao_ai.tools.create_genie_tool
+    args:
+      genie_room: *retail_genie_room
+      
+      # In-memory semantic cache (no database required)
+      in_memory_semantic_cache_parameters:
+        warehouse: *warehouse
+        embedding_model: *embedding_model  # Default: databricks-gte-large-en
+        similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85)
+        time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
+        capacity: 1000                     # Max cache entries (LRU eviction when full)
+        context_window_size: 3             # Number of previous conversation turns
+        context_similarity_threshold: 0.80 # Minimum context similarity
+        question_weight: 0.6               # Weight for question similarity
+        context_weight: 0.4                # Weight for context similarity
+        embedding_dims: null               # Auto-detected from model
+        max_context_tokens: 2000           # Max context token length
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `similarity_threshold` | 0.85 | Minimum similarity for cache hit (0.0-1.0) |
+| `time_to_live_seconds` | 86400 | Cache entry lifetime (-1 = never expire) |
+| `embedding_model` | `databricks-gte-large-en` | Model for generating question embeddings |
+| `warehouse` | Required | Databricks warehouse for SQL execution |
+| `capacity` | 1000 | Maximum cache entries (LRU eviction when full) |
+| `context_window_size` | 3 | Number of previous conversation turns to include |
+| `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
+| `question_weight` | 0.6 | Weight for question similarity in combined score (0.0-1.0) |
+| `context_weight` | 0.4 | Weight for context similarity (computed as 1 - question_weight if not set) |
+| `embedding_dims` | Auto-detected | Embedding vector dimensions (auto-detected from model if not specified) |
+| `max_context_tokens` | 2000 | Maximum token length for conversation context embeddings |
+
+**Best for:** Single-instance deployments, development/testing, scenarios without database access, moderate cache sizes (hundreds to low thousands)
+
+**Key Differences:**
+- ✅ **No external database required** - Simpler setup and deployment
+- ✅ **Same L2 distance algorithm** - Consistent behavior with PostgreSQL version
+- ⚠️ **Per-instance cache** - Each replica has its own cache (not shared)
+- ⚠️ **No persistence** - Cache is lost on restart
+- ⚠️ **Memory-bound** - Limited by available RAM; use capacity limits
 
 **Best for:** Catching rephrased questions like:
 - "What's our inventory status?" ≈ "Show me stock levels"
@@ -293,7 +349,7 @@ The `question_weight` and `context_weight` parameters control how question vs co
    - Genie generates fresh SQL
    - The new SQL is cached
 
-4. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The semantic cache is shared across all instances via PostgreSQL.
+4. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The PostgreSQL semantic cache is shared across all instances. The in-memory semantic cache is per-instance (not shared).
 
 5. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
 

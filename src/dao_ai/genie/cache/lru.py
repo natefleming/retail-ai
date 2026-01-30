@@ -124,9 +124,7 @@ class LRUCacheService(GenieServiceBase):
         if self._cache:
             oldest_key: str = next(iter(self._cache))
             del self._cache[oldest_key]
-            logger.trace(
-                "Evicted cache entry", layer=self.name, key_prefix=oldest_key[:50]
-            )
+            logger.trace("Evicted cache entry", layer=self.name, key=oldest_key[:50])
 
     def _get(self, key: str) -> SQLCacheEntry | None:
         """Get from cache, returning None if not found or expired."""
@@ -137,7 +135,7 @@ class LRUCacheService(GenieServiceBase):
 
         if self._is_expired(entry):
             del self._cache[key]
-            logger.trace("Expired cache entry", layer=self.name, key_prefix=key[:50])
+            logger.trace("Expired cache entry", layer=self.name, key=key[:50])
             return None
 
         self._cache.move_to_end(key)
@@ -157,11 +155,11 @@ class LRUCacheService(GenieServiceBase):
             conversation_id=response.conversation_id,
             created_at=datetime.now(),
         )
-        logger.info(
+        logger.debug(
             "Stored cache entry",
             layer=self.name,
-            key_prefix=key[:50],
-            sql_prefix=response.query[:50] if response.query else None,
+            key=key[:50],
+            sql=response.query[:50] if response.query else None,
             cache_size=len(self._cache),
             capacity=self.capacity,
         )
@@ -180,7 +178,7 @@ class LRUCacheService(GenieServiceBase):
         w: WorkspaceClient = self.warehouse.workspace_client
         warehouse_id: str = str(self.warehouse.warehouse_id)
 
-        logger.trace("Executing cached SQL", layer=self.name, sql_prefix=sql[:100])
+        logger.trace("Executing cached SQL", layer=self.name, sql=sql[:100])
 
         statement_response: StatementResponse = w.statement_execution.execute_statement(
             statement=sql,
@@ -258,13 +256,17 @@ class LRUCacheService(GenieServiceBase):
             cached: SQLCacheEntry | None = self._get(key)
 
         if cached is not None:
+            cache_age_seconds = (datetime.now() - cached.created_at).total_seconds()
             logger.info(
                 "Cache HIT",
                 layer=self.name,
-                question_prefix=question[:50],
+                question=question[:80],
                 conversation_id=conversation_id,
+                cached_sql=cached.query[:80] if cached.query else None,
+                cache_age_seconds=round(cache_age_seconds, 1),
                 cache_size=self.size,
                 capacity=self.capacity,
+                ttl_seconds=self.parameters.time_to_live_seconds,
             )
 
             # Re-execute the cached SQL to get fresh data
@@ -286,10 +288,11 @@ class LRUCacheService(GenieServiceBase):
         logger.info(
             "Cache MISS",
             layer=self.name,
-            question_prefix=question[:50],
+            question=question[:80],
             conversation_id=conversation_id,
             cache_size=self.size,
             capacity=self.capacity,
+            ttl_seconds=self.parameters.time_to_live_seconds,
             delegating_to=type(self.impl).__name__,
         )
 

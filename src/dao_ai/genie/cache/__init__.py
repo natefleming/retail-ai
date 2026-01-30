@@ -28,6 +28,7 @@ from dao_ai.genie.cache.base import (
     SQLCacheEntry,
 )
 from dao_ai.genie.cache.core import execute_sql_via_warehouse
+from dao_ai.genie.cache.in_memory_semantic import InMemorySemanticCacheService
 from dao_ai.genie.cache.lru import LRUCacheService
 from dao_ai.genie.cache.semantic import SemanticCacheService
 
@@ -38,6 +39,7 @@ __all__ = [
     "SQLCacheEntry",
     "execute_sql_via_warehouse",
     # Cache implementations
+    "InMemorySemanticCacheService",
     "LRUCacheService",
     "SemanticCacheService",
 ]
