@@ -428,6 +428,9 @@ class SemanticCacheService(GenieServiceBase):
         This table stores all user prompts (both cache hits and misses) to provide
         conversation context for semantic matching.
         
+        Handles concurrent creation gracefully - if another process creates the
+        table/index first, we treat that as success.
+        
         Args:
             cur: Database cursor to execute SQL statements
         """
@@ -463,9 +466,39 @@ class SemanticCacheService(GenieServiceBase):
             space_id=self.space_id,
         )
         
-        cur.execute(create_prompt_table_sql)
-        cur.execute(create_conversation_index_sql)
-        cur.execute(create_space_index_sql)
+        # Handle concurrent creation - another process may create these first
+        # PostgreSQL can throw "duplicate key" errors on concurrent IF NOT EXISTS
+        try:
+            cur.execute(create_prompt_table_sql)
+        except Exception as e:
+            if "duplicate key" in str(e) or "already exists" in str(e):
+                logger.debug(
+                    "Prompt history table already exists (concurrent creation)",
+                    layer=self.name,
+                    table=prompt_table_name,
+                )
+            else:
+                raise
+        
+        # Create indexes with individual error handling for concurrency
+        for idx_name, idx_sql in [
+            (f"{prompt_table_name}_conversation_idx", create_conversation_index_sql),
+            (f"{prompt_table_name}_space_idx", create_space_index_sql),
+        ]:
+            try:
+                cur.execute(idx_sql)
+            except Exception as e:
+                if "duplicate key" in str(e) or "already exists" in str(e):
+                    logger.debug(
+                        f"Index {idx_name} already exists (concurrent creation)",
+                        layer=self.name,
+                    )
+                else:
+                    # Log warning but don't fail - indexes are optimization, not required
+                    logger.warning(
+                        f"Could not create index {idx_name}: {e}",
+                        layer=self.name,
+                    )
         
         logger.info(
             "Prompt history table ready",
