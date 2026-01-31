@@ -20,7 +20,6 @@ from databricks.sdk.service.dashboards import (
     GenieListConversationMessagesResponse,
     GenieMessage,
 )
-from databricks.sdk.service.sql import StatementResponse, StatementState
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
@@ -35,6 +34,7 @@ from dao_ai.genie.cache.base import (
     GenieServiceBase,
     SQLCacheEntry,
 )
+from dao_ai.genie.cache.core import execute_sql_via_warehouse
 
 # Type alias for database row (dict due to row_factory=dict_row)
 DbRow = dict[str, Any]
@@ -316,7 +316,7 @@ class SemanticCacheService(GenieServiceBase):
         return self.parameters.table_name
 
     def _create_table_if_not_exists(self) -> None:
-        """Create the cache table with pg_vector extension if it doesn't exist.
+        """Create the cache table and prompt history table with pg_vector extension if they don't exist.
 
         If the table exists but has a different embedding dimension, it will be
         dropped and recreated with the new dimension size.
@@ -394,7 +394,198 @@ class SemanticCacheService(GenieServiceBase):
                 cur.execute(create_space_index_sql)
                 cur.execute(create_question_embedding_index_sql)
                 cur.execute(create_context_embedding_index_sql)
+                
+                # Create prompt history table if prompt history tracking is enabled
+                if self.parameters.store_prompt_history:
+                    self._create_prompt_history_table(cur)
 
+    def _create_prompt_history_table(self, cur: Any) -> None:
+        """Create the prompt history table for tracking user prompts.
+        
+        This table stores all user prompts (both cache hits and misses) to provide
+        conversation context for semantic matching.
+        
+        Args:
+            cur: Database cursor to execute SQL statements
+        """
+        prompt_table_name = self.parameters.prompt_history_table
+        
+        create_prompt_table_sql: str = f"""
+            CREATE TABLE IF NOT EXISTS {prompt_table_name} (
+                id SERIAL PRIMARY KEY,
+                genie_space_id TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                cache_hit BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        
+        # Index for efficient conversation history retrieval
+        create_conversation_index_sql: str = f"""
+            CREATE INDEX IF NOT EXISTS {prompt_table_name}_conversation_idx 
+            ON {prompt_table_name} (genie_space_id, conversation_id, created_at DESC)
+        """
+        
+        # Index for efficient space-wide queries
+        create_space_index_sql: str = f"""
+            CREATE INDEX IF NOT EXISTS {prompt_table_name}_space_idx 
+            ON {prompt_table_name} (genie_space_id, created_at DESC)
+        """
+        
+        cur.execute(create_prompt_table_sql)
+        cur.execute(create_conversation_index_sql)
+        cur.execute(create_space_index_sql)
+        
+        logger.debug(
+            "Prompt history table created",
+            layer=self.name,
+            table_name=prompt_table_name,
+        )
+    
+    def _store_user_prompt(
+        self,
+        prompt: str,
+        conversation_id: str,
+        cache_hit: bool = False,
+    ) -> None:
+        """Store user prompt in local conversation history.
+        
+        This is called after embeddings are generated to ensure the current prompt
+        is not included in its own context.
+        
+        Args:
+            prompt: The user's question/prompt
+            conversation_id: The conversation ID
+            cache_hit: Whether this prompt resulted in a cache hit
+        """
+        if not self.parameters.store_prompt_history:
+            return
+            
+        prompt_table_name = self.parameters.prompt_history_table
+        insert_sql: str = f"""
+            INSERT INTO {prompt_table_name} 
+            (genie_space_id, conversation_id, prompt, cache_hit)
+            VALUES (%s, %s, %s, %s)
+        """
+        
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(insert_sql, (self.space_id, conversation_id, prompt, cache_hit))
+                
+        logger.trace(
+            "Stored user prompt",
+            layer=self.name,
+            prompt=prompt[:50],
+            conversation_id=conversation_id,
+            cache_hit=cache_hit,
+        )
+    
+    def _get_local_prompt_history(
+        self,
+        conversation_id: str,
+        max_prompts: int | None = None,
+    ) -> list[str]:
+        """
+        Retrieve recent user prompts from local storage.
+        
+        Uses SQL LIMIT for efficiency - only retrieves exactly the number
+        of prompts needed for the context window, not all prompts.
+        
+        Args:
+            conversation_id: The conversation ID to retrieve prompts for
+            max_prompts: Maximum number of prompts (matches context_window_size).
+                        If None, uses self.parameters.context_window_size
+        
+        Returns:
+            List of prompt strings in chronological order (oldest to newest)
+        """
+        if not self.parameters.store_prompt_history:
+            return []
+            
+        if max_prompts is None:
+            max_prompts = self.parameters.context_window_size
+            
+        prompt_table_name = self.parameters.prompt_history_table
+        query_sql: str = f"""
+            SELECT prompt 
+            FROM {prompt_table_name}
+            WHERE genie_space_id = %s 
+              AND conversation_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+        """
+        
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                # LIMIT ensures we only fetch exactly what's needed
+                cur.execute(query_sql, (self.space_id, conversation_id, max_prompts))
+                rows: list[DbRow] = cur.fetchall()
+                # Reverse to get chronological order (oldest to newest)
+                prompts = [row['prompt'] for row in reversed(rows)]
+                
+                logger.trace(
+                    "Retrieved prompt history",
+                    layer=self.name,
+                    conversation_id=conversation_id,
+                    prompts_count=len(prompts),
+                )
+                
+                return prompts
+    
+    def _update_prompt_cache_hit(
+        self,
+        conversation_id: str,
+        prompt: str,
+        cache_hit: bool,
+    ) -> None:
+        """Update the cache_hit flag for a previously stored prompt.
+        
+        This is called after determining whether the prompt resulted in a cache hit.
+        Updates the most recent prompt matching the given text.
+        
+        Args:
+            conversation_id: The conversation ID
+            prompt: The prompt text to update
+            cache_hit: The cache hit status to set
+        """
+        if not self.parameters.store_prompt_history:
+            return
+            
+        prompt_table_name = self.parameters.prompt_history_table
+        update_sql: str = f"""
+            UPDATE {prompt_table_name}
+            SET cache_hit = %s
+            WHERE genie_space_id = %s 
+              AND conversation_id = %s 
+              AND prompt = %s 
+              AND created_at = (
+                  SELECT MAX(created_at) 
+                  FROM {prompt_table_name}
+                  WHERE genie_space_id = %s 
+                    AND conversation_id = %s 
+                    AND prompt = %s
+              )
+        """
+        
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    update_sql,
+                    (cache_hit, self.space_id, conversation_id, prompt, 
+                     self.space_id, conversation_id, prompt)
+                )
+                updated_rows = cur.rowcount
+                
+                logger.trace(
+                    "Updated prompt cache_hit flag",
+                    layer=self.name,
+                    conversation_id=conversation_id,
+                    prompt=prompt[:50],
+                    cache_hit=cache_hit,
+                    updated_rows=updated_rows,
+                )
+    
     def _embed_question(
         self, question: str, conversation_id: str | None = None
     ) -> tuple[list[float], list[float], str]:
@@ -419,36 +610,59 @@ class SemanticCacheService(GenieServiceBase):
 
         # If conversation context is enabled and available
         if (
-            self.workspace_client is not None
-            and conversation_id is not None
+            conversation_id is not None
             and self.parameters.context_window_size > 0
         ):
             try:
-                # Retrieve conversation history
-                conversation_messages = get_conversation_history(
-                    workspace_client=self.workspace_client,
-                    space_id=self.space_id,
-                    conversation_id=conversation_id,
-                    max_messages=self.parameters.context_window_size
-                    * 2,  # Get extra for safety
-                )
-
-                # Build context string (just the "Previous:" messages, not the current question)
-                if conversation_messages:
-                    recent_messages = (
-                        conversation_messages[-self.parameters.context_window_size :]
-                        if len(conversation_messages)
-                        > self.parameters.context_window_size
-                        else conversation_messages
+                # Try local prompt history first (FASTER, includes cache hits)
+                recent_prompts: list[str] = []
+                if self.parameters.store_prompt_history:
+                    recent_prompts = self._get_local_prompt_history(
+                        conversation_id=conversation_id,
+                        max_prompts=self.parameters.context_window_size,
                     )
+                    
+                    logger.trace(
+                        "Retrieved local prompt history",
+                        layer=self.name,
+                        prompts_count=len(recent_prompts),
+                        conversation_id=conversation_id,
+                    )
+                
+                # Fallback to Genie API if local history empty and API available
+                if not recent_prompts and self.workspace_client is not None and self.parameters.use_genie_api_for_history:
+                    logger.debug(
+                        "Local prompt history empty, falling back to Genie API",
+                        layer=self.name,
+                        conversation_id=conversation_id,
+                    )
+                    
+                    conversation_messages = get_conversation_history(
+                        workspace_client=self.workspace_client,
+                        space_id=self.space_id,
+                        conversation_id=conversation_id,
+                        max_messages=self.parameters.context_window_size * 2,  # Get extra for safety
+                    )
+                    
+                    # Extract user messages only (filter out assistant responses)
+                    if conversation_messages:
+                        recent_messages = (
+                            conversation_messages[-self.parameters.context_window_size :]
+                            if len(conversation_messages) > self.parameters.context_window_size
+                            else conversation_messages
+                        )
+                        # TODO: Filter by role if GenieMessage has role field
+                        # For now, use all messages as before
+                        recent_prompts = [msg.content for msg in recent_messages if msg.content]
 
+                # Build context string from prompts
+                if recent_prompts:
                     context_parts: list[str] = []
-                    for msg in recent_messages:
-                        if msg.content:
-                            content: str = msg.content
-                            if len(content) > 500:
-                                content = content[:500] + "..."
-                            context_parts.append(f"Previous: {content}")
+                    for prompt in recent_prompts:
+                        content: str = prompt
+                        if len(content) > 500:
+                            content = content[:500] + "..."
+                        context_parts.append(f"Previous: {content}")
 
                     conversation_context = "\n".join(context_parts)
 
@@ -456,16 +670,15 @@ class SemanticCacheService(GenieServiceBase):
                     estimated_tokens = len(conversation_context) / 4
                     if estimated_tokens > self.parameters.max_context_tokens:
                         target_chars = self.parameters.max_context_tokens * 4
-                        conversation_context = (
-                            conversation_context[:target_chars] + "..."
-                        )
+                        conversation_context = conversation_context[:target_chars] + "..."
 
-                logger.trace(
-                    "Using conversation context",
-                    layer=self.name,
-                    messages_count=len(conversation_messages),
-                    window_size=self.parameters.context_window_size,
-                )
+                    logger.trace(
+                        "Using conversation context",
+                        layer=self.name,
+                        prompts_count=len(recent_prompts),
+                        window_size=self.parameters.context_window_size,
+                        source="local_db" if self.parameters.store_prompt_history else "genie_api",
+                    )
             except Exception as e:
                 logger.warning(
                     "Failed to build conversation context, using question only",
@@ -729,49 +942,12 @@ class SemanticCacheService(GenieServiceBase):
     @mlflow.trace(name="execute_cached_sql_semantic")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
         """Execute SQL using the warehouse and return results."""
-        client: WorkspaceClient = self.warehouse.workspace_client
-        warehouse_id: str = str(self.warehouse.warehouse_id)
-
-        statement_response: StatementResponse = (
-            client.statement_execution.execute_statement(
-                warehouse_id=warehouse_id,
-                statement=sql,
-                wait_timeout="30s",
-            )
+        # Use shared utility function for SQL execution
+        return execute_sql_via_warehouse(
+            warehouse=self.warehouse,
+            sql=sql,
+            layer_name=self.name,
         )
-
-        if (
-            statement_response.status is not None
-            and statement_response.status.state != StatementState.SUCCEEDED
-        ):
-            error_msg: str = (
-                f"SQL execution failed: {statement_response.status.error.message}"
-                if statement_response.status.error is not None
-                else f"SQL execution failed with state: {statement_response.status.state}"
-            )
-            logger.error("SQL execution failed", layer=self.name, error=error_msg)
-            return error_msg
-
-        if statement_response.result and statement_response.result.data_array:
-            columns: list[str] = []
-            if (
-                statement_response.manifest
-                and statement_response.manifest.schema
-                and statement_response.manifest.schema.columns
-            ):
-                columns = [
-                    col.name
-                    for col in statement_response.manifest.schema.columns
-                    if col.name is not None
-                ]
-
-            data: list[list[Any]] = statement_response.result.data_array
-            if columns:
-                return pd.DataFrame(data, columns=columns)
-            else:
-                return pd.DataFrame(data)
-
-        return pd.DataFrame()
 
     def ask_question(
         self, question: str, conversation_id: str | None = None
@@ -796,6 +972,13 @@ class SemanticCacheService(GenieServiceBase):
         On cache hit, the cached SQL is re-executed to return fresh data, but the
         conversation_id returned is the current conversation_id (not the cached one).
 
+        CRITICAL ORDER:
+        1. Retrieve PREVIOUS prompts from history (before storing current)
+        2. Build embeddings using previous prompts as context
+        3. Store current prompt in history (after context built)
+        4. Search cache
+        5. Update cache_hit flag if hit
+
         Args:
             question: The question to ask
             conversation_id: Optional conversation ID for context and continuation
@@ -806,13 +989,27 @@ class SemanticCacheService(GenieServiceBase):
         # Ensure initialization (lazy init if initialize() wasn't called)
         self._setup()
 
-        # Generate dual embeddings for the question and conversation context
+        # Step 1 & 2: Generate dual embeddings BEFORE storing current prompt
+        # This ensures context contains PREVIOUS prompts only, not the current one
+        # _embed_question() will retrieve previous prompts from local storage
         question_embedding: list[float]
         context_embedding: list[float]
         conversation_context: str
         question_embedding, context_embedding, conversation_context = (
             self._embed_question(question, conversation_id)
         )
+        
+        # Step 3: Store prompt with current conversation_id (if available)
+        # If conversation_id is None, we'll store it after getting response from Genie
+        # This way the current prompt won't be included in its own context
+        prompt_stored = False
+        if conversation_id and self.parameters.store_prompt_history:
+            self._store_user_prompt(
+                prompt=question,
+                conversation_id=conversation_id,
+                cache_hit=False,  # Initially assume miss, update later if hit
+            )
+            prompt_stored = True
 
         # Check cache using dual embedding similarity
         cache_result: tuple[SQLCacheEntry, float] | None = self._find_similar(
@@ -836,6 +1033,98 @@ class SemanticCacheService(GenieServiceBase):
             # Re-execute the cached SQL to get fresh data
             result: pd.DataFrame | str = self._execute_sql(cached.query)
 
+            # Check if SQL execution failed (returns error string instead of DataFrame)
+            if isinstance(result, str):
+                logger.warning(
+                    "Cached SQL execution failed, falling back to Genie",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    cached_sql=cached.query[:80],
+                    error=result[:200],
+                    space_id=self.space_id,
+                    table=self.table_name,
+                )
+                
+                # Delete the stale cache entry from database
+                delete_sql = f"DELETE FROM {self.table_name} WHERE genie_space_id = %s AND question = %s"
+                with self._pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(delete_sql, (self.space_id, question))
+                        deleted_rows = cur.rowcount
+                        logger.info(
+                            "Deleted stale cache entry from database",
+                            layer=self.name,
+                            deleted_rows=deleted_rows,
+                            space_id=self.space_id,
+                            table=self.table_name,
+                        )
+                
+                # Fall back to Genie to get fresh SQL
+                logger.info(
+                    "Delegating to Genie for fresh SQL",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    space_id=self.space_id,
+                    delegating_to=type(self.impl).__name__,
+                )
+                fallback_result: CacheResult = self.impl.ask_question(question, conversation_id)
+                
+                # Store the fresh SQL in cache
+                if fallback_result.response.query:
+                    self._store_entry(
+                        question,
+                        conversation_context,
+                        question_embedding,
+                        context_embedding,
+                        fallback_result.response,
+                    )
+                    logger.info(
+                        "Stored fresh SQL from fallback in database",
+                        layer=self.name,
+                        fresh_sql=fallback_result.response.query[:80],
+                        space_id=self.space_id,
+                        table=self.table_name,
+                    )
+                else:
+                    logger.warning(
+                        "Fallback response has no SQL query to cache",
+                        layer=self.name,
+                        question=question[:80],
+                        space_id=self.space_id,
+                    )
+                
+                logger.info(
+                    "Fallback completed successfully",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    space_id=self.space_id,
+                    fallback_from="stale_cache",
+                    has_result=fallback_result.response.result is not None,
+                )
+                
+                # Return as cache miss (fallback scenario)
+                return CacheResult(
+                    response=fallback_result.response,
+                    cache_hit=False,
+                    served_by=None,
+                )
+
+            # Step 5: Update cache_hit flag for the stored prompt
+            # Use the conversation_id from response (handles case where input was None)
+            actual_conv_id = (
+                response.conversation_id if response.conversation_id 
+                else conversation_id
+            )
+            if actual_conv_id and self.parameters.store_prompt_history and prompt_stored:
+                self._update_prompt_cache_hit(
+                    conversation_id=actual_conv_id,
+                    prompt=question,
+                    cache_hit=True,
+                )
+            
             # IMPORTANT: Use the current conversation_id (from the request), not the cached one
             # This ensures the conversation continues properly
             response: GenieResponse = GenieResponse(
@@ -861,6 +1150,14 @@ class SemanticCacheService(GenieServiceBase):
         )
 
         result: CacheResult = self.impl.ask_question(question, conversation_id)
+        
+        # If conversation_id was None initially, store the prompt now with the actual conversation_id
+        if not prompt_stored and self.parameters.store_prompt_history and result.response.conversation_id:
+            self._store_user_prompt(
+                prompt=question,
+                conversation_id=result.response.conversation_id,
+                cache_hit=False,
+            )
 
         # Store in cache if we got a SQL query
         if result.response.query:
@@ -943,6 +1240,153 @@ class SemanticCacheService(GenieServiceBase):
                 )
                 return deleted
 
+    def get_prompt_history(
+        self,
+        conversation_id: str,
+        max_prompts: int | None = None,
+        include_cache_hits: bool = True,
+    ) -> list[dict[str, any]]:
+        """
+        Retrieve prompt history for a conversation with metadata.
+        
+        Public utility method for inspecting conversation history.
+        
+        Args:
+            conversation_id: The conversation ID to retrieve
+            max_prompts: Maximum number of prompts (None = all prompts)
+            include_cache_hits: Whether to include prompts that hit cache
+        
+        Returns:
+            List of prompt records with metadata (prompt, cache_hit, created_at)
+        """
+        self._setup()
+        
+        if not self.parameters.store_prompt_history:
+            logger.warning(
+                "Prompt history not enabled",
+                layer=self.name,
+                store_prompt_history=self.parameters.store_prompt_history,
+            )
+            return []
+        
+        prompt_table_name = self.parameters.prompt_history_table
+        
+        cache_filter = "" if include_cache_hits else "AND cache_hit = false"
+        limit_clause = f"LIMIT {max_prompts}" if max_prompts else ""
+        
+        query_sql: str = f"""
+            SELECT prompt, cache_hit, created_at
+            FROM {prompt_table_name}
+            WHERE genie_space_id = %s 
+              AND conversation_id = %s
+              {cache_filter}
+            ORDER BY created_at ASC
+            {limit_clause}
+        """
+        
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query_sql, (self.space_id, conversation_id))
+                rows: list[DbRow] = cur.fetchall()
+                
+                return [
+                    {
+                        'prompt': row['prompt'],
+                        'cache_hit': row['cache_hit'],
+                        'created_at': row['created_at'],
+                    }
+                    for row in rows
+                ]
+    
+    def export_prompt_history(
+        self,
+        conversation_id: str,
+        output_format: str = "text",
+    ) -> str:
+        """
+        Export prompt history for a conversation in various formats.
+        
+        Args:
+            conversation_id: The conversation ID to export
+            output_format: Format for export ("text", "json", "markdown")
+        
+        Returns:
+            Formatted prompt history string
+        """
+        self._setup()
+        
+        history = self.get_prompt_history(conversation_id)
+        
+        if not history:
+            return "No prompt history found."
+        
+        if output_format == "json":
+            import json
+            return json.dumps(history, indent=2, default=str)
+        
+        elif output_format == "markdown":
+            lines = ["# Conversation History", ""]
+            for i, entry in enumerate(history, 1):
+                cache_mark = "💾" if entry['cache_hit'] else "🔍"
+                lines.append(f"## Prompt {i} {cache_mark}")
+                lines.append(f"**Prompt**: {entry['prompt']}")
+                lines.append(f"**Cache Hit**: {entry['cache_hit']}")
+                lines.append(f"**Timestamp**: {entry['created_at']}")
+                lines.append("")
+            return "\n".join(lines)
+        
+        else:  # text format
+            lines = [f"Conversation: {conversation_id}", ""]
+            for i, entry in enumerate(history, 1):
+                cache_mark = "[CACHE HIT]" if entry['cache_hit'] else "[GENIE]"
+                lines.append(f"{i}. {cache_mark} {entry['prompt']}")
+                lines.append(f"   Timestamp: {entry['created_at']}")
+            return "\n".join(lines)
+    
+    def clear_prompt_history(self, conversation_id: str | None = None) -> int:
+        """
+        Clear prompt history for a conversation or entire space.
+        
+        Args:
+            conversation_id: Specific conversation to clear (None = clear all for space)
+        
+        Returns:
+            Number of prompts deleted
+        """
+        self._setup()
+        
+        if not self.parameters.store_prompt_history:
+            return 0
+        
+        prompt_table_name = self.parameters.prompt_history_table
+        
+        if conversation_id:
+            delete_sql: str = f"""
+                DELETE FROM {prompt_table_name}
+                WHERE genie_space_id = %s AND conversation_id = %s
+            """
+            params = (self.space_id, conversation_id)
+        else:
+            delete_sql = f"""
+                DELETE FROM {prompt_table_name}
+                WHERE genie_space_id = %s
+            """
+            params = (self.space_id,)
+        
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(delete_sql, params)
+                deleted: int = cur.rowcount
+                
+                logger.info(
+                    "Cleared prompt history",
+                    layer=self.name,
+                    conversation_id=conversation_id or "all",
+                    deleted_count=deleted,
+                )
+                
+                return deleted
+    
     @property
     def size(self) -> int:
         """Current number of entries in the cache for this Genie space."""
@@ -958,11 +1402,14 @@ class SemanticCacheService(GenieServiceBase):
                 return row.get("count", 0) if row else 0
 
     def stats(self) -> dict[str, int | float | None]:
-        """Return cache statistics for this Genie space."""
+        """Return cache statistics for this Genie space, including prompt history."""
         self._setup()
         ttl_seconds = self.parameters.time_to_live_seconds
         ttl = self.time_to_live
 
+        # Get semantic cache stats
+        cache_stats: dict[str, int | float | None] = {}
+        
         # If TTL is disabled, all entries are valid
         if ttl_seconds is None or ttl_seconds < 0:
             count_sql: str = f"""
@@ -974,31 +1421,62 @@ class SemanticCacheService(GenieServiceBase):
                     cur.execute(count_sql, (self.space_id,))
                     row: DbRow | None = cur.fetchone()
                     total = row.get("total", 0) if row else 0
-                    return {
+                    cache_stats = {
                         "size": total,
                         "ttl_seconds": None,
                         "similarity_threshold": self.similarity_threshold,
                         "expired_entries": 0,
                         "valid_entries": total,
                     }
+        else:
+            stats_sql: str = f"""
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '%s seconds') as valid,
+                    COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '%s seconds') as expired
+                FROM {self.table_name}
+                WHERE genie_space_id = %s
+            """
 
-        stats_sql: str = f"""
-            SELECT
-                COUNT(*) as total,
-                COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '%s seconds') as valid,
-                COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '%s seconds') as expired
-            FROM {self.table_name}
-            WHERE genie_space_id = %s
-        """
-
-        with self._pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(stats_sql, (ttl_seconds, ttl_seconds, self.space_id))
-                stats_row: DbRow | None = cur.fetchone()
-                return {
-                    "size": stats_row.get("total", 0) if stats_row else 0,
-                    "ttl_seconds": ttl.total_seconds() if ttl else None,
-                    "similarity_threshold": self.similarity_threshold,
-                    "expired_entries": stats_row.get("expired", 0) if stats_row else 0,
-                    "valid_entries": stats_row.get("valid", 0) if stats_row else 0,
-                }
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(stats_sql, (ttl_seconds, ttl_seconds, self.space_id))
+                    stats_row: DbRow | None = cur.fetchone()
+                    cache_stats = {
+                        "size": stats_row.get("total", 0) if stats_row else 0,
+                        "ttl_seconds": ttl.total_seconds() if ttl else None,
+                        "similarity_threshold": self.similarity_threshold,
+                        "expired_entries": stats_row.get("expired", 0) if stats_row else 0,
+                        "valid_entries": stats_row.get("valid", 0) if stats_row else 0,
+                    }
+        
+        # Add prompt history stats if enabled
+        if self.parameters.store_prompt_history:
+            prompt_stats_sql: str = f"""
+                SELECT
+                    COUNT(*) as total_prompts,
+                    COUNT(*) FILTER (WHERE cache_hit = true) as cache_hit_prompts,
+                    COUNT(*) FILTER (WHERE cache_hit = false) as cache_miss_prompts,
+                    COUNT(DISTINCT conversation_id) as total_conversations
+                FROM {self.parameters.prompt_history_table}
+                WHERE genie_space_id = %s
+            """
+            
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(prompt_stats_sql, (self.space_id,))
+                    prompt_row: DbRow | None = cur.fetchone()
+                    
+                    if prompt_row:
+                        cache_stats["prompt_history"] = {
+                            "total_prompts": prompt_row.get("total_prompts", 0),
+                            "cache_hit_prompts": prompt_row.get("cache_hit_prompts", 0),
+                            "cache_miss_prompts": prompt_row.get("cache_miss_prompts", 0),
+                            "total_conversations": prompt_row.get("total_conversations", 0),
+                            "cache_hit_rate": (
+                                prompt_row.get("cache_hit_prompts", 0) / prompt_row.get("total_prompts", 1)
+                                if prompt_row.get("total_prompts", 0) > 0 else 0.0
+                            ),
+                        }
+        
+        return cache_stats

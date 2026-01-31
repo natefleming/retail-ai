@@ -31,7 +31,6 @@ import mlflow
 import numpy as np
 import pandas as pd
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import StatementResponse, StatementState
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
@@ -45,6 +44,7 @@ from dao_ai.genie.cache.base import (
     GenieServiceBase,
     SQLCacheEntry,
 )
+from dao_ai.genie.cache.core import execute_sql_via_warehouse
 from dao_ai.genie.cache.semantic import (
     get_conversation_history,
 )
@@ -590,49 +590,12 @@ class InMemorySemanticCacheService(GenieServiceBase):
     @mlflow.trace(name="execute_cached_sql_in_memory_semantic")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
         """Execute SQL using the warehouse and return results."""
-        client: WorkspaceClient = self.warehouse.workspace_client
-        warehouse_id: str = str(self.warehouse.warehouse_id)
-
-        statement_response: StatementResponse = (
-            client.statement_execution.execute_statement(
-                warehouse_id=warehouse_id,
-                statement=sql,
-                wait_timeout="30s",
-            )
+        # Use shared utility function for SQL execution
+        return execute_sql_via_warehouse(
+            warehouse=self.warehouse,
+            sql=sql,
+            layer_name=self.name,
         )
-
-        if (
-            statement_response.status is not None
-            and statement_response.status.state != StatementState.SUCCEEDED
-        ):
-            error_msg: str = (
-                f"SQL execution failed: {statement_response.status.error.message}"
-                if statement_response.status.error is not None
-                else f"SQL execution failed with state: {statement_response.status.state}"
-            )
-            logger.error("SQL execution failed", layer=self.name, error=error_msg)
-            return error_msg
-
-        if statement_response.result and statement_response.result.data_array:
-            columns: list[str] = []
-            if (
-                statement_response.manifest
-                and statement_response.manifest.schema
-                and statement_response.manifest.schema.columns
-            ):
-                columns = [
-                    col.name
-                    for col in statement_response.manifest.schema.columns
-                    if col.name is not None
-                ]
-
-            data: list[list[Any]] = statement_response.result.data_array
-            if columns:
-                return pd.DataFrame(data, columns=columns)
-            else:
-                return pd.DataFrame(data)
-
-        return pd.DataFrame()
 
     def ask_question(
         self, question: str, conversation_id: str | None = None
@@ -696,6 +659,99 @@ class InMemorySemanticCacheService(GenieServiceBase):
 
             # Re-execute the cached SQL to get fresh data
             result: pd.DataFrame | str = self._execute_sql(cached.query)
+
+            # Check if SQL execution failed (returns error string instead of DataFrame)
+            if isinstance(result, str):
+                logger.warning(
+                    "Cached SQL execution failed, falling back to Genie",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    cached_sql=cached.query[:80],
+                    error=result[:200],
+                    space_id=self.space_id,
+                )
+                
+                # Remove the stale cache entry
+                deleted = False
+                with self._lock:
+                    initial_size = len(self._cache)
+                    # Find and remove the entry with matching question
+                    for idx, entry in enumerate(self._cache):
+                        if (entry.genie_space_id == self.space_id and 
+                            entry.question == question):
+                            del self._cache[idx]
+                            deleted = True
+                            logger.info(
+                                "Deleted stale cache entry from memory",
+                                layer=self.name,
+                                question=question[:50],
+                                space_id=self.space_id,
+                                cache_size_before=initial_size,
+                                cache_size_after=len(self._cache),
+                            )
+                            break
+                    
+                    if not deleted:
+                        logger.warning(
+                            "Stale cache entry not found for deletion",
+                            layer=self.name,
+                            question=question[:50],
+                            space_id=self.space_id,
+                        )
+                
+                # Fall back to Genie to get fresh SQL
+                logger.info(
+                    "Delegating to Genie for fresh SQL",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    space_id=self.space_id,
+                    delegating_to=type(self.impl).__name__,
+                )
+                fallback_result: CacheResult = self.impl.ask_question(question, conversation_id)
+                
+                # Store the fresh SQL in cache
+                if fallback_result.response.query:
+                    self._store_entry(
+                        question,
+                        conversation_context,
+                        question_embedding,
+                        context_embedding,
+                        fallback_result.response,
+                    )
+                    logger.info(
+                        "Stored fresh SQL from fallback in memory",
+                        layer=self.name,
+                        fresh_sql=fallback_result.response.query[:80],
+                        space_id=self.space_id,
+                        cache_size=len([e for e in self._cache if e.genie_space_id == self.space_id]),
+                        capacity=self.parameters.capacity,
+                    )
+                else:
+                    logger.warning(
+                        "Fallback response has no SQL query to cache",
+                        layer=self.name,
+                        question=question[:80],
+                        space_id=self.space_id,
+                    )
+                
+                logger.info(
+                    "Fallback completed successfully",
+                    layer=self.name,
+                    question=question[:80],
+                    conversation_id=conversation_id,
+                    space_id=self.space_id,
+                    fallback_from="stale_cache",
+                    has_result=fallback_result.response.result is not None,
+                )
+                
+                # Return as cache miss (fallback scenario)
+                return CacheResult(
+                    response=fallback_result.response,
+                    cache_hit=False,
+                    served_by=None,
+                )
 
             # IMPORTANT: Use the current conversation_id (from the request), not the cached one
             # This ensures the conversation continues properly

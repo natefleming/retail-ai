@@ -9,12 +9,9 @@ to return fresh data while avoiding the Genie NL-to-SQL translation cost.
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from threading import Lock
-from typing import Any
 
 import mlflow
 import pandas as pd
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import StatementResponse, StatementState
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
@@ -24,6 +21,7 @@ from dao_ai.genie.cache.base import (
     GenieServiceBase,
     SQLCacheEntry,
 )
+from dao_ai.genie.cache.core import execute_sql_via_warehouse
 
 
 class LRUCacheService(GenieServiceBase):
@@ -195,50 +193,12 @@ class LRUCacheService(GenieServiceBase):
             )
             return error_msg
 
-        w: WorkspaceClient = self.warehouse.workspace_client
-        warehouse_id: str = str(self.warehouse.warehouse_id)
-
-        logger.trace("Executing cached SQL", layer=self.name, sql=sql[:100])
-
-        statement_response: StatementResponse = w.statement_execution.execute_statement(
-            statement=sql,
-            warehouse_id=warehouse_id,
-            wait_timeout="30s",
+        # Use shared utility function for SQL execution
+        return execute_sql_via_warehouse(
+            warehouse=self.warehouse,
+            sql=sql,
+            layer_name=self.name,
         )
-
-        # Poll for completion if still running
-        while statement_response.status.state in [
-            StatementState.PENDING,
-            StatementState.RUNNING,
-        ]:
-            statement_response = w.statement_execution.get_statement(
-                statement_response.statement_id
-            )
-
-        if statement_response.status.state != StatementState.SUCCEEDED:
-            error_msg: str = f"SQL execution failed: {statement_response.status}"
-            logger.error(
-                "SQL execution failed",
-                layer=self.name,
-                status=str(statement_response.status),
-            )
-            return error_msg
-
-        # Convert to DataFrame
-        if statement_response.result and statement_response.result.data_array:
-            columns: list[str] = []
-            if statement_response.manifest and statement_response.manifest.schema:
-                columns = [
-                    col.name for col in statement_response.manifest.schema.columns
-                ]
-
-            data: list[list[Any]] = statement_response.result.data_array
-            if columns:
-                return pd.DataFrame(data, columns=columns)
-            else:
-                return pd.DataFrame(data)
-
-        return pd.DataFrame()
 
     def ask_question(
         self, question: str, conversation_id: str | None = None
@@ -306,6 +266,72 @@ class LRUCacheService(GenieServiceBase):
 
                 # Re-execute the cached SQL to get fresh data
                 result: pd.DataFrame | str = self._execute_sql(cached.query)
+
+                # Check if SQL execution failed (returns error string instead of DataFrame)
+                if isinstance(result, str):
+                    logger.warning(
+                        "Cached SQL execution failed, falling back to Genie",
+                        layer=self.name,
+                        question=question[:80],
+                        conversation_id=conversation_id,
+                        cached_sql=cached.query[:80],
+                        error=result[:200],
+                        cache_key=key[:50],
+                    )
+                    
+                    # Invalidate the bad cache entry
+                    with self._lock:
+                        if key in self._cache:
+                            del self._cache[key]
+                            logger.info(
+                                "Invalidated stale cache entry",
+                                layer=self.name,
+                                cache_key=key[:50],
+                                cache_size=len(self._cache),
+                                capacity=self.capacity,
+                            )
+                    
+                    # Fall back to Genie to get fresh SQL
+                    logger.info(
+                        "Delegating to Genie for fresh SQL",
+                        layer=self.name,
+                        question=question[:80],
+                        delegating_to=type(self.impl).__name__,
+                    )
+                    fallback_result: CacheResult = self.impl.ask_question(question, conversation_id)
+                    
+                    # Store the fresh SQL in cache
+                    if fallback_result.response.query:
+                        with self._lock:
+                            self._put(key, fallback_result.response)
+                        logger.info(
+                            "Stored fresh SQL from fallback",
+                            layer=self.name,
+                            fresh_sql=fallback_result.response.query[:80],
+                            cache_size=len(self._cache),
+                            capacity=self.capacity,
+                        )
+                    else:
+                        logger.warning(
+                            "Fallback response has no SQL query to cache",
+                            layer=self.name,
+                            question=question[:80],
+                        )
+                    
+                    logger.info(
+                        "Fallback completed successfully",
+                        layer=self.name,
+                        question=question[:80],
+                        fallback_from="stale_cache",
+                        has_result=fallback_result.response.result is not None,
+                    )
+                    
+                    # Return as cache miss (fallback scenario)
+                    return CacheResult(
+                        response=fallback_result.response,
+                        cache_hit=False,
+                        served_by=None,
+                    )
 
                 # Use current conversation_id, not the cached one
                 response: GenieResponse = GenieResponse(

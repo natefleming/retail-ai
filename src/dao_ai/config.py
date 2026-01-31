@@ -1732,6 +1732,12 @@ class GenieSemanticCacheParametersModel(BaseModel):
     max_context_tokens: int = (
         2000  # Maximum context length to prevent extremely long embeddings
     )
+    # Prompt history configuration (NEW)
+    store_prompt_history: bool = True  # Store all user prompts for context building
+    prompt_history_table: str = "genie_prompt_history"  # Table name for prompt history
+    max_prompt_history_length: int = 50  # Maximum prompts to keep per conversation
+    use_genie_api_for_history: bool = False  # Fallback to Genie API if local history empty
+    prompt_history_ttl_seconds: int | None = None  # TTL for prompts (None = use cache TTL)
 
     @model_validator(mode="after")
     def compute_and_validate_weights(self) -> Self:
