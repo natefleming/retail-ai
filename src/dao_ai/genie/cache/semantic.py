@@ -415,10 +415,10 @@ class SemanticCacheService(GenieServiceBase):
                     self._create_prompt_history_table(cur)
                 except Exception as e:
                     logger.error(
-                        "Failed to create prompt history table - context building may be affected",
+                        f"Failed to create prompt history table '{self.parameters.prompt_history_table}': {e}",
                         layer=self.name,
                         table_name=self.parameters.prompt_history_table,
-                        error=str(e),
+                        exc_info=True,
                     )
                     # Don't raise - allow cache to work even if prompt history fails
 
