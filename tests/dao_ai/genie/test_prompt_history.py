@@ -52,7 +52,6 @@ class TestPromptHistoryStorage:
             time_to_live_seconds=86400,
             similarity_threshold=0.85,
             context_similarity_threshold=0.80,
-            store_prompt_history=True,
             prompt_history_table="test_prompt_history",
             context_window_size=2,
         )
@@ -254,7 +253,6 @@ class TestPromptHistoryContextBuilding:
         parameters = GenieSemanticCacheParametersModel(
             database=database,
             warehouse=warehouse,
-            store_prompt_history=True,
             context_window_size=2,
         )
 
@@ -357,11 +355,10 @@ class TestPromptHistoryIntegration:
         import uuid
         test_suffix = uuid.uuid4().hex[:8]
         
-        # Create cache service with prompt history
+        # Create cache service (prompt history is always enabled)
         parameters = GenieSemanticCacheParametersModel(
             database=lakebase_database,
             warehouse=lakebase_warehouse,
-            store_prompt_history=True,
             table_name=f"test_semantic_cache_{test_suffix}",  # Unique cache table
             prompt_history_table=f"test_prompt_history_{test_suffix}",  # Unique history table
             context_window_size=2,
@@ -461,12 +458,11 @@ def test_configuration_validation() -> None:
     with patch('databricks.sdk.WorkspaceClient'):
         warehouse = WarehouseModel(warehouse_id="test_warehouse")
     
-    # Test default values
+    # Test default values (prompt history is always enabled)
     params = GenieSemanticCacheParametersModel(
         database=database,
         warehouse=warehouse,
     )
-    assert params.store_prompt_history is True
     assert params.prompt_history_table == "genie_prompt_history"
     assert params.context_window_size == 3
     
@@ -474,11 +470,9 @@ def test_configuration_validation() -> None:
     params_custom = GenieSemanticCacheParametersModel(
         database=database,
         warehouse=warehouse,
-        store_prompt_history=False,
         prompt_history_table="custom_table",
         context_window_size=5,
     )
-    assert params_custom.store_prompt_history is False
     assert params_custom.prompt_history_table == "custom_table"
     assert params_custom.context_window_size == 5
 

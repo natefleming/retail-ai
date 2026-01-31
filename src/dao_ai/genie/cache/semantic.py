@@ -390,14 +390,37 @@ class SemanticCacheService(GenieServiceBase):
                     # Table doesn't exist, which is fine
                     pass
 
-                cur.execute(create_table_sql)
-                cur.execute(create_space_index_sql)
-                cur.execute(create_question_embedding_index_sql)
-                cur.execute(create_context_embedding_index_sql)
+                try:
+                    cur.execute(create_table_sql)
+                except Exception as e:
+                    # Table might already exist - that's ok
+                    logger.debug(f"Table creation skipped (may already exist): {e}", layer=self.name)
                 
-                # Create prompt history table if prompt history tracking is enabled
-                if self.parameters.store_prompt_history:
+                # Try to create indexes (might fail if table is owned by another user)
+                for idx_name, idx_sql in [
+                    ("space_index", create_space_index_sql),
+                    ("question_embedding_index", create_question_embedding_index_sql),
+                    ("context_embedding_index", create_context_embedding_index_sql),
+                ]:
+                    try:
+                        cur.execute(idx_sql)
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not create {idx_name} (table may be owned by another user): {e}",
+                            layer=self.name,
+                        )
+                
+                # Create prompt history table (always enabled for conversation context)
+                try:
                     self._create_prompt_history_table(cur)
+                except Exception as e:
+                    logger.error(
+                        "Failed to create prompt history table - context building may be affected",
+                        layer=self.name,
+                        table_name=self.parameters.prompt_history_table,
+                        error=str(e),
+                    )
+                    # Don't raise - allow cache to work even if prompt history fails
 
     def _create_prompt_history_table(self, cur: Any) -> None:
         """Create the prompt history table for tracking user prompts.
@@ -433,14 +456,25 @@ class SemanticCacheService(GenieServiceBase):
             ON {prompt_table_name} (genie_space_id, created_at DESC)
         """
         
+        logger.debug(
+            "Creating prompt history table and indexes",
+            layer=self.name,
+            table=prompt_table_name,
+            space_id=self.space_id,
+        )
+        
         cur.execute(create_prompt_table_sql)
         cur.execute(create_conversation_index_sql)
         cur.execute(create_space_index_sql)
         
-        logger.debug(
-            "Prompt history table created",
+        logger.info(
+            "Prompt history table ready",
             layer=self.name,
-            table_name=prompt_table_name,
+            table=prompt_table_name,
+            indexes=[
+                f"{prompt_table_name}_conversation_idx",
+                f"{prompt_table_name}_space_idx",
+            ],
         )
     
     def _store_user_prompt(
@@ -459,9 +493,6 @@ class SemanticCacheService(GenieServiceBase):
             conversation_id: The conversation ID
             cache_hit: Whether this prompt resulted in a cache hit
         """
-        if not self.parameters.store_prompt_history:
-            return
-            
         prompt_table_name = self.parameters.prompt_history_table
         insert_sql: str = f"""
             INSERT INTO {prompt_table_name} 
@@ -469,15 +500,27 @@ class SemanticCacheService(GenieServiceBase):
             VALUES (%s, %s, %s, %s)
         """
         
+        logger.debug(
+            "Inserting prompt into history",
+            layer=self.name,
+            table=prompt_table_name,
+            space_id=self.space_id,
+            conversation_id=conversation_id,
+            prompt_preview=prompt[:80] if len(prompt) > 80 else prompt,
+            prompt_length=len(prompt),
+            cache_hit=cache_hit,
+        )
+        
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(insert_sql, (self.space_id, conversation_id, prompt, cache_hit))
                 
-        logger.trace(
-            "Stored user prompt",
+        logger.info(
+            "Stored user prompt in history",
             layer=self.name,
-            prompt=prompt[:50],
+            table=prompt_table_name,
             conversation_id=conversation_id,
+            prompt_preview=prompt[:50],
             cache_hit=cache_hit,
         )
     
@@ -500,9 +543,6 @@ class SemanticCacheService(GenieServiceBase):
         Returns:
             List of prompt strings in chronological order (oldest to newest)
         """
-        if not self.parameters.store_prompt_history:
-            return []
-            
         if max_prompts is None:
             max_prompts = self.parameters.context_window_size
             
@@ -516,6 +556,15 @@ class SemanticCacheService(GenieServiceBase):
             LIMIT %s
         """
         
+        logger.debug(
+            "Querying prompt history",
+            layer=self.name,
+            table=prompt_table_name,
+            space_id=self.space_id,
+            conversation_id=conversation_id,
+            max_prompts=max_prompts,
+        )
+        
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 # LIMIT ensures we only fetch exactly what's needed
@@ -524,11 +573,14 @@ class SemanticCacheService(GenieServiceBase):
                 # Reverse to get chronological order (oldest to newest)
                 prompts = [row['prompt'] for row in reversed(rows)]
                 
-                logger.trace(
-                    "Retrieved prompt history",
+                logger.info(
+                    "Retrieved prompt history from database",
                     layer=self.name,
+                    table=prompt_table_name,
                     conversation_id=conversation_id,
-                    prompts_count=len(prompts),
+                    requested=max_prompts,
+                    returned=len(prompts),
+                    prompts_preview=[p[:40] + "..." if len(p) > 40 else p for p in prompts],
                 )
                 
                 return prompts
@@ -549,9 +601,6 @@ class SemanticCacheService(GenieServiceBase):
             prompt: The prompt text to update
             cache_hit: The cache hit status to set
         """
-        if not self.parameters.store_prompt_history:
-            return
-            
         prompt_table_name = self.parameters.prompt_history_table
         update_sql: str = f"""
             UPDATE {prompt_table_name}
@@ -568,6 +617,16 @@ class SemanticCacheService(GenieServiceBase):
               )
         """
         
+        logger.debug(
+            "Updating prompt cache_hit flag",
+            layer=self.name,
+            table=prompt_table_name,
+            space_id=self.space_id,
+            conversation_id=conversation_id,
+            prompt_preview=prompt[:50],
+            new_cache_hit=cache_hit,
+        )
+        
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -577,14 +636,24 @@ class SemanticCacheService(GenieServiceBase):
                 )
                 updated_rows = cur.rowcount
                 
-                logger.trace(
-                    "Updated prompt cache_hit flag",
-                    layer=self.name,
-                    conversation_id=conversation_id,
-                    prompt=prompt[:50],
-                    cache_hit=cache_hit,
-                    updated_rows=updated_rows,
-                )
+                if updated_rows > 0:
+                    logger.info(
+                        "Updated prompt cache_hit flag in history",
+                        layer=self.name,
+                        table=prompt_table_name,
+                        conversation_id=conversation_id,
+                        prompt_preview=prompt[:50],
+                        cache_hit=cache_hit,
+                        rows_updated=updated_rows,
+                    )
+                else:
+                    logger.warning(
+                        "No prompt found to update cache_hit flag",
+                        layer=self.name,
+                        table=prompt_table_name,
+                        conversation_id=conversation_id,
+                        prompt_preview=prompt[:50],
+                    )
     
     def _embed_question(
         self, question: str, conversation_id: str | None = None
@@ -615,19 +684,17 @@ class SemanticCacheService(GenieServiceBase):
         ):
             try:
                 # Try local prompt history first (FASTER, includes cache hits)
-                recent_prompts: list[str] = []
-                if self.parameters.store_prompt_history:
-                    recent_prompts = self._get_local_prompt_history(
-                        conversation_id=conversation_id,
-                        max_prompts=self.parameters.context_window_size,
-                    )
-                    
-                    logger.trace(
-                        "Retrieved local prompt history",
-                        layer=self.name,
-                        prompts_count=len(recent_prompts),
-                        conversation_id=conversation_id,
-                    )
+                recent_prompts = self._get_local_prompt_history(
+                    conversation_id=conversation_id,
+                    max_prompts=self.parameters.context_window_size,
+                )
+                
+                logger.trace(
+                    "Retrieved local prompt history",
+                    layer=self.name,
+                    prompts_count=len(recent_prompts),
+                    conversation_id=conversation_id,
+                )
                 
                 # Fallback to Genie API if local history empty and API available
                 if not recent_prompts and self.workspace_client is not None and self.parameters.use_genie_api_for_history:
@@ -677,7 +744,7 @@ class SemanticCacheService(GenieServiceBase):
                         layer=self.name,
                         prompts_count=len(recent_prompts),
                         window_size=self.parameters.context_window_size,
-                        source="local_db" if self.parameters.store_prompt_history else "genie_api",
+                        source="local_db",
                     )
             except Exception as e:
                 logger.warning(
@@ -1003,7 +1070,7 @@ class SemanticCacheService(GenieServiceBase):
         # If conversation_id is None, we'll store it after getting response from Genie
         # This way the current prompt won't be included in its own context
         prompt_stored = False
-        if conversation_id and self.parameters.store_prompt_history:
+        if conversation_id:
             self._store_user_prompt(
                 prompt=question,
                 conversation_id=conversation_id,
@@ -1118,7 +1185,7 @@ class SemanticCacheService(GenieServiceBase):
                 response.conversation_id if response.conversation_id 
                 else conversation_id
             )
-            if actual_conv_id and self.parameters.store_prompt_history and prompt_stored:
+            if actual_conv_id and prompt_stored:
                 self._update_prompt_cache_hit(
                     conversation_id=actual_conv_id,
                     prompt=question,
@@ -1152,7 +1219,7 @@ class SemanticCacheService(GenieServiceBase):
         result: CacheResult = self.impl.ask_question(question, conversation_id)
         
         # If conversation_id was None initially, store the prompt now with the actual conversation_id
-        if not prompt_stored and self.parameters.store_prompt_history and result.response.conversation_id:
+        if not prompt_stored and result.response.conversation_id:
             self._store_user_prompt(
                 prompt=question,
                 conversation_id=result.response.conversation_id,
@@ -1261,14 +1328,6 @@ class SemanticCacheService(GenieServiceBase):
         """
         self._setup()
         
-        if not self.parameters.store_prompt_history:
-            logger.warning(
-                "Prompt history not enabled",
-                layer=self.name,
-                store_prompt_history=self.parameters.store_prompt_history,
-            )
-            return []
-        
         prompt_table_name = self.parameters.prompt_history_table
         
         cache_filter = "" if include_cache_hits else "AND cache_hit = false"
@@ -1354,9 +1413,6 @@ class SemanticCacheService(GenieServiceBase):
             Number of prompts deleted
         """
         self._setup()
-        
-        if not self.parameters.store_prompt_history:
-            return 0
         
         prompt_table_name = self.parameters.prompt_history_table
         
@@ -1450,33 +1506,32 @@ class SemanticCacheService(GenieServiceBase):
                         "valid_entries": stats_row.get("valid", 0) if stats_row else 0,
                     }
         
-        # Add prompt history stats if enabled
-        if self.parameters.store_prompt_history:
-            prompt_stats_sql: str = f"""
-                SELECT
-                    COUNT(*) as total_prompts,
-                    COUNT(*) FILTER (WHERE cache_hit = true) as cache_hit_prompts,
-                    COUNT(*) FILTER (WHERE cache_hit = false) as cache_miss_prompts,
-                    COUNT(DISTINCT conversation_id) as total_conversations
-                FROM {self.parameters.prompt_history_table}
-                WHERE genie_space_id = %s
-            """
-            
-            with self._pool.connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(prompt_stats_sql, (self.space_id,))
-                    prompt_row: DbRow | None = cur.fetchone()
-                    
-                    if prompt_row:
-                        cache_stats["prompt_history"] = {
-                            "total_prompts": prompt_row.get("total_prompts", 0),
-                            "cache_hit_prompts": prompt_row.get("cache_hit_prompts", 0),
-                            "cache_miss_prompts": prompt_row.get("cache_miss_prompts", 0),
-                            "total_conversations": prompt_row.get("total_conversations", 0),
-                            "cache_hit_rate": (
-                                prompt_row.get("cache_hit_prompts", 0) / prompt_row.get("total_prompts", 1)
-                                if prompt_row.get("total_prompts", 0) > 0 else 0.0
-                            ),
-                        }
+        # Add prompt history stats
+        prompt_stats_sql: str = f"""
+            SELECT
+                COUNT(*) as total_prompts,
+                COUNT(*) FILTER (WHERE cache_hit = true) as cache_hit_prompts,
+                COUNT(*) FILTER (WHERE cache_hit = false) as cache_miss_prompts,
+                COUNT(DISTINCT conversation_id) as total_conversations
+            FROM {self.parameters.prompt_history_table}
+            WHERE genie_space_id = %s
+        """
+        
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(prompt_stats_sql, (self.space_id,))
+                prompt_row: DbRow | None = cur.fetchone()
+                
+                if prompt_row:
+                    cache_stats["prompt_history"] = {
+                        "total_prompts": prompt_row.get("total_prompts", 0),
+                        "cache_hit_prompts": prompt_row.get("cache_hit_prompts", 0),
+                        "cache_miss_prompts": prompt_row.get("cache_miss_prompts", 0),
+                        "total_conversations": prompt_row.get("total_conversations", 0),
+                        "cache_hit_rate": (
+                            prompt_row.get("cache_hit_prompts", 0) / prompt_row.get("total_prompts", 1)
+                            if prompt_row.get("total_prompts", 0) > 0 else 0.0
+                        ),
+                    }
         
         return cache_stats
