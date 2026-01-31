@@ -259,8 +259,6 @@ def create_agent_node(
     else:
         logger.debug("No custom prompt configured", agent=agent.name)
 
-    checkpointer: bool = memory is not None and memory.checkpointer is not None
-
     # Get the prompt as middleware (always returns AgentMiddleware or None)
     prompt_middleware: AgentMiddleware | None = make_prompt(agent.prompt)
 
@@ -291,12 +289,14 @@ def create_agent_node(
     # Use LangChain v1's create_agent with middleware
     # AgentState extends MessagesState with additional DAO AI fields
     # System prompt is provided via middleware (dynamic_prompt)
+    # NOTE: checkpointer=False because these agents are used as subgraphs
+    # within the parent orchestration graph (swarm/supervisor) which handles
+    # checkpointing at the root level. Subgraphs cannot have checkpointer=True.
     logger.info(
         "Creating LangChain agent",
         agent=agent.name,
         tools_count=len(tools),
         middleware_count=len(middleware_list),
-        has_checkpointer=checkpointer,
     )
 
     compiled_agent: CompiledStateGraph = create_agent(
@@ -304,7 +304,7 @@ def create_agent_node(
         model=llm,
         tools=tools,
         middleware=middleware_list,
-        checkpointer=checkpointer,
+        checkpointer=False,
         state_schema=AgentState,
         context_schema=Context,
         response_format=response_format,  # Add structured output support

@@ -671,15 +671,17 @@ class InMemorySemanticCacheService(GenieServiceBase):
                     error=result[:200],
                     space_id=self.space_id,
                 )
-                
+
                 # Remove the stale cache entry
                 deleted = False
                 with self._lock:
                     initial_size = len(self._cache)
                     # Find and remove the entry with matching question
                     for idx, entry in enumerate(self._cache):
-                        if (entry.genie_space_id == self.space_id and 
-                            entry.question == question):
+                        if (
+                            entry.genie_space_id == self.space_id
+                            and entry.question == question
+                        ):
                             del self._cache[idx]
                             deleted = True
                             logger.info(
@@ -691,7 +693,7 @@ class InMemorySemanticCacheService(GenieServiceBase):
                                 cache_size_after=len(self._cache),
                             )
                             break
-                    
+
                     if not deleted:
                         logger.warning(
                             "Stale cache entry not found for deletion",
@@ -699,7 +701,7 @@ class InMemorySemanticCacheService(GenieServiceBase):
                             question=question[:50],
                             space_id=self.space_id,
                         )
-                
+
                 # Fall back to Genie to get fresh SQL
                 logger.info(
                     "Delegating to Genie for fresh SQL",
@@ -709,8 +711,10 @@ class InMemorySemanticCacheService(GenieServiceBase):
                     space_id=self.space_id,
                     delegating_to=type(self.impl).__name__,
                 )
-                fallback_result: CacheResult = self.impl.ask_question(question, conversation_id)
-                
+                fallback_result: CacheResult = self.impl.ask_question(
+                    question, conversation_id
+                )
+
                 # Store the fresh SQL in cache
                 if fallback_result.response.query:
                     self._store_entry(
@@ -725,7 +729,13 @@ class InMemorySemanticCacheService(GenieServiceBase):
                         layer=self.name,
                         fresh_sql=fallback_result.response.query[:80],
                         space_id=self.space_id,
-                        cache_size=len([e for e in self._cache if e.genie_space_id == self.space_id]),
+                        cache_size=len(
+                            [
+                                e
+                                for e in self._cache
+                                if e.genie_space_id == self.space_id
+                            ]
+                        ),
                         capacity=self.parameters.capacity,
                     )
                 else:
@@ -735,7 +745,7 @@ class InMemorySemanticCacheService(GenieServiceBase):
                         question=question[:80],
                         space_id=self.space_id,
                     )
-                
+
                 logger.info(
                     "Fallback completed successfully",
                     layer=self.name,
@@ -745,7 +755,7 @@ class InMemorySemanticCacheService(GenieServiceBase):
                     fallback_from="stale_cache",
                     has_result=fallback_result.response.result is not None,
                 )
-                
+
                 # Return as cache miss (fallback scenario)
                 return CacheResult(
                     response=fallback_result.response,

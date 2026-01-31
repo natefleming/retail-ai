@@ -278,7 +278,7 @@ class LRUCacheService(GenieServiceBase):
                         error=result[:200],
                         cache_key=key[:50],
                     )
-                    
+
                     # Invalidate the bad cache entry
                     with self._lock:
                         if key in self._cache:
@@ -290,7 +290,7 @@ class LRUCacheService(GenieServiceBase):
                                 cache_size=len(self._cache),
                                 capacity=self.capacity,
                             )
-                    
+
                     # Fall back to Genie to get fresh SQL
                     logger.info(
                         "Delegating to Genie for fresh SQL",
@@ -298,8 +298,10 @@ class LRUCacheService(GenieServiceBase):
                         question=question[:80],
                         delegating_to=type(self.impl).__name__,
                     )
-                    fallback_result: CacheResult = self.impl.ask_question(question, conversation_id)
-                    
+                    fallback_result: CacheResult = self.impl.ask_question(
+                        question, conversation_id
+                    )
+
                     # Store the fresh SQL in cache
                     if fallback_result.response.query:
                         with self._lock:
@@ -317,7 +319,7 @@ class LRUCacheService(GenieServiceBase):
                             layer=self.name,
                             question=question[:80],
                         )
-                    
+
                     logger.info(
                         "Fallback completed successfully",
                         layer=self.name,
@@ -325,7 +327,7 @@ class LRUCacheService(GenieServiceBase):
                         fallback_from="stale_cache",
                         has_result=fallback_result.response.result is not None,
                     )
-                    
+
                     # Return as cache miss (fallback scenario)
                     return CacheResult(
                         response=fallback_result.response,
@@ -343,7 +345,9 @@ class LRUCacheService(GenieServiceBase):
                     else cached.conversation_id,
                 )
 
-                return CacheResult(response=response, cache_hit=True, served_by=self.name)
+                return CacheResult(
+                    response=response, cache_hit=True, served_by=self.name
+                )
 
         # Cache miss - delegate to wrapped service
         logger.info(

@@ -254,6 +254,10 @@ class TestSemanticCacheServiceContext:
         params.question_weight = 0.6
         params.context_weight = 0.4
         params.table_name = "test_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
         params.database = Mock(spec=DatabaseModel)
         params.warehouse = Mock(spec=WarehouseModel)
         return params
@@ -287,7 +291,13 @@ class TestSemanticCacheServiceContext:
         self, mock_workspace_client: Mock, mock_parameters: Mock
     ) -> None:
         """Test that embedding with conversation_id includes context."""
+        from unittest.mock import MagicMock
+
         mock_impl = Mock()
+
+        # Enable Genie API fallback since we're testing that path
+        mock_parameters.use_genie_api_for_history = True
+
         service = SemanticCacheService(
             impl=mock_impl,
             parameters=mock_parameters,
@@ -302,7 +312,19 @@ class TestSemanticCacheServiceContext:
             [0.4, 0.5, 0.6],  # Second embedding: context
         ]
 
-        # Mock conversation history
+        # Mock the pool to return empty local history (so it falls back to Genie API)
+        # Use MagicMock for proper context manager support
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []  # Empty local history
+
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__enter__.return_value = mock_conn
+        service._pool = mock_pool
+
+        # Mock conversation history from Genie API
         mock_messages = [
             Mock(content="Show me Store 42"),
             Mock(content="What are the sales?"),

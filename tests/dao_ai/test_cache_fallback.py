@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
+from databricks_ai_bridge.genie import GenieResponse
 
 from dao_ai.config import (
     GenieInMemorySemanticCacheParametersModel,
@@ -18,7 +19,6 @@ from dao_ai.genie.cache import (
     SemanticCacheService,
 )
 from dao_ai.genie.cache.base import CacheResult
-from databricks_ai_bridge.genie import GenieResponse
 
 
 class TestLRUCacheFallback:
@@ -73,7 +73,9 @@ class TestLRUCacheFallback:
 
         # Mock _execute_sql to return error (simulating table doesn't exist)
         with patch.object(service, "_execute_sql") as mock_execute:
-            mock_execute.return_value = "SQL execution failed: Table 'old_table' not found"
+            mock_execute.return_value = (
+                "SQL execution failed: Table 'old_table' not found"
+            )
 
             # Ask the same question - should hit cache but fail, then fallback
             result = service.ask_question_with_cache_info("How many records?", None)
@@ -144,7 +146,7 @@ class TestSemanticCacheFallback:
         service._embedding_dims = 3
         service._embeddings = Mock()
         service._embeddings.embed_documents.return_value = [[0.1, 0.2, 0.3]]
-        
+
         # Mock the connection pool with proper context manager support
         mock_conn = Mock()
         mock_cursor = Mock()
@@ -152,7 +154,7 @@ class TestSemanticCacheFallback:
         mock_conn.__exit__ = Mock(return_value=False)
         mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
-        
+
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
         service._pool = mock_pool
@@ -177,7 +179,9 @@ class TestSemanticCacheFallback:
                 # Mock _store_entry to avoid database operations
                 with patch.object(service, "_store_entry"):
                     # Ask question - should hit cache but fail, then fallback
-                    result = service.ask_question_with_cache_info("How many items?", None)
+                    result = service.ask_question_with_cache_info(
+                        "How many items?", None
+                    )
 
         # Verify fallback occurred
         assert result.cache_hit is False  # Should be False due to fallback
@@ -255,12 +259,16 @@ class TestInMemorySemanticCacheFallback:
 
             # Mock _execute_sql to return error (simulating view doesn't exist)
             with patch.object(service, "_execute_sql") as mock_execute:
-                mock_execute.return_value = "SQL execution failed: View 'old_view' does not exist"
+                mock_execute.return_value = (
+                    "SQL execution failed: View 'old_view' does not exist"
+                )
 
                 # Mock _store_entry to avoid actual storage
                 with patch.object(service, "_store_entry"):
                     # Ask question - should hit cache but fail, then fallback
-                    result = service.ask_question_with_cache_info("What's the total?", None)
+                    result = service.ask_question_with_cache_info(
+                        "What's the total?", None
+                    )
 
         # Verify fallback occurred
         assert result.cache_hit is False  # Should be False due to fallback
@@ -270,7 +278,9 @@ class TestInMemorySemanticCacheFallback:
         # Verify Genie was called as fallback
         mock_impl.ask_question.assert_called_once_with("What's the total?", None)
 
-    def test_successful_execution_returns_cache_hit(self, mock_parameters: Mock) -> None:
+    def test_successful_execution_returns_cache_hit(
+        self, mock_parameters: Mock
+    ) -> None:
         """Test that successful SQL execution returns cache hit (no fallback)."""
         # Create mock implementation
         mock_impl = Mock()
@@ -307,7 +317,9 @@ class TestInMemorySemanticCacheFallback:
                 mock_execute.return_value = pd.DataFrame({"count": [100]})
 
                 # Ask question - should hit cache and succeed
-                result = service.ask_question_with_cache_info("How many products?", None)
+                result = service.ask_question_with_cache_info(
+                    "How many products?", None
+                )
 
         # Verify cache hit (no fallback)
         assert result.cache_hit is True

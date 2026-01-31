@@ -43,6 +43,35 @@ User: "What's the total for that?"
 
 ## Architecture
 
+### Component Interaction Diagram
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant SemanticCache
+    participant PromptHistory as genie_prompt_history
+    participant CacheTable as genie_semantic_cache
+    participant Genie
+
+    Client->>SemanticCache: ask_question(question, conv_id)
+    SemanticCache->>PromptHistory: 1. Get PREVIOUS prompts
+    PromptHistory-->>SemanticCache: Recent prompts
+    SemanticCache->>SemanticCache: 2. Build embeddings with context
+    SemanticCache->>PromptHistory: 3. Store CURRENT prompt
+    Note over SemanticCache,PromptHistory: cache_hit=false initially
+    SemanticCache->>CacheTable: 4. Search for similar entry
+    alt Cache Hit
+        CacheTable-->>SemanticCache: Cached SQL
+        SemanticCache->>PromptHistory: 5. Update cache_hit=true
+        SemanticCache-->>Client: Cached result
+    else Cache Miss
+        SemanticCache->>Genie: Delegate question
+        Genie-->>SemanticCache: Fresh SQL
+        SemanticCache->>CacheTable: Store new entry
+        SemanticCache-->>Client: Fresh result
+    end
+```
+
 ### Two Separate Tables
 
 #### 1. `genie_prompt_history` (NEW)
@@ -230,6 +259,8 @@ combined = (0.6 × question_similarity) + (0.4 × context_similarity)
 
 ## Configuration
 
+Prompt history is **always enabled** - it's fundamental to maintaining accurate conversation context for semantic matching.
+
 ```yaml
 genie_tools:
   my_genie_tool:
@@ -241,12 +272,12 @@ genie_tools:
       warehouse:
         warehouse_id: my-warehouse-id
       
-      # Prompt history (NEW)
-      store_prompt_history: true  # Enable prompt tracking
-      prompt_history_table: genie_prompt_history
+      # Prompt history configuration
+      prompt_history_table: genie_prompt_history  # Table for prompt storage
       context_window_size: 3  # Use last 3 prompts for context
-      max_prompt_history_length: 50
-      use_genie_api_for_history: false  # Use local storage first
+      max_prompt_history_length: 50  # Max prompts per conversation (enforced)
+      prompt_history_ttl_seconds: null  # TTL for prompts (null = use cache TTL)
+      use_genie_api_for_history: false  # Fallback to Genie API if local empty
       
       # Existing semantic cache config
       similarity_threshold: 0.85
@@ -254,6 +285,16 @@ genie_tools:
       question_weight: 0.6
       context_weight: 0.4
 ```
+
+### Configuration Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `prompt_history_table` | `genie_prompt_history` | Table name for storing prompts |
+| `context_window_size` | `3` | Number of previous prompts to include in context |
+| `max_prompt_history_length` | `50` | Maximum prompts to keep per conversation |
+| `prompt_history_ttl_seconds` | `null` | TTL for prompts (null uses cache TTL) |
+| `use_genie_api_for_history` | `false` | Fallback to Genie API if local history is empty |
 
 ## Usage Example
 
@@ -282,12 +323,12 @@ warehouse = WarehouseModel(
     workspace_client=workspace_client,
 )
 
-# Configure cache with prompt history
+# Configure cache (prompt history is always enabled)
 parameters = GenieSemanticCacheParametersModel(
     database=database,
     warehouse=warehouse,
-    store_prompt_history=True,  # Enable prompt history
     context_window_size=2,  # Use last 2 prompts for context
+    max_prompt_history_length=50,  # Keep last 50 prompts per conversation
 )
 
 # Initialize
@@ -411,19 +452,64 @@ Result: Sliding window of last 2 prompts
 
 **Efficiency**: Constant time O(window_size), not O(total_prompts)
 
+## Maintenance and Cleanup
+
+### Automatic Prompt History Cleanup
+
+The semantic cache automatically maintains prompt history in two ways:
+
+#### 1. Per-Conversation Length Limit
+
+After storing each prompt, the cache enforces `max_prompt_history_length` by deleting the oldest prompts:
+
+```sql
+-- Automatically executed after each INSERT
+DELETE FROM genie_prompt_history
+WHERE conversation_id = ?
+  AND created_at < (
+    SELECT created_at FROM genie_prompt_history
+    ORDER BY created_at DESC
+    LIMIT 1 OFFSET 49  -- max_prompt_history_length - 1
+  )
+```
+
+This keeps each conversation to at most 50 prompts (by default).
+
+#### 2. TTL-Based Cleanup
+
+When calling `invalidate_expired()`, both cache entries and prompt history are cleaned up:
+
+```python
+# Clean up expired cache entries AND prompt history
+result = cache_service.invalidate_expired()
+# Returns: {"cache": 5, "prompt_history": 12}
+```
+
+Uses `prompt_history_ttl_seconds` if set, otherwise uses the cache's `time_to_live_seconds`.
+
+### Error Resilience
+
+Prompt history operations are **non-critical** - failures are logged but don't crash requests:
+
+- `_store_user_prompt()` - INSERT failures are caught and logged
+- `_update_prompt_cache_hit()` - UPDATE failures are caught and logged
+- `_enforce_prompt_history_limit()` - DELETE failures are caught and logged
+
+This ensures the primary caching functionality continues even if prompt history has issues.
+
 ## Configuration Options
 
 ```python
 class GenieSemanticCacheParametersModel:
-    # Prompt history configuration
-    store_prompt_history: bool = True
-    """Enable prompt history tracking (default: True)"""
-    
+    # Prompt history configuration (always enabled)
     prompt_history_table: str = "genie_prompt_history"
     """Table name for storing prompt history"""
     
     max_prompt_history_length: int = 50
-    """Maximum prompts to keep per conversation (for future cleanup)"""
+    """Maximum prompts to keep per conversation (enforced automatically)"""
+    
+    prompt_history_ttl_seconds: int | None = None
+    """TTL for prompt history cleanup (None = use cache TTL)"""
     
     use_genie_api_for_history: bool = False
     """Fallback to Genie API if local history empty (default: False)"""

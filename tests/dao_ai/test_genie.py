@@ -1542,12 +1542,19 @@ class TestLRUCacheServiceSQLExecution:
         assert list(result.response.result.columns) == ["col1", "col2"]
 
     @pytest.mark.unit
-    def test_sql_execution_failure_returns_error(
+    def test_sql_execution_failure_falls_back_to_genie(
         self,
         mock_genie_service: MockGenieService,
         mock_warehouse_model: Mock,
     ) -> None:
-        """Test that SQL execution failure returns error message."""
+        """Test that SQL execution failure triggers fallback to Genie.
+
+        When a cached SQL query fails to execute (e.g., table was dropped),
+        the cache should:
+        1. Invalidate the stale cache entry
+        2. Fall back to Genie for fresh SQL
+        3. Return a valid response (not an error)
+        """
         # Configure failed SQL execution
         mock_statement_response = Mock()
         mock_statement_response.status.state = StatementState.FAILED
@@ -1564,13 +1571,21 @@ class TestLRUCacheServiceSQLExecution:
             parameters=params,
         )
 
-        # First call - cache miss
+        # First call - cache miss, stores in cache
         cache.ask_question("test question")
+        assert cache.size == 1
+        assert mock_genie_service.call_count == 1
 
-        # Second call - cache hit, SQL execution fails
+        # Second call - cache hit, SQL execution fails, falls back to Genie
         result = cache.ask_question("test question")
 
-        assert "SQL execution failed" in str(result.response.result)
+        # Verify fallback behavior:
+        # 1. Genie was called again (fallback)
+        assert mock_genie_service.call_count == 2
+        # 2. Response is valid (from Genie, not an error)
+        assert result.response.result == "Mock result"
+        # 3. Cache entry was re-added with fresh SQL
+        assert cache.size == 1
 
 
 # =============================================================================
@@ -1857,8 +1872,10 @@ class MockCursor:
 
     def execute(self, query: str, params: tuple = ()) -> None:
         self.pool.executed_queries.append((query, params))
-        # Only fetch a result for SELECT queries
-        if "SELECT" in query.upper():
+        # Only fetch a result for queries that START with SELECT
+        # (not DELETE/UPDATE with SELECT subqueries)
+        query_stripped = query.strip().upper()
+        if query_stripped.startswith("SELECT"):
             self._last_result = self.pool.get_next_result()
             self.rowcount = 1 if self._last_result else 0
         else:
@@ -1934,6 +1951,10 @@ class TestSemanticCacheServiceInitialization:
             params.embedding_dims = 1024
             params.embedding_model = "databricks-gte-large-en"
             params.table_name = "test_cache"
+            params.prompt_history_table = "test_prompt_history"
+            params.max_prompt_history_length = 50
+            params.use_genie_api_for_history = False
+            params.prompt_history_ttl_seconds = None
 
             cache = SemanticCacheService(impl=mock_service, parameters=params)
 
@@ -2067,6 +2088,10 @@ class TestSemanticCacheServiceCacheOperations:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         cache = SemanticCacheService(
             impl=mock_service,
@@ -2136,6 +2161,10 @@ class TestSemanticCacheServiceCacheOperations:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # First query returns None (dimension check - table doesn't exist)
         # Second query returns 0 rows (for table row count check)
@@ -2206,6 +2235,10 @@ class TestSemanticCacheServiceCacheOperations:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # Return entry with similarity below threshold (0.75 < 0.85)
         mock_pool.set_query_results(
@@ -2268,6 +2301,10 @@ class TestSemanticCacheServiceCacheOperations:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # Return entry with high similarity but EXPIRED (is_valid=False)
         mock_pool.set_query_results(
@@ -2337,6 +2374,10 @@ class TestSemanticCacheServiceManagement:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # First query for dimension check, second for table creation
         mock_pool.set_query_results([None])
@@ -2377,6 +2418,10 @@ class TestSemanticCacheServiceManagement:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # First query for dimension check, second for table creation
         mock_pool.set_query_results([None])
@@ -2428,6 +2473,10 @@ class TestSemanticCacheServiceManagement:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # First query for dimension check, second for table creation, third for count
         mock_pool.set_query_results([None, {"count": 42}])
@@ -2466,6 +2515,10 @@ class TestSemanticCacheServiceManagement:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # First query for dimension check, second for stats
         mock_pool.set_query_results([None, {"total": 100, "valid": 95, "expired": 5}])
@@ -2512,6 +2565,10 @@ class TestSemanticCacheServiceTableCreation:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "my_semantic_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # Dimension check returns None (table doesn't exist), table count returns 0
         mock_pool.set_query_results([None, None])
@@ -2568,6 +2625,10 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         # Dimension check, table count returns 0, then no similar entry found
         mock_pool.set_query_results([None, None])
@@ -2651,6 +2712,10 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         mock_pool.set_query_results([None, None])
 
@@ -2739,32 +2804,44 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         cached_time = datetime.now(timezone.utc)
 
-        # Query sequence:
-        # 1. First ask_question: dim check (None) -> table check (0) -> find_similar (None) -> INSERT
-        # 2. Second ask_question: find_similar (hit with 0.92)
+        # Query sequence for this test (MockCursor only consumes results for SELECT queries):
+        # First call (ask_question "What is the inventory?"):
+        #   1. Dimension check SELECT (consumes result)
+        #   2. find_similar SELECT (consumes result) - miss
+        #   - INSERT for cache entry (no result consumed)
+        #   - INSERT for prompt history (no result consumed)
+        #   - DELETE for prompt history limit (no result consumed)
+        # Second call (ask_question "Show me inventory count"):
+        #   3. find_similar SELECT (consumes result) - hit!
+        #   - INSERT for prompt history (no result consumed)
+        #   - DELETE for prompt history limit (no result consumed)
+        cache_hit_entry = {
+            "id": 1,
+            "question": "What is the inventory?",
+            "conversation_context": "",
+            "context_string": "What is the inventory?",
+            "sql_query": "SELECT COUNT(*) FROM inventory",
+            "description": "Inventory count",
+            "conversation_id": "conv-123",
+            "created_at": cached_time,
+            "question_similarity": 0.92,
+            "context_similarity": 0.90,
+            "combined_similarity": 0.91,
+            "is_valid": True,
+        }
+
         mock_pool.set_query_results(
             [
-                None,  # Dimension check - table doesn't exist
-                None,  # No similar entry for first question
-                # INSERT happens here (no result needed)
-                # Second call:
-                {
-                    "id": 1,
-                    "question": "What is the inventory?",  # Similar cached question
-                    "conversation_context": "",
-                    "context_string": "What is the inventory?",  # Context string (same as question)
-                    "sql_query": "SELECT COUNT(*) FROM inventory",  # Cached SQL
-                    "description": "Inventory count",  # Description
-                    "conversation_id": "conv-123",  # Conversation ID
-                    "created_at": cached_time,  # Created at
-                    "question_similarity": 0.92,  # Similarity score (above 0.85 threshold)
-                    "context_similarity": 0.90,
-                    "combined_similarity": 0.91,
-                    "is_valid": True,  # Within TTL
-                },
+                None,  # 1. Dimension check SELECT
+                None,  # 2. find_similar SELECT - miss
+                cache_hit_entry,  # 3. find_similar SELECT on second call - hit!
             ]
         )
 
@@ -2850,6 +2927,10 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         cached_time = datetime.now(timezone.utc)
 
@@ -2941,6 +3022,10 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         cached_time = datetime.now(timezone.utc)
 

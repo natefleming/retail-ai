@@ -2,6 +2,7 @@ import argparse
 import getpass
 import json
 import os
+import signal
 import subprocess
 import sys
 import traceback
@@ -454,6 +455,18 @@ def handle_chat_command(options: Namespace) -> None:
     """Interactive chat REPL with the DAO AI system with Human-in-the-Loop support."""
     logger.debug("Starting chat session with DAO AI system...")
 
+    # Set up signal handler for clean Ctrl+C handling
+    def signal_handler(sig: int, frame: Any) -> None:
+        try:
+            print("\n\n👋 Chat session interrupted. Goodbye!")
+            sys.stdout.flush()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    # Store original handler and set our handler
+    original_handler = signal.signal(signal.SIGINT, signal_handler)
+
     try:
         # Set default user_id if not provided
         if options.user_id is None:
@@ -667,6 +680,12 @@ def handle_chat_command(options: Namespace) -> None:
 
                 try:
                     result = loop.run_until_complete(_invoke_with_hitl())
+                except KeyboardInterrupt:
+                    # Re-raise to be caught by outer handler
+                    raise
+                except asyncio.CancelledError:
+                    # Treat cancellation like KeyboardInterrupt
+                    raise KeyboardInterrupt
                 except Exception as e:
                     logger.error(f"Error invoking graph: {e}")
                     print(f"\n❌ Error: {e}")
@@ -732,23 +751,34 @@ def handle_chat_command(options: Namespace) -> None:
                     logger.error(f"Response processing error: {e}")
                     logger.error(f"Stack trace: {traceback.format_exc()}")
 
-            except EOFError:
-                # Handle Ctrl-D
-                print("\n\n👋 Goodbye! Chat session ended.")
-                break
-            except KeyboardInterrupt:
-                # Handle Ctrl-C
-                print("\n\n👋 Chat session interrupted. Goodbye!")
+            except (EOFError, KeyboardInterrupt):
+                # Handle Ctrl-D (EOF) or Ctrl-C (interrupt)
+                # Use try/except for print in case stdout is closed
+                try:
+                    print("\n\n👋 Goodbye! Chat session ended.")
+                    sys.stdout.flush()
+                except Exception:
+                    pass
                 break
             except Exception as e:
                 print(f"\n❌ Error: {e}")
                 logger.error(f"Chat error: {e}")
                 traceback.print_exc()
 
+    except (EOFError, KeyboardInterrupt):
+        # Handle interrupts during initialization
+        try:
+            print("\n\n👋 Chat session interrupted. Goodbye!")
+            sys.stdout.flush()
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Failed to initialize chat session: {e}")
         print(f"❌ Failed to start chat session: {e}")
         sys.exit(1)
+    finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_handler)
 
 
 def handle_schema_command(options: Namespace) -> None:

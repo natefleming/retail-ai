@@ -1737,8 +1737,12 @@ class GenieSemanticCacheParametersModel(BaseModel):
     # conversation context for accurate semantic matching even when cache hits occur
     prompt_history_table: str = "genie_prompt_history"  # Table name for prompt history
     max_prompt_history_length: int = 50  # Maximum prompts to keep per conversation
-    use_genie_api_for_history: bool = False  # Fallback to Genie API if local history empty
-    prompt_history_ttl_seconds: int | None = None  # TTL for prompts (None = use cache TTL)
+    use_genie_api_for_history: bool = (
+        False  # Fallback to Genie API if local history empty
+    )
+    prompt_history_ttl_seconds: int | None = (
+        None  # TTL for prompts (None = use cache TTL)
+    )
 
     @model_validator(mode="after")
     def compute_and_validate_weights(self) -> Self:
