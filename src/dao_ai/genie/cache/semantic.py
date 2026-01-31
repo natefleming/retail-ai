@@ -1212,19 +1212,6 @@ class SemanticCacheService(GenieServiceBase):
                     served_by=None,
                 )
 
-            # Step 5: Update cache_hit flag for the stored prompt
-            # Use the conversation_id from response (handles case where input was None)
-            actual_conv_id = (
-                response.conversation_id if response.conversation_id 
-                else conversation_id
-            )
-            if actual_conv_id and prompt_stored:
-                self._update_prompt_cache_hit(
-                    conversation_id=actual_conv_id,
-                    prompt=question,
-                    cache_hit=True,
-                )
-            
             # IMPORTANT: Use the current conversation_id (from the request), not the cached one
             # This ensures the conversation continues properly
             response: GenieResponse = GenieResponse(
@@ -1235,6 +1222,16 @@ class SemanticCacheService(GenieServiceBase):
                 if conversation_id
                 else cached.conversation_id,
             )
+
+            # Step 5: Update cache_hit flag for the stored prompt
+            # Use the conversation_id from response (handles case where input was None)
+            actual_conv_id = response.conversation_id or conversation_id
+            if actual_conv_id and prompt_stored:
+                self._update_prompt_cache_hit(
+                    conversation_id=actual_conv_id,
+                    prompt=question,
+                    cache_hit=True,
+                )
 
             return CacheResult(response=response, cache_hit=True, served_by=self.name)
 
