@@ -313,7 +313,7 @@ genie_tools:
 ```python
 from dao_ai.config import (
     DatabaseModel,
-    GenieSemanticCacheParametersModel,
+    GenieContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from databricks.sdk import WorkspaceClient
@@ -336,7 +336,7 @@ warehouse = WarehouseModel(
 )
 
 # Configure cache (prompt history is always enabled)
-parameters = GenieSemanticCacheParametersModel(
+parameters = GenieContextAwareCacheParametersModel(
     database=database,
     warehouse=warehouse,
     context_window_size=2,  # Use last 2 prompts for context
@@ -512,7 +512,7 @@ This ensures the primary caching functionality continues even if prompt history 
 ## Configuration Options
 
 ```python
-class GenieSemanticCacheParametersModel:
+class GenieContextAwareCacheParametersModel:
     # Prompt history configuration (always enabled)
     prompt_history_table: str = "genie_prompt_history"
     """Table name for storing prompt history"""

@@ -28,7 +28,7 @@ from dao_ai.config import (
     GenieInMemorySemanticCacheParametersModel,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
-    GenieSemanticCacheParametersModel,
+    GenieContextAwareCacheParametersModel,
     value_of,
 )
 from dao_ai.genie import GenieService, GenieServiceBase
@@ -70,7 +70,7 @@ def create_genie_tool(
     persist_conversation: bool = True,
     truncate_results: bool = False,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
-    semantic_cache_parameters: GenieSemanticCacheParametersModel
+    semantic_cache_parameters: GenieContextAwareCacheParametersModel
     | dict[str, Any]
     | None = None,
     in_memory_semantic_cache_parameters: GenieInMemorySemanticCacheParametersModel
@@ -118,7 +118,7 @@ def create_genie_tool(
         lru_cache_parameters = GenieLRUCacheParametersModel(**lru_cache_parameters)
 
     if isinstance(semantic_cache_parameters, dict):
-        semantic_cache_parameters = GenieSemanticCacheParametersModel(
+        semantic_cache_parameters = GenieContextAwareCacheParametersModel(
             **semantic_cache_parameters
         )
 

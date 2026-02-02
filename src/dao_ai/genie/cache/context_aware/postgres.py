@@ -25,7 +25,7 @@ from loguru import logger
 
 from dao_ai.config import (
     DatabaseModel,
-    GenieSemanticCacheParametersModel,
+    GenieContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie.cache.base import (
@@ -57,10 +57,10 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
     to return fresh data while avoiding the Genie NL-to-SQL translation cost.
 
     Example:
-        from dao_ai.config import GenieSemanticCacheParametersModel, DatabaseModel
+        from dao_ai.config import GenieContextAwareCacheParametersModel, DatabaseModel
         from dao_ai.genie.cache.context_aware import PostgresContextAwareGenieService
 
-        cache_params = GenieSemanticCacheParametersModel(
+        cache_params = GenieContextAwareCacheParametersModel(
             database=database_model,
             warehouse=warehouse_model,
             embedding_model="databricks-gte-large-en",
@@ -76,7 +76,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
     """
 
     impl: GenieServiceBase
-    parameters: GenieSemanticCacheParametersModel
+    parameters: GenieContextAwareCacheParametersModel
     workspace_client: WorkspaceClient | None
     name: str
     _embeddings: Any  # DatabricksEmbeddings
@@ -87,7 +87,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
     def __init__(
         self,
         impl: GenieServiceBase,
-        parameters: GenieSemanticCacheParametersModel,
+        parameters: GenieContextAwareCacheParametersModel,
         workspace_client: WorkspaceClient | None = None,
         name: str | None = None,
     ) -> None:

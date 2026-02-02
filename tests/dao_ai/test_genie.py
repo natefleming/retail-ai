@@ -14,7 +14,7 @@ from langchain_core.tools import StructuredTool
 from dao_ai.config import (
     GenieLRUCacheParametersModel,
     GenieRoomModel,
-    GenieSemanticCacheParametersModel,
+    GenieContextAwareCacheParametersModel,
 )
 from dao_ai.genie import GenieFeedbackRating, GenieServiceBase
 from dao_ai.genie.cache import (
@@ -1916,9 +1916,9 @@ def create_mock_semantic_cache_parameters(
     similarity_threshold: float = 0.85,
     embedding_dims: int = 1024,
     table_name: str = "test_semantic_cache",
-) -> GenieSemanticCacheParametersModel:
-    """Create a mock GenieSemanticCacheParametersModel for testing."""
-    return GenieSemanticCacheParametersModel(
+) -> GenieContextAwareCacheParametersModel:
+    """Create a mock GenieContextAwareCacheParametersModel for testing."""
+    return GenieContextAwareCacheParametersModel(
         database=database,
         warehouse=warehouse,
         time_to_live_seconds=time_to_live_seconds,
@@ -1947,10 +1947,10 @@ class TestPostgresContextAwareCacheInitialization:
 
         # Mock the parameters model - we'll create a real one with mocked dependencies
         with patch(
-            "dao_ai.config.GenieSemanticCacheParametersModel.__init__",
+            "dao_ai.config.GenieContextAwareCacheParametersModel.__init__",
             return_value=None,
         ):
-            params = Mock(spec=GenieSemanticCacheParametersModel)
+            params = Mock(spec=GenieContextAwareCacheParametersModel)
             params.database = mock_database
             params.warehouse = mock_warehouse
             params.time_to_live_seconds = 86400
@@ -1978,7 +1978,7 @@ class TestPostgresContextAwareCacheInitialization:
     def test_init_with_custom_name(self) -> None:
         """Test initialization with custom name."""
         mock_service = MockGenieService()
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
 
         cache = PostgresContextAwareGenieService(
             impl=mock_service,
@@ -1997,7 +1997,7 @@ class TestPostgresContextAwareCacheProperties:
         mock_service = MockGenieService()
         mock_database = Mock()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = mock_database
 
         cache = PostgresContextAwareGenieService(
@@ -2011,7 +2011,7 @@ class TestPostgresContextAwareCacheProperties:
         mock_service = MockGenieService()
         mock_warehouse = Mock()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.warehouse = mock_warehouse
 
         cache = PostgresContextAwareGenieService(
@@ -2024,7 +2024,7 @@ class TestPostgresContextAwareCacheProperties:
         """Test time_to_live returns timedelta."""
         mock_service = MockGenieService()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.time_to_live_seconds = 7200
 
         cache = PostgresContextAwareGenieService(
@@ -2037,7 +2037,7 @@ class TestPostgresContextAwareCacheProperties:
         """Test similarity_threshold property returns correct value."""
         mock_service = MockGenieService()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.similarity_threshold = 0.9
         params.context_similarity_threshold = 0.80
         params.question_weight = 0.6
@@ -2053,7 +2053,7 @@ class TestPostgresContextAwareCacheProperties:
         """Test table_name property returns correct value."""
         mock_service = MockGenieService()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.table_name = "custom_cache_table"
 
         cache = PostgresContextAwareGenieService(
@@ -2087,7 +2087,7 @@ class TestPostgresContextAwareCacheOperations:
         # Third query returns None (no similar entry found)
         mock_pool.set_query_results([None, None])
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2142,7 +2142,7 @@ class TestPostgresContextAwareCacheOperations:
 
         cached_time = datetime.now(timezone.utc)
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2244,7 +2244,7 @@ class TestPostgresContextAwareCacheOperations:
 
         cached_time = datetime.now(timezone.utc)
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.warehouse.warehouse_id = "test-warehouse"
@@ -2324,7 +2324,7 @@ class TestPostgresContextAwareCacheOperations:
 
         old_time = datetime.now(timezone.utc) - timedelta(days=2)  # Older than TTL
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400  # 1 day
@@ -2395,7 +2395,7 @@ class TestPostgresContextAwareCacheManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2441,7 +2441,7 @@ class TestPostgresContextAwareCacheManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 3600  # 1 hour TTL
@@ -2494,7 +2494,7 @@ class TestPostgresContextAwareCacheManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2553,7 +2553,7 @@ class TestPostgresContextAwareCacheManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2622,7 +2622,7 @@ class TestPostgresContextAwareCacheTableCreation:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2676,7 +2676,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_pool_manager.get_pool.return_value = mock_pool
 
         # Setup semantic cache parameters
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2753,7 +2753,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_pool_manager.get_pool.return_value = mock_pool
 
         # Setup semantic cache
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2845,7 +2845,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2982,7 +2982,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -3101,7 +3101,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()

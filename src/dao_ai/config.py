@@ -1714,7 +1714,7 @@ class GenieLRUCacheParametersModel(BaseModel):
     warehouse: WarehouseModel
 
 
-class GenieSemanticCacheParametersModel(BaseModel):
+class GenieContextAwareCacheParametersModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     time_to_live_seconds: int | None = (
         60 * 60 * 24
@@ -1820,7 +1820,7 @@ class GenieInMemorySemanticCacheParametersModel(BaseModel):
     - Cache persistence across restarts is not required
     - Cache sizes are moderate (hundreds to low thousands of entries)
 
-    For multi-instance deployments or large cache sizes, use GenieSemanticCacheParametersModel
+    For multi-instance deployments or large cache sizes, use GenieContextAwareCacheParametersModel
     with PostgreSQL backend instead.
     """
 
@@ -3785,7 +3785,7 @@ class SemanticCacheThresholdOptimizationModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    cache_parameters: Optional[GenieSemanticCacheParametersModel] = None
+    cache_parameters: Optional[GenieContextAwareCacheParametersModel] = None
     dataset: SemanticCacheEvalDatasetModel
     judge_model: Optional[LLMModel | str] = "databricks-meta-llama-3-3-70b-instruct"
     n_trials: int = 50

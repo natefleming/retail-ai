@@ -12,7 +12,7 @@ from databricks.sdk.service.dashboards import GenieMessage
 
 from dao_ai.config import (
     DatabaseModel,
-    GenieSemanticCacheParametersModel,
+    GenieContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie import GenieService
@@ -246,7 +246,7 @@ class TestPostgresContextAwareCacheContext:
     @pytest.fixture
     def mock_parameters(self) -> Mock:
         """Create mock cache parameters."""
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.context_window_size = 3
         params.max_context_tokens = 2000
         params.embedding_model = "databricks-gte-large-en"
@@ -491,7 +491,7 @@ def test_context_aware_cache_with_conversation_context_integration() -> None:
     add_databricks_resource_attrs(warehouse)
 
     # Create context-aware cache with context enabled
-    cache_params = GenieSemanticCacheParametersModel(
+    cache_params = GenieContextAwareCacheParametersModel(
         database=database,
         warehouse=warehouse,
         embedding_model="databricks-gte-large-en",
@@ -629,7 +629,7 @@ def test_context_aware_cache_context_improves_precision() -> None:
     warehouse = WarehouseModel(warehouse_id=warehouse_id)
     add_databricks_resource_attrs(warehouse)
 
-    cache_params = GenieSemanticCacheParametersModel(
+    cache_params = GenieContextAwareCacheParametersModel(
         database=database,
         warehouse=warehouse,
         embedding_model="databricks-gte-large-en",

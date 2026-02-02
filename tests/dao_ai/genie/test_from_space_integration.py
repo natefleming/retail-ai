@@ -18,7 +18,7 @@ from databricks.sdk import WorkspaceClient
 
 from dao_ai.config import (
     DatabaseModel,
-    GenieSemanticCacheParametersModel,
+    GenieContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie.cache import PostgresContextAwareGenieService
@@ -78,11 +78,11 @@ def warehouse_model(warehouse_id: str) -> WarehouseModel:
 @pytest.fixture
 def cache_parameters(
     database_model: DatabaseModel, warehouse_model: WarehouseModel
-) -> GenieSemanticCacheParametersModel:
+) -> GenieContextAwareCacheParametersModel:
     """Create cache parameters for testing."""
     # Use unique table names to avoid conflicts with other tests
     test_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return GenieSemanticCacheParametersModel(
+    return GenieContextAwareCacheParametersModel(
         database=database_model,
         warehouse=warehouse_model,
         embedding_model="databricks-gte-large-en",
@@ -96,7 +96,7 @@ def cache_parameters(
 @pytest.fixture
 def cache_service(
     genie_space_id: str,
-    cache_parameters: GenieSemanticCacheParametersModel,
+    cache_parameters: GenieContextAwareCacheParametersModel,
     workspace_client: WorkspaceClient,
 ) -> PostgresContextAwareGenieService:
     """Create PostgresContextAwareGenieService for testing."""

@@ -45,7 +45,7 @@ except ModuleNotFoundError:
     MLFLOW_CALLBACK_AVAILABLE = False
     MLflowCallback = None  # type: ignore
 
-from dao_ai.config import GenieSemanticCacheParametersModel, LLMModel
+from dao_ai.config import GenieContextAwareCacheParametersModel, LLMModel
 from dao_ai.utils import dao_ai_version
 
 __all__ = [
@@ -426,7 +426,7 @@ def _create_objective(
 def optimize_semantic_cache_thresholds(
     dataset: SemanticCacheEvalDataset,
     original_thresholds: dict[str, float]
-    | GenieSemanticCacheParametersModel
+    | GenieContextAwareCacheParametersModel
     | None = None,
     judge_model: LLMModel | str = "databricks-meta-llama-3-3-70b-instruct",
     n_trials: int = 50,
@@ -446,7 +446,7 @@ def optimize_semantic_cache_thresholds(
     Args:
         dataset: Evaluation dataset with question/context pairs
         original_thresholds: Original thresholds to compare against.
-            Can be a dict or GenieSemanticCacheParametersModel.
+            Can be a dict or GenieContextAwareCacheParametersModel.
             If None, uses default values.
         judge_model: LLM model for semantic match judging (for unlabeled entries)
         n_trials: Number of optimization trials to run
@@ -491,7 +491,7 @@ def optimize_semantic_cache_thresholds(
             "context_similarity_threshold": 0.80,
             "question_weight": 0.6,
         }
-    elif isinstance(original_thresholds, GenieSemanticCacheParametersModel):
+    elif isinstance(original_thresholds, GenieContextAwareCacheParametersModel):
         orig_thresholds = {
             "similarity_threshold": original_thresholds.similarity_threshold,
             "context_similarity_threshold": original_thresholds.context_similarity_threshold,

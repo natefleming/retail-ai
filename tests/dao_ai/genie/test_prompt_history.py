@@ -6,7 +6,7 @@ import pytest
 
 from dao_ai.config import (
     DatabaseModel,
-    GenieSemanticCacheParametersModel,
+    GenieContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie.cache import PostgresContextAwareGenieService
@@ -40,9 +40,9 @@ class TestPromptHistoryStorage:
     @pytest.fixture
     def cache_parameters(
         self, mock_database: DatabaseModel, mock_warehouse: WarehouseModel
-    ) -> GenieSemanticCacheParametersModel:
+    ) -> GenieContextAwareCacheParametersModel:
         """Create cache parameters with prompt history enabled."""
-        return GenieSemanticCacheParametersModel(
+        return GenieContextAwareCacheParametersModel(
             database=mock_database,
             warehouse=mock_warehouse,
             embedding_model="databricks-gte-large-en",
@@ -54,7 +54,7 @@ class TestPromptHistoryStorage:
         )
 
     def test_prompt_history_table_creation(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that prompt history table is created with correct schema."""
         mock_impl = Mock()
@@ -102,7 +102,7 @@ class TestPromptHistoryStorage:
         assert "created_at" in prompt_table_sql
 
     def test_store_user_prompt(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test storing user prompts in history."""
         mock_impl = Mock()
@@ -159,7 +159,7 @@ class TestPromptHistoryStorage:
         assert params[3] is False  # cache_hit
 
     def test_get_local_prompt_history(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test retrieving prompt history with correct LIMIT."""
         mock_impl = Mock()
@@ -210,7 +210,7 @@ class TestPromptHistoryStorage:
         assert prompts == ["What are total sales?", "Filter by Q1"]
 
     def test_update_prompt_cache_hit(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test updating cache_hit flag for a prompt."""
         mock_impl = Mock()
@@ -274,7 +274,7 @@ class TestPromptHistoryContextBuilding:
         with patch("databricks.sdk.WorkspaceClient"):
             warehouse = WarehouseModel(warehouse_id="test_warehouse")
 
-        parameters = GenieSemanticCacheParametersModel(
+        parameters = GenieContextAwareCacheParametersModel(
             database=database,
             warehouse=warehouse,
             context_window_size=2,
@@ -401,7 +401,7 @@ class TestPromptHistoryIntegration:
         test_suffix = uuid.uuid4().hex[:8]
 
         # Create cache service (prompt history is always enabled)
-        parameters = GenieSemanticCacheParametersModel(
+        parameters = GenieContextAwareCacheParametersModel(
             database=lakebase_database,
             warehouse=lakebase_warehouse,
             table_name=f"test_semantic_cache_{test_suffix}",  # Unique cache table
@@ -519,7 +519,7 @@ def test_configuration_validation() -> None:
         warehouse = WarehouseModel(warehouse_id="test_warehouse")
 
     # Test default values (prompt history is always enabled)
-    params = GenieSemanticCacheParametersModel(
+    params = GenieContextAwareCacheParametersModel(
         database=database,
         warehouse=warehouse,
     )
@@ -527,7 +527,7 @@ def test_configuration_validation() -> None:
     assert params.context_window_size == 3
 
     # Test custom values
-    params_custom = GenieSemanticCacheParametersModel(
+    params_custom = GenieContextAwareCacheParametersModel(
         database=database,
         warehouse=warehouse,
         prompt_history_table="custom_table",
@@ -560,9 +560,9 @@ class TestFromSpace:
     @pytest.fixture
     def cache_parameters(
         self, mock_database: DatabaseModel, mock_warehouse: WarehouseModel
-    ) -> GenieSemanticCacheParametersModel:
+    ) -> GenieContextAwareCacheParametersModel:
         """Create cache parameters."""
-        return GenieSemanticCacheParametersModel(
+        return GenieContextAwareCacheParametersModel(
             database=mock_database,
             warehouse=mock_warehouse,
             embedding_model="databricks-gte-large-en",
@@ -574,7 +574,7 @@ class TestFromSpace:
         )
 
     def test_from_space_requires_workspace_client(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space raises error if workspace_client is None."""
         mock_impl = Mock()
@@ -592,7 +592,7 @@ class TestFromSpace:
         assert "workspace_client is required" in str(exc_info.value)
 
     def test_from_space_uses_self_space_id_when_none(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space uses self.space_id when space_id is None."""
         mock_impl = Mock()
@@ -632,7 +632,7 @@ class TestFromSpace:
         assert result is service  # Returns self
 
     def test_from_space_returns_self(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space returns self for method chaining."""
         mock_impl = Mock()
@@ -666,7 +666,7 @@ class TestFromSpace:
         assert result is service
 
     def test_from_space_fetches_all_conversations(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space paginates through all conversations."""
         mock_impl = Mock()
@@ -711,7 +711,7 @@ class TestFromSpace:
         assert mock_workspace_client.genie.list_conversations.call_count == 2
 
     def test_from_space_stores_prompts_in_history(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space stores prompts in history table."""
         from datetime import datetime, timezone
@@ -769,7 +769,7 @@ class TestFromSpace:
         assert len(insert_calls) > 0, "Should have called INSERT with ON CONFLICT"
 
     def test_from_space_stores_sql_in_cache(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space stores messages with SQL attachments in cache."""
         from datetime import datetime, timezone
@@ -844,7 +844,7 @@ class TestFromSpace:
         assert len(insert_calls) > 0, "Should have called cache INSERT with ON CONFLICT"
 
     def test_from_space_skips_duplicates(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space skips duplicate entries (rowcount=0)."""
         from datetime import datetime, timezone
@@ -895,7 +895,7 @@ class TestFromSpace:
         assert result is service
 
     def test_from_space_filters_by_datetime_range(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space respects from_datetime and to_datetime filters."""
         from datetime import datetime, timedelta, timezone
@@ -961,7 +961,7 @@ class TestFromSpace:
         assert len(insert_calls) == 1
 
     def test_from_space_limits_max_messages(
-        self, cache_parameters: GenieSemanticCacheParametersModel
+        self, cache_parameters: GenieContextAwareCacheParametersModel
     ) -> None:
         """Test that from_space respects max_messages limit."""
         from datetime import datetime, timedelta, timezone
