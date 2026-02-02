@@ -286,7 +286,7 @@ genie_tools:
       
       # Prompt history configuration
       prompt_history_table: genie_prompt_history  # Table for prompt storage
-      context_window_size: 3  # Use last 3 prompts for context
+      context_window_size: 2  # Use last 2 prompts for context (default)
       max_prompt_history_length: 50  # Max prompts per conversation (enforced)
       prompt_history_ttl_seconds: null  # TTL for prompts (null = use cache TTL)
       use_genie_api_for_history: false  # Fallback to Genie API if local empty
@@ -303,7 +303,7 @@ genie_tools:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `prompt_history_table` | `genie_prompt_history` | Table name for storing prompts |
-| `context_window_size` | `3` | Number of previous prompts to include in context |
+| `context_window_size` | `2` | Number of previous prompts to include in context |
 | `max_prompt_history_length` | `50` | Maximum prompts to keep per conversation |
 | `prompt_history_ttl_seconds` | `null` | TTL for prompts (null uses cache TTL) |
 | `use_genie_api_for_history` | `false` | Fallback to Genie API if local history is empty |
@@ -384,6 +384,83 @@ result3 = cache_service.ask_question(
 prompts = cache_service._get_local_prompt_history(conv_id, max_prompts=10)
 print(f"Conversation history: {prompts}")
 # Output: ['What are total sales?', 'Filter by Q1', 'Show by region']
+```
+
+## Importing Historical Conversations with `from_space()`
+
+The `from_space()` method allows you to pre-populate the cache from existing Genie space conversations. This is useful for:
+
+- **Cache warming**: Avoid cold-start latency by importing historical queries
+- **Migration**: Transfer conversation history when setting up a new cache instance
+- **Analytics**: Build a cache from production usage patterns
+
+### Usage
+
+```python
+from datetime import datetime, timedelta
+
+# Basic usage - import all conversations from the current space
+cache_service.from_space()
+
+# Import from a specific Genie space
+cache_service.from_space(space_id="01f0c482e842191587af6a40ad4044d8")
+
+# Import only recent conversations (last 30 days)
+cache_service.from_space(
+    from_datetime=datetime.now() - timedelta(days=30),
+)
+
+# Import with all filters
+cache_service.from_space(
+    space_id="my-space-id",           # Optional: defaults to self.space_id
+    include_all_messages=True,         # Include all users' conversations
+    from_datetime=datetime(2024, 1, 1),  # Only messages after this date
+    to_datetime=datetime(2024, 6, 30),   # Only messages before this date
+    max_messages=1000,                 # Limit total messages imported
+)
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `space_id` | `self.space_id` | Genie space ID to import from |
+| `include_all_messages` | `True` | If True, fetch all users' conversations |
+| `from_datetime` | `None` | Only include messages after this time |
+| `to_datetime` | `None` | Only include messages before this time |
+| `max_messages` | `None` | Limit to last N messages (most recent first) |
+
+### What Gets Imported
+
+1. **Prompt history table**: All user messages are stored in `genie_prompt_history`
+2. **Cache embeddings table**: Messages with SQL query attachments are embedded and stored in the cache
+
+Uses `ON CONFLICT DO NOTHING` to safely skip duplicate entries, making it safe to run multiple times.
+
+### Requirements
+
+- Requires a `workspace_client` to be provided when creating the cache service
+- The workspace client must have permission to access the Genie space
+
+```python
+# workspace_client is required for from_space()
+cache_service = PostgresContextAwareGenieService(
+    impl=genie_service,
+    parameters=parameters,
+    workspace_client=workspace_client,  # Required!
+).initialize()
+
+cache_service.from_space()  # Now works
+```
+
+### Performance Considerations
+
+- For large spaces (1000+ messages), use `max_messages` to limit import size
+- Use date filters (`from_datetime`, `to_datetime`) to import only relevant history
+- The method returns `self` for method chaining:
+
+```python
+cache_service.initialize().from_space().ask_question("What are sales?")
 ```
 
 ## Performance Benefits
