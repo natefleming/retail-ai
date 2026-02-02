@@ -1732,7 +1732,7 @@ class GenieContextAwareCacheParametersModel(BaseModel):
     database: DatabaseModel
     warehouse: WarehouseModel
     table_name: str = "genie_semantic_cache"
-    context_window_size: int = 3  # Number of previous turns to include for context
+    context_window_size: int = 2  # Number of previous turns to include for context
     max_context_tokens: int = (
         2000  # Maximum context length to prevent extremely long embeddings
     )

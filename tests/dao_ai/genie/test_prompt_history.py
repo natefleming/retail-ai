@@ -524,7 +524,7 @@ def test_configuration_validation() -> None:
         warehouse=warehouse,
     )
     assert params.prompt_history_table == "genie_prompt_history"
-    assert params.context_window_size == 3
+    assert params.context_window_size == 2
 
     # Test custom values
     params_custom = GenieContextAwareCacheParametersModel(
@@ -579,6 +579,7 @@ class TestFromSpace:
         """Test that from_space raises error if workspace_client is None."""
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
+        mock_impl.workspace_client = None  # Ensure impl also returns None
 
         service = PostgresContextAwareGenieService(
             impl=mock_impl,
