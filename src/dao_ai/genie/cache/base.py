@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.dashboards import GenieFeedbackRating
-from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
 if TYPE_CHECKING:
     from dao_ai.genie.cache.base import CacheResult
+    from dao_ai.genie.core import GenieResponse
 
 
 def get_latest_message_id(
@@ -194,7 +194,9 @@ class CacheResult:
     Result of a cache-aware query with metadata about cache behavior.
 
     Attributes:
-        response: The GenieResponse (fresh data, possibly from cached SQL)
+        response: The GenieResponse (fresh data, possibly from cached SQL).
+            This is the extended dao_ai.genie.GenieResponse which includes message_id,
+            not the base databricks_ai_bridge.genie.GenieResponse.
         cache_hit: Whether the SQL query came from cache
         served_by: Name of the layer that served the cached SQL (None if from origin)
         message_id: The Genie message ID (for sending feedback). Available from
