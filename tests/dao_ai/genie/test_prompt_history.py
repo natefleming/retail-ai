@@ -530,5 +530,479 @@ def test_configuration_validation() -> None:
     assert params_custom.context_window_size == 5
 
 
+class TestFromSpace:
+    """Tests for from_space() method that imports from Genie space."""
+
+    @pytest.fixture
+    def mock_database(self) -> DatabaseModel:
+        """Create mock database model."""
+        return DatabaseModel(
+            name="test_db",
+            host="localhost",
+            port=5432,
+            user="test",
+            password="test",
+        )
+
+    @pytest.fixture
+    def mock_warehouse(self) -> WarehouseModel:
+        """Create mock warehouse model."""
+        with patch("databricks.sdk.WorkspaceClient"):
+            return WarehouseModel(warehouse_id="test_warehouse")
+
+    @pytest.fixture
+    def cache_parameters(
+        self, mock_database: DatabaseModel, mock_warehouse: WarehouseModel
+    ) -> GenieSemanticCacheParametersModel:
+        """Create cache parameters."""
+        return GenieSemanticCacheParametersModel(
+            database=mock_database,
+            warehouse=mock_warehouse,
+            embedding_model="databricks-gte-large-en",
+            time_to_live_seconds=86400,
+            similarity_threshold=0.85,
+            context_similarity_threshold=0.80,
+            prompt_history_table="test_prompt_history",
+            context_window_size=2,
+        )
+
+    def test_from_space_requires_workspace_client(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space raises error if workspace_client is None."""
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=None,  # No workspace client
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            service.from_space()
+
+        assert "workspace_client is required" in str(exc_info.value)
+
+    def test_from_space_uses_self_space_id_when_none(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space uses self.space_id when space_id is None."""
+        mock_impl = Mock()
+        mock_impl.space_id = "default-space-id"
+
+        mock_workspace_client = Mock()
+        # Return empty conversations list
+        mock_workspace_client.genie.list_conversations.return_value = Mock(
+            conversations=[], next_page_token=None
+        )
+
+        # Mock database operations
+        mock_cursor = Mock()
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+
+        result = service.from_space()  # No space_id provided
+
+        # Should use self.space_id
+        mock_workspace_client.genie.list_conversations.assert_called_once()
+        call_kwargs = mock_workspace_client.genie.list_conversations.call_args[1]
+        assert call_kwargs["space_id"] == "default-space-id"
+        assert result is service  # Returns self
+
+    def test_from_space_returns_self(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space returns self for method chaining."""
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        mock_workspace_client = Mock()
+        mock_workspace_client.genie.list_conversations.return_value = Mock(
+            conversations=[], next_page_token=None
+        )
+
+        mock_cursor = Mock()
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+
+        result = service.from_space()
+
+        assert result is service
+
+    def test_from_space_fetches_all_conversations(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space paginates through all conversations."""
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        # Mock conversations with pagination
+        mock_conv1 = Mock()
+        mock_conv1.conversation_id = "conv-1"
+        mock_conv2 = Mock()
+        mock_conv2.conversation_id = "conv-2"
+
+        mock_workspace_client = Mock()
+        mock_workspace_client.genie.list_conversations.side_effect = [
+            Mock(conversations=[mock_conv1], next_page_token="page2"),
+            Mock(conversations=[mock_conv2], next_page_token=None),
+        ]
+        mock_workspace_client.genie.list_conversation_messages.return_value = Mock(
+            messages=[]
+        )
+
+        mock_cursor = Mock()
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+
+        service.from_space()
+
+        # Should have called list_conversations twice (pagination)
+        assert mock_workspace_client.genie.list_conversations.call_count == 2
+
+    def test_from_space_stores_prompts_in_history(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space stores prompts in history table."""
+        from datetime import datetime, timezone
+
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        mock_conv = Mock()
+        mock_conv.conversation_id = "conv-1"
+
+        mock_message = Mock()
+        mock_message.content = "What are total sales?"
+        mock_message.created_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        mock_message.attachments = None
+
+        mock_workspace_client = Mock()
+        mock_workspace_client.genie.list_conversations.return_value = Mock(
+            conversations=[mock_conv], next_page_token=None
+        )
+        mock_workspace_client.genie.list_conversation_messages.return_value = Mock(
+            messages=[mock_message]
+        )
+
+        mock_cursor = Mock()
+        mock_cursor.rowcount = 1  # Indicate successful insert
+
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+
+        service.from_space()
+
+        # Verify INSERT with ON CONFLICT was called
+        insert_calls = [
+            call
+            for call in mock_cursor.execute.call_args_list
+            if "INSERT INTO test_prompt_history" in str(call)
+            and "ON CONFLICT" in str(call[0][0])
+        ]
+        assert len(insert_calls) > 0, "Should have called INSERT with ON CONFLICT"
+
+    def test_from_space_stores_sql_in_cache(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space stores messages with SQL attachments in cache."""
+        from datetime import datetime, timezone
+
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        mock_conv = Mock()
+        mock_conv.conversation_id = "conv-1"
+
+        # Message with SQL attachment
+        mock_query = Mock()
+        mock_query.query = "SELECT * FROM sales"
+        mock_query.description = "Get all sales"
+
+        mock_attachment = Mock()
+        mock_attachment.query = mock_query
+
+        mock_message = Mock()
+        mock_message.content = "Show me all sales"
+        mock_message.created_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        mock_message.attachments = [mock_attachment]
+
+        mock_workspace_client = Mock()
+        mock_workspace_client.genie.list_conversations.return_value = Mock(
+            conversations=[mock_conv], next_page_token=None
+        )
+        mock_workspace_client.genie.list_conversation_messages.return_value = Mock(
+            messages=[mock_message]
+        )
+
+        mock_cursor = Mock()
+        mock_cursor.rowcount = 1
+
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        # Mock embeddings
+        mock_embeddings = Mock()
+        mock_embeddings.embed_query.return_value = [0.1] * 768
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+        service._embeddings = mock_embeddings
+
+        service.from_space()
+
+        # Verify embeddings were generated
+        assert mock_embeddings.embed_query.called
+
+        # Verify cache INSERT with ON CONFLICT was called
+        insert_calls = [
+            call
+            for call in mock_cursor.execute.call_args_list
+            if "INSERT INTO" in str(call[0][0])
+            and "sql_query" in str(call[0][0])
+            and "ON CONFLICT" in str(call[0][0])
+        ]
+        assert len(insert_calls) > 0, "Should have called cache INSERT with ON CONFLICT"
+
+    def test_from_space_skips_duplicates(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space skips duplicate entries (rowcount=0)."""
+        from datetime import datetime, timezone
+
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        mock_conv = Mock()
+        mock_conv.conversation_id = "conv-1"
+
+        mock_message = Mock()
+        mock_message.content = "Duplicate prompt"
+        mock_message.created_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        mock_message.attachments = None
+
+        mock_workspace_client = Mock()
+        mock_workspace_client.genie.list_conversations.return_value = Mock(
+            conversations=[mock_conv], next_page_token=None
+        )
+        mock_workspace_client.genie.list_conversation_messages.return_value = Mock(
+            messages=[mock_message]
+        )
+
+        mock_cursor = Mock()
+        mock_cursor.rowcount = 0  # Indicate duplicate (no rows inserted)
+
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+
+        # Should complete without error even with duplicates
+        result = service.from_space()
+        assert result is service
+
+    def test_from_space_filters_by_datetime_range(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space respects from_datetime and to_datetime filters."""
+        from datetime import datetime, timedelta, timezone
+
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        mock_conv = Mock()
+        mock_conv.conversation_id = "conv-1"
+
+        now = datetime.now(timezone.utc)
+        old_message = Mock()
+        old_message.content = "Old message"
+        old_message.created_timestamp = int((now - timedelta(days=10)).timestamp() * 1000)
+        old_message.attachments = None
+
+        recent_message = Mock()
+        recent_message.content = "Recent message"
+        recent_message.created_timestamp = int((now - timedelta(days=1)).timestamp() * 1000)
+        recent_message.attachments = None
+
+        mock_workspace_client = Mock()
+        mock_workspace_client.genie.list_conversations.return_value = Mock(
+            conversations=[mock_conv], next_page_token=None
+        )
+        mock_workspace_client.genie.list_conversation_messages.return_value = Mock(
+            messages=[old_message, recent_message]
+        )
+
+        mock_cursor = Mock()
+        mock_cursor.rowcount = 1
+
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+
+        # Filter to only include messages from last 5 days
+        service.from_space(from_datetime=now - timedelta(days=5))
+
+        # Should only have one INSERT (recent message, old message filtered out)
+        insert_calls = [
+            call
+            for call in mock_cursor.execute.call_args_list
+            if "INSERT INTO test_prompt_history" in str(call[0][0])
+        ]
+        assert len(insert_calls) == 1
+
+    def test_from_space_limits_max_messages(
+        self, cache_parameters: GenieSemanticCacheParametersModel
+    ) -> None:
+        """Test that from_space respects max_messages limit."""
+        from datetime import datetime, timedelta, timezone
+
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        mock_conv = Mock()
+        mock_conv.conversation_id = "conv-1"
+
+        now = datetime.now(timezone.utc)
+        messages = []
+        for i in range(5):
+            msg = Mock()
+            msg.content = f"Message {i}"
+            msg.created_timestamp = int((now - timedelta(hours=i)).timestamp() * 1000)
+            msg.attachments = None
+            messages.append(msg)
+
+        mock_workspace_client = Mock()
+        mock_workspace_client.genie.list_conversations.return_value = Mock(
+            conversations=[mock_conv], next_page_token=None
+        )
+        mock_workspace_client.genie.list_conversation_messages.return_value = Mock(
+            messages=messages
+        )
+
+        mock_cursor = Mock()
+        mock_cursor.rowcount = 1
+
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+
+        mock_pool = Mock()
+        mock_pool.connection.return_value = mock_conn
+
+        service = SemanticCacheService(
+            impl=mock_impl,
+            parameters=cache_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._pool = mock_pool
+        service._setup_complete = True
+
+        # Limit to 2 messages
+        service.from_space(max_messages=2)
+
+        # Should only have 2 INSERTs (limited by max_messages)
+        insert_calls = [
+            call
+            for call in mock_cursor.execute.call_args_list
+            if "INSERT INTO test_prompt_history" in str(call[0][0])
+        ]
+        assert len(insert_calls) == 2
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

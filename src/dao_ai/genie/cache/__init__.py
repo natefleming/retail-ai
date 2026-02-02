@@ -30,6 +30,15 @@ from dao_ai.genie.cache.base import (
 from dao_ai.genie.cache.core import execute_sql_via_warehouse
 from dao_ai.genie.cache.in_memory_semantic import InMemorySemanticCacheService
 from dao_ai.genie.cache.lru import LRUCacheService
+from dao_ai.genie.cache.optimization import (
+    SemanticCacheEvalDataset,
+    SemanticCacheEvalEntry,
+    ThresholdOptimizationResult,
+    clear_judge_cache,
+    generate_eval_dataset_from_cache,
+    optimize_semantic_cache_thresholds,
+    semantic_match_judge,
+)
 from dao_ai.genie.cache.semantic import SemanticCacheService
 
 __all__ = [
@@ -42,4 +51,12 @@ __all__ = [
     "InMemorySemanticCacheService",
     "LRUCacheService",
     "SemanticCacheService",
+    # Optimization
+    "SemanticCacheEvalDataset",
+    "SemanticCacheEvalEntry",
+    "ThresholdOptimizationResult",
+    "clear_judge_cache",
+    "generate_eval_dataset_from_cache",
+    "optimize_semantic_cache_thresholds",
+    "semantic_match_judge",
 ]

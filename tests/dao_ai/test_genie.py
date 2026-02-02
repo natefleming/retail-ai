@@ -2166,12 +2166,21 @@ class TestSemanticCacheServiceCacheOperations:
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
 
-        # First query returns None (dimension check - table doesn't exist)
-        # Second query returns 0 rows (for table row count check)
-        # Third query returns a cached entry with similarity > threshold and valid TTL
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-8. _index_exists for 3 prompt history table indexes (None each)
+        # 9. cache lookup - returns cached entry
         mock_pool.set_query_results(
             [
                 None,  # dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
                 {
                     "id": 1,
                     "question": "Similar question?",
@@ -2240,10 +2249,21 @@ class TestSemanticCacheServiceCacheOperations:
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
 
-        # Return entry with similarity below threshold (0.75 < 0.85)
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-8. _index_exists for 3 prompt history table indexes (None each)
+        # 9. cache lookup - returns entry with similarity below threshold
         mock_pool.set_query_results(
             [
                 None,  # dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
                 {
                     "id": 1,
                     "question": "Different question",
@@ -2478,8 +2498,22 @@ class TestSemanticCacheServiceManagement:
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
 
-        # First query for dimension check, second for table creation, third for count
-        mock_pool.set_query_results([None, {"count": 42}])
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-8. _index_exists for 3 prompt history table indexes (None each)
+        # 9. count query for size
+        mock_pool.set_query_results([
+            None,  # dimension check - table doesn't exist
+            None,  # _index_exists for space_idx
+            None,  # _index_exists for question_embedding_idx
+            None,  # _index_exists for context_embedding_idx
+            None,  # _index_exists for unique_question_idx
+            None,  # _index_exists for prompt_history_conversation_idx
+            None,  # _index_exists for prompt_history_space_idx
+            None,  # _index_exists for prompt_history_unique_prompt_idx
+            {"count": 42},
+        ])
 
         cache = SemanticCacheService(
             impl=mock_service,
@@ -2520,8 +2554,22 @@ class TestSemanticCacheServiceManagement:
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
 
-        # First query for dimension check, second for stats
-        mock_pool.set_query_results([None, {"total": 100, "valid": 95, "expired": 5}])
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-8. _index_exists for 3 prompt history table indexes (None each)
+        # 9. stats query
+        mock_pool.set_query_results([
+            None,  # dimension check - table doesn't exist
+            None,  # _index_exists for space_idx
+            None,  # _index_exists for question_embedding_idx
+            None,  # _index_exists for context_embedding_idx
+            None,  # _index_exists for unique_question_idx
+            None,  # _index_exists for prompt_history_conversation_idx
+            None,  # _index_exists for prompt_history_space_idx
+            None,  # _index_exists for prompt_history_unique_prompt_idx
+            {"total": 100, "valid": 95, "expired": 5},
+        ])
 
         cache = SemanticCacheService(
             impl=mock_service,
@@ -2812,14 +2860,17 @@ class TestLRUPlusSemanticCacheIntegration:
         cached_time = datetime.now(timezone.utc)
 
         # Query sequence for this test (MockCursor only consumes results for SELECT queries):
-        # First call (ask_question "What is the inventory?"):
+        # Initialization:
         #   1. Dimension check SELECT (consumes result)
-        #   2. find_similar SELECT (consumes result) - miss
+        #   2-5. _index_exists for 4 main table indexes (None each)
+        #   6-8. _index_exists for 3 prompt history table indexes (None each)
+        # First call (ask_question "What is the inventory?"):
+        #   9. find_similar SELECT (consumes result) - miss
         #   - INSERT for cache entry (no result consumed)
         #   - INSERT for prompt history (no result consumed)
         #   - DELETE for prompt history limit (no result consumed)
         # Second call (ask_question "Show me inventory count"):
-        #   3. find_similar SELECT (consumes result) - hit!
+        #   10. find_similar SELECT (consumes result) - hit!
         #   - INSERT for prompt history (no result consumed)
         #   - DELETE for prompt history limit (no result consumed)
         cache_hit_entry = {
@@ -2840,8 +2891,15 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_pool.set_query_results(
             [
                 None,  # 1. Dimension check SELECT
-                None,  # 2. find_similar SELECT - miss
-                cache_hit_entry,  # 3. find_similar SELECT on second call - hit!
+                None,  # 2. _index_exists for space_idx
+                None,  # 3. _index_exists for question_embedding_idx
+                None,  # 4. _index_exists for context_embedding_idx
+                None,  # 5. _index_exists for unique_question_idx
+                None,  # 6. _index_exists for prompt_history_conversation_idx
+                None,  # 7. _index_exists for prompt_history_space_idx
+                None,  # 8. _index_exists for prompt_history_unique_prompt_idx
+                None,  # 9. find_similar SELECT - miss
+                cache_hit_entry,  # 10. find_similar SELECT on second call - hit!
             ]
         )
 
@@ -2935,9 +2993,21 @@ class TestLRUPlusSemanticCacheIntegration:
         cached_time = datetime.now(timezone.utc)
 
         # Semantic cache has a similar entry
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-8. _index_exists for 3 prompt history table indexes (None each)
+        # 9. find_similar query - returns cache hit
         mock_pool.set_query_results(
             [
                 None,  # Dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
                 {
                     "id": 1,
                     "question": "Original question",

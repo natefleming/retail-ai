@@ -10,8 +10,8 @@ to capture context from recent conversation turns, improving accuracy for
 multi-turn conversations with anaphoric references.
 """
 
-from datetime import timedelta
-from typing import Any
+from datetime import datetime, timedelta
+from typing import Any, Self
 
 import mlflow
 import pandas as pd
@@ -220,7 +220,7 @@ class SemanticCacheService(GenieServiceBase):
         self._embedding_dims = None
         self._setup_complete = False
 
-    def initialize(self) -> "SemanticCacheService":
+    def initialize(self) -> Self:
         """
         Eagerly initialize the cache service.
 
@@ -381,6 +381,11 @@ class SemanticCacheService(GenieServiceBase):
             CREATE INDEX IF NOT EXISTS {self.table_name}_space_idx 
             ON {self.table_name} (genie_space_id)
         """
+        # Unique index for duplicate prevention (used by from_space() import)
+        create_unique_question_index_sql: str = f"""
+            CREATE UNIQUE INDEX IF NOT EXISTS {self.table_name}_unique_question_idx
+            ON {self.table_name} (genie_space_id, question)
+        """
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -426,6 +431,10 @@ class SemanticCacheService(GenieServiceBase):
                     (
                         f"{self.table_name}_context_embedding_idx",
                         create_context_embedding_index_sql,
+                    ),
+                    (
+                        f"{self.table_name}_unique_question_idx",
+                        create_unique_question_index_sql,
                     ),
                 ]:
                     if self._index_exists(cur, idx_name):
@@ -491,6 +500,12 @@ class SemanticCacheService(GenieServiceBase):
             ON {prompt_table_name} (genie_space_id, created_at DESC)
         """
 
+        # Unique index for duplicate prevention (used by from_space() import)
+        create_unique_prompt_index_sql: str = f"""
+            CREATE UNIQUE INDEX IF NOT EXISTS {prompt_table_name}_unique_prompt_idx
+            ON {prompt_table_name} (genie_space_id, conversation_id, prompt)
+        """
+
         logger.debug(
             "Creating prompt history table and indexes",
             layer=self.name,
@@ -517,6 +532,7 @@ class SemanticCacheService(GenieServiceBase):
         for idx_name, idx_sql in [
             (f"{prompt_table_name}_conversation_idx", create_conversation_index_sql),
             (f"{prompt_table_name}_space_idx", create_space_index_sql),
+            (f"{prompt_table_name}_unique_prompt_idx", create_unique_prompt_index_sql),
         ]:
             if self._index_exists(cur, idx_name):
                 logger.debug(
@@ -546,6 +562,7 @@ class SemanticCacheService(GenieServiceBase):
             indexes=[
                 f"{prompt_table_name}_conversation_idx",
                 f"{prompt_table_name}_space_idx",
+                f"{prompt_table_name}_unique_prompt_idx",
             ],
         )
 
@@ -1198,6 +1215,418 @@ class SemanticCacheService(GenieServiceBase):
                     space=self.space_id,
                     table=self.table_name,
                 )
+
+    def _store_prompt_if_not_exists(
+        self,
+        prompt: str,
+        conversation_id: str,
+        space_id: str | None = None,
+        cache_hit: bool = False,
+        created_at: datetime | None = None,
+    ) -> bool:
+        """Store user prompt in history, skipping if it already exists.
+
+        Uses ON CONFLICT DO NOTHING to avoid duplicate entries.
+        This is used by from_space() to import prompts without duplicates.
+
+        Args:
+            prompt: The user's question/prompt
+            conversation_id: The conversation ID
+            space_id: The Genie space ID (defaults to self.space_id)
+            cache_hit: Whether this prompt resulted in a cache hit
+            created_at: The timestamp of the prompt (defaults to now)
+
+        Returns:
+            True if prompt was stored, False if it already existed or failed
+        """
+        target_space_id = space_id or self.space_id
+        prompt_table_name = self.parameters.prompt_history_table
+
+        if created_at is not None:
+            insert_sql: str = f"""
+                INSERT INTO {prompt_table_name} 
+                (genie_space_id, conversation_id, prompt, cache_hit, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (genie_space_id, conversation_id, prompt) DO NOTHING
+            """
+            params = (target_space_id, conversation_id, prompt, cache_hit, created_at)
+        else:
+            insert_sql = f"""
+                INSERT INTO {prompt_table_name} 
+                (genie_space_id, conversation_id, prompt, cache_hit)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (genie_space_id, conversation_id, prompt) DO NOTHING
+            """
+            params = (target_space_id, conversation_id, prompt, cache_hit)
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(insert_sql, params)
+                    rows_affected = cur.rowcount if isinstance(cur.rowcount, int) else 0
+
+                    if rows_affected > 0:
+                        logger.debug(
+                            "Stored prompt in history (import)",
+                            layer=self.name,
+                            table=prompt_table_name,
+                            space_id=target_space_id,
+                            conversation_id=conversation_id,
+                            prompt_preview=prompt[:50],
+                        )
+                        return True
+                    else:
+                        logger.debug(
+                            "Prompt already exists in history (skipped)",
+                            layer=self.name,
+                            table=prompt_table_name,
+                            space_id=target_space_id,
+                            conversation_id=conversation_id,
+                            prompt_preview=prompt[:50],
+                        )
+                        return False
+        except Exception as e:
+            logger.warning(
+                f"Failed to store prompt in history (non-critical): {e}",
+                layer=self.name,
+                table=prompt_table_name,
+                space_id=target_space_id,
+                conversation_id=conversation_id,
+            )
+            return False
+
+    def _store_cache_entry_if_not_exists(
+        self,
+        question: str,
+        conversation_context: str,
+        question_embedding: list[float],
+        context_embedding: list[float],
+        sql_query: str,
+        description: str | None = None,
+        conversation_id: str | None = None,
+        space_id: str | None = None,
+    ) -> bool:
+        """Store cache entry, skipping if the question already exists.
+
+        Uses ON CONFLICT DO NOTHING to avoid duplicate entries.
+        This is used by from_space() to import cache entries without duplicates.
+
+        Args:
+            question: The user's question
+            conversation_context: Previous conversation context
+            question_embedding: Embedding of the question
+            context_embedding: Embedding of the context
+            sql_query: The SQL query to cache
+            description: Optional description of the query
+            conversation_id: The conversation ID
+            space_id: The Genie space ID (defaults to self.space_id)
+
+        Returns:
+            True if entry was stored, False if it already existed or failed
+        """
+        target_space_id = space_id or self.space_id
+
+        insert_sql: str = f"""
+            INSERT INTO {self.table_name} 
+            (genie_space_id, question, conversation_context, context_string, 
+             question_embedding, context_embedding, sql_query, description, conversation_id)
+            VALUES (%s, %s, %s, %s, %s::vector, %s::vector, %s, %s, %s)
+            ON CONFLICT (genie_space_id, question) DO NOTHING
+        """
+        question_emb_str: str = f"[{','.join(str(x) for x in question_embedding)}]"
+        context_emb_str: str = f"[{','.join(str(x) for x in context_embedding)}]"
+
+        # Build full context string for backward compatibility
+        if conversation_context:
+            full_context_string = f"{conversation_context}\nCurrent: {question}"
+        else:
+            full_context_string = question
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        insert_sql,
+                        (
+                            target_space_id,
+                            question,
+                            conversation_context,
+                            full_context_string,
+                            question_emb_str,
+                            context_emb_str,
+                            sql_query,
+                            description or "",
+                            conversation_id or "",
+                        ),
+                    )
+                    rows_affected = cur.rowcount if isinstance(cur.rowcount, int) else 0
+
+                    if rows_affected > 0:
+                        logger.debug(
+                            "Stored cache entry (import)",
+                            layer=self.name,
+                            question=question[:50],
+                            sql=sql_query[:50] if sql_query else None,
+                            space=target_space_id,
+                            table=self.table_name,
+                        )
+                        return True
+                    else:
+                        logger.debug(
+                            "Cache entry already exists (skipped)",
+                            layer=self.name,
+                            question=question[:50],
+                            space=target_space_id,
+                            table=self.table_name,
+                        )
+                        return False
+        except Exception as e:
+            logger.warning(
+                f"Failed to store cache entry (non-critical): {e}",
+                layer=self.name,
+                question=question[:50] if question else None,
+                space=target_space_id,
+            )
+            return False
+
+    def from_space(
+        self,
+        space_id: str | None = None,
+        *,
+        include_all_messages: bool = True,
+        from_datetime: datetime | None = None,
+        to_datetime: datetime | None = None,
+        max_messages: int | None = None,
+    ) -> Self:
+        """Populate cache from existing Genie space conversations.
+
+        Fetches all conversations from a Genie space and populates:
+        1. Prompt history table - all user messages
+        2. Cache embeddings table - messages with SQL query attachments
+
+        Uses ON CONFLICT DO NOTHING to avoid duplicate entries, making this
+        method idempotent (safe to call multiple times).
+
+        Args:
+            space_id: Genie space ID to import from (defaults to self.space_id)
+            include_all_messages: If True, fetch all users' conversations
+                (requires CAN MANAGE permission on the space)
+            from_datetime: Only include messages after this time
+            to_datetime: Only include messages before this time
+            max_messages: Limit to last N messages (most recent first)
+
+        Returns:
+            self for method chaining
+
+        Raises:
+            ValueError: If workspace_client is not set
+        """
+        if self.workspace_client is None:
+            raise ValueError(
+                "workspace_client is required for from_space(). "
+                "Pass workspace_client when creating SemanticCacheService."
+            )
+
+        # Ensure initialization
+        self._setup()
+
+        target_space_id = space_id or self.space_id
+
+        logger.info(
+            "Starting from_space import",
+            layer=self.name,
+            space_id=target_space_id,
+            include_all_messages=include_all_messages,
+            from_datetime=from_datetime,
+            to_datetime=to_datetime,
+            max_messages=max_messages,
+        )
+
+        # Track statistics
+        stats = {
+            "conversations_processed": 0,
+            "prompts_imported": 0,
+            "prompts_skipped": 0,
+            "cache_entries_imported": 0,
+            "cache_entries_skipped": 0,
+            "errors": 0,
+        }
+
+        # Collect all messages across all conversations for max_messages limiting
+        all_messages: list[tuple[str, GenieMessage]] = []  # (conversation_id, message)
+
+        # Fetch all conversations with pagination
+        page_token: str | None = None
+        while True:
+            try:
+                response = self.workspace_client.genie.list_conversations(
+                    space_id=target_space_id,
+                    include_all=include_all_messages,
+                    page_token=page_token,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to list conversations: {e}",
+                    layer=self.name,
+                    space_id=target_space_id,
+                )
+                stats["errors"] += 1
+                break
+
+            if response.conversations is None:
+                break
+
+            for conversation in response.conversations:
+                if conversation.conversation_id is None:
+                    continue
+
+                stats["conversations_processed"] += 1
+
+                # Fetch messages for this conversation
+                try:
+                    messages_response = (
+                        self.workspace_client.genie.list_conversation_messages(
+                            space_id=target_space_id,
+                            conversation_id=conversation.conversation_id,
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to fetch messages for conversation: {e}",
+                        layer=self.name,
+                        conversation_id=conversation.conversation_id,
+                    )
+                    stats["errors"] += 1
+                    continue
+
+                if messages_response.messages is None:
+                    continue
+
+                for message in messages_response.messages:
+                    all_messages.append((conversation.conversation_id, message))
+
+                # Early exit if we have enough messages
+                if max_messages is not None and len(all_messages) >= max_messages:
+                    logger.debug(
+                        "Early exit: collected enough messages",
+                        layer=self.name,
+                        collected=len(all_messages),
+                        max_messages=max_messages,
+                        conversations_processed=stats["conversations_processed"],
+                    )
+                    break  # Exit conversation loop
+
+            # Early exit check after conversation loop
+            if max_messages is not None and len(all_messages) >= max_messages:
+                break  # Exit pagination loop
+
+            # Check for more pages
+            page_token = response.next_page_token
+            if page_token is None:
+                break
+
+        # Sort messages by created_timestamp (most recent first) for max_messages limiting
+        # created_timestamp is an int (Unix timestamp in milliseconds)
+        all_messages.sort(
+            key=lambda x: x[1].created_timestamp if x[1].created_timestamp else 0,
+            reverse=True,
+        )
+
+        # Apply max_messages limit
+        if max_messages is not None:
+            all_messages = all_messages[:max_messages]
+
+        # Process messages
+        for conversation_id, message in all_messages:
+            # Skip if message has no content
+            if message.content is None:
+                continue
+
+            # Convert created_timestamp (int milliseconds) to datetime for filtering
+            message_created_at: datetime | None = None
+            if message.created_timestamp is not None:
+                message_created_at = datetime.fromtimestamp(
+                    message.created_timestamp / 1000.0,
+                    tz=from_datetime.tzinfo if from_datetime else None,
+                )
+
+            # Apply time filters
+            if message_created_at is not None:
+                if from_datetime is not None and message_created_at < from_datetime:
+                    continue
+                if to_datetime is not None and message_created_at > to_datetime:
+                    continue
+
+            # Store prompt in history (all user messages)
+            # Note: We assume all messages with content are user prompts
+            # The Genie API returns user messages as the content field
+            prompt_stored = self._store_prompt_if_not_exists(
+                prompt=message.content,
+                conversation_id=conversation_id,
+                space_id=target_space_id,
+                cache_hit=False,  # We don't know the original cache status
+                created_at=message_created_at,
+            )
+
+            if prompt_stored:
+                stats["prompts_imported"] += 1
+            else:
+                stats["prompts_skipped"] += 1
+
+            # Check for SQL query attachments and store in cache
+            if message.attachments is not None:
+                for attachment in message.attachments:
+                    # Check if this is a query attachment with SQL
+                    if (
+                        attachment.query is not None
+                        and attachment.query.query is not None
+                    ):
+                        sql_query = attachment.query.query
+                        description = attachment.query.description or ""
+
+                        # Generate embeddings for the question
+                        try:
+                            question_embedding = self._embeddings.embed_query(
+                                message.content
+                            )
+                            # For imported messages, we use the question itself as context
+                            # since we don't have the full conversation context
+                            context_embedding = self._embeddings.embed_query(
+                                message.content
+                            )
+
+                            cache_stored = self._store_cache_entry_if_not_exists(
+                                question=message.content,
+                                conversation_context="",  # No context for imported
+                                question_embedding=question_embedding,
+                                context_embedding=context_embedding,
+                                sql_query=sql_query,
+                                description=description,
+                                conversation_id=conversation_id,
+                                space_id=target_space_id,
+                            )
+
+                            if cache_stored:
+                                stats["cache_entries_imported"] += 1
+                            else:
+                                stats["cache_entries_skipped"] += 1
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to generate embeddings for message: {e}",
+                                layer=self.name,
+                                conversation_id=conversation_id,
+                                prompt_preview=message.content[:50],
+                            )
+                            stats["errors"] += 1
+
+        logger.info(
+            "Completed from_space import",
+            layer=self.name,
+            space_id=target_space_id,
+            **stats,
+        )
+
+        return self
 
     @mlflow.trace(name="execute_cached_sql_semantic")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
