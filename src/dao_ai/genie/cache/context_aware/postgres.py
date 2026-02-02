@@ -960,6 +960,21 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         if max_messages:
             all_messages = all_messages[:max_messages]
 
+        # Group messages by conversation_id for context building
+        from collections import defaultdict
+
+        messages_by_conversation: dict[str, list[tuple[str, GenieMessage]]] = (
+            defaultdict(list)
+        )
+        for conv_id, msg in all_messages:
+            messages_by_conversation[conv_id].append((conv_id, msg))
+
+        # Sort each conversation's messages by timestamp (oldest first for context building)
+        for conv_id in messages_by_conversation:
+            messages_by_conversation[conv_id].sort(
+                key=lambda x: x[1].created_timestamp if x[1].created_timestamp else 0
+            )
+
         # Process messages
         for conversation_id, message in all_messages:
             if message.content is None:
@@ -997,16 +1012,51 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                 for attachment in message.attachments:
                     if attachment.query and attachment.query.query:
                         try:
+                            # Build conversation context from prior messages
+                            # Uses same "Previous: {content}" format as normal operations
+                            prior_messages: list[str] = []
+                            conv_messages = messages_by_conversation.get(
+                                conversation_id, []
+                            )
+                            for _, prior_msg in conv_messages:
+                                if (
+                                    prior_msg.created_timestamp
+                                    and message.created_timestamp
+                                ):
+                                    if (
+                                        prior_msg.created_timestamp
+                                        < message.created_timestamp
+                                    ):
+                                        if prior_msg.content:
+                                            content = prior_msg.content
+                                            if len(content) > 500:
+                                                content = content[:500] + "..."
+                                            prior_messages.append(
+                                                f"Previous: {content}"
+                                            )
+
+                            # Limit to context_window_size (most recent N messages)
+                            context_window = self.context_window_size
+                            if len(prior_messages) > context_window:
+                                prior_messages = prior_messages[-context_window:]
+
+                            conversation_context = "\n".join(prior_messages)
+
+                            # Generate embeddings
                             question_embedding = self._embeddings.embed_query(
                                 message.content
                             )
-                            context_embedding = self._embeddings.embed_query(
-                                message.content
-                            )
+                            if conversation_context:
+                                context_embedding = self._embeddings.embed_query(
+                                    conversation_context
+                                )
+                            else:
+                                # Zero vector when no prior context (first message)
+                                context_embedding = [0.0] * len(question_embedding)
 
                             cache_stored = self._store_cache_entry_if_not_exists(
                                 question=message.content,
-                                conversation_context="",
+                                conversation_context=conversation_context,
                                 question_embedding=question_embedding,
                                 context_embedding=context_embedding,
                                 sql_query=attachment.query.query,
