@@ -106,7 +106,8 @@ class TestSemanticMatchJudge:
 
             # Should only call LLM once (cached)
             assert mock_chat.invoke.call_count == 1
-            assert result1 == result2 == True
+            assert result1 is True
+            assert result2 is True
 
         clear_judge_cache()
 

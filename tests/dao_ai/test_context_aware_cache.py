@@ -1,4 +1,4 @@
-"""Unit and integration tests for semantic cache with conversation context (rolling window)."""
+"""Unit and integration tests for context-aware cache with conversation context (rolling window)."""
 
 import os
 from datetime import datetime
@@ -16,8 +16,11 @@ from dao_ai.config import (
     WarehouseModel,
 )
 from dao_ai.genie import GenieService
-from dao_ai.genie.cache import SemanticCacheService
-from dao_ai.genie.cache.semantic import build_context_string, get_conversation_history
+from dao_ai.genie.cache import PostgresContextAwareGenieService
+from dao_ai.genie.cache.context_aware.base import (
+    build_context_string,
+    get_conversation_history,
+)
 
 # ============================================================================
 # Unit Tests for Context Building Functions
@@ -228,12 +231,12 @@ class TestGetConversationHistory:
 
 
 # ============================================================================
-# Unit Tests for SemanticCacheService with Context
+# Unit Tests for PostgresContextAwareGenieService with Context
 # ============================================================================
 
 
-class TestSemanticCacheServiceContext:
-    """Unit tests for SemanticCacheService context-aware functionality."""
+class TestPostgresContextAwareCacheContext:
+    """Unit tests for PostgresContextAwareGenieService context-aware functionality."""
 
     @pytest.fixture
     def mock_workspace_client(self) -> Mock:
@@ -267,7 +270,7 @@ class TestSemanticCacheServiceContext:
     ) -> None:
         """Test that embedding without conversation_id uses question only."""
         mock_impl = Mock()
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -298,7 +301,7 @@ class TestSemanticCacheServiceContext:
         # Enable Genie API fallback since we're testing that path
         mock_parameters.use_genie_api_for_history = True
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -351,7 +354,7 @@ class TestSemanticCacheServiceContext:
     ) -> None:
         """Test that errors in context retrieval fall back to question only."""
         mock_impl = Mock()
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -385,7 +388,7 @@ class TestSemanticCacheServiceContext:
         cached_entry_conversation_id = "cached-conv-123"
         current_conversation_id = "current-conv-456"
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -447,9 +450,9 @@ class TestSemanticCacheServiceContext:
 @pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_semantic_cache_with_conversation_context_integration() -> None:
+def test_context_aware_cache_with_conversation_context_integration() -> None:
     """
-    Integration test for semantic cache with conversation context.
+    Integration test for context-aware cache with conversation context.
 
     This test verifies that:
     1. Questions with context are cached differently than without context
@@ -487,7 +490,7 @@ def test_semantic_cache_with_conversation_context_integration() -> None:
     warehouse = WarehouseModel(warehouse_id=warehouse_id)
     add_databricks_resource_attrs(warehouse)
 
-    # Create semantic cache with context enabled
+    # Create context-aware cache with context enabled
     cache_params = GenieSemanticCacheParametersModel(
         database=database,
         warehouse=warehouse,
@@ -496,10 +499,10 @@ def test_semantic_cache_with_conversation_context_integration() -> None:
         similarity_threshold=0.85,
         context_window_size=3,  # Enable context
         max_context_tokens=2000,
-        table_name="test_semantic_cache_context",
+        table_name="test_context_aware_cache",
     )
 
-    # Create Genie service with semantic cache
+    # Create Genie service with context-aware cache
     from databricks_ai_bridge.genie import Genie
 
     genie = Genie(
@@ -508,7 +511,7 @@ def test_semantic_cache_with_conversation_context_integration() -> None:
     )
 
     genie_service = GenieService(genie)
-    cache_service = SemanticCacheService(
+    cache_service = PostgresContextAwareGenieService(
         impl=genie_service,
         parameters=cache_params,
         workspace_client=genie_room.workspace_client,
@@ -518,7 +521,7 @@ def test_semantic_cache_with_conversation_context_integration() -> None:
         # Clear cache before test
         cache_service.clear()
 
-        print("\n=== Testing Semantic Cache with Conversation Context ===")
+        print("\n=== Testing Context-Aware Cache with Conversation Context ===")
 
         # Test 1: First question (no context)
         print("\n1. First question (establishes context):")
@@ -588,7 +591,7 @@ def test_semantic_cache_with_conversation_context_integration() -> None:
 @pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_semantic_cache_context_improves_precision() -> None:
+def test_context_aware_cache_context_improves_precision() -> None:
     """
     Test that conversation context improves cache precision for ambiguous questions.
 
@@ -634,14 +637,14 @@ def test_semantic_cache_context_improves_precision() -> None:
         similarity_threshold=0.85,
         context_window_size=3,
         max_context_tokens=2000,
-        table_name="test_semantic_cache_precision",
+        table_name="test_context_aware_cache_precision",
     )
 
     from databricks_ai_bridge.genie import Genie
 
     genie = Genie(space_id=space_id, client=genie_room.workspace_client)
     genie_service = GenieService(genie)
-    cache_service = SemanticCacheService(
+    cache_service = PostgresContextAwareGenieService(
         impl=genie_service,
         parameters=cache_params,
         workspace_client=genie_room.workspace_client,

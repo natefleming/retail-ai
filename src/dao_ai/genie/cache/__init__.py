@@ -6,15 +6,16 @@ chained together using the decorator pattern.
 
 Available cache implementations:
 - LRUCacheService: In-memory LRU cache with O(1) exact match lookup
-- SemanticCacheService: PostgreSQL pg_vector-based semantic similarity cache
+- PostgresContextAwareGenieService: PostgreSQL pg_vector-based context-aware cache
+- InMemoryContextAwareGenieService: In-memory context-aware cache
 
 Example usage:
-    from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
+    from dao_ai.genie.cache import LRUCacheService, PostgresContextAwareGenieService
 
-    # Chain caches: LRU (checked first) -> Semantic (checked second) -> Genie
-    genie_service = SemanticCacheService(
+    # Chain caches: LRU (checked first) -> Context-aware (checked second) -> Genie
+    genie_service = PostgresContextAwareGenieService(
         impl=GenieService(genie),
-        parameters=semantic_params,
+        parameters=context_aware_params,
     )
     genie_service = LRUCacheService(
         impl=genie_service,
@@ -27,8 +28,13 @@ from dao_ai.genie.cache.base import (
     GenieServiceBase,
     SQLCacheEntry,
 )
+from dao_ai.genie.cache.context_aware import (
+    ContextAwareGenieService,
+    InMemoryContextAwareGenieService,
+    PersistentContextAwareGenieCacheService,
+    PostgresContextAwareGenieService,
+)
 from dao_ai.genie.cache.core import execute_sql_via_warehouse
-from dao_ai.genie.cache.in_memory_semantic import InMemorySemanticCacheService
 from dao_ai.genie.cache.lru import LRUCacheService
 from dao_ai.genie.cache.optimization import (
     SemanticCacheEvalDataset,
@@ -39,7 +45,6 @@ from dao_ai.genie.cache.optimization import (
     optimize_semantic_cache_thresholds,
     semantic_match_judge,
 )
-from dao_ai.genie.cache.semantic import SemanticCacheService
 
 __all__ = [
     # Base types
@@ -47,10 +52,13 @@ __all__ = [
     "GenieServiceBase",
     "SQLCacheEntry",
     "execute_sql_via_warehouse",
+    # Context-aware base classes
+    "ContextAwareGenieService",
+    "PersistentContextAwareGenieCacheService",
     # Cache implementations
-    "InMemorySemanticCacheService",
+    "InMemoryContextAwareGenieService",
     "LRUCacheService",
-    "SemanticCacheService",
+    "PostgresContextAwareGenieService",
     # Optimization
     "SemanticCacheEvalDataset",
     "SemanticCacheEvalEntry",

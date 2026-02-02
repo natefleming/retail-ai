@@ -296,7 +296,8 @@ def _evaluate_thresholds(
     true_negatives = 0
     false_negatives = 0
 
-    context_weight = 1.0 - question_weight
+    # Note: context_weight = 1.0 - question_weight could be used for weighted scoring
+    # but we currently use independent thresholds for question and context similarity
 
     for entry in dataset.entries:
         # Compute similarities
@@ -412,7 +413,9 @@ def _create_objective(
             # F-beta score: (1 + beta^2) * (precision * recall) / (beta^2 * precision + recall)
             if precision + recall == 0:
                 return 0.0
-            fbeta = (1 + beta**2) * (precision * recall) / (beta**2 * precision + recall)
+            fbeta = (
+                (1 + beta**2) * (precision * recall) / (beta**2 * precision + recall)
+            )
             return fbeta
         else:
             raise ValueError(f"Unknown metric: {metric}")
@@ -422,7 +425,9 @@ def _create_objective(
 
 def optimize_semantic_cache_thresholds(
     dataset: SemanticCacheEvalDataset,
-    original_thresholds: dict[str, float] | GenieSemanticCacheParametersModel | None = None,
+    original_thresholds: dict[str, float]
+    | GenieSemanticCacheParametersModel
+    | None = None,
     judge_model: LLMModel | str = "databricks-meta-llama-3-3-70b-instruct",
     n_trials: int = 50,
     metric: Literal["f1", "precision", "recall", "fbeta"] = "f1",
@@ -580,7 +585,9 @@ def optimize_semantic_cache_thresholds(
     best_trial = study.best_trial
     best_thresholds = {
         "similarity_threshold": best_trial.params["similarity_threshold"],
-        "context_similarity_threshold": best_trial.params["context_similarity_threshold"],
+        "context_similarity_threshold": best_trial.params[
+            "context_similarity_threshold"
+        ],
         "question_weight": best_trial.params["question_weight"],
     }
 
@@ -783,7 +790,9 @@ def generate_eval_dataset_from_cache(
     entries: list[SemanticCacheEvalEntry] = []
 
     # Generate positive pairs (paraphrases)
-    logger.info("Generating positive pairs using paraphrasing", count=num_positive_pairs)
+    logger.info(
+        "Generating positive pairs using paraphrasing", count=num_positive_pairs
+    )
 
     for i in range(min(num_positive_pairs, len(cache_entries))):
         entry = cache_entries[i % len(cache_entries)]
@@ -808,7 +817,11 @@ Rephrased question:"""
 
             # Generate embedding for paraphrase
             para_q_emb = embeddings.embed_query(paraphrased_question)
-            para_c_emb = embeddings.embed_query(original_context) if original_context else original_c_emb
+            para_c_emb = (
+                embeddings.embed_query(original_context)
+                if original_context
+                else original_c_emb
+            )
 
             entries.append(
                 SemanticCacheEvalEntry(
@@ -827,7 +840,10 @@ Rephrased question:"""
             logger.warning("Failed to generate paraphrase", error=str(e))
 
     # Generate negative pairs (random different questions)
-    logger.info("Generating negative pairs from different cache entries", count=num_negative_pairs)
+    logger.info(
+        "Generating negative pairs from different cache entries",
+        count=num_negative_pairs,
+    )
 
     for _ in range(num_negative_pairs):
         # Pick two different random entries

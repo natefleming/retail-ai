@@ -21,7 +21,7 @@ from dao_ai.config import (
     GenieSemanticCacheParametersModel,
     WarehouseModel,
 )
-from dao_ai.genie.cache import SemanticCacheService
+from dao_ai.genie.cache import PostgresContextAwareGenieService
 
 # Skip all tests in this module if required environment variables are not set
 pytestmark = [
@@ -98,13 +98,13 @@ def cache_service(
     genie_space_id: str,
     cache_parameters: GenieSemanticCacheParametersModel,
     workspace_client: WorkspaceClient,
-) -> SemanticCacheService:
-    """Create SemanticCacheService for testing."""
+) -> PostgresContextAwareGenieService:
+    """Create PostgresContextAwareGenieService for testing."""
     # Create a mock impl with the space_id
     mock_impl = Mock()
     mock_impl.space_id = genie_space_id
 
-    service = SemanticCacheService(
+    service = PostgresContextAwareGenieService(
         impl=mock_impl,
         parameters=cache_parameters,
         workspace_client=workspace_client,
@@ -112,19 +112,23 @@ def cache_service(
 
     yield service
 
-    # Cleanup after test
+    # Cleanup after test - drop tables to avoid accumulating test artifacts
     try:
-        service.clear()
-        service.clear_prompt_history()
+        service.drop_tables()
     except Exception:
-        pass
+        # Fallback to clearing if drop fails
+        try:
+            service.clear()
+            service.clear_prompt_history()
+        except Exception:
+            pass
 
 
 class TestFromSpaceIntegration:
     """Integration tests for from_space() method."""
 
     def test_from_space_real_genie_space(
-        self, cache_service: SemanticCacheService, genie_space_id: str
+        self, cache_service: PostgresContextAwareGenieService, genie_space_id: str
     ) -> None:
         """End-to-end test with real Genie space."""
         # Initialize and run from_space
@@ -142,7 +146,7 @@ class TestFromSpaceIntegration:
         assert stats is not None
 
     def test_from_space_populates_postgres_tables(
-        self, cache_service: SemanticCacheService, genie_space_id: str
+        self, cache_service: PostgresContextAwareGenieService, genie_space_id: str
     ) -> None:
         """Verify data is actually stored in PostgreSQL tables."""
         # Initialize and run from_space
@@ -160,7 +164,7 @@ class TestFromSpaceIntegration:
         assert "prompt_history" in stats or stats.get("size", 0) >= 0
 
     def test_from_space_duplicate_run_idempotent(
-        self, cache_service: SemanticCacheService, genie_space_id: str
+        self, cache_service: PostgresContextAwareGenieService, genie_space_id: str
     ) -> None:
         """Running from_space twice should not create duplicates."""
         # Initialize
@@ -192,7 +196,7 @@ class TestFromSpaceIntegration:
         assert prompt_count1 == prompt_count2
 
     def test_from_space_with_time_range_filter(
-        self, cache_service: SemanticCacheService, genie_space_id: str
+        self, cache_service: PostgresContextAwareGenieService, genie_space_id: str
     ) -> None:
         """Integration test for time filtering."""
         # Initialize
@@ -213,7 +217,7 @@ class TestFromSpaceIntegration:
         assert result is cache_service
 
     def test_from_space_respects_include_all_messages(
-        self, cache_service: SemanticCacheService, genie_space_id: str
+        self, cache_service: PostgresContextAwareGenieService, genie_space_id: str
     ) -> None:
         """Test permission-based filtering with include_all_messages."""
         # Initialize

@@ -1,4 +1,4 @@
-"""Unit and integration tests for in-memory semantic cache with conversation context."""
+"""Unit and integration tests for in-memory context-aware cache with conversation context."""
 
 import os
 from datetime import datetime, timedelta
@@ -15,8 +15,8 @@ from dao_ai.config import (
     WarehouseModel,
 )
 from dao_ai.genie import GenieService
-from dao_ai.genie.cache import InMemorySemanticCacheService
-from dao_ai.genie.cache.in_memory_semantic import (
+from dao_ai.genie.cache import InMemoryContextAwareGenieService
+from dao_ai.genie.cache.context_aware.in_memory import (
     InMemoryCacheEntry,
     distance_to_similarity,
     l2_distance,
@@ -159,12 +159,12 @@ class TestInMemoryCacheEntry:
 
 
 # ============================================================================
-# Unit Tests for InMemorySemanticCacheService
+# Unit Tests for InMemoryContextAwareGenieService
 # ============================================================================
 
 
-class TestInMemorySemanticCacheServiceContext:
-    """Unit tests for InMemorySemanticCacheService context-aware functionality."""
+class TestInMemoryContextAwareCacheContext:
+    """Unit tests for InMemoryContextAwareGenieService context-aware functionality."""
 
     @pytest.fixture
     def mock_workspace_client(self) -> Mock:
@@ -195,7 +195,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -214,7 +214,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -243,7 +243,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -285,7 +285,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -318,7 +318,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -340,7 +340,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "space-A"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -382,7 +382,7 @@ class TestInMemorySemanticCacheServiceContext:
         # Set short TTL
         mock_parameters.time_to_live_seconds = 60  # 1 minute
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -424,7 +424,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -468,7 +468,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_parameters.similarity_threshold = 0.5
         mock_parameters.context_similarity_threshold = 0.5
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -525,7 +525,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -563,7 +563,7 @@ class TestInMemorySemanticCacheServiceContext:
         # Set capacity to 2
         mock_parameters.capacity = 2
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -633,7 +633,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "space-A"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -686,7 +686,7 @@ class TestInMemorySemanticCacheServiceContext:
 
         mock_parameters.time_to_live_seconds = 60  # 1 minute TTL
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -739,7 +739,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_impl = Mock()
         mock_impl.space_id = "space-A"
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -803,7 +803,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_parameters.time_to_live_seconds = 60
         mock_parameters.capacity = 100
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -866,7 +866,7 @@ class TestInMemorySemanticCacheServiceContext:
         mock_parameters.similarity_threshold = 0.5
         mock_parameters.context_similarity_threshold = 0.5
 
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=mock_workspace_client,
@@ -919,9 +919,9 @@ class TestInMemorySemanticCacheServiceContext:
 @pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_in_memory_semantic_cache_with_conversation_context_integration() -> None:
+def test_in_memory_context_aware_cache_with_conversation_context_integration() -> None:
     """
-    Integration test for in-memory semantic cache with conversation context.
+    Integration test for in-memory context-aware cache with conversation context.
 
     This test verifies that:
     1. Questions with context are cached differently than without context
@@ -948,7 +948,7 @@ def test_in_memory_semantic_cache_with_conversation_context_integration() -> Non
     warehouse = WarehouseModel(warehouse_id=warehouse_id)
     add_databricks_resource_attrs(warehouse)
 
-    # Create in-memory semantic cache with context enabled
+    # Create in-memory context-aware cache with context enabled
     cache_params = GenieInMemorySemanticCacheParametersModel(
         warehouse=warehouse,
         embedding_model="databricks-gte-large-en",
@@ -959,7 +959,7 @@ def test_in_memory_semantic_cache_with_conversation_context_integration() -> Non
         capacity=100,  # Limit cache size
     )
 
-    # Create Genie service with in-memory semantic cache
+    # Create Genie service with in-memory context-aware cache
     from databricks_ai_bridge.genie import Genie
 
     genie = Genie(
@@ -968,7 +968,7 @@ def test_in_memory_semantic_cache_with_conversation_context_integration() -> Non
     )
 
     genie_service = GenieService(genie)
-    cache_service = InMemorySemanticCacheService(
+    cache_service = InMemoryContextAwareGenieService(
         impl=genie_service,
         parameters=cache_params,
         workspace_client=genie_room.workspace_client,
@@ -977,7 +977,7 @@ def test_in_memory_semantic_cache_with_conversation_context_integration() -> Non
     # Clear cache before test
     cache_service.clear()
 
-    print("\n=== Testing In-Memory Semantic Cache with Conversation Context ===")
+    print("\n=== Testing In-Memory Context-Aware Cache with Conversation Context ===")
 
     # Test 1: First question (no context)
     print("\n1. First question (establishes context):")
@@ -1051,7 +1051,7 @@ def test_in_memory_semantic_cache_with_conversation_context_integration() -> Non
 @pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
-def test_in_memory_semantic_cache_context_improves_precision() -> None:
+def test_in_memory_context_aware_cache_context_improves_precision() -> None:
     """
     Test that conversation context improves cache precision for ambiguous questions.
 
@@ -1091,7 +1091,7 @@ def test_in_memory_semantic_cache_context_improves_precision() -> None:
 
     genie = Genie(space_id=space_id, client=genie_room.workspace_client)
     genie_service = GenieService(genie)
-    cache_service = InMemorySemanticCacheService(
+    cache_service = InMemoryContextAwareGenieService(
         impl=genie_service,
         parameters=cache_params,
         workspace_client=genie_room.workspace_client,

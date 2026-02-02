@@ -12,6 +12,7 @@ from threading import Lock
 
 import mlflow
 import pandas as pd
+from databricks.sdk.service.dashboards import GenieFeedbackRating
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
@@ -139,7 +140,9 @@ class LRUCacheService(GenieServiceBase):
         self._cache.move_to_end(key)
         return entry
 
-    def _put(self, key: str, response: GenieResponse) -> None:
+    def _put(
+        self, key: str, response: GenieResponse, message_id: str | None = None
+    ) -> None:
         """Store SQL query in cache, evicting if at capacity."""
         # Skip caching if query is empty or whitespace
         if not response.query or not response.query.strip():
@@ -162,6 +165,9 @@ class LRUCacheService(GenieServiceBase):
             description=response.description,
             conversation_id=response.conversation_id,
             created_at=datetime.now(),
+            message_id=message_id,
+            # LRU cache is in-memory only, no database row ID
+            cache_entry_id=None,
         )
         logger.debug(
             "Stored cache entry",
@@ -170,6 +176,7 @@ class LRUCacheService(GenieServiceBase):
             sql=response.query[:50] if response.query else None,
             cache_size=len(self._cache),
             capacity=self.capacity,
+            message_id=message_id,
         )
 
     @mlflow.trace(name="execute_cached_sql")
@@ -302,16 +309,21 @@ class LRUCacheService(GenieServiceBase):
                         question, conversation_id
                     )
 
-                    # Store the fresh SQL in cache
+                    # Store the fresh SQL in cache (including message_id for feedback)
                     if fallback_result.response.query:
                         with self._lock:
-                            self._put(key, fallback_result.response)
+                            self._put(
+                                key,
+                                fallback_result.response,
+                                message_id=fallback_result.message_id,
+                            )
                         logger.info(
                             "Stored fresh SQL from fallback",
                             layer=self.name,
                             fresh_sql=fallback_result.response.query[:80],
                             cache_size=len(self._cache),
                             capacity=self.capacity,
+                            message_id=fallback_result.message_id,
                         )
                     else:
                         logger.warning(
@@ -329,10 +341,12 @@ class LRUCacheService(GenieServiceBase):
                     )
 
                     # Return as cache miss (fallback scenario)
+                    # Propagate message_id from fallback result
                     return CacheResult(
                         response=fallback_result.response,
                         cache_hit=False,
                         served_by=None,
+                        message_id=fallback_result.message_id,
                     )
 
                 # Use current conversation_id, not the cached one
@@ -345,8 +359,14 @@ class LRUCacheService(GenieServiceBase):
                     else cached.conversation_id,
                 )
 
+                # Cache hit - include message_id from original response for feedback support
                 return CacheResult(
-                    response=response, cache_hit=True, served_by=self.name
+                    response=response,
+                    cache_hit=True,
+                    served_by=self.name,
+                    message_id=cached.message_id,
+                    # LRU cache is in-memory only, no cache_entry_id for traceability
+                    cache_entry_id=None,
                 )
 
         # Cache miss - delegate to wrapped service
@@ -363,7 +383,7 @@ class LRUCacheService(GenieServiceBase):
 
         result: CacheResult = self.impl.ask_question(question, conversation_id)
         with self._lock:
-            self._put(key, result.response)
+            self._put(key, result.response, message_id=result.message_id)
         # Propagate the inner cache's result - if it was a hit there, preserve that info
         return result
 
@@ -414,3 +434,88 @@ class LRUCacheService(GenieServiceBase):
                 "expired_entries": expired,
                 "valid_entries": len(self._cache) - expired,
             }
+
+    @mlflow.trace(name="genie_lru_cache_send_feedback")
+    def send_feedback(
+        self,
+        conversation_id: str,
+        rating: GenieFeedbackRating,
+        message_id: str | None = None,
+        was_cache_hit: bool = False,
+    ) -> None:
+        """
+        Send feedback for a Genie message with cache invalidation.
+
+        For LRU cache, this method:
+        1. If was_cache_hit is False: forwards feedback to the underlying service
+        2. If rating is NEGATIVE: invalidates any matching cache entries
+
+        Args:
+            conversation_id: The conversation containing the message
+            rating: The feedback rating (POSITIVE, NEGATIVE, or NONE)
+            message_id: Optional message ID. If None, looks up the most recent message.
+            was_cache_hit: Whether the response being rated was served from cache.
+
+        Note:
+            For cached responses (was_cache_hit=True), only cache invalidation is
+            performed. No feedback is sent to the Genie API because cached responses
+            don't have a corresponding Genie message.
+
+            Future Enhancement: To enable full Genie feedback for cached responses,
+            the cache would need to store the original message_id. See GenieServiceBase
+            docstring for details on required changes.
+        """
+        # Handle cache invalidation on negative feedback
+        invalidated = False
+        if rating == GenieFeedbackRating.NEGATIVE:
+            # For LRU cache, we invalidate by conversation_id since that's part of the key
+            # Iterate through cache and remove entries matching the conversation_id
+            with self._lock:
+                keys_to_remove: list[str] = []
+                for key, entry in self._cache.items():
+                    if entry.conversation_id == conversation_id:
+                        keys_to_remove.append(key)
+
+                for key in keys_to_remove:
+                    del self._cache[key]
+                    invalidated = True
+                    logger.info(
+                        "Invalidated cache entry due to negative feedback",
+                        layer=self.name,
+                        cache_key=key[:50],
+                        conversation_id=conversation_id,
+                    )
+
+            if not keys_to_remove:
+                logger.debug(
+                    "No cache entries found to invalidate for negative feedback",
+                    layer=self.name,
+                    conversation_id=conversation_id,
+                )
+
+        # Forward feedback to underlying service if not a cache hit
+        # For cache hits, there's no Genie message to provide feedback on
+        if was_cache_hit:
+            logger.info(
+                "Skipping Genie API feedback - response was served from cache",
+                layer=self.name,
+                conversation_id=conversation_id,
+                rating=rating.value if rating else None,
+                cache_invalidated=invalidated,
+            )
+            return
+
+        # Forward to underlying service
+        logger.debug(
+            "Forwarding feedback to underlying service",
+            layer=self.name,
+            conversation_id=conversation_id,
+            rating=rating.value if rating else None,
+            delegating_to=type(self.impl).__name__,
+        )
+        self.impl.send_feedback(
+            conversation_id=conversation_id,
+            rating=rating,
+            message_id=message_id,
+            was_cache_hit=False,  # Already handled, so pass False
+        )

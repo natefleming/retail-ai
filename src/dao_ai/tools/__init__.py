@@ -1,4 +1,4 @@
-from dao_ai.genie.cache import LRUCacheService, SemanticCacheService
+from dao_ai.genie.cache import LRUCacheService, PostgresContextAwareGenieService
 from dao_ai.hooks.core import create_hooks
 from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.core import create_tools, say_hello_tool
@@ -44,8 +44,8 @@ __all__ = [
     "format_time_tool",
     "is_business_hours_tool",
     "LRUCacheService",
+    "PostgresContextAwareGenieService",
     "say_hello_tool",
-    "SemanticCacheService",
     "time_difference_tool",
     "time_in_timezone_tool",
     "time_until_tool",

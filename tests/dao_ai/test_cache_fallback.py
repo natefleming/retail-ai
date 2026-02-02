@@ -14,9 +14,9 @@ from dao_ai.config import (
     WarehouseModel,
 )
 from dao_ai.genie.cache import (
-    InMemorySemanticCacheService,
+    InMemoryContextAwareGenieService,
     LRUCacheService,
-    SemanticCacheService,
+    PostgresContextAwareGenieService,
 )
 from dao_ai.genie.cache.base import CacheResult
 
@@ -94,8 +94,8 @@ class TestLRUCacheFallback:
         assert cached_entry.query == "SELECT COUNT(*) as count FROM new_table"
 
 
-class TestSemanticCacheFallback:
-    """Test fallback logic for Semantic cache when cached SQL execution fails."""
+class TestPostgresContextAwareCacheFallback:
+    """Test fallback logic for PostgresContextAwareGenieService when cached SQL execution fails."""
 
     @pytest.fixture
     def mock_parameters(self) -> Mock:
@@ -116,7 +116,7 @@ class TestSemanticCacheFallback:
         return params
 
     def test_fallback_on_sql_execution_failure(self, mock_parameters: Mock) -> None:
-        """Test that semantic cache falls back to Genie when cached SQL execution fails."""
+        """Test that context-aware cache falls back to Genie when cached SQL execution fails."""
         # Create mock implementation
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
@@ -135,7 +135,7 @@ class TestSemanticCacheFallback:
         )
 
         # Create cache service
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=None,
@@ -192,8 +192,8 @@ class TestSemanticCacheFallback:
         mock_impl.ask_question.assert_called_once_with("How many items?", None)
 
 
-class TestInMemorySemanticCacheFallback:
-    """Test fallback logic for In-Memory Semantic cache when cached SQL execution fails."""
+class TestInMemoryContextAwareCacheFallback:
+    """Test fallback logic for InMemoryContextAwareGenieService when cached SQL execution fails."""
 
     @pytest.fixture
     def mock_parameters(self) -> Mock:
@@ -213,7 +213,7 @@ class TestInMemorySemanticCacheFallback:
         return params
 
     def test_fallback_on_sql_execution_failure(self, mock_parameters: Mock) -> None:
-        """Test that in-memory cache falls back to Genie when cached SQL execution fails."""
+        """Test that in-memory context-aware cache falls back to Genie when cached SQL execution fails."""
         # Create mock implementation
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
@@ -232,7 +232,7 @@ class TestInMemorySemanticCacheFallback:
         )
 
         # Create cache service
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=None,
@@ -287,7 +287,7 @@ class TestInMemorySemanticCacheFallback:
         mock_impl.space_id = "test-space"
 
         # Create cache service
-        service = InMemorySemanticCacheService(
+        service = InMemoryContextAwareGenieService(
             impl=mock_impl,
             parameters=mock_parameters,
             workspace_client=None,

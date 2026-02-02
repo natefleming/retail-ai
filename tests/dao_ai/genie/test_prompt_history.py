@@ -1,4 +1,4 @@
-"""Unit and integration tests for prompt history tracking in semantic cache."""
+"""Unit and integration tests for prompt history tracking in context-aware cache."""
 
 from unittest.mock import Mock, patch
 
@@ -9,7 +9,7 @@ from dao_ai.config import (
     GenieSemanticCacheParametersModel,
     WarehouseModel,
 )
-from dao_ai.genie.cache import SemanticCacheService
+from dao_ai.genie.cache import PostgresContextAwareGenieService
 
 
 class TestPromptHistoryStorage:
@@ -75,7 +75,7 @@ class TestPromptHistoryStorage:
             "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
             return_value=mock_pool,
         ):
-            service = SemanticCacheService(
+            service = PostgresContextAwareGenieService(
                 impl=mock_impl,
                 parameters=cache_parameters,
                 workspace_client=None,
@@ -119,7 +119,7 @@ class TestPromptHistoryStorage:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=None,
@@ -181,7 +181,7 @@ class TestPromptHistoryStorage:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=None,
@@ -229,7 +229,7 @@ class TestPromptHistoryStorage:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=None,
@@ -260,7 +260,7 @@ class TestPromptHistoryContextBuilding:
     """Test context building from prompt history."""
 
     @pytest.fixture
-    def cache_service_with_history(self) -> SemanticCacheService:
+    def cache_service_with_history(self) -> PostgresContextAwareGenieService:
         """Create a cache service with mocked prompt history."""
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
@@ -280,7 +280,7 @@ class TestPromptHistoryContextBuilding:
             context_window_size=2,
         )
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=parameters,
             workspace_client=None,
@@ -297,7 +297,7 @@ class TestPromptHistoryContextBuilding:
         return service
 
     def test_context_excludes_current_prompt(
-        self, cache_service_with_history: SemanticCacheService
+        self, cache_service_with_history: PostgresContextAwareGenieService
     ) -> None:
         """Test that context embedding does not include the current prompt."""
         # Mock prompt history retrieval (returns PREVIOUS prompts only)
@@ -335,7 +335,7 @@ class TestPromptHistoryContextBuilding:
         )  # Context should not include current
 
     def test_sliding_window(
-        self, cache_service_with_history: SemanticCacheService
+        self, cache_service_with_history: PostgresContextAwareGenieService
     ) -> None:
         """Test that context window slides correctly (LIMIT behavior)."""
         # Simulate 4 prompts, window_size=2, should return only last 2
@@ -413,7 +413,7 @@ class TestPromptHistoryIntegration:
         genie = Genie(space_id=genie_space_id)
         genie_service = GenieService(genie)
 
-        cache_service = SemanticCacheService(
+        cache_service = PostgresContextAwareGenieService(
             impl=genie_service,
             parameters=parameters,
             workspace_client=lakebase_database.workspace_client,
@@ -493,12 +493,19 @@ class TestPromptHistoryIntegration:
             print("\n✅ Integration Test PASSED!")
 
         finally:
-            # Cleanup: clear test data
-            print("\n=== Cleaning Up Test Data ===")
-            deleted_prompts = cache_service.clear_prompt_history(test_conv_id)
-            print(f"Deleted {deleted_prompts} test prompts")
-            cache_service.clear()
-            print("✅ Cleanup complete")
+            # Cleanup: drop test tables to avoid accumulating test artifacts
+            print("\n=== Cleaning Up Test Tables ===")
+            try:
+                results = cache_service.drop_tables()
+                print(f"Dropped tables: {results}")
+                print("✅ Cleanup complete")
+            except Exception as e:
+                print(f"Failed to drop tables: {e}")
+                # Fallback to clearing data
+                deleted_prompts = cache_service.clear_prompt_history(test_conv_id)
+                print(f"Deleted {deleted_prompts} test prompts")
+                cache_service.clear()
+                print("✅ Fallback cleanup complete")
 
 
 def test_configuration_validation() -> None:
@@ -573,7 +580,7 @@ class TestFromSpace:
         mock_impl = Mock()
         mock_impl.space_id = "test-space"
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=None,  # No workspace client
@@ -608,7 +615,7 @@ class TestFromSpace:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,
@@ -646,7 +653,7 @@ class TestFromSpace:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,
@@ -690,7 +697,7 @@ class TestFromSpace:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,
@@ -717,7 +724,9 @@ class TestFromSpace:
 
         mock_message = Mock()
         mock_message.content = "What are total sales?"
-        mock_message.created_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        mock_message.created_timestamp = int(
+            datetime.now(timezone.utc).timestamp() * 1000
+        )
         mock_message.attachments = None
 
         mock_workspace_client = Mock()
@@ -740,7 +749,7 @@ class TestFromSpace:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,
@@ -781,7 +790,9 @@ class TestFromSpace:
 
         mock_message = Mock()
         mock_message.content = "Show me all sales"
-        mock_message.created_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        mock_message.created_timestamp = int(
+            datetime.now(timezone.utc).timestamp() * 1000
+        )
         mock_message.attachments = [mock_attachment]
 
         mock_workspace_client = Mock()
@@ -808,7 +819,7 @@ class TestFromSpace:
         mock_embeddings = Mock()
         mock_embeddings.embed_query.return_value = [0.1] * 768
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,
@@ -846,7 +857,9 @@ class TestFromSpace:
 
         mock_message = Mock()
         mock_message.content = "Duplicate prompt"
-        mock_message.created_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        mock_message.created_timestamp = int(
+            datetime.now(timezone.utc).timestamp() * 1000
+        )
         mock_message.attachments = None
 
         mock_workspace_client = Mock()
@@ -869,7 +882,7 @@ class TestFromSpace:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,
@@ -896,12 +909,16 @@ class TestFromSpace:
         now = datetime.now(timezone.utc)
         old_message = Mock()
         old_message.content = "Old message"
-        old_message.created_timestamp = int((now - timedelta(days=10)).timestamp() * 1000)
+        old_message.created_timestamp = int(
+            (now - timedelta(days=10)).timestamp() * 1000
+        )
         old_message.attachments = None
 
         recent_message = Mock()
         recent_message.content = "Recent message"
-        recent_message.created_timestamp = int((now - timedelta(days=1)).timestamp() * 1000)
+        recent_message.created_timestamp = int(
+            (now - timedelta(days=1)).timestamp() * 1000
+        )
         recent_message.attachments = None
 
         mock_workspace_client = Mock()
@@ -924,7 +941,7 @@ class TestFromSpace:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,
@@ -984,7 +1001,7 @@ class TestFromSpace:
         mock_pool = Mock()
         mock_pool.connection.return_value = mock_conn
 
-        service = SemanticCacheService(
+        service = PostgresContextAwareGenieService(
             impl=mock_impl,
             parameters=cache_parameters,
             workspace_client=mock_workspace_client,

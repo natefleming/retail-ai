@@ -20,6 +20,10 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from dao_ai.genie.cache.optimization import (
+        SemanticCacheEvalDataset,
+        ThresholdOptimizationResult,
+    )
     from dao_ai.state import Context
 
 from databricks.sdk import WorkspaceClient

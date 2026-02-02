@@ -1,8 +1,8 @@
-# Genie Semantic Cache - Prompt History
+# Genie Context-Aware Cache - Prompt History
 
 ## Overview
 
-The Genie semantic cache now includes **prompt history tracking** to solve the conversation continuity problem where cache hits created "holes" in conversation context.
+The Genie context-aware cache now includes **prompt history tracking** to solve the conversation continuity problem where cache hits created "holes" in conversation context.
 
 ## Problem Solved
 
@@ -48,33 +48,33 @@ User: "What's the total for that?"
 ```mermaid
 sequenceDiagram
     participant Client
-    participant SemanticCache
+    participant ContextAwareCache
     participant PromptHistory as genie_prompt_history
-    participant CacheTable as genie_semantic_cache
+    participant CacheTable as genie_context_aware_cache
     participant Genie
 
-    Client->>SemanticCache: ask_question(question, conv_id)
-    SemanticCache->>PromptHistory: 1. Get PREVIOUS prompts
-    PromptHistory-->>SemanticCache: Recent prompts
-    SemanticCache->>SemanticCache: 2. Build embeddings with context
-    SemanticCache->>PromptHistory: 3. Store CURRENT prompt
-    Note over SemanticCache,PromptHistory: cache_hit=false initially
-    SemanticCache->>CacheTable: 4. Search for similar entry
+    Client->>ContextAwareCache: ask_question(question, conv_id)
+    ContextAwareCache->>PromptHistory: 1. Get PREVIOUS prompts
+    PromptHistory-->>ContextAwareCache: Recent prompts
+    ContextAwareCache->>ContextAwareCache: 2. Build embeddings with context
+    ContextAwareCache->>PromptHistory: 3. Store CURRENT prompt
+    Note over ContextAwareCache,PromptHistory: cache_hit=false initially
+    ContextAwareCache->>CacheTable: 4. Search for similar entry
     alt Cache Hit
-        CacheTable-->>SemanticCache: Cached SQL
-        SemanticCache->>PromptHistory: 5. Update cache_hit=true
-        SemanticCache-->>Client: Cached result
+        CacheTable-->>ContextAwareCache: Cached SQL + message_id + entry_id
+        ContextAwareCache->>PromptHistory: 5. Update cache_hit=true, cache_entry_id
+        ContextAwareCache-->>Client: Cached result (incl. message_id, cache_entry_id)
     else Cache Miss
-        SemanticCache->>Genie: Delegate question
-        Genie-->>SemanticCache: Fresh SQL
-        SemanticCache->>CacheTable: Store new entry
-        SemanticCache-->>Client: Fresh result
+        ContextAwareCache->>Genie: Delegate question
+        Genie-->>ContextAwareCache: Fresh SQL + message_id
+        ContextAwareCache->>CacheTable: Store new entry (incl. message_id)
+        ContextAwareCache-->>Client: Fresh result (incl. message_id)
     end
 ```
 
 ### Two Separate Tables
 
-#### 1. `genie_prompt_history` (NEW)
+#### 1. `genie_prompt_history` (UPDATED)
 Stores **ALL user prompts** (cache hits and misses)
 
 ```sql
@@ -84,10 +84,12 @@ CREATE TABLE genie_prompt_history (
     conversation_id TEXT NOT NULL,
     prompt TEXT NOT NULL,
     cache_hit BOOLEAN DEFAULT FALSE,
+    cache_entry_id INTEGER,                            -- NEW: Links to cache entry on hit
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     
     INDEX idx_conversation (genie_space_id, conversation_id, created_at DESC),
-    INDEX idx_space_recent (genie_space_id, created_at DESC)
+    INDEX idx_space_recent (genie_space_id, created_at DESC),
+    INDEX idx_cache_entry (cache_entry_id) WHERE cache_entry_id IS NOT NULL
 )
 ```
 
@@ -95,11 +97,16 @@ CREATE TABLE genie_prompt_history (
 
 **Storage**: ~200 bytes per prompt (text only)
 
-#### 2. `genie_semantic_cache` (EXISTING)
+**New Field `cache_entry_id`**: Links prompts to their serving cache entry. This enables:
+- Tracing which cache entry served a particular prompt
+- Analytics on cache entry reuse patterns
+- Debugging cache behavior
+
+#### 2. `genie_context_aware_cache` (EXISTING, UPDATED)
 Stores **SQL queries + embeddings** (cache misses only)
 
 ```sql
-CREATE TABLE genie_semantic_cache (
+CREATE TABLE genie_context_aware_cache (
     id SERIAL PRIMARY KEY,
     genie_space_id TEXT NOT NULL,
     question TEXT NOT NULL,
@@ -109,6 +116,7 @@ CREATE TABLE genie_semantic_cache (
     sql_query TEXT NOT NULL,
     description TEXT,
     conversation_id TEXT,
+    message_id TEXT,                                   -- NEW: Original Genie message ID (for feedback)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 )
 ```
@@ -116,6 +124,10 @@ CREATE TABLE genie_semantic_cache (
 **Purpose**: Store SQL + embeddings for semantic similarity search
 
 **Storage**: ~2KB per entry (embeddings are large)
+
+**New Field `message_id`**: Stores the original Genie API message ID. This enables:
+- Sending feedback to Genie API even for cache hits
+- Tracing cache entries back to their original Genie responses
 
 ## Data Flow
 
@@ -145,12 +157,12 @@ flowchart TB
     
     STEP3 --> DB_AFTER
     
-    DB_AFTER --> STEP4[Step 4: Search semantic cache<br/>using dual embeddings]
+    DB_AFTER --> STEP4[Step 4: Search context-aware cache<br/>using dual embeddings]
     
     STEP4 --> DECIDE{Cache hit?}
     
     DECIDE -->|Yes| HIT[Update prompt:<br/>cache_hit=true]
-    DECIDE -->|No| MISS[Store SQL in<br/>semantic cache]
+    DECIDE -->|No| MISS[Store SQL in<br/>context-aware cache]
     
     style START fill:#e1f5ff
     style DB_BEFORE fill:#fff4e1
@@ -162,7 +174,7 @@ flowchart TB
 
 ## Dual Embedding Architecture
 
-The semantic cache uses **two separate embeddings** that are compared **independently**:
+The context-aware cache uses **two separate embeddings** that are compared **independently**:
 
 ### 1. Question Embedding
 **Input**: Current prompt only
@@ -279,7 +291,7 @@ genie_tools:
       prompt_history_ttl_seconds: null  # TTL for prompts (null = use cache TTL)
       use_genie_api_for_history: false  # Fallback to Genie API if local empty
       
-      # Existing semantic cache config
+      # Existing context-aware cache config
       similarity_threshold: 0.85
       context_similarity_threshold: 0.80
       question_weight: 0.6
@@ -306,7 +318,7 @@ from dao_ai.config import (
 )
 from databricks.sdk import WorkspaceClient
 from databricks_ai_bridge.genie import Genie
-from dao_ai.genie.cache import SemanticCacheService
+from dao_ai.genie.cache import PostgresContextAwareGenieService
 from dao_ai.genie.core import GenieService
 
 # Setup
@@ -335,7 +347,7 @@ parameters = GenieSemanticCacheParametersModel(
 genie = Genie(space_id="my-space")
 genie_service = GenieService(genie)
 
-cache_service = SemanticCacheService(
+cache_service = PostgresContextAwareGenieService(
     impl=genie_service,
     parameters=parameters,
     workspace_client=workspace_client,
@@ -396,9 +408,9 @@ print(f"Conversation history: {prompts}")
 ```mermaid
 sequenceDiagram
     participant User
-    participant Cache as SemanticCache
+    participant Cache as ContextAwareCache
     participant PromptDB as genie_prompt_history
-    participant CacheDB as genie_semantic_cache
+    participant CacheDB as genie_context_aware_cache
     participant Genie as Genie API
     
     User->>Cache: "Show by region"
@@ -456,7 +468,7 @@ Result: Sliding window of last 2 prompts
 
 ### Automatic Prompt History Cleanup
 
-The semantic cache automatically maintains prompt history in two ways:
+The context-aware cache automatically maintains prompt history in two ways:
 
 #### 1. Per-Conversation Length Limit
 
@@ -536,7 +548,7 @@ prompts: list[str] = cache_service._get_local_prompt_history(
 )
 
 # Clear all cache entries (prompts are NOT cleared automatically)
-cache_service.clear()  # Only clears semantic_cache table
+cache_service.clear()  # Only clears context_aware_cache table
 ```
 
 ### Internal Methods (Not Exposed)
@@ -580,7 +592,7 @@ For existing conversations, either:
 
 ### What We DON'T Store (and why)
 ❌ **Assistant responses**: Not needed for semantic matching
-❌ **SQL queries**: Already in `genie_semantic_cache` table (would be duplication)
+❌ **SQL queries**: Already in `genie_context_aware_cache` table (would be duplication)
 ❌ **Result data**: Re-executed on cache hit for fresh data
 ❌ **Descriptions**: Not used in context embeddings
 
@@ -650,7 +662,7 @@ ORDER BY created_at;
 
 -- Check cache entries
 SELECT question, conversation_context 
-FROM genie_semantic_cache 
+FROM genie_context_aware_cache 
 WHERE genie_space_id = 'your-space-id'
 ORDER BY created_at DESC;
 ```
@@ -693,6 +705,141 @@ database:
   instance_name: retail-consumer-goods
 ```
 
+## Feedback and Cache Invalidation
+
+The Genie service supports sending user feedback (positive/negative) for responses. When negative feedback is received, the corresponding cache entry is automatically invalidated.
+
+### Sending Feedback
+
+```python
+from dao_ai.genie import GenieFeedbackRating
+
+# After getting a response
+result = cache_service.ask_question("What are total sales?")
+
+# Later, when user provides feedback
+cache_service.send_feedback(
+    conversation_id=result.response.conversation_id,
+    rating=GenieFeedbackRating.NEGATIVE,  # POSITIVE, NEGATIVE, or NONE
+    was_cache_hit=result.cache_hit,  # Important: pass through from CacheResult
+)
+```
+
+### Feedback API Method
+
+```python
+def send_feedback(
+    self,
+    conversation_id: str,
+    rating: GenieFeedbackRating,
+    message_id: str | None = None,
+    was_cache_hit: bool = False,
+) -> None:
+    """
+    Send feedback for a Genie message.
+    
+    Args:
+        conversation_id: The conversation containing the message
+        rating: POSITIVE, NEGATIVE, or NONE
+        message_id: Optional message ID. If None, looks up most recent message.
+        was_cache_hit: Whether the response being rated was served from cache.
+    """
+```
+
+### Feedback Behavior
+
+| Scenario | Behavior |
+|----------|----------|
+| `was_cache_hit=False`, `NEGATIVE` | Forward to Genie API + Invalidate cache |
+| `was_cache_hit=False`, `POSITIVE` | Forward to Genie API only |
+| `was_cache_hit=True`, `NEGATIVE` | Invalidate cache + Forward to Genie API (with stored message_id) |
+| `was_cache_hit=True`, `POSITIVE` | Forward to Genie API (with stored message_id) |
+
+### Cache Hits Now Support Full Genie Feedback
+
+With the addition of `message_id` storage in cache entries, cache hits can now send feedback to the Genie API:
+
+1. **The original `message_id`** is stored when the SQL is first cached
+2. **On cache hit**, the stored `message_id` is included in `CacheResult`
+3. **Feedback can be sent** to Genie even for cached responses
+
+This enables Genie to learn from user feedback regardless of whether responses were cached.
+
+### Extended Genie with message_id Support
+
+The `dao_ai.genie` module provides extended `Genie` and `GenieResponse` classes that capture `message_id` from API responses:
+
+```python
+from dao_ai.genie import Genie, GenieResponse
+
+# Create Genie with message_id support
+genie = Genie(space_id="my-space")
+response = genie.ask_question("What are total sales?")
+
+# message_id is now available!
+print(response.message_id)  # e.g., "e1ef34712a29169db030324fd0e1df5f"
+```
+
+The original `databricks_ai_bridge` classes are available as aliases:
+- `DatabricksGenie` - Original Genie class
+- `DatabricksGenieResponse` - Original GenieResponse class
+
+When using `GenieService`, the `message_id` is propagated through `CacheResult`:
+
+```python
+from dao_ai.genie import Genie, GenieService, GenieFeedbackRating
+
+genie = Genie(space_id="my-space")
+service = GenieService(genie)
+result = service.ask_question("What are total sales?")
+
+# For cache misses, message_id is available
+if not result.cache_hit:
+    service.send_feedback(
+        conversation_id=result.response.conversation_id,
+        rating=GenieFeedbackRating.POSITIVE,
+        message_id=result.message_id,  # No extra API call needed!
+    )
+```
+
+### Full Feedback Support for Cached Responses
+
+The cache now stores `message_id` from original Genie responses, enabling full feedback support:
+
+```python
+# Cache hits now include the original message_id
+result = cache_service.ask_question("What are total sales?")
+
+if result.cache_hit:
+    # Send feedback to Genie API even for cache hits!
+    cache_service.send_feedback(
+        conversation_id=result.response.conversation_id,
+        rating=GenieFeedbackRating.NEGATIVE,
+        message_id=result.message_id,  # From original cached entry
+        was_cache_hit=True,
+    )
+```
+
+### Cache Entry Traceability
+
+Each prompt history entry now links to its serving cache entry:
+
+```python
+# CacheResult includes cache_entry_id for tracing
+result = cache_service.ask_question("Filter by region")
+
+if result.cache_hit:
+    print(f"Served by cache entry: {result.cache_entry_id}")
+    # Can trace back in genie_prompt_history table
+```
+
+Query to find which prompts were served by a specific cache entry:
+```sql
+SELECT prompt, created_at 
+FROM genie_prompt_history 
+WHERE cache_entry_id = 42;
+```
+
 ## Future Enhancements (Phase 2 & 3)
 
 - 🔄 Prompt history TTL and cleanup
@@ -707,5 +854,7 @@ database:
 ✅ **Problem Solved**: Cache hits no longer create conversation holes
 ✅ **Performance**: 50% faster cache hits, 10-25x faster context retrieval
 ✅ **Storage**: Minimal overhead (~200 bytes per prompt)
-✅ **Quality**: Comprehensive test coverage (7/7 passing)
+✅ **Quality**: Comprehensive test coverage
 ✅ **Backward Compatible**: No breaking changes
+✅ **Full Feedback Support**: Cache entries store `message_id` for Genie feedback on cache hits
+✅ **Traceability**: Prompt history links to cache entries via `cache_entry_id`
