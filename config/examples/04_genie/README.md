@@ -115,7 +115,7 @@ genie_tool:
         embedding_model: *embedding_model
         similarity_threshold: 0.85
         time_to_live_seconds: 3600
-        context_window_size: 3
+        context_window_size: 2  # default
 ```
 
 ### In-Memory Semantic Cache (Single-Instance)
@@ -141,7 +141,7 @@ genie_tool:
         similarity_threshold: 0.85
         time_to_live_seconds: 604800  # 1 week
         capacity: 1000                # LRU eviction when full
-        context_window_size: 3
+        context_window_size: 2  # default
 ```
 
 ## Cache Flow

@@ -1,7 +1,10 @@
 """Integration tests for Databricks Genie tool functionality."""
 
+from __future__ import annotations
+
 import os
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -11,16 +14,19 @@ from databricks.sdk.service.sql import StatementState
 from databricks_ai_bridge.genie import Genie, GenieResponse
 from langchain_core.tools import StructuredTool
 
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+
 from dao_ai.config import (
+    GenieContextAwareCacheParametersModel,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
-    GenieSemanticCacheParametersModel,
 )
-from dao_ai.genie import GenieServiceBase
+from dao_ai.genie import GenieFeedbackRating, GenieServiceBase
 from dao_ai.genie.cache import (
     CacheResult,
     LRUCacheService,
-    SemanticCacheService,
+    PostgresContextAwareGenieService,
     SQLCacheEntry,
 )
 from dao_ai.tools.genie import create_genie_tool
@@ -1041,6 +1047,20 @@ class MockGenieService(GenieServiceBase):
     def space_id(self) -> str:
         return "test-space-id"
 
+    @property
+    def workspace_client(self) -> "WorkspaceClient | None":
+        return None
+
+    def send_feedback(
+        self,
+        conversation_id: str,
+        rating: "GenieFeedbackRating",
+        message_id: str | None = None,
+        was_cache_hit: bool = False,
+    ) -> None:
+        """Mock implementation - does nothing."""
+        pass
+
 
 class MockColumn:
     """Mock column object with a name attribute."""
@@ -1542,12 +1562,19 @@ class TestLRUCacheServiceSQLExecution:
         assert list(result.response.result.columns) == ["col1", "col2"]
 
     @pytest.mark.unit
-    def test_sql_execution_failure_returns_error(
+    def test_sql_execution_failure_falls_back_to_genie(
         self,
         mock_genie_service: MockGenieService,
         mock_warehouse_model: Mock,
     ) -> None:
-        """Test that SQL execution failure returns error message."""
+        """Test that SQL execution failure triggers fallback to Genie.
+
+        When a cached SQL query fails to execute (e.g., table was dropped),
+        the cache should:
+        1. Invalidate the stale cache entry
+        2. Fall back to Genie for fresh SQL
+        3. Return a valid response (not an error)
+        """
         # Configure failed SQL execution
         mock_statement_response = Mock()
         mock_statement_response.status.state = StatementState.FAILED
@@ -1564,13 +1591,21 @@ class TestLRUCacheServiceSQLExecution:
             parameters=params,
         )
 
-        # First call - cache miss
+        # First call - cache miss, stores in cache
         cache.ask_question("test question")
+        assert cache.size == 1
+        assert mock_genie_service.call_count == 1
 
-        # Second call - cache hit, SQL execution fails
+        # Second call - cache hit, SQL execution fails, falls back to Genie
         result = cache.ask_question("test question")
 
-        assert "SQL execution failed" in str(result.response.result)
+        # Verify fallback behavior:
+        # 1. Genie was called again (fallback)
+        assert mock_genie_service.call_count == 2
+        # 2. Response is valid (from Genie, not an error)
+        assert result.response.result == "Mock result"
+        # 3. Cache entry was re-added with fresh SQL
+        assert cache.size == 1
 
 
 # =============================================================================
@@ -1792,7 +1827,7 @@ def test_create_genie_tool_with_cache_parameters() -> None:
 
 
 # =============================================================================
-# SemanticCacheService Tests
+# PostgresContextAwareGenieService Tests
 # =============================================================================
 
 
@@ -1857,8 +1892,10 @@ class MockCursor:
 
     def execute(self, query: str, params: tuple = ()) -> None:
         self.pool.executed_queries.append((query, params))
-        # Only fetch a result for SELECT queries
-        if "SELECT" in query.upper():
+        # Only fetch a result for queries that START with SELECT
+        # (not DELETE/UPDATE with SELECT subqueries)
+        query_stripped = query.strip().upper()
+        if query_stripped.startswith("SELECT"):
             self._last_result = self.pool.get_next_result()
             self.rowcount = 1 if self._last_result else 0
         else:
@@ -1889,9 +1926,9 @@ def create_mock_semantic_cache_parameters(
     similarity_threshold: float = 0.85,
     embedding_dims: int = 1024,
     table_name: str = "test_semantic_cache",
-) -> GenieSemanticCacheParametersModel:
-    """Create a mock GenieSemanticCacheParametersModel for testing."""
-    return GenieSemanticCacheParametersModel(
+) -> GenieContextAwareCacheParametersModel:
+    """Create a mock GenieContextAwareCacheParametersModel for testing."""
+    return GenieContextAwareCacheParametersModel(
         database=database,
         warehouse=warehouse,
         time_to_live_seconds=time_to_live_seconds,
@@ -1901,8 +1938,8 @@ def create_mock_semantic_cache_parameters(
     )
 
 
-class TestSemanticCacheServiceInitialization:
-    """Tests for SemanticCacheService initialization."""
+class TestPostgresContextAwareCacheInitialization:
+    """Tests for PostgresContextAwareGenieService initialization."""
 
     def test_init_with_defaults(self) -> None:
         """Test initialization with default name."""
@@ -1920,10 +1957,10 @@ class TestSemanticCacheServiceInitialization:
 
         # Mock the parameters model - we'll create a real one with mocked dependencies
         with patch(
-            "dao_ai.config.GenieSemanticCacheParametersModel.__init__",
+            "dao_ai.config.GenieContextAwareCacheParametersModel.__init__",
             return_value=None,
         ):
-            params = Mock(spec=GenieSemanticCacheParametersModel)
+            params = Mock(spec=GenieContextAwareCacheParametersModel)
             params.database = mock_database
             params.warehouse = mock_warehouse
             params.time_to_live_seconds = 86400
@@ -1934,20 +1971,26 @@ class TestSemanticCacheServiceInitialization:
             params.embedding_dims = 1024
             params.embedding_model = "databricks-gte-large-en"
             params.table_name = "test_cache"
+            params.prompt_history_table = "test_prompt_history"
+            params.max_prompt_history_length = 50
+            params.use_genie_api_for_history = False
+            params.prompt_history_ttl_seconds = None
 
-            cache = SemanticCacheService(impl=mock_service, parameters=params)
+            cache = PostgresContextAwareGenieService(
+                impl=mock_service, parameters=params
+            )
 
             assert cache.impl is mock_service
-            assert cache.name == "SemanticCacheService"
+            assert cache.name == "PostgresContextAwareGenieService"
             assert cache.space_id == "test-space-id"  # From MockGenieService
             assert cache._setup_complete is False
 
     def test_init_with_custom_name(self) -> None:
         """Test initialization with custom name."""
         mock_service = MockGenieService()
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
             name="CustomSemanticCache",
@@ -1956,18 +1999,18 @@ class TestSemanticCacheServiceInitialization:
         assert cache.name == "CustomSemanticCache"
 
 
-class TestSemanticCacheServiceProperties:
-    """Tests for SemanticCacheService properties."""
+class TestPostgresContextAwareCacheProperties:
+    """Tests for PostgresContextAwareGenieService properties."""
 
     def test_database_property(self) -> None:
         """Test database property returns correct value."""
         mock_service = MockGenieService()
         mock_database = Mock()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = mock_database
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -1978,10 +2021,10 @@ class TestSemanticCacheServiceProperties:
         mock_service = MockGenieService()
         mock_warehouse = Mock()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.warehouse = mock_warehouse
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -1991,10 +2034,10 @@ class TestSemanticCacheServiceProperties:
         """Test time_to_live returns timedelta."""
         mock_service = MockGenieService()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.time_to_live_seconds = 7200
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -2004,13 +2047,13 @@ class TestSemanticCacheServiceProperties:
         """Test similarity_threshold property returns correct value."""
         mock_service = MockGenieService()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.similarity_threshold = 0.9
         params.context_similarity_threshold = 0.80
         params.question_weight = 0.6
         params.context_weight = 0.4
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -2020,18 +2063,18 @@ class TestSemanticCacheServiceProperties:
         """Test table_name property returns correct value."""
         mock_service = MockGenieService()
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.table_name = "custom_cache_table"
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
         assert cache.table_name == "custom_cache_table"
 
 
-class TestSemanticCacheServiceCacheOperations:
-    """Tests for SemanticCacheService cache lookup and storage operations."""
+class TestPostgresContextAwareCacheOperations:
+    """Tests for PostgresContextAwareGenieService cache lookup and storage operations."""
 
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
     @patch("databricks_langchain.DatabricksEmbeddings")
@@ -2054,7 +2097,7 @@ class TestSemanticCacheServiceCacheOperations:
         # Third query returns None (no similar entry found)
         mock_pool.set_query_results([None, None])
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2067,8 +2110,12 @@ class TestSemanticCacheServiceCacheOperations:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         ).initialize()
@@ -2105,7 +2152,7 @@ class TestSemanticCacheServiceCacheOperations:
 
         cached_time = datetime.now(timezone.utc)
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2136,13 +2183,27 @@ class TestSemanticCacheServiceCacheOperations:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
-        # First query returns None (dimension check - table doesn't exist)
-        # Second query returns 0 rows (for table row count check)
-        # Third query returns a cached entry with similarity > threshold and valid TTL
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-9. _index_exists for 4 prompt history table indexes (None each)
+        # 10. cache lookup - returns cached entry
         mock_pool.set_query_results(
             [
                 None,  # dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
+                None,  # _index_exists for prompt_history_cache_entry_idx
                 {
                     "id": 1,
                     "question": "Similar question?",
@@ -2160,7 +2221,7 @@ class TestSemanticCacheServiceCacheOperations:
             ]
         )
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         ).initialize()
@@ -2168,7 +2229,7 @@ class TestSemanticCacheServiceCacheOperations:
 
         # Verify cache hit
         assert result.cache_hit is True
-        assert result.served_by == "SemanticCacheService"
+        assert result.served_by == "PostgresContextAwareGenieService"
 
         # Verify SQL was executed via warehouse
         mock_workspace_client.statement_execution.execute_statement.assert_called_once()
@@ -2193,7 +2254,7 @@ class TestSemanticCacheServiceCacheOperations:
 
         cached_time = datetime.now(timezone.utc)
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.warehouse.warehouse_id = "test-warehouse"
@@ -2206,11 +2267,27 @@ class TestSemanticCacheServiceCacheOperations:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
-        # Return entry with similarity below threshold (0.75 < 0.85)
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-9. _index_exists for 4 prompt history table indexes (None each)
+        # 10. cache lookup - returns entry with similarity below threshold
         mock_pool.set_query_results(
             [
                 None,  # dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
+                None,  # _index_exists for prompt_history_cache_entry_idx
                 {
                     "id": 1,
                     "question": "Different question",
@@ -2228,7 +2305,7 @@ class TestSemanticCacheServiceCacheOperations:
             ]
         )
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         ).initialize()
@@ -2257,7 +2334,7 @@ class TestSemanticCacheServiceCacheOperations:
 
         old_time = datetime.now(timezone.utc) - timedelta(days=2)  # Older than TTL
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400  # 1 day
@@ -2268,6 +2345,10 @@ class TestSemanticCacheServiceCacheOperations:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # Return entry with high similarity but EXPIRED (is_valid=False)
         mock_pool.set_query_results(
@@ -2290,7 +2371,7 @@ class TestSemanticCacheServiceCacheOperations:
             ]
         )
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         ).initialize()
@@ -2306,7 +2387,7 @@ class TestSemanticCacheServiceCacheOperations:
         assert len(delete_queries) >= 1
 
 
-class TestSemanticCacheServiceManagement:
+class TestPostgresContextAwareCacheManagement:
     """Tests for cache management operations."""
 
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
@@ -2324,7 +2405,7 @@ class TestSemanticCacheServiceManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2337,11 +2418,15 @@ class TestSemanticCacheServiceManagement:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # First query for dimension check, second for table creation
         mock_pool.set_query_results([None])
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -2366,7 +2451,7 @@ class TestSemanticCacheServiceManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 3600  # 1 hour TTL
@@ -2377,11 +2462,15 @@ class TestSemanticCacheServiceManagement:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # First query for dimension check, second for table creation
         mock_pool.set_query_results([None])
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -2415,7 +2504,7 @@ class TestSemanticCacheServiceManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2428,11 +2517,32 @@ class TestSemanticCacheServiceManagement:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
-        # First query for dimension check, second for table creation, third for count
-        mock_pool.set_query_results([None, {"count": 42}])
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-9. _index_exists for 4 prompt history table indexes (None each)
+        # 10. count query for size
+        mock_pool.set_query_results(
+            [
+                None,  # dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
+                None,  # _index_exists for prompt_history_cache_entry_idx
+                {"count": 42},
+            ]
+        )
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -2453,7 +2563,7 @@ class TestSemanticCacheServiceManagement:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2466,11 +2576,32 @@ class TestSemanticCacheServiceManagement:
         params.table_name = "test_cache"
         params.context_window_size = 3
         params.max_context_tokens = 2000
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
-        # First query for dimension check, second for stats
-        mock_pool.set_query_results([None, {"total": 100, "valid": 95, "expired": 5}])
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-9. _index_exists for 4 prompt history table indexes (None each)
+        # 10. stats query
+        mock_pool.set_query_results(
+            [
+                None,  # dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
+                None,  # _index_exists for prompt_history_cache_entry_idx
+                {"total": 100, "valid": 95, "expired": 5},
+            ]
+        )
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         )
@@ -2483,7 +2614,7 @@ class TestSemanticCacheServiceManagement:
         assert stats["similarity_threshold"] == 0.85
 
 
-class TestSemanticCacheServiceTableCreation:
+class TestPostgresContextAwareCacheTableCreation:
     """Tests for table creation behavior."""
 
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
@@ -2501,7 +2632,7 @@ class TestSemanticCacheServiceTableCreation:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        params = Mock(spec=GenieSemanticCacheParametersModel)
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock()
         params.warehouse = Mock()
         params.time_to_live_seconds = 86400
@@ -2512,11 +2643,15 @@ class TestSemanticCacheServiceTableCreation:
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "my_semantic_cache"
+        params.prompt_history_table = "test_prompt_history"
+        params.max_prompt_history_length = 50
+        params.use_genie_api_for_history = False
+        params.prompt_history_ttl_seconds = None
 
         # Dimension check returns None (table doesn't exist), table count returns 0
         mock_pool.set_query_results([None, None])
 
-        cache = SemanticCacheService(
+        cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
         ).initialize()
@@ -2551,7 +2686,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_pool_manager.get_pool.return_value = mock_pool
 
         # Setup semantic cache parameters
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2568,12 +2703,16 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         # Dimension check, table count returns 0, then no similar entry found
         mock_pool.set_query_results([None, None])
 
         # Create semantic cache wrapping Genie
-        semantic_cache = SemanticCacheService(
+        semantic_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             name="SemanticCache",
@@ -2624,7 +2763,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_pool_manager.get_pool.return_value = mock_pool
 
         # Setup semantic cache
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2651,10 +2790,14 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         mock_pool.set_query_results([None, None])
 
-        semantic_cache = SemanticCacheService(
+        semantic_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test
@@ -2712,7 +2855,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2739,36 +2882,59 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         cached_time = datetime.now(timezone.utc)
 
-        # Query sequence:
-        # 1. First ask_question: dim check (None) -> table check (0) -> find_similar (None) -> INSERT
-        # 2. Second ask_question: find_similar (hit with 0.92)
+        # Query sequence for this test (MockCursor only consumes results for SELECT queries):
+        # Initialization:
+        #   1. Dimension check SELECT (consumes result)
+        #   2-5. _index_exists for 4 main table indexes (None each)
+        #   6-9. _index_exists for 4 prompt history table indexes (None each)
+        # First call (ask_question "What is the inventory?"):
+        #   10. find_similar SELECT (consumes result) - miss
+        #   - INSERT for cache entry (no result consumed)
+        #   - INSERT for prompt history (no result consumed)
+        #   - DELETE for prompt history limit (no result consumed)
+        # Second call (ask_question "Show me inventory count"):
+        #   11. find_similar SELECT (consumes result) - hit!
+        #   - INSERT for prompt history (no result consumed)
+        #   - DELETE for prompt history limit (no result consumed)
+        cache_hit_entry = {
+            "id": 1,
+            "question": "What is the inventory?",
+            "conversation_context": "",
+            "context_string": "What is the inventory?",
+            "sql_query": "SELECT COUNT(*) FROM inventory",
+            "description": "Inventory count",
+            "conversation_id": "conv-123",
+            "created_at": cached_time,
+            "question_similarity": 0.92,
+            "context_similarity": 0.90,
+            "combined_similarity": 0.91,
+            "is_valid": True,
+        }
+
         mock_pool.set_query_results(
             [
-                None,  # Dimension check - table doesn't exist
-                None,  # No similar entry for first question
-                # INSERT happens here (no result needed)
-                # Second call:
-                {
-                    "id": 1,
-                    "question": "What is the inventory?",  # Similar cached question
-                    "conversation_context": "",
-                    "context_string": "What is the inventory?",  # Context string (same as question)
-                    "sql_query": "SELECT COUNT(*) FROM inventory",  # Cached SQL
-                    "description": "Inventory count",  # Description
-                    "conversation_id": "conv-123",  # Conversation ID
-                    "created_at": cached_time,  # Created at
-                    "question_similarity": 0.92,  # Similarity score (above 0.85 threshold)
-                    "context_similarity": 0.90,
-                    "combined_similarity": 0.91,
-                    "is_valid": True,  # Within TTL
-                },
+                None,  # 1. Dimension check SELECT
+                None,  # 2. _index_exists for space_idx
+                None,  # 3. _index_exists for question_embedding_idx
+                None,  # 4. _index_exists for context_embedding_idx
+                None,  # 5. _index_exists for unique_question_idx
+                None,  # 6. _index_exists for prompt_history_conversation_idx
+                None,  # 7. _index_exists for prompt_history_space_idx
+                None,  # 8. _index_exists for prompt_history_unique_prompt_idx
+                None,  # 9. _index_exists for prompt_history_cache_entry_idx
+                None,  # 10. find_similar SELECT - miss
+                cache_hit_entry,  # 11. find_similar SELECT on second call - hit!
             ]
         )
 
-        semantic_cache = SemanticCacheService(
+        semantic_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test
@@ -2795,7 +2961,9 @@ class TestLRUPlusSemanticCacheIntegration:
         # LRU propagates the semantic cache hit status
         # No new Genie call was made (semantic cache served it)
         assert result.cache_hit is True  # Propagated from semantic cache hit
-        assert result.served_by == "SemanticCacheService"  # Semantic cache served it
+        assert (
+            result.served_by == "PostgresContextAwareGenieService"
+        )  # Semantic cache served it
         assert mock_genie_service.call_count == 1  # No new Genie call - semantic hit!
 
         # Verify LRU now has this new question cached
@@ -2824,7 +2992,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2850,13 +3018,30 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         cached_time = datetime.now(timezone.utc)
 
         # Semantic cache has a similar entry
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-9. _index_exists for 4 prompt history table indexes (None each)
+        # 10. find_similar query - returns cache hit
         mock_pool.set_query_results(
             [
                 None,  # Dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
+                None,  # _index_exists for prompt_history_cache_entry_idx
                 {
                     "id": 1,
                     "question": "Original question",
@@ -2874,7 +3059,7 @@ class TestLRUPlusSemanticCacheIntegration:
             ]
         )
 
-        semantic_cache = SemanticCacheService(
+        semantic_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test
@@ -2897,7 +3082,9 @@ class TestLRUPlusSemanticCacheIntegration:
         # LRU propagates the semantic cache hit status
         result1 = lru_cache.ask_question_with_cache_info("Similar question here")
         assert result1.cache_hit is True  # Propagated from semantic cache hit
-        assert result1.served_by == "SemanticCacheService"  # Semantic cache served it
+        assert (
+            result1.served_by == "PostgresContextAwareGenieService"
+        )  # Semantic cache served it
 
         # LRU should now have stored this result (learned from semantic)
         assert lru_cache.size == 1
@@ -2924,7 +3111,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        semantic_params = Mock(spec=GenieSemanticCacheParametersModel)
+        semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
         mock_workspace_client = Mock()
@@ -2941,6 +3128,10 @@ class TestLRUPlusSemanticCacheIntegration:
         semantic_params.table_name = "test_cache"
         semantic_params.context_window_size = 3
         semantic_params.max_context_tokens = 2000
+        semantic_params.prompt_history_table = "test_prompt_history"
+        semantic_params.max_prompt_history_length = 50
+        semantic_params.use_genie_api_for_history = False
+        semantic_params.prompt_history_ttl_seconds = None
 
         cached_time = datetime.now(timezone.utc)
 
@@ -2965,7 +3156,7 @@ class TestLRUPlusSemanticCacheIntegration:
             ]
         )
 
-        semantic_cache = SemanticCacheService(
+        semantic_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test

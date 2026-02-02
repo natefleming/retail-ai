@@ -261,7 +261,7 @@ Uses PostgreSQL with pg_vector for persistent, multi-instance shared caching:
 | `database` | Required | PostgreSQL with pg_vector extension |
 | `warehouse` | Required | Databricks warehouse for SQL execution |
 | `table_name` | `genie_semantic_cache` | Table name for cache storage |
-| `context_window_size` | 3 | Number of previous conversation turns to include |
+| `context_window_size` | 2 | Number of previous conversation turns to include |
 | `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
 | `question_weight` | 0.6 | Weight for question similarity in combined score (0.0-1.0) |
 | `context_weight` | 0.4 | Weight for context similarity (computed as 1 - question_weight if not set) |
@@ -289,7 +289,7 @@ genie_tool:
         similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85)
         time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
         capacity: 1000                     # Max cache entries (LRU eviction when full)
-        context_window_size: 3             # Number of previous conversation turns
+        context_window_size: 2             # Number of previous conversation turns (default)
         context_similarity_threshold: 0.80 # Minimum context similarity
         question_weight: 0.6               # Weight for question similarity
         context_weight: 0.4                # Weight for context similarity
@@ -304,7 +304,7 @@ genie_tool:
 | `embedding_model` | `databricks-gte-large-en` | Model for generating question embeddings |
 | `warehouse` | Required | Databricks warehouse for SQL execution |
 | `capacity` | 1000 | Maximum cache entries (LRU eviction when full) |
-| `context_window_size` | 3 | Number of previous conversation turns to include |
+| `context_window_size` | 2 | Number of previous conversation turns to include |
 | `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
 | `question_weight` | 0.6 | Weight for question similarity in combined score (0.0-1.0) |
 | `context_weight` | 0.4 | Weight for context similarity (computed as 1 - question_weight if not set) |

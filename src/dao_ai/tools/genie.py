@@ -6,7 +6,7 @@ interact with Databricks Genie.
 
 For the core Genie service and cache implementations, see:
 - dao_ai.genie: GenieService, GenieServiceBase
-- dao_ai.genie.cache: LRUCacheService, SemanticCacheService
+- dao_ai.genie.cache: LRUCacheService, PostgresContextAwareGenieService, InMemoryContextAwareGenieService
 """
 
 import json
@@ -25,18 +25,18 @@ from pydantic import BaseModel
 from dao_ai.config import (
     AnyVariable,
     CompositeVariableModel,
+    GenieContextAwareCacheParametersModel,
     GenieInMemorySemanticCacheParametersModel,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
-    GenieSemanticCacheParametersModel,
     value_of,
 )
 from dao_ai.genie import GenieService, GenieServiceBase
 from dao_ai.genie.cache import (
     CacheResult,
-    InMemorySemanticCacheService,
+    InMemoryContextAwareGenieService,
     LRUCacheService,
-    SemanticCacheService,
+    PostgresContextAwareGenieService,
 )
 from dao_ai.state import AgentState, Context, SessionState
 
@@ -70,7 +70,7 @@ def create_genie_tool(
     persist_conversation: bool = True,
     truncate_results: bool = False,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
-    semantic_cache_parameters: GenieSemanticCacheParametersModel
+    semantic_cache_parameters: GenieContextAwareCacheParametersModel
     | dict[str, Any]
     | None = None,
     in_memory_semantic_cache_parameters: GenieInMemorySemanticCacheParametersModel
@@ -118,7 +118,7 @@ def create_genie_tool(
         lru_cache_parameters = GenieLRUCacheParametersModel(**lru_cache_parameters)
 
     if isinstance(semantic_cache_parameters, dict):
-        semantic_cache_parameters = GenieSemanticCacheParametersModel(
+        semantic_cache_parameters = GenieContextAwareCacheParametersModel(
             **semantic_cache_parameters
         )
 
@@ -182,17 +182,17 @@ GenieResponse: A response object containing the conversation ID and result from 
 
         genie_service: GenieServiceBase = GenieService(genie)
 
-        # Wrap with semantic cache first (checked second/third due to decorator pattern)
+        # Wrap with context-aware cache first (checked second/third due to decorator pattern)
         if semantic_cache_parameters is not None:
-            genie_service = SemanticCacheService(
+            genie_service = PostgresContextAwareGenieService(
                 impl=genie_service,
                 parameters=semantic_cache_parameters,
                 workspace_client=workspace_client,
             ).initialize()
 
-        # Wrap with in-memory semantic cache (alternative to PostgreSQL semantic cache)
+        # Wrap with in-memory context-aware cache (alternative to PostgreSQL context-aware cache)
         if in_memory_semantic_cache_parameters is not None:
-            genie_service = InMemorySemanticCacheService(
+            genie_service = InMemoryContextAwareGenieService(
                 impl=genie_service,
                 parameters=in_memory_semantic_cache_parameters,
                 workspace_client=workspace_client,

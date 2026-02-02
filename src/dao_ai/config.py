@@ -20,6 +20,10 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from dao_ai.genie.cache.optimization import (
+        SemanticCacheEvalDataset,
+        ThresholdOptimizationResult,
+    )
     from dao_ai.state import Context
 
 from databricks.sdk import WorkspaceClient
@@ -1710,7 +1714,7 @@ class GenieLRUCacheParametersModel(BaseModel):
     warehouse: WarehouseModel
 
 
-class GenieSemanticCacheParametersModel(BaseModel):
+class GenieContextAwareCacheParametersModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     time_to_live_seconds: int | None = (
         60 * 60 * 24
@@ -1728,9 +1732,20 @@ class GenieSemanticCacheParametersModel(BaseModel):
     database: DatabaseModel
     warehouse: WarehouseModel
     table_name: str = "genie_semantic_cache"
-    context_window_size: int = 3  # Number of previous turns to include for context
+    context_window_size: int = 2  # Number of previous turns to include for context
     max_context_tokens: int = (
         2000  # Maximum context length to prevent extremely long embeddings
+    )
+    # Prompt history configuration
+    # Prompt history is always enabled - it stores all user prompts to maintain
+    # conversation context for accurate semantic matching even when cache hits occur
+    prompt_history_table: str = "genie_prompt_history"  # Table name for prompt history
+    max_prompt_history_length: int = 50  # Maximum prompts to keep per conversation
+    use_genie_api_for_history: bool = (
+        False  # Fallback to Genie API if local history empty
+    )
+    prompt_history_ttl_seconds: int | None = (
+        None  # TTL for prompts (None = use cache TTL)
     )
 
     @model_validator(mode="after")
@@ -1805,7 +1820,7 @@ class GenieInMemorySemanticCacheParametersModel(BaseModel):
     - Cache persistence across restarts is not required
     - Cache sizes are moderate (hundreds to low thousands of entries)
 
-    For multi-instance deployments or large cache sizes, use GenieSemanticCacheParametersModel
+    For multi-instance deployments or large cache sizes, use GenieContextAwareCacheParametersModel
     with PostgreSQL backend instead.
     """
 
@@ -3670,6 +3685,165 @@ class OptimizationsModel(BaseModel):
         for name, optimization in self.prompt_optimizations.items():
             results[name] = optimization.optimize(w)
         return results
+
+
+class SemanticCacheEvalEntryModel(BaseModel):
+    """Single evaluation entry for semantic cache threshold optimization.
+
+    Represents a pair of question/context combinations to evaluate
+    whether the cache should return a hit or miss.
+
+    Example:
+        entry:
+          question: "What are total sales?"
+          question_embedding: [0.1, 0.2, ...]  # Pre-computed
+          context: "Previous: Show me revenue"
+          context_embedding: [0.1, 0.2, ...]
+          cached_question: "Show total sales"
+          cached_question_embedding: [0.1, 0.2, ...]
+          cached_context: "Previous: Show me revenue"
+          cached_context_embedding: [0.1, 0.2, ...]
+          expected_match: true
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    question: str
+    question_embedding: list[float]
+    context: str = ""
+    context_embedding: list[float] = Field(default_factory=list)
+    cached_question: str
+    cached_question_embedding: list[float]
+    cached_context: str = ""
+    cached_context_embedding: list[float] = Field(default_factory=list)
+    expected_match: Optional[bool] = None  # None = use LLM judge
+
+
+class SemanticCacheEvalDatasetModel(BaseModel):
+    """Dataset for semantic cache threshold optimization.
+
+    Contains pairs of questions/contexts to evaluate whether thresholds
+    correctly identify semantic matches.
+
+    Example:
+        dataset:
+          name: my_cache_eval_dataset
+          description: "Evaluation data for cache tuning"
+          entries:
+            - question: "What are total sales?"
+              # ... entry fields
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    description: str = ""
+    entries: list[SemanticCacheEvalEntryModel] = Field(default_factory=list)
+
+    def as_eval_dataset(self) -> "SemanticCacheEvalDataset":
+        """Convert to internal evaluation dataset format."""
+        from dao_ai.genie.cache.optimization import (
+            SemanticCacheEvalDataset,
+            SemanticCacheEvalEntry,
+        )
+
+        entries = [
+            SemanticCacheEvalEntry(
+                question=e.question,
+                question_embedding=e.question_embedding,
+                context=e.context,
+                context_embedding=e.context_embedding,
+                cached_question=e.cached_question,
+                cached_question_embedding=e.cached_question_embedding,
+                cached_context=e.cached_context,
+                cached_context_embedding=e.cached_context_embedding,
+                expected_match=e.expected_match,
+            )
+            for e in self.entries
+        ]
+
+        return SemanticCacheEvalDataset(
+            name=self.name,
+            entries=entries,
+            description=self.description,
+        )
+
+
+class SemanticCacheThresholdOptimizationModel(BaseModel):
+    """Configuration for semantic cache threshold optimization.
+
+    Uses Optuna Bayesian optimization to find optimal threshold values
+    that maximize cache hit accuracy (F1 score by default).
+
+    Example:
+        threshold_optimization:
+          name: optimize_cache_thresholds
+          cache_parameters: *my_cache_params
+          dataset: *my_eval_dataset
+          judge_model: databricks-meta-llama-3-3-70b-instruct
+          n_trials: 50
+          metric: f1
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    cache_parameters: Optional[GenieContextAwareCacheParametersModel] = None
+    dataset: SemanticCacheEvalDatasetModel
+    judge_model: Optional[LLMModel | str] = "databricks-meta-llama-3-3-70b-instruct"
+    n_trials: int = 50
+    metric: Literal["f1", "precision", "recall", "fbeta"] = "f1"
+    beta: float = 1.0  # For fbeta metric
+    seed: Optional[int] = None
+
+    def optimize(
+        self, w: WorkspaceClient | None = None
+    ) -> "ThresholdOptimizationResult":
+        """
+        Optimize semantic cache thresholds.
+
+        Args:
+            w: Optional WorkspaceClient (not used, kept for API compatibility)
+
+        Returns:
+            ThresholdOptimizationResult with optimized thresholds
+        """
+        from dao_ai.genie.cache.optimization import (
+            ThresholdOptimizationResult,
+            optimize_semantic_cache_thresholds,
+        )
+
+        # Convert dataset
+        eval_dataset = self.dataset.as_eval_dataset()
+
+        # Get original thresholds from cache_parameters
+        original_thresholds: dict[str, float] | None = None
+        if self.cache_parameters:
+            original_thresholds = {
+                "similarity_threshold": self.cache_parameters.similarity_threshold,
+                "context_similarity_threshold": self.cache_parameters.context_similarity_threshold,
+                "question_weight": self.cache_parameters.question_weight or 0.6,
+            }
+
+        # Get judge model
+        judge_model_name: str
+        if isinstance(self.judge_model, str):
+            judge_model_name = self.judge_model
+        elif self.judge_model:
+            judge_model_name = self.judge_model.uri
+        else:
+            judge_model_name = "databricks-meta-llama-3-3-70b-instruct"
+
+        result: ThresholdOptimizationResult = optimize_semantic_cache_thresholds(
+            dataset=eval_dataset,
+            original_thresholds=original_thresholds,
+            judge_model=judge_model_name,
+            n_trials=self.n_trials,
+            metric=self.metric,
+            beta=self.beta,
+            register_if_improved=True,
+            study_name=self.name,
+            seed=self.seed,
+        )
+
+        return result
 
 
 class DatasetFormat(str, Enum):
