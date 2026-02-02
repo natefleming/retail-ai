@@ -77,7 +77,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
     impl: GenieServiceBase
     parameters: GenieContextAwareCacheParametersModel
-    workspace_client: WorkspaceClient | None
+    _workspace_client: WorkspaceClient | None
     name: str
     _embeddings: Any  # DatabricksEmbeddings
     _pool: Any  # ConnectionPool
@@ -104,7 +104,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         """
         self.impl = impl
         self.parameters = parameters
-        self.workspace_client = workspace_client
+        self._workspace_client = workspace_client
         self.name = name if name is not None else self.__class__.__name__
         self._embeddings = None
         self._pool = None

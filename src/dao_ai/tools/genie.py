@@ -25,10 +25,10 @@ from pydantic import BaseModel
 from dao_ai.config import (
     AnyVariable,
     CompositeVariableModel,
+    GenieContextAwareCacheParametersModel,
     GenieInMemorySemanticCacheParametersModel,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
-    GenieContextAwareCacheParametersModel,
     value_of,
 )
 from dao_ai.genie import GenieService, GenieServiceBase

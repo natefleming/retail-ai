@@ -122,6 +122,12 @@ class GenieServiceBase(ABC):
         """The space ID for the Genie service."""
         pass
 
+    @property
+    @abstractmethod
+    def workspace_client(self) -> WorkspaceClient | None:
+        """Optional WorkspaceClient for API operations like from_space() and feedback."""
+        pass
+
     @abstractmethod
     def send_feedback(
         self,

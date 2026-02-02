@@ -8,9 +8,9 @@ import pytest
 from databricks_ai_bridge.genie import GenieResponse
 
 from dao_ai.config import (
+    GenieContextAwareCacheParametersModel,
     GenieInMemorySemanticCacheParametersModel,
     GenieLRUCacheParametersModel,
-    GenieContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie.cache import (

@@ -182,7 +182,7 @@ class ContextAwareGenieService(GenieServiceBase):
 
     # Common attributes - subclasses should define these
     impl: GenieServiceBase
-    workspace_client: WorkspaceClient | None
+    _workspace_client: WorkspaceClient | None
     name: str
     _embeddings: Any  # DatabricksEmbeddings
     _embedding_dims: int | None
@@ -423,6 +423,13 @@ class ContextAwareGenieService(GenieServiceBase):
     def space_id(self) -> str:
         """The Genie space ID from the underlying service."""
         return self.impl.space_id
+
+    @property
+    def workspace_client(self) -> WorkspaceClient | None:
+        """Get workspace client, delegating to impl if not set."""
+        if self._workspace_client is not None:
+            return self._workspace_client
+        return self.impl.workspace_client
 
     @property
     def time_to_live_seconds(self) -> int | None:

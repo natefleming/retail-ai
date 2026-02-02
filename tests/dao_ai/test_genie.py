@@ -1,7 +1,10 @@
 """Integration tests for Databricks Genie tool functionality."""
 
+from __future__ import annotations
+
 import os
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -11,10 +14,13 @@ from databricks.sdk.service.sql import StatementState
 from databricks_ai_bridge.genie import Genie, GenieResponse
 from langchain_core.tools import StructuredTool
 
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+
 from dao_ai.config import (
+    GenieContextAwareCacheParametersModel,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
-    GenieContextAwareCacheParametersModel,
 )
 from dao_ai.genie import GenieFeedbackRating, GenieServiceBase
 from dao_ai.genie.cache import (
@@ -1040,6 +1046,10 @@ class MockGenieService(GenieServiceBase):
     @property
     def space_id(self) -> str:
         return "test-space-id"
+
+    @property
+    def workspace_client(self) -> "WorkspaceClient | None":
+        return None
 
     def send_feedback(
         self,

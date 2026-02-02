@@ -6,12 +6,15 @@ by Genie. On cache hit, the cached SQL is re-executed against the warehouse
 to return fresh data while avoiding the Genie NL-to-SQL translation cost.
 """
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from threading import Lock
 
 import mlflow
 import pandas as pd
+from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.dashboards import GenieFeedbackRating
 from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
@@ -390,6 +393,11 @@ class LRUCacheService(GenieServiceBase):
     @property
     def space_id(self) -> str:
         return self.impl.space_id
+
+    @property
+    def workspace_client(self) -> WorkspaceClient | None:
+        """Get workspace client by delegating to impl."""
+        return self.impl.workspace_client
 
     def invalidate(self, question: str, conversation_id: str | None = None) -> bool:
         """
