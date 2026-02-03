@@ -132,6 +132,58 @@ except Exception as e:
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Initialize Context-Aware Cache Service
+# MAGIC
+# MAGIC Before using the optimization functions, you need to have a cache service instance.
+# MAGIC Here's how to set up a PostgresContextAwareGenieService:
+
+# COMMAND ----------
+
+from dao_ai.config import (
+    DatabaseModel,
+    GenieContextAwareCacheParametersModel,
+    WarehouseModel,
+)
+from dao_ai.genie import Genie, GenieService, GenieServiceBase
+from dao_ai.genie.cache.context_aware import PostgresContextAwareGenieService
+
+# Configure database connection (Lakebase)
+# database: DatabaseModel = DatabaseModel(
+#     instance_name=lakebase_instance_name,
+#     client_id=client_id,
+#     client_secret=client_secret,
+# )
+
+# Configure warehouse for SQL execution
+# warehouse: WarehouseModel = WarehouseModel(warehouse_id=warehouse_id)
+
+# Create Genie instance
+# genie: Genie = Genie(space_id=space_id)
+
+# Create base Genie service
+# genie_service: GenieServiceBase = GenieService(genie=genie)
+
+# Configure context-aware cache parameters
+# context_aware_cache_parameters: GenieContextAwareCacheParametersModel = (
+#     GenieContextAwareCacheParametersModel(
+#         database=database,
+#         warehouse=warehouse,
+#         time_to_live_seconds=86400 * 7,  # 7 days
+#         similarity_threshold=0.85,
+#         context_similarity_threshold=0.80,
+#         context_window_size=5,
+#     )
+# )
+
+# Wrap the service with context-aware caching
+# cache_service: PostgresContextAwareGenieService = PostgresContextAwareGenieService(
+#     impl=genie_service,
+#     parameters=context_aware_cache_parameters,
+# ).initialize()
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Option 2: Generate Dataset from Existing Cache
 # MAGIC
 # MAGIC If you have an existing semantic cache with entries, you can generate an
