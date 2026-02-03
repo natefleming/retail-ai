@@ -37,12 +37,12 @@ from dao_ai.genie.cache.context_aware import (
 from dao_ai.genie.cache.core import execute_sql_via_warehouse
 from dao_ai.genie.cache.lru import LRUCacheService
 from dao_ai.genie.cache.optimization import (
-    SemanticCacheEvalDataset,
-    SemanticCacheEvalEntry,
+    ContextAwareCacheEvalDataset,
+    ContextAwareCacheEvalEntry,
     ThresholdOptimizationResult,
     clear_judge_cache,
     generate_eval_dataset_from_cache,
-    optimize_semantic_cache_thresholds,
+    optimize_context_aware_cache_thresholds,
     semantic_match_judge,
 )
 
@@ -60,11 +60,11 @@ __all__ = [
     "LRUCacheService",
     "PostgresContextAwareGenieService",
     # Optimization
-    "SemanticCacheEvalDataset",
-    "SemanticCacheEvalEntry",
+    "ContextAwareCacheEvalDataset",
+    "ContextAwareCacheEvalEntry",
     "ThresholdOptimizationResult",
     "clear_judge_cache",
     "generate_eval_dataset_from_cache",
-    "optimize_semantic_cache_thresholds",
+    "optimize_context_aware_cache_thresholds",
     "semantic_match_judge",
 ]

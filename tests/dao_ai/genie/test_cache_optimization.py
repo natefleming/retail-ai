@@ -1,4 +1,4 @@
-"""Unit tests for semantic cache threshold optimization."""
+"""Unit tests for context-aware cache threshold optimization."""
 
 import math
 from unittest.mock import Mock, patch
@@ -6,13 +6,13 @@ from unittest.mock import Mock, patch
 import pytest
 
 from dao_ai.genie.cache.optimization import (
-    SemanticCacheEvalDataset,
-    SemanticCacheEvalEntry,
+    ContextAwareCacheEvalDataset,
+    ContextAwareCacheEvalEntry,
     ThresholdOptimizationResult,
     _compute_l2_similarity,
     _evaluate_thresholds,
     clear_judge_cache,
-    optimize_semantic_cache_thresholds,
+    optimize_context_aware_cache_thresholds,
     semantic_match_judge,
 )
 
@@ -174,11 +174,11 @@ class TestEvaluateThresholds:
     """Test threshold evaluation logic."""
 
     @pytest.fixture
-    def sample_dataset(self) -> SemanticCacheEvalDataset:
+    def sample_dataset(self) -> ContextAwareCacheEvalDataset:
         """Create a sample evaluation dataset with known similarities."""
         # Create entries with known embedding similarities
         # Entry 1: Very similar (should match with low thresholds)
-        similar_entry = SemanticCacheEvalEntry(
+        similar_entry = ContextAwareCacheEvalEntry(
             question="What are sales?",
             question_embedding=[1.0, 0.0, 0.0],
             context="Previous context",
@@ -191,7 +191,7 @@ class TestEvaluateThresholds:
         )
 
         # Entry 2: Different (should not match)
-        different_entry = SemanticCacheEvalEntry(
+        different_entry = ContextAwareCacheEvalEntry(
             question="What is revenue?",
             question_embedding=[1.0, 0.0, 0.0],
             context="Revenue context",
@@ -203,14 +203,14 @@ class TestEvaluateThresholds:
             expected_match=False,
         )
 
-        return SemanticCacheEvalDataset(
+        return ContextAwareCacheEvalDataset(
             name="test_dataset",
             entries=[similar_entry, different_entry],
             description="Test dataset",
         )
 
     def test_high_threshold_rejects_similar_entries(
-        self, sample_dataset: SemanticCacheEvalDataset
+        self, sample_dataset: ContextAwareCacheEvalDataset
     ) -> None:
         """High thresholds should reject even similar entries."""
         precision, recall, f1, confusion = _evaluate_thresholds(
@@ -226,7 +226,7 @@ class TestEvaluateThresholds:
         assert confusion["false_negatives"] == 1  # Should have matched but didn't
 
     def test_low_threshold_accepts_similar_entries(
-        self, sample_dataset: SemanticCacheEvalDataset
+        self, sample_dataset: ContextAwareCacheEvalDataset
     ) -> None:
         """Lower thresholds should accept similar entries."""
         precision, recall, f1, confusion = _evaluate_thresholds(
@@ -241,7 +241,7 @@ class TestEvaluateThresholds:
         assert confusion["true_positives"] >= 1
 
     def test_metrics_calculation(
-        self, sample_dataset: SemanticCacheEvalDataset
+        self, sample_dataset: ContextAwareCacheEvalDataset
     ) -> None:
         """Test that metrics are calculated correctly."""
         precision, recall, f1, confusion = _evaluate_thresholds(
@@ -261,15 +261,15 @@ class TestEvaluateThresholds:
         assert 0.0 <= f1 <= 1.0
 
 
-class TestOptimizeSemanticCacheThresholds:
+class TestOptimizeContextAwareCacheThresholds:
     """Test the main optimization function."""
 
     @pytest.fixture
-    def simple_dataset(self) -> SemanticCacheEvalDataset:
+    def simple_dataset(self) -> ContextAwareCacheEvalDataset:
         """Create a simple labeled dataset for testing."""
         entries = [
             # Positive pair (semantically similar)
-            SemanticCacheEvalEntry(
+            ContextAwareCacheEvalEntry(
                 question="What are total sales?",
                 question_embedding=[1.0, 0.0, 0.0],
                 context="",
@@ -281,7 +281,7 @@ class TestOptimizeSemanticCacheThresholds:
                 expected_match=True,
             ),
             # Negative pair (semantically different)
-            SemanticCacheEvalEntry(
+            ContextAwareCacheEvalEntry(
                 question="What is inventory count?",
                 question_embedding=[0.0, 1.0, 0.0],
                 context="",
@@ -293,17 +293,17 @@ class TestOptimizeSemanticCacheThresholds:
                 expected_match=False,
             ),
         ]
-        return SemanticCacheEvalDataset(
+        return ContextAwareCacheEvalDataset(
             name="simple_test",
             entries=entries,
             description="Simple test dataset",
         )
 
     def test_optimization_runs_successfully(
-        self, simple_dataset: SemanticCacheEvalDataset
+        self, simple_dataset: ContextAwareCacheEvalDataset
     ) -> None:
         """Test that optimization completes without error."""
-        result = optimize_semantic_cache_thresholds(
+        result = optimize_context_aware_cache_thresholds(
             dataset=simple_dataset,
             judge_model=None,  # Use labels only
             n_trials=5,  # Small number for fast test
@@ -319,7 +319,7 @@ class TestOptimizeSemanticCacheThresholds:
         assert result.n_trials == 5
 
     def test_optimization_respects_original_thresholds(
-        self, simple_dataset: SemanticCacheEvalDataset
+        self, simple_dataset: ContextAwareCacheEvalDataset
     ) -> None:
         """Test that original thresholds are correctly stored."""
         original = {
@@ -328,7 +328,7 @@ class TestOptimizeSemanticCacheThresholds:
             "question_weight": 0.7,
         }
 
-        result = optimize_semantic_cache_thresholds(
+        result = optimize_context_aware_cache_thresholds(
             dataset=simple_dataset,
             original_thresholds=original,
             judge_model=None,
@@ -340,10 +340,10 @@ class TestOptimizeSemanticCacheThresholds:
         assert result.original_thresholds == original
 
     def test_thresholds_are_in_valid_range(
-        self, simple_dataset: SemanticCacheEvalDataset
+        self, simple_dataset: ContextAwareCacheEvalDataset
     ) -> None:
         """Test that optimized thresholds are within valid bounds."""
-        result = optimize_semantic_cache_thresholds(
+        result = optimize_context_aware_cache_thresholds(
             dataset=simple_dataset,
             judge_model=None,
             n_trials=5,
@@ -389,13 +389,13 @@ class TestThresholdOptimizationResult:
         assert result.improved is False
 
 
-class TestSemanticCacheEvalDataset:
-    """Test the SemanticCacheEvalDataset dataclass."""
+class TestContextAwareCacheEvalDataset:
+    """Test the ContextAwareCacheEvalDataset dataclass."""
 
     def test_len_returns_entry_count(self) -> None:
         """Test __len__ returns correct entry count."""
         entries = [
-            SemanticCacheEvalEntry(
+            ContextAwareCacheEvalEntry(
                 question="Q1",
                 question_embedding=[1.0],
                 context="",
@@ -405,7 +405,7 @@ class TestSemanticCacheEvalDataset:
                 cached_context="",
                 cached_context_embedding=[],
             ),
-            SemanticCacheEvalEntry(
+            ContextAwareCacheEvalEntry(
                 question="Q2",
                 question_embedding=[1.0],
                 context="",
@@ -416,13 +416,13 @@ class TestSemanticCacheEvalDataset:
                 cached_context_embedding=[],
             ),
         ]
-        dataset = SemanticCacheEvalDataset(name="test", entries=entries)
+        dataset = ContextAwareCacheEvalDataset(name="test", entries=entries)
         assert len(dataset) == 2
 
     def test_iteration(self) -> None:
         """Test that dataset is iterable."""
         entries = [
-            SemanticCacheEvalEntry(
+            ContextAwareCacheEvalEntry(
                 question="Q1",
                 question_embedding=[1.0],
                 context="",
@@ -433,7 +433,7 @@ class TestSemanticCacheEvalDataset:
                 cached_context_embedding=[],
             ),
         ]
-        dataset = SemanticCacheEvalDataset(name="test", entries=entries)
+        dataset = ContextAwareCacheEvalDataset(name="test", entries=entries)
         collected = list(dataset)
         assert len(collected) == 1
         assert collected[0].question == "Q1"

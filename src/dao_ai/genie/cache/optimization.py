@@ -11,9 +11,9 @@ The optimizer tunes these thresholds:
 - question_weight: Weight for question similarity in combined score
 
 Usage:
-    from dao_ai.genie.cache.optimization import optimize_semantic_cache_thresholds
+    from dao_ai.genie.cache.optimization import optimize_context_aware_cache_thresholds
 
-    result = optimize_semantic_cache_thresholds(
+    result = optimize_context_aware_cache_thresholds(
         dataset=my_eval_dataset,
         judge_model="databricks-meta-llama-3-3-70b-instruct",
         n_trials=50,
@@ -49,17 +49,17 @@ from dao_ai.config import GenieContextAwareCacheParametersModel, LLMModel
 from dao_ai.utils import dao_ai_version
 
 __all__ = [
-    "SemanticCacheEvalEntry",
-    "SemanticCacheEvalDataset",
+    "ContextAwareCacheEvalEntry",
+    "ContextAwareCacheEvalDataset",
     "ThresholdOptimizationResult",
-    "optimize_semantic_cache_thresholds",
+    "optimize_context_aware_cache_thresholds",
     "generate_eval_dataset_from_cache",
     "semantic_match_judge",
 ]
 
 
 @dataclass
-class SemanticCacheEvalEntry:
+class ContextAwareCacheEvalEntry:
     """Single evaluation entry for threshold optimization.
 
     Represents a pair of question/context combinations to evaluate
@@ -90,7 +90,7 @@ class SemanticCacheEvalEntry:
 
 
 @dataclass
-class SemanticCacheEvalDataset:
+class ContextAwareCacheEvalDataset:
     """Dataset for semantic cache threshold optimization.
 
     Attributes:
@@ -100,7 +100,7 @@ class SemanticCacheEvalDataset:
     """
 
     name: str
-    entries: list[SemanticCacheEvalEntry]
+    entries: list[ContextAwareCacheEvalEntry]
     description: str = ""
 
     def __len__(self) -> int:
@@ -272,7 +272,7 @@ def _compute_l2_similarity(embedding1: list[float], embedding2: list[float]) -> 
 
 
 def _evaluate_thresholds(
-    dataset: SemanticCacheEvalDataset,
+    dataset: ContextAwareCacheEvalDataset,
     similarity_threshold: float,
     context_similarity_threshold: float,
     question_weight: float,
@@ -370,7 +370,7 @@ def _evaluate_thresholds(
 
 
 def _create_objective(
-    dataset: SemanticCacheEvalDataset,
+    dataset: ContextAwareCacheEvalDataset,
     judge_model: LLMModel | str | None,
     metric: Literal["f1", "precision", "recall", "fbeta"],
     beta: float = 1.0,
@@ -423,8 +423,8 @@ def _create_objective(
     return objective
 
 
-def optimize_semantic_cache_thresholds(
-    dataset: SemanticCacheEvalDataset,
+def optimize_context_aware_cache_thresholds(
+    dataset: ContextAwareCacheEvalDataset,
     original_thresholds: dict[str, float]
     | GenieContextAwareCacheParametersModel
     | None = None,
@@ -462,11 +462,11 @@ def optimize_semantic_cache_thresholds(
 
     Example:
         from dao_ai.genie.cache.optimization import (
-            optimize_semantic_cache_thresholds,
-            SemanticCacheEvalDataset,
+            optimize_context_aware_cache_thresholds,
+            ContextAwareCacheEvalDataset,
         )
 
-        result = optimize_semantic_cache_thresholds(
+        result = optimize_context_aware_cache_thresholds(
             dataset=my_dataset,
             judge_model="databricks-meta-llama-3-3-70b-instruct",
             n_trials=50,
@@ -539,7 +539,7 @@ def optimize_semantic_cache_thresholds(
     # Create study name if not provided
     if study_name is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        study_name = f"semantic_cache_threshold_optimization_{timestamp}"
+        study_name = f"context_aware_cache_threshold_optimization_{timestamp}"
 
     # Create Optuna study
     sampler = TPESampler(seed=seed)
@@ -743,7 +743,7 @@ def generate_eval_dataset_from_cache(
     num_negative_pairs: int = 50,
     paraphrase_model: LLMModel | str | None = None,
     dataset_name: str = "generated_eval_dataset",
-) -> SemanticCacheEvalDataset:
+) -> ContextAwareCacheEvalDataset:
     """
     Generate an evaluation dataset from existing cache entries.
 
@@ -760,7 +760,7 @@ def generate_eval_dataset_from_cache(
         dataset_name: Name for the generated dataset
 
     Returns:
-        SemanticCacheEvalDataset with generated entries
+        ContextAwareCacheEvalDataset with generated entries
     """
     import random
 
@@ -787,7 +787,7 @@ def generate_eval_dataset_from_cache(
     )
     chat = para_model.as_chat_model()
 
-    entries: list[SemanticCacheEvalEntry] = []
+    entries: list[ContextAwareCacheEvalEntry] = []
 
     # Generate positive pairs (paraphrases)
     logger.info(
@@ -824,7 +824,7 @@ Rephrased question:"""
             )
 
             entries.append(
-                SemanticCacheEvalEntry(
+                ContextAwareCacheEvalEntry(
                     question=paraphrased_question,
                     question_embedding=para_q_emb,
                     context=original_context,
@@ -855,7 +855,7 @@ Rephrased question:"""
 
         # Use entry1 as the "question" and entry2 as the "cached" entry
         entries.append(
-            SemanticCacheEvalEntry(
+            ContextAwareCacheEvalEntry(
                 question=entry1.get("question", ""),
                 question_embedding=entry1.get("question_embedding", []),
                 context=entry1.get("conversation_context", ""),
@@ -876,7 +876,7 @@ Rephrased question:"""
         negative_pairs=sum(1 for e in entries if e.expected_match is False),
     )
 
-    return SemanticCacheEvalDataset(
+    return ContextAwareCacheEvalDataset(
         name=dataset_name,
         entries=entries,
         description=f"Generated from {len(cache_entries)} cache entries",

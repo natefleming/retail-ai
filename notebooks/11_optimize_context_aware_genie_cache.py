@@ -83,9 +83,9 @@ configure_logging(level="DEBUG")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Semantic Cache Threshold Optimization
+# MAGIC # Context-Aware Cache Threshold Optimization
 # MAGIC
-# MAGIC This notebook optimizes the thresholds for the Genie semantic cache using Optuna
+# MAGIC This notebook optimizes the thresholds for the Genie context-aware cache using Optuna
 # MAGIC Bayesian optimization. The optimizer tunes:
 # MAGIC
 # MAGIC - **similarity_threshold**: Minimum similarity for question matching (0.5-0.99)
@@ -99,6 +99,16 @@ configure_logging(level="DEBUG")
 # MAGIC 2. **Bayesian Optimization**: Optuna's TPE sampler efficiently searches the parameter space
 # MAGIC 3. **LLM-as-Judge**: For unlabeled data, an LLM determines semantic equivalence
 # MAGIC 4. **Metrics**: Optimizes for F1 score (balances precision and recall) by default
+# MAGIC
+# MAGIC ## Important: Context Window Size
+# MAGIC
+# MAGIC This notebook optimizes **thresholds** for cache matching. The `context_window_size`
+# MAGIC parameter (which controls how many previous prompts are included in context embeddings)
+# MAGIC should be configured separately in your cache parameters.
+# MAGIC
+# MAGIC If you change `context_window_size`, consider:
+# MAGIC 1. Re-running this optimization with the new window size
+# MAGIC 2. Rebuilding the cache using `from_space()` to re-embed entries
 
 # COMMAND ----------
 
@@ -130,11 +140,11 @@ except Exception as e:
 # COMMAND ----------
 
 from dao_ai.genie.cache.optimization import (
-    SemanticCacheEvalDataset,
-    SemanticCacheEvalEntry,
+    ContextAwareCacheEvalDataset,
+    ContextAwareCacheEvalEntry,
     ThresholdOptimizationResult,
     generate_eval_dataset_from_cache,
-    optimize_semantic_cache_thresholds,
+    optimize_context_aware_cache_thresholds,
 )
 
 # Example: Generate dataset from cache entries
@@ -216,7 +226,7 @@ for pair in test_pairs:
     c2_emb = embeddings.embed_query(pair["context2"]) if pair["context2"] else []
 
     entries.append(
-        SemanticCacheEvalEntry(
+        ContextAwareCacheEvalEntry(
             question=pair["question1"],
             question_embedding=q1_emb,
             context=pair["context1"],
@@ -229,7 +239,7 @@ for pair in test_pairs:
         )
     )
 
-manual_dataset = SemanticCacheEvalDataset(
+manual_dataset = ContextAwareCacheEvalDataset(
     name="manual_eval_dataset",
     entries=entries,
     description="Manually created evaluation dataset",
@@ -253,7 +263,7 @@ mlflow.set_registry_uri("databricks-uc")
 
 # Run optimization
 # Note: For production use, increase n_trials to 50+ for better results
-result: ThresholdOptimizationResult = optimize_semantic_cache_thresholds(
+result: ThresholdOptimizationResult = optimize_context_aware_cache_thresholds(
     dataset=manual_dataset,
     judge_model="databricks-meta-llama-3-3-70b-instruct",  # For unlabeled entries
     n_trials=20,  # Increase for better optimization (50+ recommended)
@@ -376,5 +386,5 @@ print("```")
 # COMMAND ----------
 
 print("\n" + "=" * 80)
-print("Semantic Cache Threshold Optimization Complete")
+print("Context-Aware Cache Threshold Optimization Complete")
 print("=" * 80)

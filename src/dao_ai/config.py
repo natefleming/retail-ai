@@ -21,7 +21,7 @@ from typing import (
 
 if TYPE_CHECKING:
     from dao_ai.genie.cache.optimization import (
-        SemanticCacheEvalDataset,
+        ContextAwareCacheEvalDataset,
         ThresholdOptimizationResult,
     )
     from dao_ai.state import Context
@@ -3687,8 +3687,8 @@ class OptimizationsModel(BaseModel):
         return results
 
 
-class SemanticCacheEvalEntryModel(BaseModel):
-    """Single evaluation entry for semantic cache threshold optimization.
+class ContextAwareCacheEvalEntryModel(BaseModel):
+    """Single evaluation entry for context-aware cache threshold optimization.
 
     Represents a pair of question/context combinations to evaluate
     whether the cache should return a hit or miss.
@@ -3718,8 +3718,8 @@ class SemanticCacheEvalEntryModel(BaseModel):
     expected_match: Optional[bool] = None  # None = use LLM judge
 
 
-class SemanticCacheEvalDatasetModel(BaseModel):
-    """Dataset for semantic cache threshold optimization.
+class ContextAwareCacheEvalDatasetModel(BaseModel):
+    """Dataset for context-aware cache threshold optimization.
 
     Contains pairs of questions/contexts to evaluate whether thresholds
     correctly identify semantic matches.
@@ -3736,17 +3736,17 @@ class SemanticCacheEvalDatasetModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     description: str = ""
-    entries: list[SemanticCacheEvalEntryModel] = Field(default_factory=list)
+    entries: list[ContextAwareCacheEvalEntryModel] = Field(default_factory=list)
 
-    def as_eval_dataset(self) -> "SemanticCacheEvalDataset":
+    def as_eval_dataset(self) -> "ContextAwareCacheEvalDataset":
         """Convert to internal evaluation dataset format."""
         from dao_ai.genie.cache.optimization import (
-            SemanticCacheEvalDataset,
-            SemanticCacheEvalEntry,
+            ContextAwareCacheEvalDataset,
+            ContextAwareCacheEvalEntry,
         )
 
         entries = [
-            SemanticCacheEvalEntry(
+            ContextAwareCacheEvalEntry(
                 question=e.question,
                 question_embedding=e.question_embedding,
                 context=e.context,
@@ -3760,7 +3760,7 @@ class SemanticCacheEvalDatasetModel(BaseModel):
             for e in self.entries
         ]
 
-        return SemanticCacheEvalDataset(
+        return ContextAwareCacheEvalDataset(
             name=self.name,
             entries=entries,
             description=self.description,
@@ -3786,7 +3786,7 @@ class SemanticCacheThresholdOptimizationModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     cache_parameters: Optional[GenieContextAwareCacheParametersModel] = None
-    dataset: SemanticCacheEvalDatasetModel
+    dataset: ContextAwareCacheEvalDatasetModel
     judge_model: Optional[LLMModel | str] = "databricks-meta-llama-3-3-70b-instruct"
     n_trials: int = 50
     metric: Literal["f1", "precision", "recall", "fbeta"] = "f1"
@@ -3807,7 +3807,7 @@ class SemanticCacheThresholdOptimizationModel(BaseModel):
         """
         from dao_ai.genie.cache.optimization import (
             ThresholdOptimizationResult,
-            optimize_semantic_cache_thresholds,
+            optimize_context_aware_cache_thresholds,
         )
 
         # Convert dataset
@@ -3831,7 +3831,7 @@ class SemanticCacheThresholdOptimizationModel(BaseModel):
         else:
             judge_model_name = "databricks-meta-llama-3-3-70b-instruct"
 
-        result: ThresholdOptimizationResult = optimize_semantic_cache_thresholds(
+        result: ThresholdOptimizationResult = optimize_context_aware_cache_thresholds(
             dataset=eval_dataset,
             original_thresholds=original_thresholds,
             judge_model=judge_model_name,
