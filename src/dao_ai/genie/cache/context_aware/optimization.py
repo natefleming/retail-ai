@@ -1,7 +1,7 @@
 """
-Semantic cache threshold optimization using Optuna Bayesian optimization.
+Context-aware semantic cache threshold optimization using Optuna Bayesian optimization.
 
-This module provides optimization for Genie semantic cache thresholds using
+This module provides optimization for context-aware Genie cache thresholds using
 Optuna's Tree-structured Parzen Estimator (TPE) algorithm with LLM-as-Judge
 evaluation for semantic match validation.
 
@@ -11,10 +11,23 @@ The optimizer tunes these thresholds:
 - question_weight: Weight for question similarity in combined score
 
 Usage:
-    from dao_ai.genie.cache.optimization import optimize_context_aware_cache_thresholds
+    from dao_ai.genie.cache.context_aware.optimization import (
+        optimize_context_aware_cache_thresholds,
+        generate_eval_dataset_from_cache,
+    )
 
+    # Get entries from your cache
+    entries = cache_service.get_entries(include_embeddings=True, limit=100)
+
+    # Generate evaluation dataset
+    eval_dataset = generate_eval_dataset_from_cache(
+        cache_entries=entries,
+        dataset_name="my_cache_eval",
+    )
+
+    # Optimize thresholds
     result = optimize_context_aware_cache_thresholds(
-        dataset=my_eval_dataset,
+        dataset=eval_dataset,
         judge_model="databricks-meta-llama-3-3-70b-instruct",
         n_trials=50,
         metric="f1",
@@ -29,7 +42,7 @@ import hashlib
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Callable, Iterator, Literal, Sequence
 
 import mlflow
 import optuna
@@ -55,6 +68,7 @@ __all__ = [
     "optimize_context_aware_cache_thresholds",
     "generate_eval_dataset_from_cache",
     "semantic_match_judge",
+    "clear_judge_cache",
 ]
 
 
@@ -106,7 +120,7 @@ class ContextAwareCacheEvalDataset:
     def __len__(self) -> int:
         return len(self.entries)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ContextAwareCacheEvalEntry]:
         return iter(self.entries)
 
 
@@ -461,7 +475,7 @@ def optimize_context_aware_cache_thresholds(
         ThresholdOptimizationResult with optimized thresholds and metrics
 
     Example:
-        from dao_ai.genie.cache.optimization import (
+        from dao_ai.genie.cache.context_aware.optimization import (
             optimize_context_aware_cache_thresholds,
             ContextAwareCacheEvalDataset,
         )
@@ -752,7 +766,8 @@ def generate_eval_dataset_from_cache(
 
     Args:
         cache_entries: List of cache entries with 'question', 'conversation_context',
-            'question_embedding', and 'context_embedding' keys
+            'question_embedding', and 'context_embedding' keys. Use cache.get_entries()
+            with include_embeddings=True to retrieve these.
         embedding_model: Model for generating embeddings for paraphrased questions
         num_positive_pairs: Number of positive (matching) pairs to generate
         num_negative_pairs: Number of negative (non-matching) pairs to generate
@@ -761,6 +776,18 @@ def generate_eval_dataset_from_cache(
 
     Returns:
         ContextAwareCacheEvalDataset with generated entries
+
+    Example:
+        # Get entries from cache with embeddings
+        entries = cache_service.get_entries(include_embeddings=True, limit=100)
+
+        # Generate evaluation dataset
+        eval_dataset = generate_eval_dataset_from_cache(
+            cache_entries=entries,
+            num_positive_pairs=50,
+            num_negative_pairs=50,
+            dataset_name="my_cache_eval",
+        )
     """
     import random
 

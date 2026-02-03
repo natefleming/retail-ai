@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from dao_ai.genie.cache.optimization import (
+from dao_ai.genie.cache.context_aware.optimization import (
     ContextAwareCacheEvalDataset,
     ContextAwareCacheEvalEntry,
     ThresholdOptimizationResult,
@@ -84,7 +84,10 @@ class TestSemanticMatchJudge:
         mock_model = Mock()
         mock_model.as_chat_model.return_value = mock_chat
 
-        with patch("dao_ai.genie.cache.optimization.LLMModel", return_value=mock_model):
+        with patch(
+            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            return_value=mock_model,
+        ):
             # First call
             result1 = semantic_match_judge(
                 "What are sales?",
@@ -123,7 +126,10 @@ class TestSemanticMatchJudge:
         mock_model = Mock()
         mock_model.as_chat_model.return_value = mock_chat
 
-        with patch("dao_ai.genie.cache.optimization.LLMModel", return_value=mock_model):
+        with patch(
+            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            return_value=mock_model,
+        ):
             result = semantic_match_judge(
                 "Question 1", "Context 1", "Question 2", "Context 2", mock_model
             )
@@ -143,7 +149,10 @@ class TestSemanticMatchJudge:
         mock_model = Mock()
         mock_model.as_chat_model.return_value = mock_chat
 
-        with patch("dao_ai.genie.cache.optimization.LLMModel", return_value=mock_model):
+        with patch(
+            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            return_value=mock_model,
+        ):
             result = semantic_match_judge(
                 "Question 1", "Context 1", "Question 2", "Context 2", mock_model
             )
@@ -161,7 +170,10 @@ class TestSemanticMatchJudge:
         mock_model = Mock()
         mock_model.as_chat_model.return_value = mock_chat
 
-        with patch("dao_ai.genie.cache.optimization.LLMModel", return_value=mock_model):
+        with patch(
+            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            return_value=mock_model,
+        ):
             result = semantic_match_judge(
                 "Question 1", "Context 1", "Question 2", "Context 2", mock_model
             )

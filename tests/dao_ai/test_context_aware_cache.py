@@ -697,3 +697,221 @@ def test_context_aware_cache_context_improves_precision() -> None:
     finally:
         cache_service.clear()
         print("\n✓ Test cache cleared")
+
+
+# ============================================================================
+# Unit Tests for get_entries method (PostgresContextAwareGenieService)
+# ============================================================================
+
+
+class TestPostgresContextAwareCacheGetEntries:
+    """Unit tests for PostgresContextAwareGenieService.get_entries() method."""
+
+    @pytest.fixture
+    def mock_workspace_client(self) -> Mock:
+        """Create a mock WorkspaceClient."""
+        return Mock(spec=WorkspaceClient)
+
+    @pytest.fixture
+    def mock_parameters(self) -> Mock:
+        """Create mock cache parameters."""
+        params = Mock(spec=GenieContextAwareCacheParametersModel)
+        params.database = Mock(spec=DatabaseModel)
+        params.database.connection_string = "postgresql://test:test@localhost/test"
+        params.warehouse = Mock(spec=WarehouseModel)
+        params.embedding_model = "databricks-gte-large-en"
+        params.embedding_dims = None
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
+        params.context_window_size = 3
+        params.max_context_tokens = 2000
+        params.table_name = "genie_context_aware_cache"
+        params.prompt_history_table = "genie_prompt_history"
+        params.max_prompt_history_length = 50
+        return params
+
+    def _create_mock_pool(self) -> Mock:
+        """Create a mock connection pool with cursor context manager."""
+        mock_pool = Mock()
+        mock_conn = Mock()
+        mock_cursor = Mock()
+        mock_cursor.fetchall.return_value = []
+
+        # Set up context managers
+        mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = Mock(return_value=None)
+        mock_pool.connection.return_value.__enter__ = Mock(return_value=mock_conn)
+        mock_pool.connection.return_value.__exit__ = Mock(return_value=None)
+
+        return mock_pool, mock_cursor
+
+    def _create_service_with_mock_pool(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> tuple:
+        """Create a service with mocked pool."""
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        mock_pool, mock_cursor = self._create_mock_pool()
+
+        service = PostgresContextAwareGenieService(
+            impl=mock_impl,
+            parameters=mock_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._setup_complete = True
+        service._embedding_dims = 1024
+        service._pool = mock_pool
+
+        return service, mock_cursor
+
+    def test_get_entries_queries_correct_columns_without_embeddings(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test that get_entries queries correct columns when embeddings excluded."""
+        service, mock_cursor = self._create_service_with_mock_pool(
+            mock_workspace_client, mock_parameters
+        )
+
+        service.get_entries(include_embeddings=False)
+
+        # Check that execute was called
+        assert mock_cursor.execute.called
+        call_args = mock_cursor.execute.call_args
+        query = call_args[0][0]
+
+        # Should NOT include embedding columns
+        assert "question_embedding" not in query
+        assert "context_embedding" not in query
+
+        # Should include base columns
+        assert "question" in query
+        assert "sql_query" in query
+        assert "created_at" in query
+
+    def test_get_entries_queries_correct_columns_with_embeddings(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test that get_entries queries embedding columns when requested."""
+        service, mock_cursor = self._create_service_with_mock_pool(
+            mock_workspace_client, mock_parameters
+        )
+
+        service.get_entries(include_embeddings=True)
+
+        call_args = mock_cursor.execute.call_args
+        query = call_args[0][0]
+
+        # Should include embedding columns
+        assert "question_embedding" in query
+        assert "context_embedding" in query
+
+    def test_get_entries_applies_conversation_id_filter(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test that conversation_id filter is applied."""
+        service, mock_cursor = self._create_service_with_mock_pool(
+            mock_workspace_client, mock_parameters
+        )
+
+        service.get_entries(conversation_id="conv-123")
+
+        call_args = mock_cursor.execute.call_args
+        query = call_args[0][0]
+        params = call_args[0][1]
+
+        assert "conversation_id = %s" in query
+        assert "conv-123" in params
+
+    def test_get_entries_applies_question_contains_filter(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test that question_contains filter uses ILIKE for case-insensitive search."""
+        service, mock_cursor = self._create_service_with_mock_pool(
+            mock_workspace_client, mock_parameters
+        )
+
+        service.get_entries(question_contains="sales")
+
+        call_args = mock_cursor.execute.call_args
+        query = call_args[0][0]
+        params = call_args[0][1]
+
+        assert "question ILIKE %s" in query
+        assert "%sales%" in params
+
+    def test_get_entries_applies_limit_and_offset(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test that limit and offset are applied to query."""
+        service, mock_cursor = self._create_service_with_mock_pool(
+            mock_workspace_client, mock_parameters
+        )
+
+        service.get_entries(limit=10, offset=5)
+
+        call_args = mock_cursor.execute.call_args
+        query = call_args[0][0]
+
+        assert "LIMIT 10" in query
+        assert "OFFSET 5" in query
+
+    def test_get_entries_orders_by_created_at_desc(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test that results are ordered by created_at DESC."""
+        service, mock_cursor = self._create_service_with_mock_pool(
+            mock_workspace_client, mock_parameters
+        )
+
+        service.get_entries()
+
+        call_args = mock_cursor.execute.call_args
+        query = call_args[0][0]
+
+        assert "ORDER BY created_at DESC" in query
+
+    def test_get_entries_converts_rows_to_dicts(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test that database rows are converted to proper dicts."""
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        now = datetime.now()
+        mock_pool, mock_cursor = self._create_mock_pool()
+        mock_cursor.fetchall.return_value = [
+            {
+                "id": 1,
+                "question": "What are total sales?",
+                "conversation_context": "Previous: Show stores",
+                "sql_query": "SELECT SUM(sales) FROM sales",
+                "description": "Total sales query",
+                "conversation_id": "conv-1",
+                "created_at": now,
+            }
+        ]
+
+        service = PostgresContextAwareGenieService(
+            impl=mock_impl,
+            parameters=mock_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._setup_complete = True
+        service._embedding_dims = 1024
+        service._pool = mock_pool
+
+        entries = service.get_entries()
+
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["id"] == 1
+        assert entry["question"] == "What are total sales?"
+        assert entry["conversation_context"] == "Previous: Show stores"
+        assert entry["sql_query"] == "SELECT SUM(sales) FROM sales"
+        assert entry["description"] == "Total sales query"
+        assert entry["conversation_id"] == "conv-1"
+        assert entry["created_at"] == now

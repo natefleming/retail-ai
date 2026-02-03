@@ -849,6 +849,144 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                     }
         return {}
 
+    def get_entries(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        include_embeddings: bool = False,
+        conversation_id: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        question_contains: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get cache entries with optional filtering.
+
+        This method retrieves cache entries for inspection, debugging, or
+        generating evaluation datasets for threshold optimization.
+
+        Args:
+            limit: Maximum number of entries to return (None = no limit)
+            offset: Number of entries to skip for pagination (None = 0)
+            include_embeddings: Whether to include embedding vectors in results.
+                Embeddings are large, so set False for general inspection.
+            conversation_id: Filter by conversation ID (None = all conversations)
+            created_after: Only entries created after this time (None = no filter)
+            created_before: Only entries created before this time (None = no filter)
+            question_contains: Case-insensitive text search on question field
+
+        Returns:
+            List of cache entry dicts. See base class for full key documentation.
+
+        Example:
+            # Get entries with embeddings for evaluation dataset generation
+            entries = cache.get_entries(include_embeddings=True, limit=100)
+            eval_dataset = generate_eval_dataset_from_cache(entries)
+        """
+        self._setup()
+
+        # Build column list
+        base_columns = [
+            "id",
+            "question",
+            "conversation_context",
+            "sql_query",
+            "description",
+            "conversation_id",
+            "created_at",
+        ]
+
+        if include_embeddings:
+            columns = base_columns + ["question_embedding", "context_embedding"]
+        else:
+            columns = base_columns
+
+        columns_str = ", ".join(columns)
+
+        # Build WHERE clause with parameters
+        where_clauses = ["genie_space_id = %s"]
+        params: list[Any] = [self.space_id]
+
+        if conversation_id is not None:
+            where_clauses.append("conversation_id = %s")
+            params.append(conversation_id)
+
+        if created_after is not None:
+            where_clauses.append("created_at > %s")
+            params.append(created_after)
+
+        if created_before is not None:
+            where_clauses.append("created_at < %s")
+            params.append(created_before)
+
+        if question_contains is not None:
+            where_clauses.append("question ILIKE %s")
+            params.append(f"%{question_contains}%")
+
+        where_str = " AND ".join(where_clauses)
+
+        # Build full query
+        query = f"""
+            SELECT {columns_str}
+            FROM {self.table_name}
+            WHERE {where_str}
+            ORDER BY created_at DESC
+        """
+
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+
+        if offset is not None:
+            query += f" OFFSET {int(offset)}"
+
+        # Execute query
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+
+                entries: list[dict[str, Any]] = []
+                for row in rows:
+                    entry: dict[str, Any] = {
+                        "id": row.get("id"),
+                        "question": row.get("question"),
+                        "conversation_context": row.get("conversation_context"),
+                        "sql_query": row.get("sql_query"),
+                        "description": row.get("description"),
+                        "conversation_id": row.get("conversation_id"),
+                        "created_at": row.get("created_at"),
+                    }
+
+                    if include_embeddings:
+                        # Convert pgvector to list
+                        q_emb = row.get("question_embedding")
+                        c_emb = row.get("context_embedding")
+                        entry["question_embedding"] = (
+                            list(q_emb) if q_emb is not None else []
+                        )
+                        entry["context_embedding"] = (
+                            list(c_emb) if c_emb is not None else []
+                        )
+
+                    entries.append(entry)
+
+                logger.debug(
+                    "Retrieved cache entries",
+                    layer=self.name,
+                    count=len(entries),
+                    include_embeddings=include_embeddings,
+                    filters={
+                        "conversation_id": conversation_id,
+                        "created_after": str(created_after) if created_after else None,
+                        "created_before": (
+                            str(created_before) if created_before else None
+                        ),
+                        "question_contains": question_contains,
+                    },
+                )
+
+                return entries
+
     def from_space(
         self,
         space_id: str | None = None,

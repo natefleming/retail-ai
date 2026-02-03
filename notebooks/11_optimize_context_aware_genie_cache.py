@@ -39,9 +39,9 @@ dbutils.widgets.dropdown(
 )
 
 config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str = dbutils.widgets.get("config-paths") or None
+project_path: str | None = dbutils.widgets.get("config-paths") or None
 
-config_path: str = config_path or project_path
+config_path = config_path or project_path
 
 print(config_path)
 
@@ -122,11 +122,11 @@ configure_logging(level="DEBUG")
 from dao_ai.config import AppConfig
 
 # Load configuration if available
+config: AppConfig | None = None
 try:
-    config: AppConfig = AppConfig.from_file(path=config_path)
+    config = AppConfig.from_file(path=config_path)
     print(f"Loaded configuration from: {config_path}")
 except Exception as e:
-    config = None
     print(f"No configuration loaded: {e}")
 
 # COMMAND ----------
@@ -135,11 +135,12 @@ except Exception as e:
 # MAGIC ## Option 2: Generate Dataset from Existing Cache
 # MAGIC
 # MAGIC If you have an existing semantic cache with entries, you can generate an
-# MAGIC evaluation dataset automatically using paraphrasing:
+# MAGIC evaluation dataset automatically using paraphrasing. Use the `get_entries()`
+# MAGIC method on your cache service to retrieve entries with embeddings.
 
 # COMMAND ----------
 
-from dao_ai.genie.cache.optimization import (
+from dao_ai.genie.cache.context_aware.optimization import (
     ContextAwareCacheEvalDataset,
     ContextAwareCacheEvalEntry,
     ThresholdOptimizationResult,
@@ -147,18 +148,16 @@ from dao_ai.genie.cache.optimization import (
     optimize_context_aware_cache_thresholds,
 )
 
-# Example: Generate dataset from cache entries
-# Uncomment and modify to use with your cache data
+# Example: Generate dataset from cache entries using get_entries()
+# This is the recommended approach - use your cache service's get_entries() method
 
-# cache_entries = [
-#     {
-#         "question": "What are total sales for Q1?",
-#         "conversation_context": "Previous: Show me revenue",
-#         "question_embedding": [...],  # Your embeddings
-#         "context_embedding": [...],
-#     },
-#     # ... more entries
-# ]
+# Assuming you have an existing cache service (PostgresContextAwareGenieService or
+# InMemoryContextAwareGenieService), retrieve entries with embeddings:
+
+# cache_entries = cache_service.get_entries(
+#     include_embeddings=True,  # Required for evaluation dataset
+#     limit=100,                # Limit number of entries
+# )
 #
 # eval_dataset = generate_eval_dataset_from_cache(
 #     cache_entries=cache_entries,
@@ -166,6 +165,14 @@ from dao_ai.genie.cache.optimization import (
 #     num_positive_pairs=50,
 #     num_negative_pairs=50,
 #     dataset_name="my_cache_eval",
+# )
+
+# You can also filter entries before generating the dataset:
+# cache_entries = cache_service.get_entries(
+#     include_embeddings=True,
+#     conversation_id="specific-conversation",  # Filter by conversation
+#     question_contains="sales",                # Filter by question text
+#     limit=50,
 # )
 
 # COMMAND ----------
@@ -180,7 +187,7 @@ from dao_ai.genie.cache.optimization import (
 from dao_ai.config import LLMModel
 
 # Create embeddings model for generating embeddings
-embedding_model = LLMModel(name="databricks-gte-large-en")
+embedding_model: LLMModel = LLMModel(name="databricks-gte-large-en")
 embeddings = embedding_model.as_embeddings_model()
 
 # Define test pairs with known labels
@@ -218,7 +225,7 @@ test_pairs = [
 ]
 
 # Generate embeddings and create dataset
-entries = []
+entries: list[ContextAwareCacheEvalEntry] = []
 for pair in test_pairs:
     q1_emb = embeddings.embed_query(pair["question1"])
     q2_emb = embeddings.embed_query(pair["question2"])
@@ -311,7 +318,7 @@ else:
 # COMMAND ----------
 
 # Create comparison DataFrame
-comparison_data = []
+comparison_data: list[dict[str, str]] = []
 for key in result.original_thresholds.keys():
     original = result.original_thresholds[key]
     optimized = result.optimized_thresholds[key]

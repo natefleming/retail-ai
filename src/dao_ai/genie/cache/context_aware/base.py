@@ -15,12 +15,13 @@ Subclasses must implement storage-specific methods:
 - invalidate_expired(): Remove expired entries
 - clear(): Clear all entries for space
 - stats(): Return cache statistics
+- get_entries(): Retrieve cache entries with filtering
 """
 
 from __future__ import annotations
 
 from abc import abstractmethod
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Self, TypeVar
 
 import mlflow
@@ -312,6 +313,58 @@ class ContextAwareGenieService(GenieServiceBase):
 
         Returns:
             Number of entries deleted
+        """
+        pass
+
+    @abstractmethod
+    def get_entries(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        include_embeddings: bool = False,
+        conversation_id: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        question_contains: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get cache entries with optional filtering.
+
+        This method retrieves cache entries for inspection, debugging, or
+        generating evaluation datasets for threshold optimization.
+
+        Args:
+            limit: Maximum number of entries to return (None = no limit)
+            offset: Number of entries to skip for pagination (None = 0)
+            include_embeddings: Whether to include embedding vectors in results.
+                Embeddings are large, so set False for general inspection.
+            conversation_id: Filter by conversation ID (None = all conversations)
+            created_after: Only entries created after this time (None = no filter)
+            created_before: Only entries created before this time (None = no filter)
+            question_contains: Case-insensitive text search on question field
+
+        Returns:
+            List of cache entry dicts with keys:
+            - id: Cache entry ID (int for persistent caches, None for in-memory)
+            - question: The cached question text
+            - conversation_context: Prior conversation context string
+            - sql_query: The cached SQL query
+            - description: Query description
+            - conversation_id: The conversation ID
+            - created_at: Entry creation timestamp (datetime)
+            - question_embedding: (only if include_embeddings=True)
+            - context_embedding: (only if include_embeddings=True)
+
+        Example:
+            # Get recent entries for inspection
+            entries = cache.get_entries(limit=10)
+
+            # Get entries with embeddings for evaluation dataset
+            entries = cache.get_entries(include_embeddings=True, limit=100)
+            eval_dataset = generate_eval_dataset_from_cache(entries)
+
+            # Search for specific questions
+            entries = cache.get_entries(question_contains="sales")
         """
         pass
 

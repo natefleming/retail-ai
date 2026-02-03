@@ -626,6 +626,77 @@ prompts: list[str] = cache_service._get_local_prompt_history(
 
 # Clear all cache entries (prompts are NOT cleared automatically)
 cache_service.clear()  # Only clears context_aware_cache table
+
+# Get cache entries with optional filtering
+entries = cache_service.get_entries(
+    limit=100,               # Maximum entries to return
+    offset=0,                # Skip entries for pagination
+    include_embeddings=True, # Include embedding vectors
+    conversation_id="conv-1",  # Filter by conversation
+    created_after=datetime(2024, 1, 1),  # Time filter
+    created_before=datetime(2024, 12, 31),
+    question_contains="sales",  # Text search (case-insensitive)
+)
+```
+
+### get_entries() Method
+
+The `get_entries()` method retrieves cache entries for inspection, debugging, or generating evaluation datasets for threshold optimization.
+
+```python
+def get_entries(
+    self,
+    limit: int | None = None,
+    offset: int | None = None,
+    include_embeddings: bool = False,
+    conversation_id: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    question_contains: str | None = None,
+) -> list[dict[str, Any]]:
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | `int \| None` | `None` | Maximum entries to return |
+| `offset` | `int \| None` | `None` | Skip entries for pagination |
+| `include_embeddings` | `bool` | `False` | Include embedding vectors (large) |
+| `conversation_id` | `str \| None` | `None` | Filter by conversation ID |
+| `created_after` | `datetime \| None` | `None` | Only entries after this time |
+| `created_before` | `datetime \| None` | `None` | Only entries before this time |
+| `question_contains` | `str \| None` | `None` | Case-insensitive text search |
+
+**Returns:**
+
+Each entry dict contains:
+- `id`: Cache entry ID (int for PostgreSQL, None for in-memory)
+- `question`: The cached question text
+- `conversation_context`: Prior conversation context string
+- `sql_query`: The cached SQL query
+- `description`: Query description
+- `conversation_id`: The conversation ID
+- `created_at`: Entry creation timestamp
+- `question_embedding`: (only if `include_embeddings=True`)
+- `context_embedding`: (only if `include_embeddings=True`)
+
+**Example: Generate evaluation dataset**
+
+```python
+from dao_ai.genie.cache.context_aware.optimization import generate_eval_dataset_from_cache
+
+# Get entries with embeddings from your cache
+entries = cache_service.get_entries(include_embeddings=True, limit=100)
+
+# Generate evaluation dataset for threshold optimization
+eval_dataset = generate_eval_dataset_from_cache(
+    cache_entries=entries,
+    embedding_model="databricks-gte-large-en",
+    num_positive_pairs=50,
+    num_negative_pairs=50,
+    dataset_name="my_cache_eval",
+)
 ```
 
 ### Internal Methods (Not Exposed)

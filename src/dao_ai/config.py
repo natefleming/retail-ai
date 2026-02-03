@@ -20,7 +20,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
-    from dao_ai.genie.cache.optimization import (
+    from dao_ai.genie.cache.context_aware.optimization import (
         ContextAwareCacheEvalDataset,
         ThresholdOptimizationResult,
     )
@@ -3740,7 +3740,7 @@ class ContextAwareCacheEvalDatasetModel(BaseModel):
 
     def as_eval_dataset(self) -> "ContextAwareCacheEvalDataset":
         """Convert to internal evaluation dataset format."""
-        from dao_ai.genie.cache.optimization import (
+        from dao_ai.genie.cache.context_aware.optimization import (
             ContextAwareCacheEvalDataset,
             ContextAwareCacheEvalEntry,
         )
@@ -3805,7 +3805,7 @@ class SemanticCacheThresholdOptimizationModel(BaseModel):
         Returns:
             ThresholdOptimizationResult with optimized thresholds
         """
-        from dao_ai.genie.cache.optimization import (
+        from dao_ai.genie.cache.context_aware.optimization import (
             ThresholdOptimizationResult,
             optimize_context_aware_cache_thresholds,
         )

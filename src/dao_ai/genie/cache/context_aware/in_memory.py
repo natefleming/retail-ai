@@ -607,3 +607,115 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
     def _get_additional_stats(self) -> dict[str, Any]:
         """Add capacity info to stats."""
         return {"capacity": self.parameters.capacity}
+
+    def get_entries(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        include_embeddings: bool = False,
+        conversation_id: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        question_contains: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get cache entries with optional filtering.
+
+        This method retrieves cache entries for inspection, debugging, or
+        generating evaluation datasets for threshold optimization.
+
+        Args:
+            limit: Maximum number of entries to return (None = no limit)
+            offset: Number of entries to skip for pagination (None = 0)
+            include_embeddings: Whether to include embedding vectors in results.
+                Embeddings are large, so set False for general inspection.
+            conversation_id: Filter by conversation ID (None = all conversations)
+            created_after: Only entries created after this time (None = no filter)
+            created_before: Only entries created before this time (None = no filter)
+            question_contains: Case-insensitive text search on question field
+
+        Returns:
+            List of cache entry dicts. See base class for full key documentation.
+
+        Example:
+            # Get entries with embeddings for evaluation dataset generation
+            entries = cache.get_entries(include_embeddings=True, limit=100)
+            eval_dataset = generate_eval_dataset_from_cache(entries)
+        """
+        self._setup()
+
+        with self._lock:
+            # Filter entries for this space
+            filtered_entries: list[InMemoryCacheEntry] = []
+
+            for entry in self._cache:
+                # Filter by space_id
+                if entry.genie_space_id != self.space_id:
+                    continue
+
+                # Filter by conversation_id
+                if (
+                    conversation_id is not None
+                    and entry.conversation_id != conversation_id
+                ):
+                    continue
+
+                # Filter by created_after
+                if created_after is not None and entry.created_at <= created_after:
+                    continue
+
+                # Filter by created_before
+                if created_before is not None and entry.created_at >= created_before:
+                    continue
+
+                # Filter by question_contains (case-insensitive)
+                if question_contains is not None:
+                    if question_contains.lower() not in entry.question.lower():
+                        continue
+
+                filtered_entries.append(entry)
+
+            # Sort by created_at descending (most recent first)
+            filtered_entries.sort(key=lambda e: e.created_at, reverse=True)
+
+            # Apply offset
+            if offset is not None and offset > 0:
+                filtered_entries = filtered_entries[offset:]
+
+            # Apply limit
+            if limit is not None:
+                filtered_entries = filtered_entries[:limit]
+
+            # Convert to dicts
+            entries: list[dict[str, Any]] = []
+            for entry in filtered_entries:
+                result: dict[str, Any] = {
+                    "id": None,  # In-memory caches don't have database IDs
+                    "question": entry.question,
+                    "conversation_context": entry.conversation_context,
+                    "sql_query": entry.sql_query,
+                    "description": entry.description,
+                    "conversation_id": entry.conversation_id,
+                    "created_at": entry.created_at,
+                }
+
+                if include_embeddings:
+                    result["question_embedding"] = entry.question_embedding
+                    result["context_embedding"] = entry.context_embedding
+
+                entries.append(result)
+
+            logger.debug(
+                "Retrieved cache entries",
+                layer=self.name,
+                count=len(entries),
+                include_embeddings=include_embeddings,
+                filters={
+                    "conversation_id": conversation_id,
+                    "created_after": str(created_after) if created_after else None,
+                    "created_before": str(created_before) if created_before else None,
+                    "question_contains": question_contains,
+                },
+            )
+
+            return entries

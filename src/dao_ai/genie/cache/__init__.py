@@ -34,9 +34,9 @@ from dao_ai.genie.cache.context_aware import (
     PersistentContextAwareGenieCacheService,
     PostgresContextAwareGenieService,
 )
-from dao_ai.genie.cache.core import execute_sql_via_warehouse
-from dao_ai.genie.cache.lru import LRUCacheService
-from dao_ai.genie.cache.optimization import (
+
+# Re-export optimization from context_aware for backwards compatibility
+from dao_ai.genie.cache.context_aware.optimization import (
     ContextAwareCacheEvalDataset,
     ContextAwareCacheEvalEntry,
     ThresholdOptimizationResult,
@@ -45,6 +45,8 @@ from dao_ai.genie.cache.optimization import (
     optimize_context_aware_cache_thresholds,
     semantic_match_judge,
 )
+from dao_ai.genie.cache.core import execute_sql_via_warehouse
+from dao_ai.genie.cache.lru import LRUCacheService
 
 __all__ = [
     # Base types

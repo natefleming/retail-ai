@@ -1142,3 +1142,286 @@ def test_in_memory_context_aware_cache_context_improves_precision() -> None:
 
     cache_service.clear()
     print("✓ Test cache cleared")
+
+
+# ============================================================================
+# Unit Tests for get_entries method
+# ============================================================================
+
+
+class TestInMemoryCacheGetEntries:
+    """Unit tests for InMemoryContextAwareGenieService.get_entries() method."""
+
+    @pytest.fixture
+    def mock_workspace_client(self) -> Mock:
+        """Create a mock WorkspaceClient."""
+        return Mock(spec=WorkspaceClient)
+
+    @pytest.fixture
+    def mock_parameters(self) -> Mock:
+        """Create mock cache parameters."""
+        params = Mock(spec=GenieInMemorySemanticCacheParametersModel)
+        params.context_window_size = 3
+        params.max_context_tokens = 2000
+        params.embedding_model = "databricks-gte-large-en"
+        params.embedding_dims = None
+        params.time_to_live_seconds = 86400
+        params.similarity_threshold = 0.85
+        params.context_similarity_threshold = 0.80
+        params.question_weight = 0.6
+        params.context_weight = 0.4
+        params.capacity = None
+        params.warehouse = Mock(spec=WarehouseModel)
+        return params
+
+    @pytest.fixture
+    def cache_with_entries(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> InMemoryContextAwareGenieService:
+        """Create a cache service with pre-populated entries."""
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        service = InMemoryContextAwareGenieService(
+            impl=mock_impl,
+            parameters=mock_parameters,
+            workspace_client=mock_workspace_client,
+        )
+
+        # Mark setup as complete and set embedding dims
+        service._setup_complete = True
+        service._embedding_dims = 3
+
+        # Add test entries directly to the cache
+        now = datetime.now()
+        service._cache = [
+            InMemoryCacheEntry(
+                genie_space_id="test-space",
+                question="What are total sales?",
+                conversation_context="Previous: Show stores",
+                question_embedding=[0.1, 0.2, 0.3],
+                context_embedding=[0.4, 0.5, 0.6],
+                sql_query="SELECT SUM(sales) FROM sales",
+                description="Total sales query",
+                conversation_id="conv-1",
+                created_at=now - timedelta(hours=2),
+                last_accessed_at=now - timedelta(hours=2),
+            ),
+            InMemoryCacheEntry(
+                genie_space_id="test-space",
+                question="What is the inventory count?",
+                conversation_context="Previous: Check stock",
+                question_embedding=[0.7, 0.8, 0.9],
+                context_embedding=[0.1, 0.2, 0.3],
+                sql_query="SELECT COUNT(*) FROM inventory",
+                description="Inventory count query",
+                conversation_id="conv-2",
+                created_at=now - timedelta(hours=1),
+                last_accessed_at=now - timedelta(hours=1),
+            ),
+            InMemoryCacheEntry(
+                genie_space_id="test-space",
+                question="Show me sales by region",
+                conversation_context="",
+                question_embedding=[0.4, 0.5, 0.6],
+                context_embedding=[0.0, 0.0, 0.0],
+                sql_query="SELECT region, SUM(sales) FROM sales GROUP BY region",
+                description="Sales by region query",
+                conversation_id="conv-1",
+                created_at=now,
+                last_accessed_at=now,
+            ),
+            # Entry for a different space (should be filtered out)
+            InMemoryCacheEntry(
+                genie_space_id="other-space",
+                question="Different space question",
+                conversation_context="",
+                question_embedding=[0.1, 0.1, 0.1],
+                context_embedding=[0.1, 0.1, 0.1],
+                sql_query="SELECT 1",
+                description="Other space query",
+                conversation_id="conv-other",
+                created_at=now,
+                last_accessed_at=now,
+            ),
+        ]
+
+        return service
+
+    def test_get_entries_returns_all_for_space(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test that get_entries returns all entries for the current space."""
+        entries = cache_with_entries.get_entries()
+
+        # Should return 3 entries (not the one from other-space)
+        assert len(entries) == 3
+
+        # All entries should be from test-space
+        questions = [e["question"] for e in entries]
+        assert "What are total sales?" in questions
+        assert "What is the inventory count?" in questions
+        assert "Show me sales by region" in questions
+        assert "Different space question" not in questions
+
+    def test_get_entries_ordered_by_created_at_desc(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test that entries are ordered by created_at descending (most recent first)."""
+        entries = cache_with_entries.get_entries()
+
+        # Most recent should be first
+        assert entries[0]["question"] == "Show me sales by region"
+        assert entries[1]["question"] == "What is the inventory count?"
+        assert entries[2]["question"] == "What are total sales?"
+
+    def test_get_entries_with_limit(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test that limit parameter restricts number of entries returned."""
+        entries = cache_with_entries.get_entries(limit=2)
+
+        assert len(entries) == 2
+        # Should return most recent 2
+        assert entries[0]["question"] == "Show me sales by region"
+        assert entries[1]["question"] == "What is the inventory count?"
+
+    def test_get_entries_with_offset(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test that offset parameter skips entries."""
+        entries = cache_with_entries.get_entries(offset=1)
+
+        assert len(entries) == 2
+        # Should skip the most recent one
+        assert entries[0]["question"] == "What is the inventory count?"
+        assert entries[1]["question"] == "What are total sales?"
+
+    def test_get_entries_with_limit_and_offset(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test pagination with both limit and offset."""
+        entries = cache_with_entries.get_entries(limit=1, offset=1)
+
+        assert len(entries) == 1
+        assert entries[0]["question"] == "What is the inventory count?"
+
+    def test_get_entries_includes_embeddings_when_requested(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test that embeddings are included when include_embeddings=True."""
+        entries = cache_with_entries.get_entries(include_embeddings=True, limit=1)
+
+        assert len(entries) == 1
+        assert "question_embedding" in entries[0]
+        assert "context_embedding" in entries[0]
+        assert entries[0]["question_embedding"] == [0.4, 0.5, 0.6]
+        assert entries[0]["context_embedding"] == [0.0, 0.0, 0.0]
+
+    def test_get_entries_excludes_embeddings_by_default(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test that embeddings are excluded by default."""
+        entries = cache_with_entries.get_entries(limit=1)
+
+        assert len(entries) == 1
+        assert "question_embedding" not in entries[0]
+        assert "context_embedding" not in entries[0]
+
+    def test_get_entries_filter_by_conversation_id(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test filtering by conversation_id."""
+        entries = cache_with_entries.get_entries(conversation_id="conv-1")
+
+        assert len(entries) == 2
+        for entry in entries:
+            assert entry["conversation_id"] == "conv-1"
+
+    def test_get_entries_filter_by_created_after(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test filtering by created_after."""
+        cutoff = datetime.now() - timedelta(hours=1, minutes=30)
+        entries = cache_with_entries.get_entries(created_after=cutoff)
+
+        # Should only return entries created after cutoff
+        assert len(entries) == 2
+        questions = [e["question"] for e in entries]
+        assert "Show me sales by region" in questions
+        assert "What is the inventory count?" in questions
+
+    def test_get_entries_filter_by_created_before(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test filtering by created_before."""
+        cutoff = datetime.now() - timedelta(hours=1, minutes=30)
+        entries = cache_with_entries.get_entries(created_before=cutoff)
+
+        # Should only return entries created before cutoff
+        assert len(entries) == 1
+        assert entries[0]["question"] == "What are total sales?"
+
+    def test_get_entries_filter_by_question_contains(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test case-insensitive text search on question."""
+        entries = cache_with_entries.get_entries(question_contains="SALES")
+
+        assert len(entries) == 2
+        questions = [e["question"] for e in entries]
+        assert "What are total sales?" in questions
+        assert "Show me sales by region" in questions
+
+    def test_get_entries_returns_correct_fields(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test that returned entries have all expected fields."""
+        entries = cache_with_entries.get_entries(limit=1)
+
+        assert len(entries) == 1
+        entry = entries[0]
+
+        # Check all expected fields are present
+        assert "id" in entry
+        assert "question" in entry
+        assert "conversation_context" in entry
+        assert "sql_query" in entry
+        assert "description" in entry
+        assert "conversation_id" in entry
+        assert "created_at" in entry
+
+        # In-memory cache should have id=None
+        assert entry["id"] is None
+
+    def test_get_entries_empty_cache(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """Test get_entries on empty cache."""
+        mock_impl = Mock()
+        mock_impl.space_id = "test-space"
+
+        service = InMemoryContextAwareGenieService(
+            impl=mock_impl,
+            parameters=mock_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        service._setup_complete = True
+        service._embedding_dims = 3
+
+        entries = service.get_entries()
+        assert entries == []
+
+    def test_get_entries_combined_filters(
+        self, cache_with_entries: InMemoryContextAwareGenieService
+    ) -> None:
+        """Test combining multiple filters."""
+        cutoff = datetime.now() - timedelta(hours=1, minutes=30)
+        entries = cache_with_entries.get_entries(
+            conversation_id="conv-1",
+            created_after=cutoff,
+        )
+
+        # Should return only "Show me sales by region" (conv-1, after cutoff)
+        assert len(entries) == 1
+        assert entries[0]["question"] == "Show me sales by region"
