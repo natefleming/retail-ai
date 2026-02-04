@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 #
-# Example configuration for Genie semantic cache threshold optimization.
+# Example configuration for context-aware cache threshold optimization.
 #
 # This configuration demonstrates how to:
 #   1. Define an evaluation dataset with question pairs
@@ -14,7 +14,7 @@
 #
 # Usage:
 #   1. Update the evaluation dataset with your domain-specific question pairs
-#   2. Run the optimization notebook: notebooks/11_optimize_cache_thresholds.py
+#   2. Run: config.optimizations.optimize() or use the notebook
 #   3. Apply the optimized thresholds to your cache configuration
 
 schemas:
@@ -47,101 +47,84 @@ resources:
 
 
 # =============================================================================
-# CACHE PARAMETERS (Current Configuration)
+# OPTIMIZATIONS CONFIGURATION
 # =============================================================================
-# These are the current threshold values that will be optimized
+# Configure cache threshold optimizations using Optuna Bayesian optimization.
 
-cache_parameters: &cache_parameters
-  database: *semantic_cache_db
-  warehouse: *shared_endpoint_warehouse
-  embedding_model: *embedding_model
-  similarity_threshold: 0.85           # Question matching threshold
-  context_similarity_threshold: 0.80   # Context matching threshold
-  question_weight: 0.6                 # Weight for question (context = 1 - question)
-  time_to_live_seconds: 86400
-
-
-# =============================================================================
-# EVALUATION DATASET
-# =============================================================================
-# Define pairs of questions to evaluate threshold effectiveness.
-#
-# Each entry contains:
-#   - question/context: The incoming query
-#   - cached_question/cached_context: The cached entry to compare against
-#   - expected_match: Whether these should be considered a cache hit
-#     - true: Semantically equivalent (should return cached result)
-#     - false: Different questions (should not match)
-#     - null/omitted: Use LLM judge to determine
-#
-# Tips for good evaluation data:
-#   - Include diverse question types from your domain
-#   - Balance positive and negative examples
-#   - Include edge cases (similar but different questions)
-#   - Use real questions from your production cache if available
-
-# Note: Embeddings would normally be pre-computed. For this example,
-# we show the structure - use the notebook to generate real embeddings.
-
-threshold_eval_dataset: &threshold_eval_dataset
-  name: retail_cache_eval_dataset
-  description: "Evaluation dataset for retail domain semantic cache tuning"
-  entries: []
-  # In practice, populate with real entries like:
-  #
-  # entries:
-  #   # Positive pair - paraphrases that should match
-  #   - question: "What are total sales for Q1?"
-  #     question_embedding: [0.1, 0.2, ...]  # Pre-computed embeddings
-  #     context: "Previous: Show me revenue breakdown"
-  #     context_embedding: [0.1, 0.2, ...]
-  #     cached_question: "Show me Q1 total sales"
-  #     cached_question_embedding: [0.1, 0.2, ...]
-  #     cached_context: "Previous: Show me revenue breakdown"
-  #     cached_context_embedding: [0.1, 0.2, ...]
-  #     expected_match: true
-  #
-  #   # Negative pair - different questions that should NOT match
-  #   - question: "What is inventory count by store?"
-  #     question_embedding: [0.3, 0.1, ...]
-  #     context: ""
-  #     context_embedding: [0.0, 0.0, ...]
-  #     cached_question: "Show revenue by region"
-  #     cached_question_embedding: [0.5, 0.6, ...]
-  #     cached_context: ""
-  #     cached_context_embedding: [0.0, 0.0, ...]
-  #     expected_match: false
-  #
-  #   # Unlabeled entry - LLM judge will determine
-  #   - question: "How many items sold last week?"
-  #     question_embedding: [0.2, 0.3, ...]
-  #     context: "Previous: Filter by electronics"
-  #     context_embedding: [0.1, 0.4, ...]
-  #     cached_question: "Total items sold in past 7 days"
-  #     cached_question_embedding: [0.2, 0.35, ...]
-  #     cached_context: "Previous: Filter by electronics"
-  #     cached_context_embedding: [0.1, 0.4, ...]
-  #     # expected_match omitted - will use LLM judge
-
-
-# =============================================================================
-# THRESHOLD OPTIMIZATION CONFIGURATION
-# =============================================================================
-# Configure the optimization run parameters.
-
-threshold_optimizations:
-
-  optimize_retail_cache_thresholds:
-    name: optimize_retail_cache_thresholds
-    cache_parameters: *cache_parameters       # Current thresholds to improve
-    dataset: *threshold_eval_dataset          # Evaluation dataset
-    judge_model: *judge_model                 # LLM for unlabeled entries
-    
-    # Optimization parameters
-    n_trials: 50                              # Number of Optuna trials (more = better results)
-    metric: f1                                # Metric to optimize: f1, precision, recall, fbeta
-    beta: 1.0                                 # Beta for fbeta metric (higher = favor recall)
-    seed: 42                                  # Random seed for reproducibility
+optimizations:
+  cache_threshold_optimizations:
+    # ---------------------------------------------------------------------------
+    # Retail Cache Threshold Optimization
+    # ---------------------------------------------------------------------------
+    optimize_retail_cache_thresholds:
+      name: optimize_retail_cache_thresholds
+      
+      # Current thresholds to improve (optional - uses defaults if not provided)
+      cache_parameters:
+        database: *semantic_cache_db
+        warehouse: *shared_endpoint_warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85           # Question matching threshold
+        context_similarity_threshold: 0.80   # Context matching threshold
+        question_weight: 0.6                 # Weight for question (context = 1 - question)
+        time_to_live_seconds: 86400
+      
+      # Evaluation dataset with question pairs
+      # Each entry contains:
+      #   - question/context: The incoming query
+      #   - cached_question/cached_context: The cached entry to compare against
+      #   - expected_match: true (should match), false (should not), or omit for LLM judge
+      #
+      # Note: Embeddings are normally pre-computed. Use the notebook or
+      # generate_eval_dataset_from_cache() to create a dataset from cache entries.
+      dataset:
+        name: retail_cache_eval_dataset
+        description: "Evaluation dataset for retail domain semantic cache tuning"
+        entries: []
+        # In practice, populate with real entries like:
+        #
+        # entries:
+        #   # Positive pair - paraphrases that should match
+        #   - question: "What are total sales for Q1?"
+        #     question_embedding: [0.1, 0.2, ...]  # Pre-computed embeddings
+        #     context: "Previous: Show me revenue breakdown"
+        #     context_embedding: [0.1, 0.2, ...]
+        #     cached_question: "Show me Q1 total sales"
+        #     cached_question_embedding: [0.1, 0.2, ...]
+        #     cached_context: "Previous: Show me revenue breakdown"
+        #     cached_context_embedding: [0.1, 0.2, ...]
+        #     expected_match: true
+        #
+        #   # Negative pair - different questions that should NOT match
+        #   - question: "What is inventory count by store?"
+        #     question_embedding: [0.3, 0.1, ...]
+        #     context: ""
+        #     context_embedding: [0.0, 0.0, ...]
+        #     cached_question: "Show revenue by region"
+        #     cached_question_embedding: [0.5, 0.6, ...]
+        #     cached_context: ""
+        #     cached_context_embedding: [0.0, 0.0, ...]
+        #     expected_match: false
+        #
+        #   # Unlabeled entry - LLM judge will determine
+        #   - question: "How many items sold last week?"
+        #     question_embedding: [0.2, 0.3, ...]
+        #     context: "Previous: Filter by electronics"
+        #     context_embedding: [0.1, 0.4, ...]
+        #     cached_question: "Total items sold in past 7 days"
+        #     cached_question_embedding: [0.2, 0.35, ...]
+        #     cached_context: "Previous: Filter by electronics"
+        #     cached_context_embedding: [0.1, 0.4, ...]
+        #     # expected_match omitted - will use LLM judge
+      
+      # LLM for judging unlabeled entries
+      judge_model: *judge_model
+      
+      # Optimization parameters
+      n_trials: 50                              # Number of Optuna trials (more = better results)
+      metric: f1                                # Metric to optimize: f1, precision, recall, fbeta
+      beta: 1.0                                 # Beta for fbeta metric (higher = favor recall)
+      seed: 42                                  # Random seed for reproducibility
 
 
 # =============================================================================
@@ -154,14 +137,19 @@ threshold_optimizations:
 #    to create a dataset from existing cache entries.
 #
 # 2. RUN OPTIMIZATION:
-#    Use the notebook notebooks/11_optimize_cache_thresholds.py with this config,
+#    Use the notebook notebooks/11_optimize_context_aware_genie_cache.py,
 #    or run programmatically:
 #
 #    ```python
 #    from dao_ai.config import AppConfig
 #
 #    config = AppConfig.from_file("cache_threshold_optimization.yaml")
-#    optimization = config.threshold_optimizations["optimize_retail_cache_thresholds"]
+#    
+#    # Run all optimizations (prompts and cache thresholds)
+#    results = config.optimizations.optimize()
+#    
+#    # Or run a specific cache threshold optimization
+#    optimization = config.optimizations.cache_threshold_optimizations["optimize_retail_cache_thresholds"]
 #    result = optimization.optimize()
 #
 #    print(f"Optimized thresholds: {result.optimized_thresholds}")

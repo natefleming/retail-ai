@@ -51,6 +51,12 @@ resources:
         env: RETAIL_AI_GENIE_SPACE_ID
         default_value: 01f01c91f1f414d59daaefd2b7ec82ea
 
+  tables:
+    # The retail_consumer_goods`.`quick_serve_restaurant`.`lookup_items_by_descriptions` function is used to lookup the items description vector index.
+    # The function will be implicitly granted permission to the genie agent, however, we we need to grant permission to the index for the genie agent to use it.
+    items_description_vs_index:
+      schema: *quick_serve_restaurant_schema
+      name: items_description_vs_index
 
 # =============================================================================
 # MEMORY CONFIGURATION

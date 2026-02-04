@@ -152,10 +152,14 @@ def dao_ai_version() -> str:
             return "dev"
 
 
-def get_installed_packages() -> dict[str, str]:
-    """Get all installed packages with versions"""
+def get_installed_packages() -> list[str]:
+    """Get all installed packages with versions.
 
-    packages: Sequence[str] = [
+    Returns a list of pip requirement strings for packages used by dao-ai.
+    This is used for MLflow model logging to ensure all dependencies are captured.
+    """
+
+    packages: list[str] = [
         f"databricks-agents=={version('databricks-agents')}",
         f"databricks-langchain[memory]=={version('databricks-langchain')}",
         f"databricks-mcp=={version('databricks-mcp')}",

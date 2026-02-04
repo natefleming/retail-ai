@@ -42,24 +42,17 @@ import hashlib
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterator, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Sequence
 
 import mlflow
-import optuna
 from loguru import logger
-from optuna.samplers import TPESampler
-
-# Optional MLflow integration - requires optuna-integration[mlflow]
-try:
-    from optuna.integration import MLflowCallback
-
-    MLFLOW_CALLBACK_AVAILABLE = True
-except ModuleNotFoundError:
-    MLFLOW_CALLBACK_AVAILABLE = False
-    MLflowCallback = None  # type: ignore
 
 from dao_ai.config import GenieContextAwareCacheParametersModel, LLMModel
 from dao_ai.utils import dao_ai_version
+
+# Type-only import for optuna.Trial to support type hints without runtime dependency
+if TYPE_CHECKING:
+    import optuna
 
 __all__ = [
     "ContextAwareCacheEvalEntry",
@@ -388,10 +381,10 @@ def _create_objective(
     judge_model: LLMModel | str | None,
     metric: Literal["f1", "precision", "recall", "fbeta"],
     beta: float = 1.0,
-) -> Callable[[optuna.Trial], float]:
+) -> Callable[["optuna.Trial"], float]:
     """Create the Optuna objective function."""
 
-    def objective(trial: optuna.Trial) -> float:
+    def objective(trial: "optuna.Trial") -> float:
         # Sample parameters
         similarity_threshold = trial.suggest_float(
             "similarity_threshold", 0.5, 0.99, log=False
@@ -490,6 +483,26 @@ def optimize_context_aware_cache_thresholds(
         if result.improved:
             print(f"New thresholds: {result.optimized_thresholds}")
     """
+    # Lazy import optuna - only loaded when optimization is actually called
+    # This allows the cache module to be imported without optuna installed
+    try:
+        import optuna
+        from optuna.samplers import TPESampler
+    except ImportError as e:
+        raise ImportError(
+            "optuna is required for cache threshold optimization. "
+            "Install it with: pip install optuna"
+        ) from e
+
+    # Optional MLflow integration - requires optuna-integration[mlflow]
+    try:
+        from optuna.integration import MLflowCallback
+
+        mlflow_callback_available = True
+    except ModuleNotFoundError:
+        mlflow_callback_available = False
+        MLflowCallback = None  # type: ignore
+
     logger.info(
         "Starting semantic cache threshold optimization",
         dataset_name=dataset.name,
@@ -576,7 +589,7 @@ def optimize_context_aware_cache_thresholds(
 
     # Set up MLflow callback if available
     callbacks = []
-    if MLFLOW_CALLBACK_AVAILABLE and MLflowCallback is not None:
+    if mlflow_callback_available and MLflowCallback is not None:
         try:
             mlflow_callback = MLflowCallback(
                 tracking_uri=mlflow.get_tracking_uri(),

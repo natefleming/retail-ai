@@ -3659,20 +3659,25 @@ class OptimizationsModel(BaseModel):
     prompt_optimizations: dict[str, PromptOptimizationModel] = Field(
         default_factory=dict
     )
+    cache_threshold_optimizations: dict[str, "ContextAwareCacheOptimizationModel"] = (
+        Field(default_factory=dict)
+    )
 
-    def optimize(self, w: WorkspaceClient | None = None) -> dict[str, PromptModel]:
+    def optimize(self, w: WorkspaceClient | None = None) -> dict[str, Any]:
         """
-        Optimize all prompts in this configuration.
+        Optimize all prompts and cache thresholds in this configuration.
 
         This method:
         1. Ensures all training datasets are created/registered in MLflow
         2. Runs each prompt optimization
+        3. Runs each cache threshold optimization
 
         Args:
             w: Optional WorkspaceClient for Databricks operations
 
         Returns:
-            dict[str, PromptModel]: Dictionary mapping optimization names to optimized prompts
+            dict[str, Any]: Dictionary with 'prompts' and 'cache_thresholds' keys
+                containing the respective optimization results
         """
         # First, ensure all training datasets are created/registered in MLflow
         logger.info(f"Ensuring {len(self.training_datasets)} training datasets exist")
@@ -3680,11 +3685,17 @@ class OptimizationsModel(BaseModel):
             logger.debug(f"Creating/updating dataset: {dataset_name}")
             dataset_model.as_dataset()
 
-        # Run optimizations
-        results: dict[str, PromptModel] = {}
+        # Run prompt optimizations
+        prompt_results: dict[str, PromptModel] = {}
         for name, optimization in self.prompt_optimizations.items():
-            results[name] = optimization.optimize(w)
-        return results
+            prompt_results[name] = optimization.optimize(w)
+
+        # Run cache threshold optimizations
+        cache_results: dict[str, Any] = {}
+        for name, optimization in self.cache_threshold_optimizations.items():
+            cache_results[name] = optimization.optimize(w)
+
+        return {"prompts": prompt_results, "cache_thresholds": cache_results}
 
 
 class ContextAwareCacheEvalEntryModel(BaseModel):
@@ -3767,20 +3778,22 @@ class ContextAwareCacheEvalDatasetModel(BaseModel):
         )
 
 
-class SemanticCacheThresholdOptimizationModel(BaseModel):
-    """Configuration for semantic cache threshold optimization.
+class ContextAwareCacheOptimizationModel(BaseModel):
+    """Configuration for context-aware cache threshold optimization.
 
     Uses Optuna Bayesian optimization to find optimal threshold values
     that maximize cache hit accuracy (F1 score by default).
 
     Example:
-        threshold_optimization:
-          name: optimize_cache_thresholds
-          cache_parameters: *my_cache_params
-          dataset: *my_eval_dataset
-          judge_model: databricks-meta-llama-3-3-70b-instruct
-          n_trials: 50
-          metric: f1
+        optimizations:
+          cache_threshold_optimizations:
+            my_optimization:
+              name: optimize_cache_thresholds
+              cache_parameters: *my_cache_params
+              dataset: *my_eval_dataset
+              judge_model: databricks-meta-llama-3-3-70b-instruct
+              n_trials: 50
+              metric: f1
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")

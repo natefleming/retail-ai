@@ -995,6 +995,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         from_datetime: datetime | None = None,
         to_datetime: datetime | None = None,
         max_messages: int | None = None,
+        max_conversations: int | None = None,
     ) -> Self:
         """Populate cache from existing Genie space conversations.
 
@@ -1010,6 +1011,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
             from_datetime: Only include messages after this time
             to_datetime: Only include messages before this time
             max_messages: Limit to last N messages (most recent first)
+            max_conversations: Limit to N conversations (stops pagination after reaching limit)
 
         Returns:
             self for method chaining
@@ -1054,7 +1056,20 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                 break
 
             if response.conversations is None:
+                logger.debug(
+                    "No conversations in response",
+                    layer=self.name,
+                    space_id=target_space_id,
+                )
                 break
+
+            logger.debug(
+                "Fetched conversations page",
+                layer=self.name,
+                conversations_in_page=len(response.conversations),
+                total_conversations_so_far=stats["conversations_processed"],
+                has_next_page=response.next_page_token is not None,
+            )
 
             for conversation in response.conversations:
                 if conversation.conversation_id is None:
@@ -1083,11 +1098,35 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                 if max_messages and len(all_messages) >= max_messages:
                     break
 
+                if (
+                    max_conversations
+                    and stats["conversations_processed"] >= max_conversations
+                ):
+                    break
+
             if max_messages and len(all_messages) >= max_messages:
+                break
+
+            if (
+                max_conversations
+                and stats["conversations_processed"] >= max_conversations
+            ):
+                logger.debug(
+                    "Reached max_conversations limit",
+                    layer=self.name,
+                    max_conversations=max_conversations,
+                    total_conversations=stats["conversations_processed"],
+                )
                 break
 
             page_token = response.next_page_token
             if page_token is None:
+                logger.debug(
+                    "No more pages to fetch",
+                    layer=self.name,
+                    total_conversations=stats["conversations_processed"],
+                    total_messages=len(all_messages),
+                )
                 break
 
         # Sort and limit

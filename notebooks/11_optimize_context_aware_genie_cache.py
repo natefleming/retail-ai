@@ -6,47 +6,6 @@
 
 # COMMAND ----------
 
-from typing import Sequence
-import os
-
-
-def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
-    if not os.path.exists(base_path):
-        raise FileNotFoundError(f"Base path does not exist: {base_path}")
-
-    if not os.path.isdir(base_path):
-        raise NotADirectoryError(f"Base path is not a directory: {base_path}")
-
-    yaml_files = []
-
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            if file.lower().endswith((".yaml", ".yml")):
-                yaml_files.append(os.path.join(root, file))
-
-    return sorted(yaml_files)
-
-
-# COMMAND ----------
-
-dbutils.widgets.text(name="config-path", defaultValue="")
-
-config_files: Sequence[str] = find_yaml_files_os_walk("../config")
-dbutils.widgets.dropdown(
-    name="config-paths",
-    choices=config_files,
-    defaultValue=next(iter(config_files), ""),
-)
-
-config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str | None = dbutils.widgets.get("config-paths") or None
-
-config_path = config_path or project_path
-
-print(config_path)
-
-# COMMAND ----------
-
 import sys
 from typing import Sequence
 from importlib.metadata import version
@@ -113,25 +72,6 @@ configure_logging(level="DEBUG")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Option 1: Use Configuration File
-# MAGIC
-# MAGIC If you have a configuration file with threshold optimization settings:
-
-# COMMAND ----------
-
-from dao_ai.config import AppConfig
-
-# Load configuration if available
-config: AppConfig | None = None
-try:
-    config = AppConfig.from_file(path=config_path)
-    print(f"Loaded configuration from: {config_path}")
-except Exception as e:
-    print(f"No configuration loaded: {e}")
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ## Initialize Context-Aware Cache Service
 # MAGIC
 # MAGIC Before using the optimization functions, you need to have a cache service instance.
@@ -184,7 +124,7 @@ from dao_ai.genie.cache.context_aware import PostgresContextAwareGenieService
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Option 2: Generate Dataset from Existing Cache
+# MAGIC ## Option 1: Generate Dataset from Existing Cache
 # MAGIC
 # MAGIC If you have an existing semantic cache with entries, you can generate an
 # MAGIC evaluation dataset automatically using paraphrasing. Use the `get_entries()`
@@ -230,7 +170,7 @@ from dao_ai.genie.cache.context_aware.optimization import (
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Option 3: Create Dataset Manually
+# MAGIC ## Option 2: Create Dataset Manually
 # MAGIC
 # MAGIC Create an evaluation dataset with known semantic equivalence labels:
 

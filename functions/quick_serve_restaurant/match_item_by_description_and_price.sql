@@ -1,7 +1,7 @@
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.match_item_by_description_and_price(
     description STRING COMMENT 'Coffee description or type to search for. Examples: "cold coffee", "espresso", "sweet drinks", "iced beverages", "strong coffee". Use customer preferences, drink types, or flavor profiles.',
-    low_price DOUBLE default 0 COMMENT 'Minimum price filter in dollars. Examples: 0, 2.50, 3.00. Use when customers specify budget constraints like "under $5" or "at least $3". Defaults to $0 if not specified.',
-    high_price DOUBLE default 100 COMMENT 'Maximum price filter in dollars. Examples: 5.00, 10.00, 15.00. Use when customers specify price limits like "under $6" or "no more than $8". Defaults to $100 if not specified.',
+    low_price DOUBLE default 0.0 COMMENT 'Minimum price filter in dollars. Always use decimal format (e.g., 5.0 not 5). Examples: 0.0, 2.50, 3.0. Use when customers specify budget constraints like "under $5" or "at least $3". Defaults to 0.0 if not specified.',
+    high_price DOUBLE default 100.0 COMMENT 'Maximum price filter in dollars. Always use decimal format (e.g., 10.0 not 10). Examples: 5.0, 10.0, 100.0. Use when customers specify price limits like "under $6" or "no more than $8". Defaults to 100.0 if not specified.',
     size STRING default 'Medium' COMMENT 'Coffee size preference. Valid options: "Small", "Medium", "Large", or "N/A" for single-size items. Use when customers specify size preferences. Defaults to "Medium" if not specified.'
   )
   RETURNS TABLE(
