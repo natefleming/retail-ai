@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../schemas/model_config_schema.json
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
 #
 # Test configuration for parallel tool calling observability
 # Run with: dao chat --config config/examples/parallel_tool_test.yaml
