@@ -67,6 +67,7 @@ DAO supports four types of tools, each suited for different use cases:
 |-----------|----------|---------|
 | **Python** | Custom business logic | `dao_ai.tools.current_time_tool` |
 | **Factory** | Complex initialization with config | `create_vector_search_tool(retriever=...)`, `create_genie_tool(genie_room=...)` |
+| **Inline** | Quick prototyping, simple tools defined in YAML | Define tool code directly in config |
 | **Agent Endpoint** | Call external agents as tools | `create_agent_endpoint_tool(llm=...)` for Agent Bricks, Kasal |
 | **Unity Catalog** | Governed SQL functions | `catalog.schema.find_product_by_sku` |
 | **MCP** | External services via Model Context Protocol | GitHub, Slack, custom APIs |
@@ -86,6 +87,18 @@ tools:
       name: dao_ai.tools.create_vector_search_tool
       args:
         retriever: *products_retriever
+
+  # Inline - define tool code directly in YAML (great for prototyping)
+  calculator:
+    function:
+      type: inline
+      code: |
+        from langchain.tools import tool
+
+        @tool
+        def calculator(expression: str) -> str:
+            """Evaluate a mathematical expression."""
+            return str(eval(expression))
 
   # Agent Endpoint - call external agents
   specialist_agent:

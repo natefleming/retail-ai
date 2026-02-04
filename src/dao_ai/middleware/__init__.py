@@ -1,5 +1,5 @@
 # DAO AI Middleware Module
-# This module provides middleware implementations compatible with LangChain v1's create_agent
+# Middleware implementations compatible with LangChain v1's create_agent
 
 # Re-export LangChain built-in middleware
 from langchain.agents.middleware import (
@@ -82,6 +82,10 @@ from dao_ai.middleware.summarization import (
     create_summarization_middleware,
 )
 from dao_ai.middleware.tool_call_limit import create_tool_call_limit_middleware
+from dao_ai.middleware.tool_call_observability import (
+    ToolCallObservabilityMiddleware,
+    create_tool_call_observability_middleware,
+)
 from dao_ai.middleware.tool_retry import create_tool_retry_middleware
 from dao_ai.middleware.tool_selector import create_llm_tool_selector_middleware
 
@@ -160,4 +164,7 @@ __all__ = [
     "create_clear_tool_uses_edit",
     # PII middleware factory functions
     "create_pii_middleware",
+    # Tool call observability middleware
+    "ToolCallObservabilityMiddleware",
+    "create_tool_call_observability_middleware",
 ]

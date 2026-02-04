@@ -1,0 +1,181 @@
+# yaml-language-server: $schema=../../schemas/model_config_schema.json
+#
+# Test configuration for parallel tool calling observability
+# Run with: dao chat --config config/examples/parallel_tool_test.yaml
+#
+# Test queries to try:
+#   - "Get the current time in New York, London, and Tokyo"
+#   - "What is 5+3, 10*2, and 100/4?"
+#   - "Roll three dice for me"
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+
+tools:
+  # Simple calculator tool
+  calculator: &calculator_tool
+    name: calculator
+    function:
+      type: inline
+      code: |
+        from langchain.tools import tool
+
+        @tool
+        def calculator(expression: str) -> str:
+            """
+            Evaluate a mathematical expression.
+
+            Args:
+                expression: A mathematical expression like "5 + 3" or "10 * 2"
+
+            Returns:
+                The result of the calculation
+            """
+            import time
+            time.sleep(0.5)  # Simulate some latency
+            try:
+                result = eval(expression)
+                return f"Result: {expression} = {result}"
+            except Exception as e:
+                return f"Error evaluating '{expression}': {e}"
+
+  # Get current time tool
+  get_time: &get_time_tool
+    name: get_time
+    function:
+      type: inline
+      code: |
+        from langchain.tools import tool
+
+        @tool
+        def get_time(timezone: str = "UTC") -> str:
+            """
+            Get the current time in a specified timezone.
+
+            Args:
+                timezone: The timezone name (e.g., "UTC", "US/Eastern", "Europe/London", "Asia/Tokyo")
+
+            Returns:
+                The current time in that timezone
+            """
+            import time
+            time.sleep(0.5)  # Simulate some latency
+            from datetime import datetime
+            try:
+                import pytz
+                tz = pytz.timezone(timezone)
+                current_time = datetime.now(tz)
+                return f"Current time in {timezone}: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+            except Exception:
+                from datetime import datetime
+                return f"Current time (UTC): {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} (timezone '{timezone}' not available)"
+
+  # Random number generator tool
+  random_number: &random_number_tool
+    name: random_number
+    function:
+      type: inline
+      code: |
+        from langchain.tools import tool
+
+        @tool
+        def random_number(min_val: int = 1, max_val: int = 100, label: str = "random") -> str:
+            """
+            Generate a random number between min and max values.
+
+            Args:
+                min_val: Minimum value (inclusive)
+                max_val: Maximum value (inclusive)
+                label: A label for this random number (e.g., "dice1", "lottery")
+
+            Returns:
+                A random number with its label
+            """
+            import time
+            import random
+            time.sleep(0.5)  # Simulate some latency
+            result = random.randint(min_val, max_val)
+            return f"{label}: {result}"
+
+  # Lookup tool (simulates database lookup)
+  lookup: &lookup_tool
+    name: lookup
+    function:
+      type: inline
+      code: |
+        from langchain.tools import tool
+
+        @tool
+        def lookup(item_id: str) -> str:
+            """
+            Look up information about an item by its ID.
+
+            Args:
+                item_id: The ID of the item to look up
+
+            Returns:
+                Information about the item
+            """
+            import time
+            time.sleep(0.5)  # Simulate database latency
+            # Simulated data
+            items = {
+                "101": {"name": "Widget A", "price": 9.99, "stock": 150},
+                "102": {"name": "Widget B", "price": 14.99, "stock": 75},
+                "103": {"name": "Widget C", "price": 24.99, "stock": 200},
+                "201": {"name": "Gadget X", "price": 49.99, "stock": 50},
+                "202": {"name": "Gadget Y", "price": 79.99, "stock": 25},
+            }
+            if item_id in items:
+                item = items[item_id]
+                return f"Item {item_id}: {item['name']} - ${item['price']:.2f} ({item['stock']} in stock)"
+            return f"Item {item_id} not found"
+
+agents:
+  parallel_test_agent: &parallel_test_agent
+    name: parallel_test_agent
+    model: *default_llm
+    tools:
+      - *calculator_tool
+      - *get_time_tool
+      - *random_number_tool
+      - *lookup_tool
+    middleware:
+      # Add observability middleware to track parallel vs sequential calls
+      - name: dao_ai.middleware.tool_call_observability.create_tool_call_observability_middleware
+        args:
+          log_level: INFO
+          include_args: true
+          track_timing: true
+    prompt: |
+      You are a helpful assistant with access to various tools.
+
+      ## CRITICAL: Parallel Tool Execution
+
+      **ALWAYS call multiple tools simultaneously when they are independent.**
+
+      When you need to perform multiple independent operations, you MUST call ALL
+      relevant tools in a SINGLE response. Do NOT call them one at a time.
+
+      Examples of CORRECT parallel behavior:
+      - User asks for time in 3 cities → Call get_time 3 times IN ONE RESPONSE
+      - User asks for 3 calculations → Call calculator 3 times IN ONE RESPONSE
+      - User asks to look up items 101, 102, 103 → Call lookup 3 times IN ONE RESPONSE
+
+      The system will execute parallel calls concurrently, which is much faster.
+
+      Only call tools sequentially when one tool's output is needed as INPUT for another.
+
+app:
+  name: parallel_tool_test
+  log_level: INFO
+  registered_model:
+    schema:
+      catalog_name: main
+      schema_name: default
+    name: parallel_tool_test
+  agents:
+    - *parallel_test_agent

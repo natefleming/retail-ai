@@ -661,9 +661,11 @@ class TestOptimizationsModelUnit:
 
         # Verify optimize was called on each optimization
         assert mock_optimize.call_count == 2
-        assert len(results) == 2
-        assert results["opt1"] == mock_result1
-        assert results["opt2"] == mock_result2
+        assert "prompts" in results
+        assert "cache_thresholds" in results
+        assert len(results["prompts"]) == 2
+        assert results["prompts"]["opt1"] == mock_result1
+        assert results["prompts"]["opt2"] == mock_result2
 
     @pytest.mark.unit
     def test_optimizations_model_optimize_empty_dict(self):
@@ -672,7 +674,10 @@ class TestOptimizationsModelUnit:
 
         results = optimizations_model.optimize()
 
-        assert len(results) == 0
+        assert "prompts" in results
+        assert "cache_thresholds" in results
+        assert len(results["prompts"]) == 0
+        assert len(results["cache_thresholds"]) == 0
         assert isinstance(results, dict)
 
 
@@ -927,9 +932,10 @@ class TestPromptOptimizationIntegration:
         results = optimizations_model.optimize()
 
         # Verify results
-        assert len(results) == 2
-        assert results["opt1"].version == 2
-        assert results["opt2"].version == 3
+        assert "prompts" in results
+        assert len(results["prompts"]) == 2
+        assert results["prompts"]["opt1"].version == 2
+        assert results["prompts"]["opt2"].version == 3
         assert mock_optimize.call_count == 2
 
 

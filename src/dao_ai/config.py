@@ -2316,6 +2316,7 @@ class FunctionType(str, Enum):
     FACTORY = "factory"
     UNITY_CATALOG = "unity_catalog"
     MCP = "mcp"
+    INLINE = "inline"
 
 
 class HumanInTheLoopModel(BaseModel):
@@ -2415,6 +2416,72 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
         for key, value in self.args.items():
             self.args[key] = value_of(value)
         return self
+
+
+class InlineFunctionModel(BaseFunctionModel):
+    """
+    Inline function model for defining tool code directly in YAML configuration.
+
+    This allows you to define simple tools without creating separate Python files.
+    The code should define a function decorated with @tool from langchain.tools.
+
+    Example YAML:
+        tools:
+          calculator:
+            name: calculator
+            function:
+              type: inline
+              code: |
+                from langchain.tools import tool
+
+                @tool
+                def calculator(expression: str) -> str:
+                    '''Evaluate a mathematical expression.'''
+                    return str(eval(expression))
+
+    The code block must:
+    - Import @tool from langchain.tools
+    - Define exactly one function decorated with @tool
+    - The function name becomes the tool name
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.INLINE] = FunctionType.INLINE
+    code: str = Field(
+        ...,
+        description="Python code defining a tool function decorated with @tool",
+    )
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        """Execute the inline code and return the tool(s) defined in it."""
+        from langchain_core.tools import BaseTool
+
+        # Create a namespace for executing the code
+        namespace: dict[str, Any] = {}
+
+        # Execute the code in the namespace
+        try:
+            exec(self.code, namespace)
+        except Exception as e:
+            raise ValueError(f"Failed to execute inline tool code: {e}") from e
+
+        # Find all tools (functions decorated with @tool) in the namespace
+        tools: list[RunnableLike] = []
+        for name, obj in namespace.items():
+            if isinstance(obj, BaseTool):
+                tools.append(obj)
+
+        if not tools:
+            raise ValueError(
+                "Inline code must define at least one function decorated with @tool. "
+                "Make sure to import and use: from langchain.tools import tool"
+            )
+
+        logger.debug(
+            "Created inline tools",
+            tool_names=[t.name for t in tools if hasattr(t, "name")],
+        )
+        return tools
 
 
 class TransportType(str, Enum):
@@ -2737,6 +2804,7 @@ AnyTool: TypeAlias = (
     Union[
         PythonFunctionModel,
         FactoryFunctionModel,
+        InlineFunctionModel,
         UnityCatalogFunctionModel,
         McpFunctionModel,
     ]

@@ -7,10 +7,10 @@ Welcome to the DAO AI examples! This directory contains ready-to-use configurati
 Follow the numbered directories from 01 to 11 for a structured learning experience:
 
 ```
-01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
-    → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output 
+01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory
+    → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output
     → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
-    → 14_basic_tools → 15_complete_applications
+    → 14_basic_tools → 15_complete_applications → 16_instructed_retriever → 17_parallel_tools
 ```
 
 Or jump directly to the category that matches your current need.
@@ -173,6 +173,27 @@ Or jump directly to the category that matches your current need.
 
 ---
 
+### [16. Instructed Retriever](16_instructed_retriever/)
+**Advanced retrieval with instructions**
+- Query decomposition
+- Instructed search patterns
+- Multi-stage retrieval
+
+👉 Improve retrieval quality with LLM-guided search
+
+---
+
+### [17. Parallel Tools](17_parallel_tools/)
+**Maximize performance with concurrent tool execution**
+- Parallel tool calling patterns
+- Inline tool definitions (define tools in YAML)
+- Tool call observability middleware
+- Prompt engineering for parallel execution
+
+👉 Speed up agents by executing independent tools concurrently
+
+---
+
 ## 🚀 Quick Start
 
 ### Validate a Configuration
@@ -237,8 +258,14 @@ dao-ai bundle --deploy --run -c config/examples/07_human_in_the_loop/human_in_th
 **...execute SQL queries or use basic data tools**  
 → Check [`14_basic_tools/`](14_basic_tools/)
 
-**...see complete, production-ready examples**  
+**...see complete, production-ready examples**
 → Explore [`15_complete_applications/`](15_complete_applications/)
+
+**...speed up my agent with parallel tool execution**
+→ Learn from [`17_parallel_tools/`](17_parallel_tools/)
+
+**...define simple tools directly in YAML (inline)**
+→ See [`17_parallel_tools/`](17_parallel_tools/)
 
 ---
 
@@ -340,6 +367,8 @@ Use MLflow to track agent performance and costs.
 | 13_orchestration | ⭐⭐⭐⭐ | 4-6 hrs | Multi-agent concepts |
 | 14_basic_tools | ⭐ | 30-60 min | SQL warehouse |
 | 15_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
+| 16_instructed_retriever | ⭐⭐⭐ | 2 hrs | Vector search setup |
+| 17_parallel_tools | ⭐⭐ | 1 hr | Category 01 |
 
 ---
 
@@ -392,9 +421,14 @@ Examples:
 - Day 1: `12_middleware/` - Validation and monitoring
 - Day 2-3: `13_orchestration/` - Multi-agent coordination
 - Day 4: `14_basic_tools/` - Simple tool patterns
-- Day 5: `15_complete_applications/` - Full systems (start)
+- Day 5: `17_parallel_tools/` - Performance optimization with parallel execution
 
-### Week 5: Build Your Own
+### Week 5: Complete Systems
+- Day 1-2: `15_complete_applications/` - Full production systems
+- Day 3: `16_instructed_retriever/` - Advanced retrieval
+- Day 4-5: Build your own agent using learned patterns
+
+### Week 6: Build Your Own
 - Apply learned patterns to your use case
 - Deploy to production
 - Monitor and iterate
