@@ -829,6 +829,183 @@
       "title": "ConnectionModel",
       "type": "object"
     },
+    "ContextAwareCacheEvalDatasetModel": {
+      "additionalProperties": false,
+      "description": "Dataset for context-aware cache threshold optimization.\n\nContains pairs of questions/contexts to evaluate whether thresholds\ncorrectly identify semantic matches.\n\nExample:\n    dataset:\n      name: my_cache_eval_dataset\n      description: \"Evaluation data for cache tuning\"\n      entries:\n        - question: \"What are total sales?\"\n          # ... entry fields",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ContextAwareCacheEvalEntryModel"
+          },
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ContextAwareCacheEvalDatasetModel",
+      "type": "object"
+    },
+    "ContextAwareCacheEvalEntryModel": {
+      "additionalProperties": false,
+      "description": "Single evaluation entry for context-aware cache threshold optimization.\n\nRepresents a pair of question/context combinations to evaluate\nwhether the cache should return a hit or miss.\n\nExample:\n    entry:\n      question: \"What are total sales?\"\n      question_embedding: [0.1, 0.2, ...]  # Pre-computed\n      context: \"Previous: Show me revenue\"\n      context_embedding: [0.1, 0.2, ...]\n      cached_question: \"Show total sales\"\n      cached_question_embedding: [0.1, 0.2, ...]\n      cached_context: \"Previous: Show me revenue\"\n      cached_context_embedding: [0.1, 0.2, ...]\n      expected_match: true",
+      "properties": {
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "question_embedding": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Question Embedding",
+          "type": "array"
+        },
+        "context": {
+          "default": "",
+          "title": "Context",
+          "type": "string"
+        },
+        "context_embedding": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Context Embedding",
+          "type": "array"
+        },
+        "cached_question": {
+          "title": "Cached Question",
+          "type": "string"
+        },
+        "cached_question_embedding": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Cached Question Embedding",
+          "type": "array"
+        },
+        "cached_context": {
+          "default": "",
+          "title": "Cached Context",
+          "type": "string"
+        },
+        "cached_context_embedding": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Cached Context Embedding",
+          "type": "array"
+        },
+        "expected_match": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Match"
+        }
+      },
+      "required": [
+        "question",
+        "question_embedding",
+        "cached_question",
+        "cached_question_embedding"
+      ],
+      "title": "ContextAwareCacheEvalEntryModel",
+      "type": "object"
+    },
+    "ContextAwareCacheOptimizationModel": {
+      "additionalProperties": false,
+      "description": "Configuration for context-aware cache threshold optimization.\n\nUses Optuna Bayesian optimization to find optimal threshold values\nthat maximize cache hit accuracy (F1 score by default).\n\nExample:\n    optimizations:\n      cache_threshold_optimizations:\n        my_optimization:\n          name: optimize_cache_thresholds\n          cache_parameters: *my_cache_params\n          dataset: *my_eval_dataset\n          judge_model: databricks-meta-llama-3-3-70b-instruct\n          n_trials: 50\n          metric: f1",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "cache_parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenieContextAwareCacheParametersModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dataset": {
+          "$ref": "#/$defs/ContextAwareCacheEvalDatasetModel"
+        },
+        "judge_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "databricks-meta-llama-3-3-70b-instruct",
+          "title": "Judge Model"
+        },
+        "n_trials": {
+          "default": 50,
+          "title": "N Trials",
+          "type": "integer"
+        },
+        "metric": {
+          "default": "f1",
+          "enum": [
+            "f1",
+            "precision",
+            "recall",
+            "fbeta"
+          ],
+          "title": "Metric",
+          "type": "string"
+        },
+        "beta": {
+          "default": 1.0,
+          "title": "Beta",
+          "type": "number"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "required": [
+        "name",
+        "dataset"
+      ],
+      "title": "ContextAwareCacheOptimizationModel",
+      "type": "object"
+    },
     "DatabaseModel": {
       "additionalProperties": false,
       "description": "Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nNote: For Lakebase connections, `name` is optional and defaults to `instance_name`.\nFor PostgreSQL connections, `name` is required.\n\nExample Databricks Lakebase (minimal):\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance  # name defaults to instance_name\n```\n\nExample Databricks Lakebase with Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Databricks Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
@@ -1968,6 +2145,135 @@
       "title": "FunctionModel",
       "type": "object"
     },
+    "GenieContextAwareCacheParametersModel": {
+      "additionalProperties": false,
+      "properties": {
+        "time_to_live_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 86400,
+          "title": "Time To Live Seconds"
+        },
+        "similarity_threshold": {
+          "default": 0.85,
+          "title": "Similarity Threshold",
+          "type": "number"
+        },
+        "context_similarity_threshold": {
+          "default": 0.8,
+          "title": "Context Similarity Threshold",
+          "type": "number"
+        },
+        "question_weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.6,
+          "title": "Question Weight"
+        },
+        "context_weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Weight"
+        },
+        "embedding_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/LLMModel"
+            }
+          ],
+          "default": "databricks-gte-large-en",
+          "title": "Embedding Model"
+        },
+        "embedding_dims": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Embedding Dims"
+        },
+        "database": {
+          "$ref": "#/$defs/DatabaseModel"
+        },
+        "warehouse": {
+          "$ref": "#/$defs/WarehouseModel"
+        },
+        "table_name": {
+          "default": "genie_semantic_cache",
+          "title": "Table Name",
+          "type": "string"
+        },
+        "context_window_size": {
+          "default": 2,
+          "title": "Context Window Size",
+          "type": "integer"
+        },
+        "max_context_tokens": {
+          "default": 2000,
+          "title": "Max Context Tokens",
+          "type": "integer"
+        },
+        "prompt_history_table": {
+          "default": "genie_prompt_history",
+          "title": "Prompt History Table",
+          "type": "string"
+        },
+        "max_prompt_history_length": {
+          "default": 50,
+          "title": "Max Prompt History Length",
+          "type": "integer"
+        },
+        "use_genie_api_for_history": {
+          "default": false,
+          "title": "Use Genie Api For History",
+          "type": "boolean"
+        },
+        "prompt_history_ttl_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt History Ttl Seconds"
+        }
+      },
+      "required": [
+        "database",
+        "warehouse"
+      ],
+      "title": "GenieContextAwareCacheParametersModel",
+      "type": "object"
+    },
     "GenieRoomModel": {
       "additionalProperties": false,
       "properties": {
@@ -2471,6 +2777,39 @@
         "name"
       ],
       "title": "IndexModel",
+      "type": "object"
+    },
+    "InlineFunctionModel": {
+      "additionalProperties": false,
+      "description": "Inline function model for defining tool code directly in YAML configuration.\n\nThis allows you to define simple tools without creating separate Python files.\nThe code should define a function decorated with @tool from langchain.tools.\n\nExample YAML:\n    tools:\n      calculator:\n        name: calculator\n        function:\n          type: inline\n          code: |\n            from langchain.tools import tool\n\n            @tool\n            def calculator(expression: str) -> str:\n                '''Evaluate a mathematical expression.'''\n                return str(eval(expression))\n\nThe code block must:\n- Import @tool from langchain.tools\n- Define exactly one function decorated with @tool\n- The function name becomes the tool name",
+      "properties": {
+        "type": {
+          "const": "inline",
+          "default": "inline",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "code": {
+          "description": "Python code defining a tool function decorated with @tool",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "InlineFunctionModel",
       "type": "object"
     },
     "InstructedRetrieverModel": {
@@ -3335,6 +3674,13 @@
             "$ref": "#/$defs/PromptOptimizationModel"
           },
           "title": "Prompt Optimizations",
+          "type": "object"
+        },
+        "cache_threshold_optimizations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ContextAwareCacheOptimizationModel"
+          },
+          "title": "Cache Threshold Optimizations",
           "type": "object"
         }
       },
@@ -4563,6 +4909,9 @@
             },
             {
               "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/InlineFunctionModel"
             },
             {
               "$ref": "#/$defs/UnityCatalogFunctionModel"
