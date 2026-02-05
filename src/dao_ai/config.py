@@ -893,11 +893,25 @@ class GenieRoomModel(IsDatabricksResource):
 
     _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
 
-    def _get_space_details(self) -> GenieSpace:
+    def _get_space_details(self) -> GenieSpace | None:
+        """Fetch Genie space details from the API.
+
+        Returns:
+            GenieSpace if successful, None if the API call fails (e.g., due to
+            permission issues in model serving environments).
+        """
         if self._space_details is None:
-            self._space_details = self.workspace_client.genie.get_space(
-                space_id=self.space_id, include_serialized_space=True
-            )
+            try:
+                self._space_details = self.workspace_client.genie.get_space(
+                    space_id=self.space_id, include_serialized_space=True
+                )
+            except Exception as e:
+                logger.debug(
+                    "Could not fetch Genie space details (this is expected in model serving)",
+                    space_id=self.space_id,
+                    error=str(e),
+                )
+                return None
         return self._space_details
 
     def _parse_serialized_space(self) -> dict[str, Any]:
@@ -905,7 +919,7 @@ class GenieRoomModel(IsDatabricksResource):
         import json
 
         space_details = self._get_space_details()
-        if not space_details.serialized_space:
+        if space_details is None or not space_details.serialized_space:
             return {}
 
         try:
@@ -921,9 +935,9 @@ class GenieRoomModel(IsDatabricksResource):
         Returns:
             WarehouseModel instance if warehouse_id is available, None otherwise.
         """
-        space_details: GenieSpace = self._get_space_details()
+        space_details = self._get_space_details()
 
-        if not space_details.warehouse_id:
+        if space_details is None or not space_details.warehouse_id:
             return None
 
         try:
