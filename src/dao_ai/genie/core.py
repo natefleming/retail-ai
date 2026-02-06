@@ -37,17 +37,20 @@ if TYPE_CHECKING:
 @dataclass
 class GenieResponse(DatabricksGenieResponse):
     """
-    Extended GenieResponse that includes message_id.
+    Extended GenieResponse that includes message_id and statement_id.
 
     This extends the databricks_ai_bridge GenieResponse to capture the message_id
-    from API responses, which is required for sending feedback to the Genie API.
+    and statement_id from API responses. message_id is required for sending feedback
+    to the Genie API. statement_id is the SQL Statement Execution API identifier
+    for the executed query.
 
     Attributes:
         result: The query result as string or DataFrame
         query: The generated SQL query
         description: Description of the query
         conversation_id: The conversation ID
-        message_id: The message ID (NEW - enables feedback without extra API call)
+        message_id: The message ID (enables feedback without extra API call)
+        statement_id: The SQL Statement Execution API statement ID
     """
 
     result: Union[str, pd.DataFrame] = ""
@@ -55,6 +58,7 @@ class GenieResponse(DatabricksGenieResponse):
     description: Optional[str] = ""
     conversation_id: Optional[str] = None
     message_id: Optional[str] = None
+    statement_id: Optional[str] = None
 
 
 class Genie(DatabricksGenie):
@@ -74,6 +78,42 @@ class Genie(DatabricksGenie):
         - DatabricksGenie
         - DatabricksGenieResponse
     """
+
+    def _get_statement_id(
+        self, conversation_id: str, message_id: str
+    ) -> str | None:
+        """
+        Fetch the SQL statement_id from a completed Genie message.
+
+        Makes a GET call to the getMessage endpoint and extracts the
+        statement_id from the query_result field. This is a lightweight
+        GET request that does not count against Genie throughput limits.
+
+        Args:
+            conversation_id: The conversation ID
+            message_id: The message ID
+
+        Returns:
+            The SQL Statement Execution API statement_id, or None if not available.
+        """
+        try:
+            msg_resp = self.genie._api.do(
+                "GET",
+                f"/api/2.0/genie/spaces/{self.space_id}/conversations/{conversation_id}/messages/{message_id}",
+                headers=self.headers,
+            )
+            query_result = msg_resp.get("query_result")
+            if query_result:
+                return query_result.get("statement_id")
+        except Exception:
+            logger.debug(
+                "Failed to retrieve statement_id from getMessage",
+                space_id=self.space_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                exc_info=True,
+            )
+        return None
 
     def ask_question(
         self, question: str, conversation_id: str | None = None
@@ -108,13 +148,21 @@ class Genie(DatabricksGenie):
             if not genie_response.conversation_id:
                 genie_response.conversation_id = resp["conversation_id"]
 
-            # Return our extended response with message_id
+            # Fetch statement_id from the completed message
+            statement_id: str | None = None
+            if message_id and genie_response.query:
+                statement_id = self._get_statement_id(
+                    resp["conversation_id"], message_id
+                )
+
+            # Return our extended response with message_id and statement_id
             return GenieResponse(
                 result=genie_response.result,
                 query=genie_response.query,
                 description=genie_response.description,
                 conversation_id=genie_response.conversation_id,
                 message_id=message_id,
+                statement_id=statement_id,
             )
 
 
@@ -174,7 +222,7 @@ class GenieService(GenieServiceBase):
         """
         response = self.genie.ask_question(question, conversation_id=conversation_id)
 
-        # Extract message_id if available (from our extended GenieResponse)
+        # Extract message_id from our extended GenieResponse (if available)
         message_id = getattr(response, "message_id", None)
 
         # No caching at this level - return cache miss

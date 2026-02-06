@@ -74,6 +74,8 @@ def mock_genie_tool():
                 description="Test description",
                 query="SELECT * FROM test",
                 result="Test result data",
+                statement_id=None,
+                message_id=None,
             )
         )
         mock_genie_class.return_value = mock_genie_instance

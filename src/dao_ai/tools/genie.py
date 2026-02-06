@@ -15,7 +15,7 @@ from textwrap import dedent
 from typing import Annotated, Any, Callable
 
 import pandas as pd
-from databricks_ai_bridge.genie import Genie, GenieResponse
+from dao_ai.genie.core import Genie, GenieResponse
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
@@ -59,6 +59,7 @@ def _response_to_json(response: GenieResponse) -> str:
         "query": response.query,
         "description": response.description,
         "conversation_id": response.conversation_id,
+        "statement_id": response.statement_id,
     }
     return json.dumps(data)
 

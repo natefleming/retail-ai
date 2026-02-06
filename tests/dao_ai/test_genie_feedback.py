@@ -1,5 +1,6 @@
 """Unit and integration tests for Genie feedback functionality."""
 
+import json
 from datetime import datetime
 from unittest.mock import Mock
 
@@ -27,6 +28,7 @@ from dao_ai.genie.cache import (
 )
 from dao_ai.genie.cache.base import get_latest_message_id, get_message_content
 from dao_ai.genie.cache.context_aware.in_memory import InMemoryCacheEntry
+from dao_ai.tools.genie import _response_to_json
 
 # ============================================================================
 # Unit Tests for Helper Functions
@@ -155,7 +157,7 @@ class TestGetMessageContent:
 
 
 class TestExtendedGenieResponse:
-    """Unit tests for extended GenieResponse with message_id."""
+    """Unit tests for extended GenieResponse with message_id and statement_id."""
 
     def test_genie_response_has_message_id_field(self) -> None:
         """Test that GenieResponse has message_id field."""
@@ -179,6 +181,29 @@ class TestExtendedGenieResponse:
 
         assert response.message_id is None
 
+    def test_genie_response_has_statement_id_field(self) -> None:
+        """Test that GenieResponse has statement_id field."""
+        response = GenieResponse(
+            result="test result",
+            query="SELECT 1",
+            description="Test query",
+            conversation_id="conv-123",
+            message_id="msg-456",
+            statement_id="stmt-789",
+        )
+
+        assert response.statement_id == "stmt-789"
+        assert response.message_id == "msg-456"
+        assert response.conversation_id == "conv-123"
+
+    def test_genie_response_statement_id_defaults_to_none(self) -> None:
+        """Test that statement_id defaults to None."""
+        response = GenieResponse(
+            result="test result",
+        )
+
+        assert response.statement_id is None
+
     def test_genie_response_extends_databricks_response(self) -> None:
         """Test that GenieResponse extends DatabricksGenieResponse."""
         assert issubclass(GenieResponse, DatabricksGenieResponse)
@@ -187,6 +212,185 @@ class TestExtendedGenieResponse:
         """Test that Genie extends DatabricksGenie."""
         assert issubclass(Genie, DatabricksGenie)
 
+
+class TestGenieStatementId:
+    """Unit tests for Genie._get_statement_id and ask_question capturing statement_id."""
+
+    def test_get_statement_id_returns_id_from_query_result(self) -> None:
+        """Test that _get_statement_id extracts statement_id from getMessage response."""
+        mock_api = Mock()
+        mock_api.do.return_value = {
+            "query_result": {
+                "statement_id": "01f0-stmt-abc123",
+                "row_count": 42,
+                "is_truncated": False,
+            },
+            "status": "COMPLETED",
+        }
+
+        mock_genie_client = Mock()
+        mock_genie_client._api = mock_api
+        mock_genie_client.get_space.return_value = Mock(description="test space")
+
+        genie = Genie.__new__(Genie)
+        genie.space_id = "test-space"
+        genie.genie = mock_genie_client
+        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+        result = genie._get_statement_id("conv-123", "msg-456")
+
+        assert result == "01f0-stmt-abc123"
+        mock_api.do.assert_called_once_with(
+            "GET",
+            "/api/2.0/genie/spaces/test-space/conversations/conv-123/messages/msg-456",
+            headers=genie.headers,
+        )
+
+    def test_get_statement_id_returns_none_when_no_query_result(self) -> None:
+        """Test that _get_statement_id returns None when no query_result in response."""
+        mock_api = Mock()
+        mock_api.do.return_value = {
+            "status": "COMPLETED",
+            "attachments": [{"text": {"content": "No SQL generated"}}],
+        }
+
+        mock_genie_client = Mock()
+        mock_genie_client._api = mock_api
+
+        genie = Genie.__new__(Genie)
+        genie.space_id = "test-space"
+        genie.genie = mock_genie_client
+        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+        result = genie._get_statement_id("conv-123", "msg-456")
+
+        assert result is None
+
+    def test_get_statement_id_returns_none_on_api_error(self) -> None:
+        """Test that _get_statement_id returns None when API call fails."""
+        mock_api = Mock()
+        mock_api.do.side_effect = Exception("API error")
+
+        mock_genie_client = Mock()
+        mock_genie_client._api = mock_api
+
+        genie = Genie.__new__(Genie)
+        genie.space_id = "test-space"
+        genie.genie = mock_genie_client
+        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+        result = genie._get_statement_id("conv-123", "msg-456")
+
+        assert result is None
+
+    def test_ask_question_captures_statement_id(self) -> None:
+        """Test that ask_question captures statement_id in the returned GenieResponse."""
+        mock_api = Mock()
+        mock_api.do.return_value = {
+            "query_result": {
+                "statement_id": "01f0-stmt-xyz789",
+                "row_count": 10,
+            },
+            "status": "COMPLETED",
+        }
+
+        mock_genie_client = Mock()
+        mock_genie_client._api = mock_api
+        mock_genie_client.get_space.return_value = Mock(description="test space")
+
+        genie = Genie.__new__(Genie)
+        genie.space_id = "test-space"
+        genie.genie = mock_genie_client
+        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        genie.truncate_results = False
+        genie.return_pandas = False
+
+        genie.start_conversation = Mock(return_value={
+            "conversation_id": "conv-123",
+            "message_id": "msg-456",
+        })
+        genie.poll_for_result = Mock(return_value=DatabricksGenieResponse(
+            result="Test result data",
+            query="SELECT * FROM test_table",
+            description="Test query",
+            conversation_id="conv-123",
+        ))
+
+        result = genie.ask_question("Show me the data")
+
+        assert result.statement_id == "01f0-stmt-xyz789"
+        assert result.message_id == "msg-456"
+        assert result.conversation_id == "conv-123"
+        assert result.query == "SELECT * FROM test_table"
+
+    def test_ask_question_skips_statement_id_when_no_query(self) -> None:
+        """Test that ask_question does not fetch statement_id when response has no query."""
+        mock_api = Mock()
+
+        mock_genie_client = Mock()
+        mock_genie_client._api = mock_api
+        mock_genie_client.get_space.return_value = Mock(description="test space")
+
+        genie = Genie.__new__(Genie)
+        genie.space_id = "test-space"
+        genie.genie = mock_genie_client
+        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        genie.truncate_results = False
+        genie.return_pandas = False
+
+        genie.start_conversation = Mock(return_value={
+            "conversation_id": "conv-123",
+            "message_id": "msg-456",
+        })
+        # Response with no query (text-only response)
+        genie.poll_for_result = Mock(return_value=DatabricksGenieResponse(
+            result="I can help you with that.",
+            query=None,
+            description=None,
+            conversation_id="conv-123",
+        ))
+
+        result = genie.ask_question("Hello")
+
+        assert result.statement_id is None
+        # Should not have called getMessage API since there's no query
+        mock_api.do.assert_not_called()
+
+
+class TestResponseToJsonStatementId:
+    """Unit tests for _response_to_json including statement_id."""
+
+    def test_response_to_json_includes_statement_id(self) -> None:
+        """Test that _response_to_json includes statement_id in output."""
+        response = GenieResponse(
+            result="test result",
+            query="SELECT 1",
+            description="Test query",
+            conversation_id="conv-123",
+            message_id="msg-456",
+            statement_id="stmt-789",
+        )
+
+        json_str = _response_to_json(response)
+        data = json.loads(json_str)
+
+        assert data["statement_id"] == "stmt-789"
+        assert data["query"] == "SELECT 1"
+        assert data["conversation_id"] == "conv-123"
+
+    def test_response_to_json_statement_id_none_when_not_set(self) -> None:
+        """Test that _response_to_json includes None statement_id when not set."""
+        response = GenieResponse(
+            result="test result",
+            query="SELECT 1",
+            description="Test query",
+            conversation_id="conv-123",
+        )
+
+        json_str = _response_to_json(response)
+        data = json.loads(json_str)
+
+        assert data["statement_id"] is None
 
 class TestCacheResultMessageId:
     """Unit tests for CacheResult with message_id and cache_entry_id."""
