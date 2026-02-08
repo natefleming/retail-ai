@@ -2,7 +2,7 @@ environment_version: '4'
 dependencies:
   - --index-url https://pypi.org/simple
   # Core framework dependencies
-  - langchain==1.2.0
+  - langchain==1.2.9
   - langchain-core==0.3.80
   - langchain-community==0.3.30
   - langchain-anthropic==0.3.20
@@ -10,7 +10,7 @@ dependencies:
   - langchain-tavily==0.2.15
   - langchain-text-splitters==0.3.10
   - langchain-mcp-adapters==0.2.1
-  - langgraph==1.0.10
+  - langgraph==1.0.8
   - langgraph-checkpoint==2.1.5
   - langgraph-checkpoint-postgres==3.0.5
   - langgraph-sdk==0.2.15
@@ -19,16 +19,16 @@ dependencies:
   # Databricks dependencies
   - databricks-agents==1.9.0
   - databricks-ai-bridge==0.8.2
-  - databricks-langchain==0.12.1
-  - databricks-sdk==0.76.0
+  - databricks-langchain==0.14.0
+  - databricks-sdk==0.85.0
   - databricks-mcp==0.5.0
   - unitycatalog-ai==0.3.2
   - unitycatalog-client==0.3.2
   - unitycatalog-langchain==0.2.1
   # MLflow and AI model dependencies
-  - mlflow==3.8.1
-  - mlflow-skinny==3.8.1
-  - mlflow-tracing==3.8.1
+  - mlflow==3.9.0
+  - mlflow-skinny==3.9.0
+  - mlflow-tracing==3.9.0
   - anthropic==0.65.0
   - openai==1.115.0
   - tiktoken==0.10.0

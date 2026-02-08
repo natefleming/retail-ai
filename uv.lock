@@ -977,20 +977,20 @@ test = [
 requires-dist = [
     { name = "databricks-agents", specifier = ">=1.9.0" },
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=16.0.0" },
-    { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.13.0" },
+    { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.14.0" },
     { name = "databricks-mcp", specifier = ">=0.5.0" },
-    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.77.0" },
+    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.85.0" },
     { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.63" },
     { name = "ddgs", specifier = ">=9.10.0" },
     { name = "dspy", specifier = ">=2.6.27" },
     { name = "flashrank", specifier = ">=0.2.10" },
     { name = "gepa", specifier = ">=0.0.22" },
     { name = "grandalf", specifier = ">=0.8" },
-    { name = "langchain", specifier = ">=1.2.0" },
+    { name = "langchain", specifier = ">=1.2.9" },
     { name = "langchain-community", specifier = ">=0.3.26" },
     { name = "langchain-mcp-adapters", specifier = ">=0.2.1" },
     { name = "langchain-tavily", specifier = ">=0.2.15" },
-    { name = "langgraph", specifier = ">=1.0.5" },
+    { name = "langgraph", specifier = ">=1.0.8" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.2" },
     { name = "langmem", specifier = ">=0.0.30" },
     { name = "loguru", specifier = ">=0.7.3" },
@@ -998,7 +998,7 @@ requires-dist = [
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.1" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.7.1" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=1.0.0" },
-    { name = "mlflow", extras = ["databricks"], specifier = ">=3.8.1" },
+    { name = "mlflow", extras = ["databricks"], specifier = ">=3.9.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.1" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },
     { name = "openevals", specifier = ">=0.1.3" },
@@ -1091,7 +1091,7 @@ wheels = [
 
 [[package]]
 name = "databricks-ai-bridge"
-version = "0.12.0"
+version = "0.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "databricks-sdk" },
@@ -1103,9 +1103,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/d8/0b289b7bda4003bbc5791dcd87aa024243e8f5c1a7effa558387b6100a86/databricks_ai_bridge-0.12.0.tar.gz", hash = "sha256:d0b162f608989706e32bd5c46d46ecc1c49482db0205fa53f660689014da9d15", size = 19944, upload-time = "2026-01-16T00:50:28.891Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/ec/eba41456695c97dab9acf0886ae16fc78634240f8afd3809ae2776f178fa/databricks_ai_bridge-0.13.0.tar.gz", hash = "sha256:842ca8c129b821419c707ff65ff1e65b93cd17856bc8b11db7e33f2a731375a7", size = 24455, upload-time = "2026-01-29T00:40:38.239Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/94/c0ccb7c91635d6b65aa87fa302391c94f8eb6a81bceec45b3394a72cadb8/databricks_ai_bridge-0.12.0-py3-none-any.whl", hash = "sha256:c47c1a2d0acb03232c40b6b4a4f631dc76db2dc02ef35c2182efcc8d59cdac12", size = 24715, upload-time = "2026-01-16T00:50:27.423Z" },
+    { url = "https://files.pythonhosted.org/packages/96/c1/ae0c1c72c24976b99c621d828274484603192f9fd7f19c0ff95b5679bfc6/databricks_ai_bridge-0.13.0-py3-none-any.whl", hash = "sha256:afcb2cfd5e9475a1f89769a2ecb3deba1f514ed8e239ad63fb32ff8a2709e827", size = 29198, upload-time = "2026-01-29T00:40:35.98Z" },
 ]
 
 [package.optional-dependencies]
@@ -1165,7 +1165,7 @@ wheels = [
 
 [[package]]
 name = "databricks-langchain"
-version = "0.13.0"
+version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "databricks-ai-bridge" },
@@ -1179,9 +1179,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "unitycatalog-langchain", extra = ["databricks"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/68/0e/a4e7d88e0921ddc67faab9257b52b842e7f3ce2735fa1caeb12d6f74d49a/databricks_langchain-0.13.0.tar.gz", hash = "sha256:c969ce766fe7b3abf4aecc7547bb7b0f2706f439887a2c8c4ae045951d7dd7dd", size = 31311, upload-time = "2026-01-16T00:53:16.375Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/5d/ccdaa0ba9725ff9a3e5914312dfc3196a59fe174d32aca36cd04abee1fda/databricks_langchain-0.14.0.tar.gz", hash = "sha256:903d1d10a053d8424506ef6b7ae83c1a8ca0fe9c8d1582ca924afb05ab902c3b", size = 31317, upload-time = "2026-01-29T00:48:13.31Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8c/df/c2a5fae71957ad59af191b5240ef700a86dcfeb9e16e7464258d9f3c8b3c/databricks_langchain-0.13.0-py3-none-any.whl", hash = "sha256:47c6d4ada820e735305d1c2505f6a1852553cac2581188c27a61e25003fd36b4", size = 36463, upload-time = "2026-01-16T00:53:14.805Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/cc/f1436d65fdb76d98132715d605e65bbc2702d2f773742eb29ff80bcf682b/databricks_langchain-0.14.0-py3-none-any.whl", hash = "sha256:5b915194b88230090ce7219c6d2921f966fd179343d9ffeb9f151cc3e4d03504", size = 36487, upload-time = "2026-01-29T00:48:12.183Z" },
 ]
 
 [package.optional-dependencies]
@@ -1207,16 +1207,16 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.80.0"
+version = "0.85.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
     { name = "protobuf" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/b0/adeac3cdbb8fd286565b93af7779c8c21966f437bfd1dec0bde3e243fbd6/databricks_sdk-0.80.0.tar.gz", hash = "sha256:53e5228edd12caf619f4fd3c3d62fddd3ff4d5b30e1680e6b6aec68ac40e770b", size = 837547, upload-time = "2026-01-22T20:30:50.858Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/40/3941b6919c3854bd107e04be1686b3e0f1ce3ca4fbeea0c7fd81909bd90c/databricks_sdk-0.85.0.tar.gz", hash = "sha256:0b5f415fba69ea0c5bfc4d0b21cb3366c6b66f678e78e4b3c94cbcf2e9e0972f", size = 846275, upload-time = "2026-02-05T08:22:40.488Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/71/ac3a16e620e4de7cea10695d7e926a6b00d7790208a932d81dd0b3136772/databricks_sdk-0.80.0-py3-none-any.whl", hash = "sha256:e654b08b945b4fc9651cfe65389035382c0885d74435123a0e4860d007fc963b", size = 788323, upload-time = "2026-01-22T20:30:49.372Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/e8/1a3292820762a9b48c4774d2f9297b2e2c43319dc4b5d31a585fb76e3a05/databricks_sdk-0.85.0-py3-none-any.whl", hash = "sha256:2a2da176a55d55fb84696e0255520e99e838dd942b97b971dff724041fe00c64", size = 796888, upload-time = "2026-02-05T08:22:39.018Z" },
 ]
 
 [package.optional-dependencies]
@@ -2517,16 +2517,16 @@ wheels = [
 
 [[package]]
 name = "langchain"
-version = "1.2.7"
+version = "1.2.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/47/f2/478ca9f3455b5d66402066d287eae7e8d6c722acfb8553937e06af708334/langchain-1.2.7.tar.gz", hash = "sha256:ba40e8d5b069a22f7085f54f405973da3d87cfdebf116282e77c692271432ecb", size = 556837, upload-time = "2026-01-23T15:22:10.817Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/d5/e7c8d18bf1ee2d37839dde161d523049fd0a5b172cf4c62f17090e1b4dcb/langchain-1.2.9.tar.gz", hash = "sha256:ae266c640b63c38f16b6d996a50aea575940b29b63cbc652c5d12f0111357f01", size = 569621, upload-time = "2026-02-06T12:39:41.824Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/c8/9ce37ae34870834c7d00bb14ff4876b700db31b928635e3307804dc41d74/langchain-1.2.7-py3-none-any.whl", hash = "sha256:1d643c8ca569bcde2470b853807f74f0768b3982d25d66d57db21a166aabda72", size = 108827, upload-time = "2026-01-23T15:22:09.771Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/d9/ee07b79f8f1cfd87a6b147879149bdb03c04656e83e5a8c97f38d8915d07/langchain-1.2.9-py3-none-any.whl", hash = "sha256:c1af39d22b7f0415a6f8fa63b37f692335601d3333592c481b899166c55f3fcb", size = 111240, upload-time = "2026-02-06T12:39:39.833Z" },
 ]
 
 [[package]]
@@ -2587,7 +2587,7 @@ wheels = [
 
 [[package]]
 name = "langchain-core"
-version = "1.2.7"
+version = "1.2.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonpatch" },
@@ -2599,9 +2599,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uuid-utils" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/0e/664d8d81b3493e09cbab72448d2f9d693d1fa5aa2bcc488602203a9b6da0/langchain_core-1.2.7.tar.gz", hash = "sha256:e1460639f96c352b4a41c375f25aeb8d16ffc1769499fb1c20503aad59305ced", size = 837039, upload-time = "2026-01-09T17:44:25.505Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/85/f501592b5d76b27a198f1102bafe365151a0a6f69444122fad6d10e6f4bf/langchain_core-1.2.9.tar.gz", hash = "sha256:a3768febc762307241d153b0f8bc58fd4b70c0ff077fda3274606741fca3f5a7", size = 815900, upload-time = "2026-02-05T14:21:43.942Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6e/6f/34a9fba14d191a67f7e2ee3dbce3e9b86d2fa7310e2c7f2c713583481bd2/langchain_core-1.2.7-py3-none-any.whl", hash = "sha256:452f4fef7a3d883357b22600788d37e3d8854ef29da345b7ac7099f33c31828b", size = 490232, upload-time = "2026-01-09T17:44:24.236Z" },
+    { url = "https://files.pythonhosted.org/packages/94/46/77846a98913e444d0d564070a9056bd999daada52bd099dc1e8812272810/langchain_core-1.2.9-py3-none-any.whl", hash = "sha256:7e5ecba5ed7a65852e8d5288e9ceeba05340fa9baf32baf672818b497bbaea8f", size = 496296, upload-time = "2026-02-05T14:21:42.816Z" },
 ]
 
 [[package]]
@@ -2661,7 +2661,7 @@ wheels = [
 
 [[package]]
 name = "langgraph"
-version = "1.0.7"
+version = "1.0.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
@@ -2671,9 +2671,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/72/5b/f72655717c04e33d3b62f21b166dc063d192b53980e9e3be0e2a117f1c9f/langgraph-1.0.7.tar.gz", hash = "sha256:0cfdfee51e6e8cfe503ecc7367c73933437c505b03fa10a85c710975c8182d9a", size = 497098, upload-time = "2026-01-22T16:57:47.303Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/49/e9551965d8a44dd9afdc55cbcdc5a9bd18bee6918cc2395b225d40adb77c/langgraph-1.0.8.tar.gz", hash = "sha256:2630fc578846995114fd659f8b14df9eff5a4e78c49413f67718725e88ceb544", size = 498708, upload-time = "2026-02-06T12:31:13.776Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/0e/fe80144e3e4048e5d19ccdb91ac547c1a7dc3da8dbd1443e210048194c14/langgraph-1.0.7-py3-none-any.whl", hash = "sha256:9d68e8f8dd8f3de2fec45f9a06de05766d9b075b78fb03171779893b7a52c4d2", size = 157353, upload-time = "2026-01-22T16:57:45.997Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/72/b0d7fc1007821a08dfc03ce232f39f209aa4aa46414ea3d125b24e35093a/langgraph-1.0.8-py3-none-any.whl", hash = "sha256:da737177c024caad7e5262642bece4f54edf4cba2c905a1d1338963f41cf0904", size = 158144, upload-time = "2026-02-06T12:31:12.489Z" },
 ]
 
 [[package]]
@@ -3318,7 +3318,7 @@ wheels = [
 
 [[package]]
 name = "mlflow"
-version = "3.8.1"
+version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alembic" },
@@ -3338,12 +3338,13 @@ dependencies = [
     { name = "pyarrow" },
     { name = "scikit-learn" },
     { name = "scipy" },
+    { name = "skops" },
     { name = "sqlalchemy" },
     { name = "waitress", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/f8/10ccb111ed53732dfceae0369073023f96acd6b00f92fb3c24473938702d/mlflow-3.8.1.tar.gz", hash = "sha256:0823377bedff4d530b0d560bf394daf9f7e9fbba53453add04eadad34de962cc", size = 8550037, upload-time = "2025-12-26T16:46:49.199Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/95/e5/9f8481b879329ed0f5317eda459fb7eebe9eb9bae7d99ba6a7d68074f619/mlflow-3.9.0.tar.gz", hash = "sha256:47a41fa22107b0ceee1f91e2184759ebfaffa31d7913b70318b78fb5369e52ec", size = 9105613, upload-time = "2026-01-29T07:56:51.477Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d5/d5/a20b87c6cd99395fee04d6034686512305530c71ceaabe3a151eeaa25ed7/mlflow-3.8.1-py3-none-any.whl", hash = "sha256:42f26b52438fdb615588e150407c6516d0f64d417436dfc75599c525a464f210", size = 9062281, upload-time = "2025-12-26T16:46:46.528Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/ce/871d1168206164242856b5cbf327693b708d6a63c3163d90f89ad5e70807/mlflow-3.9.0-py3-none-any.whl", hash = "sha256:280f94854e5ece42fc5538180b276661c62dbfb2c848a98e8873e78915379ac6", size = 9692264, upload-time = "2026-01-29T07:56:48.811Z" },
 ]
 
 [package.optional-dependencies]
@@ -3357,7 +3358,7 @@ databricks = [
 
 [[package]]
 name = "mlflow-skinny"
-version = "3.8.1"
+version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -3380,14 +3381,14 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7e/00/18486d9072739e63471c1e441e78cdb6a10c641312d98f6699715406451e/mlflow_skinny-3.8.1.tar.gz", hash = "sha256:0c0aade08187030a4653e267bcd63de2f12cbfebf4c6737832cba45d6fb3594d", size = 2082226, upload-time = "2025-12-26T16:30:11.171Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/18/34a8c085eece1abb7edaed3b9a383670b97a4a234fec62d1823e8c64d11b/mlflow_skinny-3.9.0.tar.gz", hash = "sha256:0598e0635dd1af9d195fb429210819aa4b56e9d6014f87134241f2325d57a290", size = 2329309, upload-time = "2026-01-29T07:42:36.8Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8d/24/42e52320636fcbabeaf50704f9269a328acc995e1b8a44df6fea33130a0a/mlflow_skinny-3.8.1-py3-none-any.whl", hash = "sha256:3a6ee27f5ac1e67c1d565fa0e12c070b27129b03e669dcaf88ff841176429142", size = 2506002, upload-time = "2025-12-26T16:30:09.357Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/7c/a82fd9d6ecefba347e3a65168df63fd79784fa8c22b8734fb4cb71f2d469/mlflow_skinny-3.9.0-py3-none-any.whl", hash = "sha256:9b98706cdf9e07a61da7fbcd717c8d35ac89c76e084d25aafdbc150028e832d5", size = 2807062, upload-time = "2026-01-29T07:42:35.132Z" },
 ]
 
 [[package]]
 name = "mlflow-tracing"
-version = "3.8.1"
+version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -3399,9 +3400,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/52/e5/9cdca5a91afd71e15943f3dbe00e788bd36479637e9b2e0625224027ff01/mlflow_tracing-3.8.1.tar.gz", hash = "sha256:c032ba715994a4580323f3045fa2700a6323033d87e564bbcbda37e6ab993071", size = 1130700, upload-time = "2025-12-26T16:31:39.314Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/ba/11c8b4a4841104b55ad63a1f11ad72b1f282b819c4da197cf01128b61c25/mlflow_tracing-3.9.0.tar.gz", hash = "sha256:3a0676e6f362712299d191108a5cbcd596f6d84f23f050dfbf80161e245d456c", size = 1176445, upload-time = "2026-01-29T07:44:59.525Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/e3/ddbe3e2d1219fa9235559ab88ebf98e1e4f48c62672f0dfb8f1eb07276dc/mlflow_tracing-3.8.1-py3-none-any.whl", hash = "sha256:12d9b5b7177b4152979d003e0d967b280c4252758639aebdfd672734283b17bf", size = 1359007, upload-time = "2025-12-26T16:31:37.514Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/9c/d726d51aec6a2349f90630b43972cee1f683a22b4b3683a241b02a454baf/mlflow_tracing-3.9.0-py3-none-any.whl", hash = "sha256:93df8df0697303ad3135df6228934e5d9d2f264d2683b97a6f06ad865ec418a0", size = 1410828, upload-time = "2026-01-29T07:44:57.615Z" },
 ]
 
 [[package]]
@@ -4174,6 +4175,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/40/f1/6d86a29246dfd2e9b6237f0b5823717f60cad94d47ddc26afa916d21f525/pre_commit-4.5.1.tar.gz", hash = "sha256:eb545fcff725875197837263e977ea257a402056661f09dae08e4b149b030a61", size = 198232, upload-time = "2025-12-16T21:14:33.552Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/19/fd3ef348460c80af7bb4669ea7926651d1f95c23ff2df18b9d24bab4f3fa/pre_commit-4.5.1-py2.py3-none-any.whl", hash = "sha256:3b3afd891e97337708c1674210f8eba659b52a38ea5f822ff142d10786221f77", size = 226437, upload-time = "2025-12-16T21:14:32.409Z" },
+]
+
+[[package]]
+name = "prettytable"
+version = "3.17.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/45/b0847d88d6cfeb4413566738c8bbf1e1995fad3d42515327ff32cc1eb578/prettytable-3.17.0.tar.gz", hash = "sha256:59f2590776527f3c9e8cf9fe7b66dd215837cca96a9c39567414cbc632e8ddb0", size = 67892, upload-time = "2025-11-14T17:33:20.212Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/8c/83087ebc47ab0396ce092363001fa37c17153119ee282700c0713a195853/prettytable-3.17.0-py3-none-any.whl", hash = "sha256:aad69b294ddbe3e1f95ef8886a060ed1666a0b83018bbf56295f6f226c43d287", size = 34433, upload-time = "2025-11-14T17:33:19.093Z" },
 ]
 
 [[package]]
@@ -5358,6 +5371,23 @@ wheels = [
 ]
 
 [[package]]
+name = "skops"
+version = "0.13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "packaging" },
+    { name = "prettytable" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b5/0c/5ec987633e077dd0076178ea6ade2d6e57780b34afea0b497fb507d7a1ed/skops-0.13.0.tar.gz", hash = "sha256:66949fd3c95cbb5c80270fbe40293c0fe1e46cb4a921860e42584dd9c20ebeb1", size = 581312, upload-time = "2025-08-06T09:48:14.916Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/e8/6a2b2030f0689f894432b9c2f0357f2f3286b2a00474827e04b8fe9eea13/skops-0.13.0-py3-none-any.whl", hash = "sha256:55e2cccb18c86f5916e4cfe5acf55ed7b0eecddf08a151906414c092fa5926dc", size = 131200, upload-time = "2025-08-06T09:48:13.356Z" },
+]
+
+[[package]]
 name = "smmap"
 version = "5.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5882,6 +5912,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/07/f6/d0e5b343768e8bcb4cda79f0f2f55051bf26177ecd5651f84c07567461cf/watchdog-6.0.0-py3-none-win32.whl", hash = "sha256:07df1fdd701c5d4c8e55ef6cf55b8f0120fe1aef7ef39a1c6fc6bc2e606d517a", size = 79065, upload-time = "2024-11-01T14:07:09.525Z" },
     { url = "https://files.pythonhosted.org/packages/db/d9/c495884c6e548fce18a8f40568ff120bc3a4b7b99813081c8ac0c936fa64/watchdog-6.0.0-py3-none-win_amd64.whl", hash = "sha256:cbafb470cf848d93b5d013e2ecb245d4aa1c8fd0504e863ccefa32445359d680", size = 79070, upload-time = "2024-11-01T14:07:10.686Z" },
     { url = "https://files.pythonhosted.org/packages/33/e8/e40370e6d74ddba47f002a32919d91310d6074130fe4e17dabcafc15cbf1/watchdog-6.0.0-py3-none-win_ia64.whl", hash = "sha256:a1914259fa9e1454315171103c6a30961236f508b9b623eae470268bbcc6a22f", size = 79067, upload-time = "2024-11-01T14:07:11.845Z" },
+]
+
+[[package]]
+name = "wcwidth"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/a2/8e3becb46433538a38726c948d3399905a4c7cabd0df578ede5dc51f0ec2/wcwidth-0.6.0.tar.gz", hash = "sha256:cdc4e4262d6ef9a1a57e018384cbeb1208d8abbc64176027e2c2455c81313159", size = 159684, upload-time = "2026-02-06T19:19:40.919Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/68/5a/199c59e0a824a3db2b89c5d2dade7ab5f9624dbf6448dc291b46d5ec94d3/wcwidth-0.6.0-py3-none-any.whl", hash = "sha256:1a3a1e510b553315f8e146c54764f4fb6264ffad731b3d78088cdb1478ffbdad", size = 94189, upload-time = "2026-02-06T19:19:39.646Z" },
 ]
 
 [[package]]
