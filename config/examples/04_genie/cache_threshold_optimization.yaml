@@ -41,7 +41,7 @@ resources:
       warehouse_id: 148ccb90800933a1
 
   databases:
-    semantic_cache_db: &semantic_cache_db
+    context_aware_cache_db: &context_aware_cache_db
       name: "Retail and Consumer Goods Database"
       instance_name: "retail-consumer-goods"
 
@@ -61,7 +61,7 @@ optimizations:
       
       # Current thresholds to improve (optional - uses defaults if not provided)
       cache_parameters:
-        database: *semantic_cache_db
+        database: *context_aware_cache_db
         warehouse: *shared_endpoint_warehouse
         embedding_model: *embedding_model
         similarity_threshold: 0.85           # Question matching threshold
@@ -79,7 +79,7 @@ optimizations:
       # generate_eval_dataset_from_cache() to create a dataset from cache entries.
       dataset:
         name: retail_cache_eval_dataset
-        description: "Evaluation dataset for retail domain semantic cache tuning"
+        description: "Evaluation dataset for retail domain context-aware cache tuning"
         entries: []
         # In practice, populate with real entries like:
         #
@@ -157,9 +157,9 @@ optimizations:
 #    ```
 #
 # 3. APPLY RESULTS:
-#    Update your semantic cache configuration with the optimized values:
+#    Update your context-aware cache configuration with the optimized values:
 #
-#    semantic_cache_parameters:
+#    context_aware_cache_parameters:
 #      similarity_threshold: <optimized_value>
 #      context_similarity_threshold: <optimized_value>
 #      question_weight: <optimized_value>

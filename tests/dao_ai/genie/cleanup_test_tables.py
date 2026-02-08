@@ -24,9 +24,8 @@ from typing import Any
 TEST_TABLE_PATTERNS = [
     "test_from_space_cache_%",
     "test_from_space_prompts_%",
-    "test_semantic_cache_%",
-    "test_prompt_history_%",
     "test_context_aware_cache_%",
+    "test_prompt_history_%",
     "test_cache_%",
 ]
 

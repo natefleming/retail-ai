@@ -1,5 +1,5 @@
 """
-Context-aware semantic cache threshold optimization using Optuna Bayesian optimization.
+Context-aware cache threshold optimization using Optuna Bayesian optimization.
 
 This module provides optimization for context-aware Genie cache thresholds using
 Optuna's Tree-structured Parzen Estimator (TPE) algorithm with LLM-as-Judge
@@ -98,7 +98,7 @@ class ContextAwareCacheEvalEntry:
 
 @dataclass
 class ContextAwareCacheEvalDataset:
-    """Dataset for semantic cache threshold optimization.
+    """Dataset for context-aware cache threshold optimization.
 
     Attributes:
         name: Name of the dataset for tracking
@@ -119,7 +119,7 @@ class ContextAwareCacheEvalDataset:
 
 @dataclass
 class ThresholdOptimizationResult:
-    """Result of semantic cache threshold optimization.
+    """Result of context-aware cache threshold optimization.
 
     Attributes:
         optimized_thresholds: Dictionary of optimized threshold values
@@ -250,7 +250,7 @@ def _compute_l2_similarity(embedding1: list[float], embedding2: list[float]) -> 
     """
     Compute similarity from L2 (Euclidean) distance.
 
-    Uses the same formula as the semantic cache:
+    Uses the same formula as the context-aware cache:
     similarity = 1.0 / (1.0 + L2_distance)
 
     This gives a value in range [0, 1] where 1 means identical.
@@ -445,7 +445,7 @@ def optimize_context_aware_cache_thresholds(
     show_progress_bar: bool = True,
 ) -> ThresholdOptimizationResult:
     """
-    Optimize semantic cache thresholds using Bayesian optimization.
+    Optimize context-aware cache thresholds using Bayesian optimization.
 
     Uses Optuna's Tree-structured Parzen Estimator (TPE) to efficiently
     search the parameter space and find optimal threshold values.
@@ -504,7 +504,7 @@ def optimize_context_aware_cache_thresholds(
         MLflowCallback = None  # type: ignore
 
     logger.info(
-        "Starting semantic cache threshold optimization",
+        "Starting context-aware cache threshold optimization",
         dataset_name=dataset.name,
         dataset_size=len(dataset),
         n_trials=n_trials,

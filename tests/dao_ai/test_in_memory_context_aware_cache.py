@@ -11,7 +11,7 @@ from conftest import add_databricks_resource_attrs, has_retail_ai_env
 from databricks.sdk import WorkspaceClient
 
 from dao_ai.config import (
-    GenieInMemorySemanticCacheParametersModel,
+    GenieInMemoryContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie import GenieService
@@ -174,7 +174,7 @@ class TestInMemoryContextAwareCacheContext:
     @pytest.fixture
     def mock_parameters(self) -> Mock:
         """Create mock cache parameters."""
-        params = Mock(spec=GenieInMemorySemanticCacheParametersModel)
+        params = Mock(spec=GenieInMemoryContextAwareCacheParametersModel)
         params.context_window_size = 3
         params.max_context_tokens = 2000
         params.embedding_model = "databricks-gte-large-en"
@@ -949,7 +949,7 @@ def test_in_memory_context_aware_cache_with_conversation_context_integration() -
     add_databricks_resource_attrs(warehouse)
 
     # Create in-memory context-aware cache with context enabled
-    cache_params = GenieInMemorySemanticCacheParametersModel(
+    cache_params = GenieInMemoryContextAwareCacheParametersModel(
         warehouse=warehouse,
         embedding_model="databricks-gte-large-en",
         time_to_live_seconds=300,  # 5 minutes for testing
@@ -1077,7 +1077,7 @@ def test_in_memory_context_aware_cache_context_improves_precision() -> None:
     warehouse = WarehouseModel(warehouse_id=warehouse_id)
     add_databricks_resource_attrs(warehouse)
 
-    cache_params = GenieInMemorySemanticCacheParametersModel(
+    cache_params = GenieInMemoryContextAwareCacheParametersModel(
         warehouse=warehouse,
         embedding_model="databricks-gte-large-en",
         time_to_live_seconds=300,
@@ -1160,7 +1160,7 @@ class TestInMemoryCacheGetEntries:
     @pytest.fixture
     def mock_parameters(self) -> Mock:
         """Create mock cache parameters."""
-        params = Mock(spec=GenieInMemorySemanticCacheParametersModel)
+        params = Mock(spec=GenieInMemoryContextAwareCacheParametersModel)
         params.context_window_size = 3
         params.max_context_tokens = 2000
         params.embedding_model = "databricks-gte-large-en"

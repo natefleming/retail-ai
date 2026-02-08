@@ -1919,13 +1919,13 @@ class MockEmbeddings:
         return [[hash(text) % 1000 / 1000.0] * self.dims for text in texts]
 
 
-def create_mock_semantic_cache_parameters(
+def create_mock_context_aware_cache_parameters(
     database: Mock,
     warehouse: Mock,
     time_to_live_seconds: int = 86400,
     similarity_threshold: float = 0.85,
     embedding_dims: int = 1024,
-    table_name: str = "test_semantic_cache",
+    table_name: str = "test_context_aware_cache",
 ) -> GenieContextAwareCacheParametersModel:
     """Create a mock GenieContextAwareCacheParametersModel for testing."""
     return GenieContextAwareCacheParametersModel(
@@ -1993,10 +1993,10 @@ class TestPostgresContextAwareCacheInitialization:
         cache = PostgresContextAwareGenieService(
             impl=mock_service,
             parameters=params,
-            name="CustomSemanticCache",
+            name="CustomContextAwareCache",
         )
 
-        assert cache.name == "CustomSemanticCache"
+        assert cache.name == "CustomContextAwareCache"
 
 
 class TestPostgresContextAwareCacheProperties:
@@ -2642,7 +2642,7 @@ class TestPostgresContextAwareCacheTableCreation:
         params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
-        params.table_name = "my_semantic_cache"
+        params.table_name = "my_context_aware_cache"
         params.prompt_history_table = "test_prompt_history"
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
@@ -2661,12 +2661,13 @@ class TestPostgresContextAwareCacheTableCreation:
         create_queries = [q for q, _ in mock_pool.executed_queries if "CREATE" in q]
         assert any("CREATE EXTENSION" in q and "vector" in q for q in create_queries)
         assert any(
-            "CREATE TABLE" in q and "my_semantic_cache" in q for q in create_queries
+            "CREATE TABLE" in q and "my_context_aware_cache" in q
+            for q in create_queries
         )
 
 
-class TestLRUPlusSemanticCacheIntegration:
-    """Integration tests for LRU + Semantic cache combination (two-tier caching)."""
+class TestLRUPlusContextAwareCacheIntegration:
+    """Integration tests for LRU + context-aware cache combination (two-tier caching)."""
 
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
     @patch("databricks_langchain.DatabricksEmbeddings")
@@ -2675,7 +2676,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class: Mock,
         mock_pool_manager: Mock,
     ) -> None:
-        """Test that both LRU and Semantic caches store entry on complete miss."""
+        """Test that both LRU and context-aware caches store entry on complete miss."""
         # Create base Genie service
         mock_genie_service = MockGenieService()
         mock_pool = MockPostgresPool()
@@ -2685,7 +2686,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        # Setup semantic cache parameters
+        # Setup context-aware cache parameters
         semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
@@ -2711,11 +2712,11 @@ class TestLRUPlusSemanticCacheIntegration:
         # Dimension check, table count returns 0, then no similar entry found
         mock_pool.set_query_results([None, None])
 
-        # Create semantic cache wrapping Genie
-        semantic_cache = PostgresContextAwareGenieService(
+        # Create context-aware cache wrapping Genie
+        context_aware_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
-            name="SemanticCache",
+            name="ContextAwareCache",
         ).initialize()
 
         # Setup LRU cache parameters
@@ -2724,9 +2725,9 @@ class TestLRUPlusSemanticCacheIntegration:
         lru_params.capacity = 100
         lru_params.time_to_live_seconds = 3600
 
-        # Create LRU cache wrapping semantic cache (checked first)
+        # Create LRU cache wrapping context-aware cache (checked first)
         lru_cache = LRUCacheService(
-            impl=semantic_cache,
+            impl=context_aware_cache,
             parameters=lru_params,
             name="LRUCache",
         )
@@ -2741,11 +2742,11 @@ class TestLRUPlusSemanticCacheIntegration:
         # Verify LRU cache stored entry
         assert lru_cache.size == 1
 
-        # Verify semantic cache stored entry (check INSERT query)
+        # Verify context-aware cache stored entry (check INSERT query)
         insert_queries = [
             q for q, _ in mock_pool.executed_queries if "INSERT INTO" in q
         ]
-        assert len(insert_queries) >= 1, "Semantic cache should have stored entry"
+        assert len(insert_queries) >= 1, "Context-aware cache should have stored entry"
 
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
     @patch("databricks_langchain.DatabricksEmbeddings")
@@ -2754,7 +2755,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class: Mock,
         mock_pool_manager: Mock,
     ) -> None:
-        """Test that LRU hit returns immediately without checking semantic cache."""
+        """Test that LRU hit returns immediately without checking context-aware cache."""
         mock_genie_service = MockGenieService()
         mock_pool = MockPostgresPool()
 
@@ -2762,7 +2763,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class.return_value = mock_embeddings
         mock_pool_manager.get_pool.return_value = mock_pool
 
-        # Setup semantic cache
+        # Setup context-aware cache
         semantic_params = Mock(spec=GenieContextAwareCacheParametersModel)
         semantic_params.database = Mock()
         mock_warehouse = Mock()
@@ -2797,7 +2798,7 @@ class TestLRUPlusSemanticCacheIntegration:
 
         mock_pool.set_query_results([None, None])
 
-        semantic_cache = PostgresContextAwareGenieService(
+        context_aware_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test
@@ -2809,7 +2810,7 @@ class TestLRUPlusSemanticCacheIntegration:
         lru_params.time_to_live_seconds = 3600
 
         lru_cache = LRUCacheService(
-            impl=semantic_cache,
+            impl=context_aware_cache,
             parameters=lru_params,
         )
 
@@ -2828,14 +2829,14 @@ class TestLRUPlusSemanticCacheIntegration:
         assert result.served_by == "LRUCacheService"
         assert mock_genie_service.call_count == 1  # No new Genie calls
 
-        # Semantic cache should NOT have been queried (no new SELECT queries)
+        # Context-aware cache should NOT have been queried (no new SELECT queries)
         select_queries_after_second = [
             q
             for q, _ in mock_pool.executed_queries[queries_after_first_call:]
             if "SELECT" in q and "similarity" in q
         ]
         assert len(select_queries_after_second) == 0, (
-            "Semantic cache should not be queried on LRU hit"
+            "Context-aware cache should not be queried on LRU hit"
         )
 
     @patch("dao_ai.memory.postgres.PostgresPoolManager")
@@ -2845,7 +2846,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class: Mock,
         mock_pool_manager: Mock,
     ) -> None:
-        """Test LRU miss but semantic cache hit for similar question."""
+        """Test LRU miss but context-aware cache hit for similar question."""
         from datetime import timezone
 
         mock_genie_service = MockGenieService()
@@ -2934,7 +2935,7 @@ class TestLRUPlusSemanticCacheIntegration:
             ]
         )
 
-        semantic_cache = PostgresContextAwareGenieService(
+        context_aware_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test
@@ -2946,7 +2947,7 @@ class TestLRUPlusSemanticCacheIntegration:
         lru_params.time_to_live_seconds = 3600
 
         lru_cache = LRUCacheService(
-            impl=semantic_cache,
+            impl=context_aware_cache,
             parameters=lru_params,
         )
 
@@ -2955,19 +2956,21 @@ class TestLRUPlusSemanticCacheIntegration:
         assert mock_genie_service.call_count == 1
 
         # Second call with DIFFERENT but similar question
-        # LRU misses (different question text), but semantic cache hits
+        # LRU misses (different question text), but context-aware cache hits
         result = lru_cache.ask_question_with_cache_info("Show me inventory count")
 
-        # LRU propagates the semantic cache hit status
-        # No new Genie call was made (semantic cache served it)
-        assert result.cache_hit is True  # Propagated from semantic cache hit
+        # LRU propagates the context-aware cache hit status
+        # No new Genie call was made (context-aware cache served it)
+        assert result.cache_hit is True  # Propagated from context-aware cache hit
         assert (
             result.served_by == "PostgresContextAwareGenieService"
-        )  # Semantic cache served it
-        assert mock_genie_service.call_count == 1  # No new Genie call - semantic hit!
+        )  # Context-aware cache served it
+        assert (
+            mock_genie_service.call_count == 1
+        )  # No new Genie call - context-aware hit!
 
         # Verify LRU now has this new question cached
-        # (it learned from the semantic cache hit)
+        # (it learned from the context-aware cache hit)
         assert lru_cache.size == 2  # Both questions now in LRU
 
         # Third call with same paraphrased question - now hits LRU!
@@ -2982,7 +2985,7 @@ class TestLRUPlusSemanticCacheIntegration:
         mock_embeddings_class: Mock,
         mock_pool_manager: Mock,
     ) -> None:
-        """Test that semantic cache hit result gets stored in LRU for next exact match."""
+        """Test that context-aware cache hit result gets stored in LRU for next exact match."""
         from datetime import timezone
 
         mock_genie_service = MockGenieService()
@@ -3025,7 +3028,7 @@ class TestLRUPlusSemanticCacheIntegration:
 
         cached_time = datetime.now(timezone.utc)
 
-        # Semantic cache has a similar entry
+        # Context-aware cache has a similar entry
         # Query results order during initialization:
         # 1. dimension check - table doesn't exist (None)
         # 2-5. _index_exists for 4 main table indexes (None each)
@@ -3059,7 +3062,7 @@ class TestLRUPlusSemanticCacheIntegration:
             ]
         )
 
-        semantic_cache = PostgresContextAwareGenieService(
+        context_aware_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test
@@ -3071,20 +3074,20 @@ class TestLRUPlusSemanticCacheIntegration:
         lru_params.time_to_live_seconds = 3600
 
         lru_cache = LRUCacheService(
-            impl=semantic_cache,
+            impl=context_aware_cache,
             parameters=lru_params,
         )
 
         # LRU is empty
         assert lru_cache.size == 0
 
-        # First call - LRU miss, but semantic cache has the data
-        # LRU propagates the semantic cache hit status
+        # First call - LRU miss, but context-aware cache has the data
+        # LRU propagates the context-aware cache hit status
         result1 = lru_cache.ask_question_with_cache_info("Similar question here")
-        assert result1.cache_hit is True  # Propagated from semantic cache hit
+        assert result1.cache_hit is True  # Propagated from context-aware cache hit
         assert (
             result1.served_by == "PostgresContextAwareGenieService"
-        )  # Semantic cache served it
+        )  # Context-aware cache served it
 
         # LRU should now have stored this result (learned from semantic)
         assert lru_cache.size == 1
@@ -3156,7 +3159,7 @@ class TestLRUPlusSemanticCacheIntegration:
             ]
         )
 
-        semantic_cache = PostgresContextAwareGenieService(
+        context_aware_cache = PostgresContextAwareGenieService(
             impl=mock_genie_service,
             parameters=semantic_params,
             workspace_client=None,  # No context for this test
@@ -3168,7 +3171,7 @@ class TestLRUPlusSemanticCacheIntegration:
         lru_params.time_to_live_seconds = 3600
 
         lru_cache = LRUCacheService(
-            impl=semantic_cache,
+            impl=context_aware_cache,
             parameters=lru_params,
         )
 

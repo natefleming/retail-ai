@@ -8,7 +8,7 @@ import pytest
 from databricks.sdk import WorkspaceClient
 
 from dao_ai.config import (
-    GenieInMemorySemanticCacheParametersModel,
+    GenieInMemoryContextAwareCacheParametersModel,
     GenieLRUCacheParametersModel,
     WarehouseModel,
 )
@@ -235,7 +235,10 @@ class TestGenieStatementId:
         genie = Genie.__new__(Genie)
         genie.space_id = "test-space"
         genie.genie = mock_genie_client
-        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        genie.headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
 
         result = genie._get_statement_id("conv-123", "msg-456")
 
@@ -260,7 +263,10 @@ class TestGenieStatementId:
         genie = Genie.__new__(Genie)
         genie.space_id = "test-space"
         genie.genie = mock_genie_client
-        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        genie.headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
 
         result = genie._get_statement_id("conv-123", "msg-456")
 
@@ -277,7 +283,10 @@ class TestGenieStatementId:
         genie = Genie.__new__(Genie)
         genie.space_id = "test-space"
         genie.genie = mock_genie_client
-        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        genie.headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
 
         result = genie._get_statement_id("conv-123", "msg-456")
 
@@ -301,20 +310,27 @@ class TestGenieStatementId:
         genie = Genie.__new__(Genie)
         genie.space_id = "test-space"
         genie.genie = mock_genie_client
-        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        genie.headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
         genie.truncate_results = False
         genie.return_pandas = False
 
-        genie.start_conversation = Mock(return_value={
-            "conversation_id": "conv-123",
-            "message_id": "msg-456",
-        })
-        genie.poll_for_result = Mock(return_value=DatabricksGenieResponse(
-            result="Test result data",
-            query="SELECT * FROM test_table",
-            description="Test query",
-            conversation_id="conv-123",
-        ))
+        genie.start_conversation = Mock(
+            return_value={
+                "conversation_id": "conv-123",
+                "message_id": "msg-456",
+            }
+        )
+        genie.poll_for_result = Mock(
+            return_value=DatabricksGenieResponse(
+                result="Test result data",
+                query="SELECT * FROM test_table",
+                description="Test query",
+                conversation_id="conv-123",
+            )
+        )
 
         result = genie.ask_question("Show me the data")
 
@@ -334,21 +350,28 @@ class TestGenieStatementId:
         genie = Genie.__new__(Genie)
         genie.space_id = "test-space"
         genie.genie = mock_genie_client
-        genie.headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        genie.headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
         genie.truncate_results = False
         genie.return_pandas = False
 
-        genie.start_conversation = Mock(return_value={
-            "conversation_id": "conv-123",
-            "message_id": "msg-456",
-        })
+        genie.start_conversation = Mock(
+            return_value={
+                "conversation_id": "conv-123",
+                "message_id": "msg-456",
+            }
+        )
         # Response with no query (text-only response)
-        genie.poll_for_result = Mock(return_value=DatabricksGenieResponse(
-            result="I can help you with that.",
-            query=None,
-            description=None,
-            conversation_id="conv-123",
-        ))
+        genie.poll_for_result = Mock(
+            return_value=DatabricksGenieResponse(
+                result="I can help you with that.",
+                query=None,
+                description=None,
+                conversation_id="conv-123",
+            )
+        )
 
         result = genie.ask_question("Hello")
 
@@ -391,6 +414,7 @@ class TestResponseToJsonStatementId:
         data = json.loads(json_str)
 
         assert data["statement_id"] is None
+
 
 class TestCacheResultMessageId:
     """Unit tests for CacheResult with message_id and cache_entry_id."""
@@ -821,7 +845,7 @@ class TestInMemoryContextAwareSendFeedback:
     @pytest.fixture
     def mock_parameters(self) -> Mock:
         """Create mock cache parameters."""
-        params = Mock(spec=GenieInMemorySemanticCacheParametersModel)
+        params = Mock(spec=GenieInMemoryContextAwareCacheParametersModel)
         params.context_window_size = 3
         params.max_context_tokens = 2000
         params.embedding_model = "databricks-gte-large-en"

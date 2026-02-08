@@ -79,9 +79,7 @@ class Genie(DatabricksGenie):
         - DatabricksGenieResponse
     """
 
-    def _get_statement_id(
-        self, conversation_id: str, message_id: str
-    ) -> str | None:
+    def _get_statement_id(self, conversation_id: str, message_id: str) -> str | None:
         """
         Fetch the SQL statement_id from a completed Genie message.
 

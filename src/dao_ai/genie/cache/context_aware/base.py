@@ -727,7 +727,7 @@ class ContextAwareGenieService(GenieServiceBase):
         self, question: str, conversation_id: str | None = None
     ) -> CacheResult:
         """
-        Ask a question, using semantic cache if a similar query exists.
+        Ask a question, using context-aware cache if a similar query exists.
 
         On cache hit, re-executes the cached SQL to get fresh data.
         Returns CacheResult with cache metadata.

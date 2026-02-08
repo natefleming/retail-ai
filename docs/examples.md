@@ -120,10 +120,10 @@ Improve performance and reduce costs through intelligent caching.
 | Example | Description |
 |---------|-------------|
 | `genie_lru_cache.yaml` | LRU (Least Recently Used) caching for Genie |
-| `genie_semantic_cache.yaml` | Two-tier semantic caching with PostgreSQL embeddings |
-| `genie_in_memory_semantic_cache.yaml` | In-memory semantic caching (no database required) |
+| `genie_context_aware_cache.yaml` | Two-tier context-aware caching with PostgreSQL embeddings |
+| `genie_in_memory_context_aware_cache.yaml` | In-memory context-aware caching (no database required) |
 
-**Prerequisites:** PostgreSQL or Lakebase required for `genie_semantic_cache.yaml` only  
+**Prerequisites:** PostgreSQL or Lakebase required for `genie_context_aware_cache.yaml` only  
 **Next:** Add persistence in `05_memory/`
 
 ---

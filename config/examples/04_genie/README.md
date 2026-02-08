@@ -2,7 +2,7 @@
 
 **Two-tier caching for Genie Room queries**
 
-Optimize Genie Room query performance with LRU cache for exact matches and semantic cache for similar queries.
+Optimize Genie Room query performance with LRU cache for exact matches and context-aware cache for similar queries.
 
 ## Architecture Overview
 
@@ -19,9 +19,9 @@ flowchart TB
             LRUHit["✅ Cache Hit<br/><i>Instant return</i>"]
         end
         
-        subgraph Semantic["🧠 Semantic Cache (L2)"]
+        subgraph Semantic["🧠 Context-Aware Cache (L2)"]
             SemCheck{"Similar<br/>query?"}
-            SemHit["✅ Semantic Hit<br/><i>Use similar result</i>"]
+            SemHit["✅ Context-Aware Hit<br/><i>Use similar result</i>"]
             Embed["📐 Embeddings"]
         end
     end
@@ -52,17 +52,17 @@ flowchart TB
 
 | File | Description |
 |------|-------------|
-| [`genie_cached.yaml`](./genie_cached.yaml) | Two-tier caching with LRU and PostgreSQL semantic cache |
-| [`genie_in_memory_semantic_cache.yaml`](./genie_in_memory_semantic_cache.yaml) | In-memory semantic cache (no database required) |
+| [`genie_cached.yaml`](./genie_cached.yaml) | Two-tier caching with LRU and PostgreSQL context-aware cache |
+| [`genie_in_memory_context_aware_cache.yaml`](./genie_in_memory_context_aware_cache.yaml) | In-memory context-aware cache (no database required) |
 
 ## Cache Tiers
 
-DAO provides two L2 semantic cache implementations:
+DAO provides two L2 context-aware cache implementations:
 
 | Implementation | Best For | Database Required |
 |----------------|----------|-------------------|
-| **PostgreSQL Semantic Cache** | Production multi-instance deployments, large cache sizes (thousands+), cross-instance sharing | Yes (PostgreSQL with pg_vector) |
-| **In-Memory Semantic Cache** | Single-instance deployments, dev/test, no database access, moderate cache sizes (hundreds to low thousands) | No (in-memory only) |
+| **PostgreSQL Context-Aware Cache** | Production multi-instance deployments, large cache sizes (thousands+), cross-instance sharing | Yes (PostgreSQL with pg_vector) |
+| **In-Memory Context-Aware Cache** | Single-instance deployments, dev/test, no database access, moderate cache sizes (hundreds to low thousands) | No (in-memory only) |
 
 Both use the same L2 distance algorithm and support conversation context awareness for consistent behavior.
 
@@ -77,7 +77,7 @@ graph TB
             LRU4["<b>TTL:</b> None (LRU eviction)"]
         end
         
-        subgraph L2["🧠 L2: Semantic Cache"]
+        subgraph L2["🧠 L2: Context-Aware Cache"]
             SEM1["<b>Type:</b> Similarity match"]
             SEM2["<b>Speed:</b> ~50ms"]
             SEM3["<b>Options:</b> PostgreSQL or In-Memory"]
@@ -92,7 +92,7 @@ graph TB
 
 ## Configuration
 
-### PostgreSQL Semantic Cache (Multi-Instance)
+### PostgreSQL Context-Aware Cache (Multi-Instance)
 
 ```yaml
 genie_tool:
@@ -108,8 +108,8 @@ genie_tool:
         capacity: 100
         time_to_live_seconds: 3600
       
-      # 🧠 L2: PostgreSQL Semantic Cache - Similar queries
-      semantic_cache_parameters:
+      # 🧠 L2: PostgreSQL Context-Aware Cache - Similar queries
+      context_aware_cache_parameters:
         database: *postgres_db
         warehouse: *warehouse
         embedding_model: *embedding_model
@@ -118,7 +118,7 @@ genie_tool:
         context_window_size: 2  # default
 ```
 
-### In-Memory Semantic Cache (Single-Instance)
+### In-Memory Context-Aware Cache (Single-Instance)
 
 ```yaml
 genie_tool:
@@ -134,8 +134,8 @@ genie_tool:
       #   capacity: 100
       #   time_to_live_seconds: 3600
       
-      # 🧠 In-Memory Semantic Cache - No database required
-      in_memory_semantic_cache_parameters:
+      # 🧠 In-Memory Context-Aware Cache - No database required
+      in_memory_context_aware_cache_parameters:
         warehouse: *warehouse
         embedding_model: *embedding_model
         similarity_threshold: 0.85
@@ -152,13 +152,13 @@ sequenceDiagram
     autonumber
     participant 👤 as User
     participant ⚡ as LRU Cache
-    participant 🧠 as Semantic Cache
+    participant 🧠 as Context-Aware Cache
     participant 🧞 as Genie Room
 
     Note over 👤,🧞: First query
     👤->>⚡: "What are Q4 sales?"
     ⚡->>⚡: Check exact match
-    ⚡-->>🧠: Miss → Check semantic
+    ⚡-->>🧠: Miss → Check context-aware
     🧠->>🧠: Check embeddings
     🧠-->>🧞: Miss → Query Genie
     🧞->>🧞: Generate SQL, execute
@@ -171,9 +171,9 @@ sequenceDiagram
     ⚡->>⚡: ✅ Exact match!
     ⚡-->>👤: Results: $1.2M (~1ms)
 
-    Note over 👤,🧞: Similar query (Semantic hit)
+    Note over 👤,🧞: Similar query (Context-Aware hit)
     👤->>⚡: "Show Q4 revenue"
-    ⚡-->>🧠: Miss → Check semantic
+    ⚡-->>🧠: Miss → Check context-aware
     🧠->>🧠: ✅ 96% similar!
     🧠-->>👤: Results: $1.2M (~50ms)
 ```
@@ -222,7 +222,7 @@ graph LR
             LO["~1ms exact matches<br/>~2-5s misses"]
         end
         
-        subgraph Both["✅ LRU + Semantic"]
+        subgraph Both["✅ LRU + Context-Aware"]
             B["~1ms exact<br/>~50ms similar<br/>~2-5s new queries"]
         end
     end
@@ -256,28 +256,28 @@ agents:
 
 ## Quick Start
 
-### PostgreSQL Semantic Cache
+### PostgreSQL Context-Aware Cache
 
 ```bash
-# Run with PostgreSQL semantic cache
+# Run with PostgreSQL context-aware cache
 dao-ai chat -c config/examples/04_genie/genie_cached.yaml
 
 # Test caching behavior
 > What are the total sales for Q4?    # First query - Genie hit
 > What are the total sales for Q4?    # LRU cache hit (~1ms)
-> Show me Q4 revenue                  # Semantic cache hit (~50ms)
+> Show me Q4 revenue                  # Context-aware cache hit (~50ms)
 ```
 
-### In-Memory Semantic Cache
+### In-Memory Context-Aware Cache
 
 ```bash
-# Run with in-memory semantic cache (no database required)
-dao-ai chat -c config/examples/04_genie/genie_in_memory_semantic_cache.yaml
+# Run with in-memory context-aware cache (no database required)
+dao-ai chat -c config/examples/04_genie/genie_in_memory_context_aware_cache.yaml
 
 # Test caching behavior
 > What are the total sales for Q4?    # First query - Genie hit
-> What are the total sales for Q4?    # Semantic cache hit (~50ms)
-> Show me Q4 revenue                  # Semantic cache hit (~50ms)
+> What are the total sales for Q4?    # Context-aware cache hit (~50ms)
+> Show me Q4 revenue                  # Context-aware cache hit (~50ms)
 ```
 
 ## Cache Monitoring
@@ -289,7 +289,7 @@ dao-ai chat -c config/examples/04_genie/genie_cached.yaml --log-level DEBUG
 
 **Look for:**
 - `"LRU cache hit for query: ..."` — Exact match
-- `"Semantic cache hit (similarity: 0.97): ..."` — Similar query
+- `"Context-aware cache hit (similarity: 0.97): ..."` — Similar query
 - `"Cache miss, querying Genie Room"` — New query
 
 ## Best Practices

@@ -3,7 +3,7 @@
 # MAGIC # Genie Cache Service Demo
 # MAGIC
 # MAGIC This notebook demonstrates how to use the Genie cache service with both:
-# MAGIC - **PostgresContextAwareGenieService**: Persistent semantic cache using PostgreSQL/Lakebase
+# MAGIC - **PostgresContextAwareGenieService**: Persistent context-aware cache using PostgreSQL/Lakebase
 # MAGIC - **LRUCacheService**: In-memory LRU cache for exact match lookups
 # MAGIC
 # MAGIC The cache layers are chained together using the decorator pattern:

@@ -15,7 +15,6 @@ from textwrap import dedent
 from typing import Annotated, Any, Callable
 
 import pandas as pd
-from dao_ai.genie.core import Genie, GenieResponse
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
@@ -26,7 +25,7 @@ from dao_ai.config import (
     AnyVariable,
     CompositeVariableModel,
     GenieContextAwareCacheParametersModel,
-    GenieInMemorySemanticCacheParametersModel,
+    GenieInMemoryContextAwareCacheParametersModel,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
     value_of,
@@ -38,6 +37,7 @@ from dao_ai.genie.cache import (
     LRUCacheService,
     PostgresContextAwareGenieService,
 )
+from dao_ai.genie.core import Genie, GenieResponse
 from dao_ai.state import AgentState, Context, SessionState
 
 
@@ -71,10 +71,10 @@ def create_genie_tool(
     persist_conversation: bool = True,
     truncate_results: bool = False,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
-    semantic_cache_parameters: GenieContextAwareCacheParametersModel
+    context_aware_cache_parameters: GenieContextAwareCacheParametersModel
     | dict[str, Any]
     | None = None,
-    in_memory_semantic_cache_parameters: GenieInMemorySemanticCacheParametersModel
+    in_memory_context_aware_cache_parameters: GenieInMemoryContextAwareCacheParametersModel
     | dict[str, Any]
     | None = None,
 ) -> Callable[..., Command]:
@@ -93,9 +93,9 @@ def create_genie_tool(
             multi-turn conversations within the same Genie space
         truncate_results: Whether to truncate large query results to fit token limits
         lru_cache_parameters: Optional LRU cache configuration for SQL query caching
-        semantic_cache_parameters: Optional semantic cache configuration using pg_vector
+        context_aware_cache_parameters: Optional context-aware cache configuration using pg_vector
             for similarity-based query matching (requires PostgreSQL/Lakebase)
-        in_memory_semantic_cache_parameters: Optional in-memory semantic cache configuration
+        in_memory_context_aware_cache_parameters: Optional in-memory context-aware cache configuration
             for similarity-based query matching (no database required)
 
     Returns:
@@ -108,8 +108,9 @@ def create_genie_tool(
         truncate_results=truncate_results,
         name=name,
         has_lru_cache=lru_cache_parameters is not None,
-        has_semantic_cache=semantic_cache_parameters is not None,
-        has_in_memory_semantic_cache=in_memory_semantic_cache_parameters is not None,
+        has_context_aware_cache=context_aware_cache_parameters is not None,
+        has_in_memory_context_aware_cache=in_memory_context_aware_cache_parameters
+        is not None,
     )
 
     if isinstance(genie_room, dict):
@@ -118,14 +119,16 @@ def create_genie_tool(
     if isinstance(lru_cache_parameters, dict):
         lru_cache_parameters = GenieLRUCacheParametersModel(**lru_cache_parameters)
 
-    if isinstance(semantic_cache_parameters, dict):
-        semantic_cache_parameters = GenieContextAwareCacheParametersModel(
-            **semantic_cache_parameters
+    if isinstance(context_aware_cache_parameters, dict):
+        context_aware_cache_parameters = GenieContextAwareCacheParametersModel(
+            **context_aware_cache_parameters
         )
 
-    if isinstance(in_memory_semantic_cache_parameters, dict):
-        in_memory_semantic_cache_parameters = GenieInMemorySemanticCacheParametersModel(
-            **in_memory_semantic_cache_parameters
+    if isinstance(in_memory_context_aware_cache_parameters, dict):
+        in_memory_context_aware_cache_parameters = (
+            GenieInMemoryContextAwareCacheParametersModel(
+                **in_memory_context_aware_cache_parameters
+            )
         )
 
     space_id: AnyVariable = genie_room.space_id or os.environ.get(
@@ -184,18 +187,18 @@ GenieResponse: A response object containing the conversation ID and result from 
         genie_service: GenieServiceBase = GenieService(genie)
 
         # Wrap with context-aware cache first (checked second/third due to decorator pattern)
-        if semantic_cache_parameters is not None:
+        if context_aware_cache_parameters is not None:
             genie_service = PostgresContextAwareGenieService(
                 impl=genie_service,
-                parameters=semantic_cache_parameters,
+                parameters=context_aware_cache_parameters,
                 workspace_client=workspace_client,
             ).initialize()
 
         # Wrap with in-memory context-aware cache (alternative to PostgreSQL context-aware cache)
-        if in_memory_semantic_cache_parameters is not None:
+        if in_memory_context_aware_cache_parameters is not None:
             genie_service = InMemoryContextAwareGenieService(
                 impl=genie_service,
-                parameters=in_memory_semantic_cache_parameters,
+                parameters=in_memory_context_aware_cache_parameters,
                 workspace_client=workspace_client,
             ).initialize()
 

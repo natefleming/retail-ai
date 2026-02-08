@@ -9,7 +9,7 @@ from databricks_ai_bridge.genie import GenieResponse
 
 from dao_ai.config import (
     GenieContextAwareCacheParametersModel,
-    GenieInMemorySemanticCacheParametersModel,
+    GenieInMemoryContextAwareCacheParametersModel,
     GenieLRUCacheParametersModel,
     WarehouseModel,
 )
@@ -99,7 +99,7 @@ class TestPostgresContextAwareCacheFallback:
 
     @pytest.fixture
     def mock_parameters(self) -> Mock:
-        """Create mock semantic cache parameters."""
+        """Create mock context-aware cache parameters."""
         params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
@@ -110,7 +110,7 @@ class TestPostgresContextAwareCacheFallback:
         params.max_context_tokens = 2000
         params.embedding_model = "databricks-gte-large-en"
         params.embedding_dims = 3
-        params.table_name = "test_semantic_cache"
+        params.table_name = "test_context_aware_cache"
         params.warehouse = Mock(spec=WarehouseModel)
         params.database = Mock()
         return params
@@ -197,8 +197,8 @@ class TestInMemoryContextAwareCacheFallback:
 
     @pytest.fixture
     def mock_parameters(self) -> Mock:
-        """Create mock in-memory semantic cache parameters."""
-        params = Mock(spec=GenieInMemorySemanticCacheParametersModel)
+        """Create mock in-memory context-aware cache parameters."""
+        params = Mock(spec=GenieInMemoryContextAwareCacheParametersModel)
         params.time_to_live_seconds = 86400
         params.similarity_threshold = 0.85
         params.context_similarity_threshold = 0.80

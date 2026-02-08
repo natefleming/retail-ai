@@ -30,7 +30,7 @@ from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
 from dao_ai.config import (
-    GenieInMemorySemanticCacheParametersModel,
+    GenieInMemoryContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie.cache.base import (
@@ -99,7 +99,7 @@ def distance_to_similarity(distance: float) -> float:
     Convert L2 distance to similarity score in range [0, 1].
 
     Uses the formula: similarity = 1.0 / (1.0 + distance)
-    This matches the conversion used by PostgreSQL semantic cache.
+    This matches the conversion used by PostgreSQL context-aware cache.
 
     Args:
         distance: L2 distance value
@@ -126,10 +126,10 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
     to return fresh data while avoiding the Genie NL-to-SQL translation cost.
 
     Example:
-        from dao_ai.config import GenieInMemorySemanticCacheParametersModel
+        from dao_ai.config import GenieInMemoryContextAwareCacheParametersModel
         from dao_ai.genie.cache.context_aware import InMemoryContextAwareGenieService
 
-        cache_params = GenieInMemorySemanticCacheParametersModel(
+        cache_params = GenieInMemoryContextAwareCacheParametersModel(
             warehouse=warehouse_model,
             embedding_model="databricks-gte-large-en",
             time_to_live_seconds=86400,  # 24 hours
@@ -146,7 +146,7 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
     """
 
     impl: GenieServiceBase
-    parameters: GenieInMemorySemanticCacheParametersModel
+    parameters: GenieInMemoryContextAwareCacheParametersModel
     _workspace_client: WorkspaceClient | None
     name: str
     _embeddings: Any  # DatabricksEmbeddings
@@ -158,7 +158,7 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
     def __init__(
         self,
         impl: GenieServiceBase,
-        parameters: GenieInMemorySemanticCacheParametersModel,
+        parameters: GenieInMemoryContextAwareCacheParametersModel,
         workspace_client: WorkspaceClient | None = None,
         name: str | None = None,
     ) -> None:

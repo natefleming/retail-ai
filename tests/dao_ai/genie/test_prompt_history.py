@@ -378,7 +378,7 @@ class TestPromptHistoryIntegration:
         # Use retail-consumer-goods warehouse from config
         # workspace_client is created automatically from environment
         return WarehouseModel(
-            warehouse_id="148ccb90800933a1",  # From genie_semantic_cache.yaml
+            warehouse_id="148ccb90800933a1",  # From genie_context_aware_cache.yaml
         )
 
     @pytest.mark.integration
@@ -404,7 +404,7 @@ class TestPromptHistoryIntegration:
         parameters = GenieContextAwareCacheParametersModel(
             database=lakebase_database,
             warehouse=lakebase_warehouse,
-            table_name=f"test_semantic_cache_{test_suffix}",  # Unique cache table
+            table_name=f"test_context_aware_cache_{test_suffix}",  # Unique cache table
             prompt_history_table=f"test_prompt_history_{test_suffix}",  # Unique history table
             context_window_size=2,
             embedding_model="databricks-gte-large-en",

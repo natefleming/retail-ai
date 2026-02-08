@@ -2147,6 +2147,7 @@
     },
     "GenieContextAwareCacheParametersModel": {
       "additionalProperties": false,
+      "description": "Configuration for PostgreSQL-backed context-aware cache.\n\nExtends the base context-aware cache configuration with database-specific\nfields for table management and prompt history tracking.",
       "properties": {
         "time_to_live_seconds": {
           "anyOf": [
@@ -2218,16 +2219,8 @@
           "default": null,
           "title": "Embedding Dims"
         },
-        "database": {
-          "$ref": "#/$defs/DatabaseModel"
-        },
         "warehouse": {
           "$ref": "#/$defs/WarehouseModel"
-        },
-        "table_name": {
-          "default": "genie_semantic_cache",
-          "title": "Table Name",
-          "type": "string"
         },
         "context_window_size": {
           "default": 2,
@@ -2238,6 +2231,14 @@
           "default": 2000,
           "title": "Max Context Tokens",
           "type": "integer"
+        },
+        "database": {
+          "$ref": "#/$defs/DatabaseModel"
+        },
+        "table_name": {
+          "default": "genie_context_aware_cache",
+          "title": "Table Name",
+          "type": "string"
         },
         "prompt_history_table": {
           "default": "genie_prompt_history",
@@ -2268,8 +2269,8 @@
         }
       },
       "required": [
-        "database",
-        "warehouse"
+        "warehouse",
+        "database"
       ],
       "title": "GenieContextAwareCacheParametersModel",
       "type": "object"

@@ -126,7 +126,7 @@ from dao_ai.genie.cache.context_aware import PostgresContextAwareGenieService
 # MAGIC %md
 # MAGIC ## Option 1: Generate Dataset from Existing Cache
 # MAGIC
-# MAGIC If you have an existing semantic cache with entries, you can generate an
+# MAGIC If you have an existing context-aware cache with entries, you can generate an
 # MAGIC evaluation dataset automatically using paraphrasing. Use the `get_entries()`
 # MAGIC method on your cache service to retrieve entries with embeddings.
 

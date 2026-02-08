@@ -27,7 +27,7 @@ dao-ai/
 │   │   ├── swarm.py       # Swarm pattern
 │   │   └── ...
 │   ├── genie/
-│   │   └── cache/         # LRU and Semantic cache
+│   │   └── cache/         # LRU and Context-Aware cache
 │   ├── memory/            # Checkpointer and store
 │   └── hooks/             # Lifecycle hooks
 ├── config/

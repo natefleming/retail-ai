@@ -106,7 +106,7 @@ This will update the existing deployment.
 
 ### How do I optimize agent performance?
 
-1. **Enable caching** for Genie queries (LRU + Semantic cache)
+1. **Enable caching** for Genie queries (LRU + Context-Aware cache)
 2. **Use reranking** for vector search to improve result quality
 3. **Tune similarity thresholds** to balance cache hit rate vs. accuracy
 4. **Monitor MLflow traces** to identify bottlenecks
@@ -146,7 +146,7 @@ For LRU cache:
 - Check TTL hasn't expired
 - Ensure warehouse configuration is correct
 
-For semantic cache:
+For context-aware cache:
 - Verify PostgreSQL connection is working
 - Check `similarity_threshold` isn't set too high
 - Ensure embedding model is accessible

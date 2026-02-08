@@ -37,7 +37,7 @@ User: "Filter by region"
 
 User: "What's the total for that?"
 → Context includes BOTH previous prompts ✅
-→ Semantic matching considers full conversation context ✅
+→ Context-aware matching considers full conversation context ✅
 → Returns accurate results
 ```
 
@@ -93,7 +93,7 @@ CREATE TABLE genie_prompt_history (
 )
 ```
 
-**Purpose**: Track conversation context for semantic matching
+**Purpose**: Track conversation context for context-aware matching
 
 **Storage**: ~200 bytes per prompt (text only)
 
@@ -121,7 +121,7 @@ CREATE TABLE genie_context_aware_cache (
 )
 ```
 
-**Purpose**: Store SQL + embeddings for semantic similarity search
+**Purpose**: Store SQL + embeddings for context-aware similarity search
 
 **Storage**: ~2KB per entry (embeddings are large)
 
@@ -271,14 +271,14 @@ combined = (0.6 × question_similarity) + (0.4 × context_similarity)
 
 ## Configuration
 
-Prompt history is **always enabled** - it's fundamental to maintaining accurate conversation context for semantic matching.
+Prompt history is **always enabled** - it's fundamental to maintaining accurate conversation context for context-aware matching.
 
 ```yaml
 genie_tools:
   my_genie_tool:
     genie_room:
       space_id: my-space-id
-    semantic_cache_parameters:
+    context_aware_cache_parameters:
       database:
         instance_name: retail-consumer-goods  # Lakebase
       warehouse:
@@ -739,7 +739,7 @@ For existing conversations, either:
 ✅ User prompts (essential for context)
 
 ### What We DON'T Store (and why)
-❌ **Assistant responses**: Not needed for semantic matching
+❌ **Assistant responses**: Not needed for context-aware matching
 ❌ **SQL queries**: Already in `genie_context_aware_cache` table (would be duplication)
 ❌ **Result data**: Re-executed on cache hit for fresh data
 ❌ **Descriptions**: Not used in context embeddings
@@ -775,7 +775,7 @@ pytest tests/dao_ai/genie/test_prompt_history.py::TestPromptHistoryIntegration -
 
 ### Issue: Context includes current prompt
 
-**Symptom**: Semantic matching behaves oddly
+**Symptom**: Context-aware matching behaves oddly
 **Cause**: Storing prompt before retrieving history
 **Fix**: Ensure order is: SELECT → BUILD → INSERT
 
@@ -995,7 +995,7 @@ WHERE cache_entry_id = 42;
 - 🔄 Prompt summarization for long histories
 - 🔄 Export/import utilities
 - 🔄 Analytics dashboard (cache hit rates by conversation length)
-- 🔄 Semantic deduplication of similar prompts
+- 🔄 Context-aware deduplication of similar prompts
 
 ## Summary
 

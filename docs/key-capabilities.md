@@ -196,14 +196,14 @@ genie_tool:
         capacity: 1000                   # Max cached queries (default: 1000)
         time_to_live_seconds: 86400      # 1 day (default), use -1 or None for never expire
 
-      # L2: Semantic similarity search via pg_vector
-      semantic_cache_parameters:
+      # L2: Context-aware similarity search via pg_vector
+      context_aware_cache_parameters:
         database: *postgres_db
         warehouse: *warehouse
         embedding_model: *embedding_model  # Default: databricks-gte-large-en
         similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85), higher = stricter
         time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
-        table_name: genie_semantic_cache   # Optional, default: genie_semantic_cache
+        table_name: genie_context_aware_cache   # Optional, default: genie_context_aware_cache
 ```
 
 ### Cache Architecture
@@ -215,7 +215,7 @@ graph TB
     l1_cache["L1: LRU Cache (In-Memory)<br/>• Capacity: 1000 entries<br/>• Hash-based lookup<br/>• O(1) exact string match"]
     l1_hit{Hit?}
     
-    l2_cache["L2: Semantic Cache<br/>• PostgreSQL (pg_vector) OR In-Memory<br/>• Dual embeddings (question + context)<br/>• L2 distance similarity<br/>• Conversation context aware<br/>• Partitioned by Genie space ID"]
+    l2_cache["L2: Context-Aware Cache<br/>• PostgreSQL (pg_vector) OR In-Memory<br/>• Dual embeddings (question + context)<br/>• L2 distance similarity<br/>• Conversation context aware<br/>• Partitioned by Genie space ID"]
     l2_hit{Hit?}
     
     genie["Genie API<br/>(Expensive call)<br/>Natural language to SQL"]
@@ -258,11 +258,11 @@ The **LRU (Least Recently Used) Cache** provides instant lookups for exact quest
 
 **Best for:** Repeated exact queries, chatbot interactions, dashboard refreshes
 
-### Semantic Cache (L2)
+### Context-Aware Cache (L2)
 
-The **Semantic Cache** finds similar questions even when worded differently using vector embeddings and similarity search. It includes **conversation context awareness** to improve matching in multi-turn conversations. DAO provides two implementations:
+The **Context-Aware Cache** finds similar questions even when worded differently using vector embeddings and similarity search. It includes **conversation context awareness** to improve matching in multi-turn conversations. DAO provides two implementations:
 
-#### PostgreSQL-Based Semantic Cache
+#### PostgreSQL-Based Context-Aware Cache
 
 Uses PostgreSQL with pg_vector for persistent, multi-instance shared caching:
 
@@ -273,7 +273,7 @@ Uses PostgreSQL with pg_vector for persistent, multi-instance shared caching:
 | `embedding_model` | `databricks-gte-large-en` | Model for generating question embeddings |
 | `database` | Required | PostgreSQL with pg_vector extension |
 | `warehouse` | Required | Databricks warehouse for SQL execution |
-| `table_name` | `genie_semantic_cache` | Table name for cache storage |
+| `table_name` | `genie_context_aware_cache` | Table name for cache storage |
 | `context_window_size` | 2 | Number of previous conversation turns to include |
 | `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
 | `question_weight` | 0.6 | Weight for question similarity in combined score (0.0-1.0) |
@@ -283,7 +283,7 @@ Uses PostgreSQL with pg_vector for persistent, multi-instance shared caching:
 
 **Best for:** Production deployments with multiple instances, large cache sizes (thousands+), and cross-instance cache sharing
 
-#### In-Memory Semantic Cache
+#### In-Memory Context-Aware Cache
 
 Uses in-memory storage without external database dependencies:
 
@@ -295,8 +295,8 @@ genie_tool:
     args:
       genie_room: *retail_genie_room
       
-      # In-memory semantic cache (no database required)
-      in_memory_semantic_cache_parameters:
+      # In-memory context-aware cache (no database required)
+      in_memory_context_aware_cache_parameters:
         warehouse: *warehouse
         embedding_model: *embedding_model  # Default: databricks-gte-large-en
         similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85)
@@ -338,7 +338,7 @@ genie_tool:
 - "Top selling products this month" ≈ "Best sellers in December"
 
 **Conversation Context Awareness:**  
-The semantic cache tracks conversation history to resolve ambiguous references:
+The context-aware cache tracks conversation history to resolve ambiguous references:
 - **User:** "Show me products with low stock"
 - **User:** "What about *them* in the warehouse?" ← Uses context to understand "them" = low stock products
 
@@ -354,15 +354,15 @@ The `question_weight` and `context_weight` parameters control how question vs co
 
 1. **SQL Caching, Not Results**: The cache stores the *generated SQL query*, not the query results. On a cache hit, the SQL is re-executed against your warehouse, ensuring **data freshness**.
 
-2. **Conversation-Aware Matching**: The semantic cache uses a rolling window of recent conversation turns to provide context for similarity matching. This helps resolve pronouns and references like "them", "that", or "the same products" by considering what was discussed previously.
+2. **Conversation-Aware Matching**: The context-aware cache uses a rolling window of recent conversation turns to provide context for similarity matching. This helps resolve pronouns and references like "them", "that", or "the same products" by considering what was discussed previously.
 
-3. **Refresh on Hit**: When a semantic cache entry is found but expired:
+3. **Refresh on Hit**: When a context-aware cache entry is found but expired:
    - The expired entry is deleted
    - A cache miss is returned
    - Genie generates fresh SQL
    - The new SQL is cached
 
-4. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The PostgreSQL semantic cache is shared across all instances. The in-memory semantic cache is per-instance (not shared).
+4. **Multi-Instance Aware**: Each LRU cache is per-instance (in Model Serving, each replica has its own). The PostgreSQL context-aware cache is shared across all instances. The in-memory context-aware cache is per-instance (not shared).
 
 5. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
 

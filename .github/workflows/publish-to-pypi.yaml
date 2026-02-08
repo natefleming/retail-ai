@@ -1,4 +1,4 @@
-name: Publish Python 🐍 distribution 📦 to PyPI and TestPyPI
+name: Publish Python 🐍 distribution 📦 to PyPI
 
 on: 
   - push
@@ -29,42 +29,6 @@ jobs:
         name: python-package-distributions
         path: dist/
 
-  build-testpypi:
-    name: Build distribution 📦 for TestPyPI (with version override)
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        persist-credentials: false
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.x"
-    - name: Install uv
-      uses: astral-sh/setup-uv@v3
-      with:
-        version: "latest"
-    - name: Override version for TestPyPI
-      run: |
-        # Create a unique version with timestamp for TestPyPI
-        TIMESTAMP=$(date +%Y%m%d%H%M%S)
-        ORIGINAL_VERSION=$(grep -m 1 'version = ' pyproject.toml | cut -d'"' -f2)
-        NEW_VERSION="${ORIGINAL_VERSION}.dev${TIMESTAMP}"
-        echo "Original version: $ORIGINAL_VERSION"
-        echo "TestPyPI version: $NEW_VERSION"
-        # Update pyproject.toml with new version
-        sed -i "s/version = \"$ORIGINAL_VERSION\"/version = \"$NEW_VERSION\"/" pyproject.toml
-        echo "Updated pyproject.toml:"
-        grep -A 2 -B 2 'version = ' pyproject.toml
-    - name: Build distribution using Makefile
-      run: make dist
-    - name: Store the TestPyPI distribution packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: python-package-distributions-testpypi
-        path: dist/
-
   publish-to-pypi:
     name: >-
       Publish Python 🐍 distribution 📦 to PyPI
@@ -89,27 +53,3 @@ jobs:
       with:
         verbose: true
 
-  publish-to-testpypi:
-    name: Publish Python 🐍 distribution 📦 to TestPyPI
-    needs:
-    - build-testpypi
-    runs-on: ubuntu-latest
-
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/dao-ai
-
-    permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
-
-    steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v4
-      with:
-        name: python-package-distributions-testpypi
-        path: dist/
-    - name: Publish distribution 📦 to TestPyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        repository-url: https://test.pypi.org/legacy/
-        verbose: true
