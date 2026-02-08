@@ -80,8 +80,6 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      decomposition_model: *decomposition_llm
-      normalize_filter_case: uppercase
       schema_description: |
         Products table columns:
         - product_id (BIGINT): Unique product identifier
@@ -101,25 +99,22 @@ retrievers:
         - "Use merchandise_class for category filtering"
         - "Use brand_name for brand filtering"
         - "Only use columns listed in schema_description"
-      max_subqueries: 3
-      rrf_k: 60
-      examples:
-        - query: "Milwaukee drills"
-          filters: {"brand_name": "MILWAUKEE"}
-        - query: "cordless power tools excluding DeWalt"
-          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
-        - query: "paint products"
-          filters: {"merchandise_class": "PAINT"}
-        - query: "Milwaukee or DeWalt tools"
-          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
-    # Reranking: Databricks columns + Instruction-Aware LLM
-    rerank:
-      columns:                            # Databricks server-side reranking
-        - merchandise_class
-        - product_name
-        - brand_name
-      top_n: 20                           # Databricks reranker outputs 20 candidates
-      instruction_aware:
+      decomposition:
+        model: *decomposition_llm
+        normalize_filter_case: uppercase
+        max_subqueries: 3
+        rrf_k: 60
+        examples:
+          - query: "Milwaukee drills"
+            filters: {"brand_name": "MILWAUKEE"}
+          - query: "cordless power tools excluding DeWalt"
+            filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+          - query: "paint products"
+            filters: {"merchandise_class": "PAINT"}
+          - query: "Milwaukee or DeWalt tools"
+            filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+      # Instruction-Aware LLM reranking (uses schema context above)
+      rerank:
         model: *decomposition_llm
         instructions: |
           Prioritize results based on user constraints:
@@ -127,6 +122,13 @@ retrievers:
           - Category: prefer exact merchandise_class matches
           - Product type: match specific product types mentioned
         top_n: 10                         # Final count after instruction reranking
+    # Reranking: Databricks columns (pure reranking, no LLM)
+    rerank:
+      columns:                            # Databricks server-side reranking
+        - merchandise_class
+        - product_name
+        - brand_name
+      top_n: 20                           # Databricks reranker outputs 20 candidates
 
 tools:
   # Standard search tool (baseline)

@@ -152,7 +152,6 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      decomposition_model: *decomposition_llm
       schema_description: |
         Products table for a hardware/home improvement store.
         
@@ -175,19 +174,21 @@ retrievers:
         - "Use brand_name filter for specific brand requests"
         - "Use merchandise_class filter for category-based queries"
         - "Product names often include model numbers and specifications"
-      max_subqueries: 3
-      rrf_k: 60
-      examples:
-        - query: "Milwaukee cordless drills"
-          filters: {"brand_name": "Milwaukee", "product_name LIKE": "drill"}
-        - query: "DeWalt or Makita power tools"
-          filters: {"brand_name": ["DeWalt", "Makita"], "merchandise_class": "Power Tools"}
-        - query: "paint brushes excluding Purdy brand"
-          filters: {"merchandise_class": "Paint", "product_name LIKE": "brush", "brand_name NOT": "Purdy"}
-        - query: "Craftsman hand tools"
-          filters: {"brand_name": "Craftsman", "merchandise_class": "Hand Tools"}
-        - query: "outdoor power equipment not battery powered"
-          filters: {"merchandise_class": "Outdoor", "description NOT": "battery"}
+      decomposition:
+        model: *decomposition_llm
+        max_subqueries: 3
+        rrf_k: 60
+        examples:
+          - query: "Milwaukee cordless drills"
+            filters: {"brand_name": "Milwaukee", "product_name LIKE": "drill"}
+          - query: "DeWalt or Makita power tools"
+            filters: {"brand_name": ["DeWalt", "Makita"], "merchandise_class": "Power Tools"}
+          - query: "paint brushes excluding Purdy brand"
+            filters: {"merchandise_class": "Paint", "product_name LIKE": "brush", "brand_name NOT": "Purdy"}
+          - query: "Craftsman hand tools"
+            filters: {"brand_name": "Craftsman", "merchandise_class": "Hand Tools"}
+          - query: "outdoor power equipment not battery powered"
+            filters: {"merchandise_class": "Outdoor", "description NOT": "battery"}
     rerank:
       model: ms-marco-MiniLM-L-12-v2
       top_n: 10

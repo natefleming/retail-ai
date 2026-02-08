@@ -304,13 +304,15 @@ Query → Vector Search (top 50) → FlashRank (top 20) → Instruction-Aware LL
 
 ## Instruction-Aware Reranking
 
-Instruction-aware reranking adds an LLM stage after FlashRank to consider user constraints:
+Instruction-aware reranking adds an LLM stage after FlashRank to consider user constraints. It is configured under `instructed.rerank` because it depends on the schema context provided by the `instructed` block:
 
 ```yaml
 rerank:
   model: ms-marco-MiniLM-L-12-v2
   top_n: 20                          # FlashRank outputs 20 candidates
-  instruction_aware:
+instructed:
+  schema_description: "..."
+  rerank:
     model: *fast_llm                 # Use small model for speed
     instructions: |
       Prioritize results matching price and brand constraints.

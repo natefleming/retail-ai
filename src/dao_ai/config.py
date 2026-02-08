@@ -1884,10 +1884,9 @@ class InstructionAwareRerankModel(BaseModel):
 
     Example:
         ```yaml
-        rerank:
-          model: ms-marco-MiniLM-L-12-v2
-          top_n: 20
-          instruction_aware:
+        instructed:
+          schema_description: "..."
+          rerank:
             model: *fast_llm
             instructions: |
               Prioritize results matching price and brand constraints.
@@ -1915,28 +1914,25 @@ class RerankParametersModel(BaseModel):
     """
     Configuration for reranking retrieved documents.
 
-    Supports three reranking options that can be combined:
+    Supports two reranking options that can be combined:
     1. FlashRank (local cross-encoder) - set `model`
     2. Databricks server-side reranking - set `columns`
-    3. LLM instruction-aware reranking - set `instruction_aware`
 
-    Example with Databricks columns + instruction-aware (no FlashRank):
-        ```yaml
-        rerank:
-          columns:                    # Databricks server-side reranking
-            - product_name
-            - brand_name
-          instruction_aware:          # LLM-based constraint reranking
-            model: *fast_llm
-            instructions: "Prioritize by brand preferences"
-            top_n: 10
-        ```
+    For LLM instruction-aware reranking, use `instructed.rerank` instead.
 
     Example with FlashRank:
         ```yaml
         rerank:
           model: ms-marco-MiniLM-L-12-v2  # FlashRank model
           top_n: 10
+        ```
+
+    Example with Databricks columns:
+        ```yaml
+        rerank:
+          columns:
+            - product_name
+            - brand_name
         ```
 
     Available FlashRank models (see https://github.com/PrithivirajDamodaran/FlashRank):
@@ -1962,10 +1958,6 @@ class RerankParametersModel(BaseModel):
     )
     columns: Optional[list[str]] = Field(
         default_factory=list, description="Columns to rerank using DatabricksReranker"
-    )
-    instruction_aware: Optional[InstructionAwareRerankModel] = Field(
-        default=None,
-        description="Optional LLM-based reranking stage after FlashRank",
     )
 
 
@@ -2057,32 +2049,21 @@ class ColumnInfo(BaseModel):
     )
 
 
-class InstructedRetrieverModel(BaseModel):
+class DecompositionModel(BaseModel):
     """
-    Configuration for instructed retrieval with query decomposition and RRF merging.
+    Query decomposition settings for instructed retrieval.
 
-    Instructed retrieval decomposes user queries into multiple subqueries with
-    metadata filters, executes them in parallel, and merges results using
-    Reciprocal Rank Fusion (RRF) before reranking.
+    Decomposes complex user queries into multiple focused subqueries with
+    metadata filters, executed in parallel and merged using Reciprocal Rank Fusion (RRF).
 
     Example:
         ```yaml
-        retriever:
-          vector_store: *products_vector_store
-          instructed:
-            decomposition_model: *fast_llm
-            schema_description: |
-              Products table: product_id, brand_name, category, price, updated_at
-              Filter operators: {"col": val}, {"col >": val}, {"col NOT": val}
-            columns:
-              - name: brand_name
-                type: string
-              - name: price
-                type: number
-                operators: ["", "<", "<=", ">", ">="]
-            constraints:
-              - "Prefer recent products"
+        instructed:
+          decomposition:
+            model: *fast_llm
             max_subqueries: 3
+            rrf_k: 60
+            normalize_filter_case: uppercase
             examples:
               - query: "cheap drills"
                 filters: {"price <": 100}
@@ -2091,22 +2072,9 @@ class InstructedRetrieverModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    decomposition_model: Optional["LLMModel"] = Field(
+    model: Optional["LLMModel"] = Field(
         default=None,
         description="LLM for query decomposition (smaller/faster model recommended)",
-    )
-    schema_description: str = Field(
-        description="Column names, types, and valid filter syntax for the LLM"
-    )
-    columns: Optional[list[ColumnInfo]] = Field(
-        default=None,
-        description=(
-            "Structured column info for dynamic schema generation. "
-            "When provided, column names are embedded in the JSON schema for better LLM accuracy."
-        ),
-    )
-    constraints: Optional[list[str]] = Field(
-        default=None, description="Default constraints to always apply"
     )
     max_subqueries: int = Field(
         default=3, description="Maximum number of parallel subqueries"
@@ -2125,6 +2093,83 @@ class InstructedRetrieverModel(BaseModel):
     )
 
 
+class InstructedRetrieverModel(BaseModel):
+    """
+    Configuration for instructed retrieval with query decomposition and RRF merging.
+
+    Groups all schema-aware, LLM-driven features: query decomposition, instruction-aware
+    reranking, query routing, and result verification. These features share schema context
+    (schema_description, columns, constraints) and are co-located here to enforce that
+    dependency at the type level.
+
+    Example:
+        ```yaml
+        retriever:
+          vector_store: *products_vector_store
+          instructed:
+            schema_description: |
+              Products table: product_id, brand_name, category, price, updated_at
+              Filter operators: {"col": val}, {"col >": val}, {"col NOT": val}
+            columns:
+              - name: brand_name
+                type: string
+              - name: price
+                type: number
+                operators: ["", "<", "<=", ">", ">="]
+            constraints:
+              - "Prefer recent products"
+            decomposition:
+              model: *fast_llm
+              max_subqueries: 3
+              examples:
+                - query: "cheap drills"
+                  filters: {"price <": 100}
+            rerank:
+              model: *fast_llm
+              instructions: "Prioritize by brand preferences"
+              top_n: 10
+            router:
+              model: *fast_llm
+              default_mode: standard
+            verifier:
+              model: *fast_llm
+              on_failure: warn_and_retry
+        ```
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    schema_description: str = Field(
+        description="Column names, types, and valid filter syntax for the LLM"
+    )
+    columns: Optional[list[ColumnInfo]] = Field(
+        default=None,
+        description=(
+            "Structured column info for dynamic schema generation. "
+            "When provided, column names are embedded in the JSON schema for better LLM accuracy."
+        ),
+    )
+    constraints: Optional[list[str]] = Field(
+        default=None, description="Default constraints to always apply"
+    )
+    decomposition: Optional[DecompositionModel] = Field(
+        default=None,
+        description="Query decomposition settings for breaking complex queries into subqueries.",
+    )
+    rerank: Optional[InstructionAwareRerankModel] = Field(
+        default=None,
+        description="Optional LLM-based instruction-aware reranking stage.",
+    )
+    router: Optional["RouterModel"] = Field(
+        default=None,
+        description="Optional query router for selecting execution mode (standard vs instructed).",
+    )
+    verifier: Optional["VerifierModel"] = Field(
+        default=None,
+        description="Optional result verification with structured feedback for retry.",
+    )
+
+
 class RouterModel(BaseModel):
     """
     Select internal execution mode based on query characteristics.
@@ -2140,10 +2185,12 @@ class RouterModel(BaseModel):
     Example:
         ```yaml
         retriever:
-          router:
-            model: *fast_llm
-            default_mode: standard
-            auto_bypass: true
+          instructed:
+            schema_description: "..."
+            router:
+              model: *fast_llm
+              default_mode: standard
+              auto_bypass: true
         ```
     """
 
@@ -2208,10 +2255,12 @@ class VerifierModel(BaseModel):
     Example:
         ```yaml
         retriever:
-          verifier:
-            model: *fast_llm
-            on_failure: warn_and_retry
-            max_retries: 1
+          instructed:
+            schema_description: "..."
+            verifier:
+              model: *fast_llm
+              on_failure: warn_and_retry
+              max_retries: 1
         ```
     """
 
@@ -2255,21 +2304,13 @@ class RetrieverModel(BaseModel):
     search_parameters: SearchParametersModel = Field(
         default_factory=SearchParametersModel
     )
-    router: Optional[RouterModel] = Field(
-        default=None,
-        description="Optional query router for selecting execution mode (standard vs instructed).",
-    )
     rerank: Optional[RerankParametersModel | bool] = Field(
         default=None,
-        description="Optional reranking configuration. Set to true for defaults, or provide ReRankParametersModel for custom settings.",
+        description="Optional reranking configuration. Set to true for defaults, or provide RerankParametersModel for custom settings.",
     )
     instructed: Optional[InstructedRetrieverModel] = Field(
         default=None,
-        description="Optional instructed retrieval with query decomposition and RRF merging.",
-    )
-    verifier: Optional[VerifierModel] = Field(
-        default=None,
-        description="Optional result verification with structured feedback for retry.",
+        description="Optional instructed retrieval with query decomposition, instruction-aware reranking, routing, and verification.",
     )
 
     @model_validator(mode="after")
@@ -2281,7 +2322,7 @@ class RetrieverModel(BaseModel):
 
     @model_validator(mode="after")
     def set_default_reranker(self) -> Self:
-        """Convert bool to ReRankParametersModel with defaults.
+        """Convert bool to RerankParametersModel with defaults.
 
         When rerank: true is used, sets the default FlashRank model
         (ms-marco-MiniLM-L-12-v2) to enable reranking.

@@ -78,16 +78,8 @@ retrievers:
       num_results: 50
       query_type: HYBRID
 
-    # Router: Selects execution mode based on query complexity
-    router:
-      model: *fast_llm
-      default_mode: standard            # Fallback if router fails
-      auto_bypass: true                 # Skip Instruction Reranker + Verifier for standard mode
-
-    # Instructed Retrieval: Query decomposition and RRF merging
+    # Instructed Retrieval: All schema-aware, LLM-driven features
     instructed:
-      decomposition_model: *fast_llm
-      normalize_filter_case: uppercase
       schema_description: |
         Products table columns:
         - product_id (BIGINT): Unique product identifier
@@ -107,27 +99,25 @@ retrievers:
         - "Use merchandise_class for category filtering"
         - "Use brand_name for brand filtering"
         - "Only use columns listed in schema_description"
-      max_subqueries: 3
-      rrf_k: 60
-      examples:
-        - query: "Milwaukee drills"
-          filters: {"brand_name": "MILWAUKEE"}
-        - query: "cordless power tools excluding DeWalt"
-          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
-        - query: "paint products"
-          filters: {"merchandise_class": "PAINT"}
-        - query: "Milwaukee or DeWalt tools"
-          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
 
-    # Reranking: Databricks columns + Instruction-Aware LLM
-    # Using columns instead of FlashRank model due to ONNX bug: https://github.com/huggingface/optimum/issues/1500
-    rerank:
-      columns:                            # Databricks server-side reranking
-        - merchandise_class
-        - product_name
-        - brand_name
-      top_n: 20                           # Databricks reranker outputs 20 candidates
-      instruction_aware:
+      # Query decomposition and RRF merging
+      decomposition:
+        model: *fast_llm
+        normalize_filter_case: uppercase
+        max_subqueries: 3
+        rrf_k: 60
+        examples:
+          - query: "Milwaukee drills"
+            filters: {"brand_name": "MILWAUKEE"}
+          - query: "cordless power tools excluding DeWalt"
+            filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+          - query: "paint products"
+            filters: {"merchandise_class": "PAINT"}
+          - query: "Milwaukee or DeWalt tools"
+            filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+
+      # Instruction-Aware LLM reranking (uses schema context above)
+      rerank:
         model: *fast_llm
         instructions: |
           Prioritize results based on user constraints:
@@ -136,11 +126,26 @@ retrievers:
           - Product type: match specific product types mentioned
         top_n: 10                         # Final count after instruction reranking
 
-    # Verifier: Validates results and provides feedback for retry
-    verifier:
-      model: *fast_llm
-      on_failure: warn_and_retry        # Options: warn, retry, warn_and_retry
-      max_retries: 1
+      # Router: Selects execution mode based on query complexity
+      router:
+        model: *fast_llm
+        default_mode: standard            # Fallback if router fails
+        auto_bypass: true                 # Skip Instruction Reranker + Verifier for standard mode
+
+      # Verifier: Validates results and provides feedback for retry
+      verifier:
+        model: *fast_llm
+        on_failure: warn_and_retry        # Options: warn, retry, warn_and_retry
+        max_retries: 1
+
+    # Reranking: Databricks columns (pure reranking, no LLM)
+    # Using columns instead of FlashRank model due to ONNX bug: https://github.com/huggingface/optimum/issues/1500
+    rerank:
+      columns:                            # Databricks server-side reranking
+        - merchandise_class
+        - product_name
+        - brand_name
+      top_n: 20                           # Databricks reranker outputs 20 candidates
 
 tools:
   full_pipeline_search_tool: &full_pipeline_search_tool

@@ -152,7 +152,6 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      decomposition_model: *fast_llm  # Smaller model for low latency
       schema_description: |
         Products table columns:
         - brand_name (STRING): Brand/manufacturer name
@@ -166,13 +165,16 @@ retrievers:
         - Exclusion: {"column NOT": "value"}
       constraints:
         - "Prefer recently updated products"
-      max_subqueries: 3
-      rrf_k: 60
-      examples:
-        - query: "cheap Milwaukee drills"
-          filters: {"price <": 100, "brand_name": "Milwaukee"}
-    rerank:
-      top_n: 10
+      decomposition:
+        model: *fast_llm  # Smaller model for low latency
+        max_subqueries: 3
+        rrf_k: 60
+        examples:
+          - query: "cheap Milwaukee drills"
+            filters: {"price <": 100, "brand_name": "Milwaukee"}
+      rerank:
+        model: *fast_llm
+        top_n: 10
 ```
 
 ## Pipeline Components
@@ -218,26 +220,27 @@ graph TB
 
 ## Key Configuration Fields
 
-### `decomposition_model`
-Use a smaller, faster model (GPT-3.5, Llama 3 8B) for decomposition to keep latency low while the main agent uses a larger model for synthesis.
-
 ### `schema_description`
 Critical for filter translation. Must include:
 - Exact column names and types
 - Valid filter syntax for Databricks Vector Search
 - Example values when helpful
 
-### `examples`
+### `decomposition.model`
+Use a smaller, faster model (GPT-3.5, Llama 3 8B) for decomposition to keep latency low while the main agent uses a larger model for synthesis.
+
+### `decomposition.examples`
 Few-shot examples teach the LLM your metadata "dialect":
 ```yaml
-examples:
-  - query: "cheap Milwaukee drills"
-    filters: {"price <": 100, "brand_name": "Milwaukee"}
-  - query: "exterior paint from last month"
-    filters: {"category": "Exterior Paint", "updated_at >": "2025-12-01"}
+decomposition:
+  examples:
+    - query: "cheap Milwaukee drills"
+      filters: {"price <": 100, "brand_name": "Milwaukee"}
+    - query: "exterior paint from last month"
+      filters: {"category": "Exterior Paint", "updated_at >": "2025-12-01"}
 ```
 
-### `rrf_k`
+### `decomposition.rrf_k`
 RRF constant (default: 60). Lower values weight top ranks more heavily.
 
 ## How RRF Merge Works

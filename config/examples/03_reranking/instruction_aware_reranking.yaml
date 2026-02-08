@@ -74,8 +74,6 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      decomposition_model: *reranker_llm
-      normalize_filter_case: uppercase
       schema_description: |
         Products table columns:
         - product_id (BIGINT): Unique product identifier
@@ -95,21 +93,22 @@ retrievers:
         - "Use merchandise_class for category filtering"
         - "Use brand_name for brand filtering"
         - "Only use columns listed in schema_description"
-      max_subqueries: 3
-      rrf_k: 60
-      examples:
-        - query: "Milwaukee drills"
-          filters: {"brand_name": "MILWAUKEE"}
-        - query: "cordless power tools excluding DeWalt"
-          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
-        - query: "paint products"
-          filters: {"merchandise_class": "PAINT"}
-        - query: "Milwaukee or DeWalt tools"
-          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
-    rerank:
-      model: ms-marco-MiniLM-L-12-v2            # FlashRank cross-encoder model
-      top_n: 20                                  # FlashRank returns 20 candidates
-      instruction_aware:
+      decomposition:
+        model: *reranker_llm
+        normalize_filter_case: uppercase
+        max_subqueries: 3
+        rrf_k: 60
+        examples:
+          - query: "Milwaukee drills"
+            filters: {"brand_name": "MILWAUKEE"}
+          - query: "cordless power tools excluding DeWalt"
+            filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+          - query: "paint products"
+            filters: {"merchandise_class": "PAINT"}
+          - query: "Milwaukee or DeWalt tools"
+            filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+      # Instruction-Aware LLM reranking (uses schema context above)
+      rerank:
         model: *reranker_llm
         instructions: |
           Prioritize results that match explicit user constraints:
@@ -119,6 +118,9 @@ retrievers:
           - Recency: "recent" or "new" → prefer recently updated items
           When constraints conflict, explicit mentions take priority.
         top_n: 10                                # Final count after instruction reranking
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2            # FlashRank cross-encoder model
+      top_n: 20                                  # FlashRank returns 20 candidates
 
 tools:
   # Tool with FlashRank + Instruction-Aware Reranking

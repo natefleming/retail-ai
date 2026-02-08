@@ -1712,6 +1712,72 @@
       "title": "DatasetModel",
       "type": "object"
     },
+    "DecompositionModel": {
+      "additionalProperties": false,
+      "description": "Query decomposition settings for instructed retrieval.\n\nDecomposes complex user queries into multiple focused subqueries with\nmetadata filters, executed in parallel and merged using Reciprocal Rank Fusion (RRF).\n\nExample:\n    ```yaml\n    instructed:\n      decomposition:\n        model: *fast_llm\n        max_subqueries: 3\n        rrf_k: 60\n        normalize_filter_case: uppercase\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LLM for query decomposition (smaller/faster model recommended)"
+        },
+        "max_subqueries": {
+          "default": 3,
+          "description": "Maximum number of parallel subqueries",
+          "title": "Max Subqueries",
+          "type": "integer"
+        },
+        "rrf_k": {
+          "default": 60,
+          "description": "RRF constant (lower values weight top ranks more heavily)",
+          "title": "Rrf K",
+          "type": "integer"
+        },
+        "examples": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Few-shot examples for domain-specific filter translation",
+          "title": "Examples"
+        },
+        "normalize_filter_case": {
+          "anyOf": [
+            {
+              "enum": [
+                "uppercase",
+                "lowercase"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Auto-normalize filter string values to uppercase or lowercase",
+          "title": "Normalize Filter Case"
+        }
+      },
+      "title": "DecompositionModel",
+      "type": "object"
+    },
     "DeploymentTarget": {
       "description": "Target platform for agent deployment.",
       "enum": [
@@ -2815,20 +2881,8 @@
     },
     "InstructedRetrieverModel": {
       "additionalProperties": false,
-      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nInstructed retrieval decomposes user queries into multiple subqueries with\nmetadata filters, executes them in parallel, and merges results using\nReciprocal Rank Fusion (RRF) before reranking.\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        decomposition_model: *fast_llm\n        schema_description: |\n          Products table: product_id, brand_name, category, price, updated_at\n          Filter operators: {\"col\": val}, {\"col >\": val}, {\"col NOT\": val}\n        columns:\n          - name: brand_name\n            type: string\n          - name: price\n            type: number\n            operators: [\"\", \"<\", \"<=\", \">\", \">=\"]\n        constraints:\n          - \"Prefer recent products\"\n        max_subqueries: 3\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
+      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nGroups all schema-aware, LLM-driven features: query decomposition, instruction-aware\nreranking, query routing, and result verification. These features share schema context\n(schema_description, columns, constraints) and are co-located here to enforce that\ndependency at the type level.\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        schema_description: |\n          Products table: product_id, brand_name, category, price, updated_at\n          Filter operators: {\"col\": val}, {\"col >\": val}, {\"col NOT\": val}\n        columns:\n          - name: brand_name\n            type: string\n          - name: price\n            type: number\n            operators: [\"\", \"<\", \"<=\", \">\", \">=\"]\n        constraints:\n          - \"Prefer recent products\"\n        decomposition:\n          model: *fast_llm\n          max_subqueries: 3\n          examples:\n            - query: \"cheap drills\"\n              filters: {\"price <\": 100}\n        rerank:\n          model: *fast_llm\n          instructions: \"Prioritize by brand preferences\"\n          top_n: 10\n        router:\n          model: *fast_llm\n          default_mode: standard\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n    ```",
       "properties": {
-        "decomposition_model": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "LLM for query decomposition (smaller/faster model recommended)"
-        },
         "schema_description": {
           "description": "Column names, types, and valid filter syntax for the LLM",
           "title": "Schema Description",
@@ -2866,51 +2920,53 @@
           "description": "Default constraints to always apply",
           "title": "Constraints"
         },
-        "max_subqueries": {
-          "default": 3,
-          "description": "Maximum number of parallel subqueries",
-          "title": "Max Subqueries",
-          "type": "integer"
-        },
-        "rrf_k": {
-          "default": 60,
-          "description": "RRF constant (lower values weight top ranks more heavily)",
-          "title": "Rrf K",
-          "type": "integer"
-        },
-        "examples": {
+        "decomposition": {
           "anyOf": [
             {
-              "items": {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              "type": "array"
+              "$ref": "#/$defs/DecompositionModel"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Few-shot examples for domain-specific filter translation",
-          "title": "Examples"
+          "description": "Query decomposition settings for breaking complex queries into subqueries."
         },
-        "normalize_filter_case": {
+        "rerank": {
           "anyOf": [
             {
-              "enum": [
-                "uppercase",
-                "lowercase"
-              ],
-              "type": "string"
+              "$ref": "#/$defs/InstructionAwareRerankModel"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Auto-normalize filter string values to uppercase or lowercase",
-          "title": "Normalize Filter Case"
+          "description": "Optional LLM-based instruction-aware reranking stage."
+        },
+        "router": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouterModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional query router for selecting execution mode (standard vs instructed)."
+        },
+        "verifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VerifierModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional result verification with structured feedback for retry."
         }
       },
       "required": [
@@ -2921,7 +2977,7 @@
     },
     "InstructionAwareRerankModel": {
       "additionalProperties": false,
-      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    rerank:\n      model: ms-marco-MiniLM-L-12-v2\n      top_n: 20\n      instruction_aware:\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
+      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    instructed:\n      schema_description: \"...\"\n      rerank:\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
       "properties": {
         "model": {
           "anyOf": [
@@ -4027,7 +4083,7 @@
     },
     "RerankParametersModel": {
       "additionalProperties": false,
-      "description": "Configuration for reranking retrieved documents.\n\nSupports three reranking options that can be combined:\n1. FlashRank (local cross-encoder) - set `model`\n2. Databricks server-side reranking - set `columns`\n3. LLM instruction-aware reranking - set `instruction_aware`\n\nExample with Databricks columns + instruction-aware (no FlashRank):\n    ```yaml\n    rerank:\n      columns:                    # Databricks server-side reranking\n        - product_name\n        - brand_name\n      instruction_aware:          # LLM-based constraint reranking\n        model: *fast_llm\n        instructions: \"Prioritize by brand preferences\"\n        top_n: 10\n    ```\n\nExample with FlashRank:\n    ```yaml\n    rerank:\n      model: ms-marco-MiniLM-L-12-v2  # FlashRank model\n      top_n: 10\n    ```\n\nAvailable FlashRank models (see https://github.com/PrithivirajDamodaran/FlashRank):\n- \"ms-marco-TinyBERT-L-2-v2\" (~4MB, fastest)\n- \"ms-marco-MiniLM-L-12-v2\" (~34MB, best cross-encoder)\n- \"rank-T5-flan\" (~110MB, best non cross-encoder)\n- \"ms-marco-MultiBERT-L-12\" (~150MB, multilingual 100+ languages)",
+      "description": "Configuration for reranking retrieved documents.\n\nSupports two reranking options that can be combined:\n1. FlashRank (local cross-encoder) - set `model`\n2. Databricks server-side reranking - set `columns`\n\nFor LLM instruction-aware reranking, use `instructed.rerank` instead.\n\nExample with FlashRank:\n    ```yaml\n    rerank:\n      model: ms-marco-MiniLM-L-12-v2  # FlashRank model\n      top_n: 10\n    ```\n\nExample with Databricks columns:\n    ```yaml\n    rerank:\n      columns:\n        - product_name\n        - brand_name\n    ```\n\nAvailable FlashRank models (see https://github.com/PrithivirajDamodaran/FlashRank):\n- \"ms-marco-TinyBERT-L-2-v2\" (~4MB, fastest)\n- \"ms-marco-MiniLM-L-12-v2\" (~34MB, best cross-encoder)\n- \"rank-T5-flan\" (~110MB, best non cross-encoder)\n- \"ms-marco-MultiBERT-L-12\" (~150MB, multilingual 100+ languages)",
       "properties": {
         "model": {
           "anyOf": [
@@ -4082,18 +4138,6 @@
           ],
           "description": "Columns to rerank using DatabricksReranker",
           "title": "Columns"
-        },
-        "instruction_aware": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InstructionAwareRerankModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional LLM-based reranking stage after FlashRank"
         }
       },
       "title": "RerankParametersModel",
@@ -4233,18 +4277,6 @@
         "search_parameters": {
           "$ref": "#/$defs/SearchParametersModel"
         },
-        "router": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RouterModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional query router for selecting execution mode (standard vs instructed)."
-        },
         "rerank": {
           "anyOf": [
             {
@@ -4258,7 +4290,7 @@
             }
           ],
           "default": null,
-          "description": "Optional reranking configuration. Set to true for defaults, or provide ReRankParametersModel for custom settings.",
+          "description": "Optional reranking configuration. Set to true for defaults, or provide RerankParametersModel for custom settings.",
           "title": "Rerank"
         },
         "instructed": {
@@ -4271,19 +4303,7 @@
             }
           ],
           "default": null,
-          "description": "Optional instructed retrieval with query decomposition and RRF merging."
-        },
-        "verifier": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/VerifierModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional result verification with structured feedback for retry."
+          "description": "Optional instructed retrieval with query decomposition, instruction-aware reranking, routing, and verification."
         }
       },
       "required": [
@@ -4294,7 +4314,7 @@
     },
     "RouterModel": {
       "additionalProperties": false,
-      "description": "Select internal execution mode based on query characteristics.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nRoutes to internal modes within the same retriever, not external retrievers.\nCross-index routing belongs at the agent/tool-selection level.\n\nExecution Modes:\n- \"standard\": Single similarity_search() for simple keyword/product searches\n- \"instructed\": Decompose -> Parallel Search -> RRF for constrained queries\n\nExample:\n    ```yaml\n    retriever:\n      router:\n        model: *fast_llm\n        default_mode: standard\n        auto_bypass: true\n    ```",
+      "description": "Select internal execution mode based on query characteristics.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nRoutes to internal modes within the same retriever, not external retrievers.\nCross-index routing belongs at the agent/tool-selection level.\n\nExecution Modes:\n- \"standard\": Single similarity_search() for simple keyword/product searches\n- \"instructed\": Decompose -> Parallel Search -> RRF for constrained queries\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        schema_description: \"...\"\n        router:\n          model: *fast_llm\n          default_mode: standard\n          auto_bypass: true\n    ```",
       "properties": {
         "model": {
           "anyOf": [
@@ -5378,7 +5398,7 @@
     },
     "VerifierModel": {
       "additionalProperties": false,
-      "description": "Validate results against user constraints with structured feedback.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nSkipped for 'standard' mode when auto_bypass=true in router config.\nReturns structured feedback for intelligent retry, not blind retry.\n\nExample:\n    ```yaml\n    retriever:\n      verifier:\n        model: *fast_llm\n        on_failure: warn_and_retry\n        max_retries: 1\n    ```",
+      "description": "Validate results against user constraints with structured feedback.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nSkipped for 'standard' mode when auto_bypass=true in router config.\nReturns structured feedback for intelligent retry, not blind retry.\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        schema_description: \"...\"\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n          max_retries: 1\n    ```",
       "properties": {
         "model": {
           "anyOf": [

@@ -119,8 +119,6 @@ class TestVectorSearchToolCreation:
         retriever_config = Mock(spec=RetrieverModel)
         retriever_config.rerank = None
         retriever_config.instructed = None
-        retriever_config.router = None
-        retriever_config.verifier = None
         retriever_config.columns = ["text"]
         retriever_config.search_parameters = Mock()
         retriever_config.search_parameters.model_dump.return_value = {"num_results": 10}
@@ -231,8 +229,6 @@ class TestVectorSearchToolCreation:
         retriever_config = Mock(spec=RetrieverModel)
         retriever_config.rerank = reranker_config
         retriever_config.instructed = None
-        retriever_config.router = None
-        retriever_config.verifier = None
         retriever_config.columns = ["text"]
         retriever_config.search_parameters = Mock()
         retriever_config.search_parameters.model_dump.return_value = {"num_results": 20}
@@ -323,8 +319,6 @@ class TestRerankingE2E:
         retriever_config = Mock(spec=RetrieverModel)
         retriever_config.rerank = RerankParametersModel()
         retriever_config.instructed = None
-        retriever_config.router = None
-        retriever_config.verifier = None
         retriever_config.columns = ["text"]
         retriever_config.search_parameters = Mock()
         retriever_config.search_parameters.model_dump.return_value = {"num_results": 10}

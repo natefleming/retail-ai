@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 from dao_ai.config import (
     ColumnInfo,
     DecomposedQueries,
+    DecompositionModel,
     FilterItem,
     InstructedRetrieverModel,
     LLMModel,
@@ -91,28 +92,31 @@ class TestInstructedRetrieverModel:
     def test_default_values(self) -> None:
         """Test that InstructedRetrieverModel has sensible defaults."""
         model = InstructedRetrieverModel(schema_description="Test schema")
-        assert model.decomposition_model is None
+        assert model.decomposition is None
         assert model.constraints is None
-        assert model.max_subqueries == 3
-        assert model.rrf_k == 60
-        assert model.examples is None
+        assert model.rerank is None
+        assert model.router is None
+        assert model.verifier is None
 
     def test_full_configuration(self) -> None:
         """Test InstructedRetrieverModel with all fields."""
         llm = LLMModel(name="test-model")
-        model = InstructedRetrieverModel(
-            decomposition_model=llm,
-            schema_description="Products table with columns...",
-            constraints=["Prefer recent products"],
+        decomposition = DecompositionModel(
+            model=llm,
             max_subqueries=5,
             rrf_k=40,
             examples=[{"query": "test", "filters": {"col": "val"}}],
         )
-        assert model.decomposition_model.name == "test-model"
+        model = InstructedRetrieverModel(
+            schema_description="Products table with columns...",
+            constraints=["Prefer recent products"],
+            decomposition=decomposition,
+        )
+        assert model.decomposition.model.name == "test-model"
         assert len(model.constraints) == 1
-        assert model.max_subqueries == 5
-        assert model.rrf_k == 40
-        assert len(model.examples) == 1
+        assert model.decomposition.max_subqueries == 5
+        assert model.decomposition.rrf_k == 40
+        assert len(model.decomposition.examples) == 1
 
 
 def create_mock_vector_store() -> Mock:

@@ -25,8 +25,10 @@ from mlflow.entities import SpanType
 
 from dao_ai.config import (
     ColumnInfo,
+    DecompositionModel,
     FilterItem,
     InstructedRetrieverModel,
+    InstructionAwareRerankModel,
     RerankParametersModel,
     RetrieverModel,
     RouterModel,
@@ -166,10 +168,22 @@ def create_vector_search_tool(
     index_name: str = vector_store.index.full_name
     columns: list[str] = list(retriever.columns or vector_store.index.columns or [])
     search_parameters: SearchParametersModel = retriever.search_parameters
-    router_config: Optional[RouterModel] = retriever.router
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
     instructed_config: Optional[InstructedRetrieverModel] = retriever.instructed
-    verifier_config: Optional[VerifierModel] = retriever.verifier
+
+    # Extract nested configs from instructed (all depend on schema context)
+    decomposition_config: Optional[DecompositionModel] = (
+        instructed_config.decomposition if instructed_config else None
+    )
+    router_config: Optional[RouterModel] = (
+        instructed_config.router if instructed_config else None
+    )
+    instruction_rerank_config: Optional[InstructionAwareRerankModel] = (
+        instructed_config.rerank if instructed_config else None
+    )
+    verifier_config: Optional[VerifierModel] = (
+        instructed_config.verifier if instructed_config else None
+    )
 
     # Initialize FlashRank ranker if configured
     ranker: Optional[Ranker] = None
@@ -242,24 +256,24 @@ def create_vector_search_tool(
             rerank_config = None
 
     # Log instructed retrieval configuration
-    if instructed_config:
+    if instructed_config and decomposition_config:
         logger.success(
             "Instructed retrieval configured",
-            decomposition_model=instructed_config.decomposition_model.name
-            if instructed_config.decomposition_model
+            decomposition_model=decomposition_config.model.name
+            if decomposition_config.model
             else None,
-            max_subqueries=instructed_config.max_subqueries,
-            rrf_k=instructed_config.rrf_k,
+            max_subqueries=decomposition_config.max_subqueries,
+            rrf_k=decomposition_config.rrf_k,
         )
 
     # Log instruction-aware reranking configuration
-    if rerank_config and rerank_config.instruction_aware:
+    if instruction_rerank_config:
         logger.success(
             "Instruction-aware reranking configured",
-            model=rerank_config.instruction_aware.model.name
-            if rerank_config.instruction_aware.model
+            model=instruction_rerank_config.model.name
+            if instruction_rerank_config.model
             else None,
-            top_n=rerank_config.instruction_aware.top_n,
+            top_n=instruction_rerank_config.top_n,
         )
 
     # Build client_args for VectorSearchClient
@@ -374,7 +388,7 @@ def create_vector_search_tool(
             "Executing instructed retrieval", query=query, base_filters=base_filters
         )
         try:
-            decomposition_llm = _get_cached_llm(instructed_config.decomposition_model)
+            decomposition_llm = _get_cached_llm(decomposition_config.model)
 
             # Fall back to retriever columns if instructed columns not provided
             instructed_columns: list[ColumnInfo] | None = instructed_config.columns
@@ -386,8 +400,8 @@ def create_vector_search_tool(
                 query=query,
                 schema_description=instructed_config.schema_description,
                 constraints=instructed_config.constraints,
-                max_subqueries=instructed_config.max_subqueries,
-                examples=instructed_config.examples,
+                max_subqueries=decomposition_config.max_subqueries,
+                examples=decomposition_config.examples,
                 previous_feedback=previous_feedback,
                 columns=instructed_columns,
             )
@@ -437,7 +451,7 @@ def create_vector_search_tool(
                     for item in sq.filters:
                         sq_filters_dict[item.key] = item.value
                 sq_filters = normalize_filter_values(
-                    sq_filters_dict, instructed_config.normalize_filter_case
+                    sq_filters_dict, decomposition_config.normalize_filter_case
                 )
                 k: int = search_parameters.num_results or 5
                 query_type: str = search_parameters.query_type or "ANN"
@@ -463,13 +477,13 @@ def create_vector_search_tool(
             )
 
             with ThreadPoolExecutor(
-                max_workers=instructed_config.max_subqueries
+                max_workers=decomposition_config.max_subqueries
             ) as executor:
                 all_results = list(executor.map(execute_search, subqueries))
 
             merged = rrf_merge(
                 all_results,
-                k=instructed_config.rrf_k,
+                k=decomposition_config.rrf_k,
                 primary_key=vector_store.primary_key,
             )
 
@@ -523,21 +537,18 @@ def create_vector_search_tool(
             return documents
 
         # Apply instruction-aware reranking if configured
-        if rerank_config and rerank_config.instruction_aware:
-            instruction_config = rerank_config.instruction_aware
+        if instruction_rerank_config and instructed_config:
             instruction_llm = (
-                _get_cached_llm(instruction_config.model)
-                if instruction_config.model
+                _get_cached_llm(instruction_rerank_config.model)
+                if instruction_rerank_config.model
                 else None
             )
 
             if instruction_llm:
-                schema_desc = (
-                    instructed_config.schema_description if instructed_config else None
-                )
+                schema_desc = instructed_config.schema_description
                 # Get columns for dynamic instruction generation
                 rerank_columns: list[ColumnInfo] | None = None
-                if instructed_config and instructed_config.columns:
+                if instructed_config.columns:
                     rerank_columns = instructed_config.columns
                 elif columns:
                     rerank_columns = [ColumnInfo(name=col) for col in columns]
@@ -546,14 +557,14 @@ def create_vector_search_tool(
                     llm=instruction_llm,
                     query=query,
                     documents=documents,
-                    instructions=instruction_config.instructions,
+                    instructions=instruction_rerank_config.instructions,
                     schema_description=schema_desc,
                     columns=rerank_columns,
-                    top_n=instruction_config.top_n,
+                    top_n=instruction_rerank_config.top_n,
                 )
 
-        # Apply verification if configured
-        if verifier_config:
+        # Apply verification if configured (verifier is always under instructed)
+        if verifier_config and instructed_config:
             verifier_llm = (
                 _get_cached_llm(verifier_config.model)
                 if verifier_config.model
@@ -561,12 +572,8 @@ def create_vector_search_tool(
             )
 
             if verifier_llm:
-                schema_desc = (
-                    instructed_config.schema_description if instructed_config else ""
-                )
-                constraints = (
-                    instructed_config.constraints if instructed_config else None
-                )
+                schema_desc = instructed_config.schema_description
+                constraints = instructed_config.constraints
                 retry_count = 0
                 verification_result: VerificationResult | None = None
                 previous_feedback: str | None = None
@@ -648,9 +655,7 @@ def create_vector_search_tool(
         logger.trace("Instructed configuration", instructed_config=instructed_config)
         logger.trace(
             "Instruction-aware rerank configuration",
-            instruction_aware=rerank_config.instruction_aware
-            if rerank_config
-            else None,
+            instruction_aware=instruction_rerank_config,
         )
 
         if router_config:
@@ -679,16 +684,12 @@ def create_vector_search_tool(
             # No router but instructed is configured - use instructed mode
             mode = "instructed"
             auto_bypass = False
-        elif rerank_config and rerank_config.instruction_aware:
-            # No router/instructed but instruction_aware reranking is configured
-            # Disable auto_bypass to ensure instruction_aware reranking runs
-            auto_bypass = False
 
         logger.trace("Routing mode", mode=mode, auto_bypass=auto_bypass)
         mlflow.set_tag("router.mode", mode)
 
         # Execute search based on mode
-        if mode == "instructed" and instructed_config:
+        if mode == "instructed" and instructed_config and decomposition_config:
             documents = _execute_instructed_retrieval(vs, query, base_filters)
         else:
             documents = _execute_standard_search(vs, query, base_filters)
