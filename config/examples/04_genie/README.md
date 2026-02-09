@@ -64,7 +64,7 @@ DAO provides two L2 context-aware cache implementations:
 | **PostgreSQL Context-Aware Cache** | Production multi-instance deployments, large cache sizes (thousands+), cross-instance sharing | Yes (PostgreSQL with pg_vector) |
 | **In-Memory Context-Aware Cache** | Single-instance deployments, dev/test, no database access, moderate cache sizes (hundreds to low thousands) | No (in-memory only) |
 
-Both use the same L2 distance algorithm and support conversation context awareness for consistent behavior.
+Both use the same cosine similarity algorithm and support conversation context awareness for consistent behavior.
 
 ```mermaid
 %%{init: {'theme': 'base'}}%%
@@ -115,7 +115,11 @@ genie_tool:
         embedding_model: *embedding_model
         similarity_threshold: 0.85
         time_to_live_seconds: 3600
-        context_window_size: 2  # default
+        context_window_size: 4  # default
+        # IVFFlat index params auto-compute for scaling to 1M+ rows
+        # ivfflat_lists: null     # Auto: max(100, sqrt(rows))
+        # ivfflat_probes: null    # Auto: max(10, sqrt(lists))
+        # ivfflat_candidates: 20  # Top-K for Python reranking
 ```
 
 ### In-Memory Context-Aware Cache (Single-Instance)
@@ -141,7 +145,7 @@ genie_tool:
         similarity_threshold: 0.85
         time_to_live_seconds: 604800  # 1 week
         capacity: 1000                # LRU eviction when full
-        context_window_size: 2  # default
+        context_window_size: 4  # default
 ```
 
 ## Cache Flow

@@ -246,36 +246,37 @@ Respond with ONLY one word: "MATCH" or "NO_MATCH"
         return False
 
 
-def _compute_l2_similarity(embedding1: list[float], embedding2: list[float]) -> float:
+def _compute_cosine_similarity(
+    embedding1: list[float], embedding2: list[float]
+) -> float:
     """
-    Compute similarity from L2 (Euclidean) distance.
+    Compute cosine similarity between two embedding vectors.
 
-    Uses the same formula as the context-aware cache:
-    similarity = 1.0 / (1.0 + L2_distance)
+    Uses the same metric as the context-aware cache (pg_vector's <=> operator).
+    Cosine similarity = dot(a, b) / (||a|| * ||b||)
 
-    This gives a value in range [0, 1] where 1 means identical.
+    This gives a value in range [-1, 1] where 1 means identical.
 
     Args:
         embedding1: First embedding vector
         embedding2: Second embedding vector
 
     Returns:
-        Similarity score in range [0, 1]
+        Cosine similarity score
     """
     if len(embedding1) != len(embedding2):
         raise ValueError(
             f"Embedding dimensions must match: {len(embedding1)} vs {len(embedding2)}"
         )
 
-    # Compute L2 distance
-    squared_diff_sum = sum(
-        (a - b) ** 2 for a, b in zip(embedding1, embedding2, strict=True)
-    )
-    l2_distance = math.sqrt(squared_diff_sum)
+    dot_product = sum(a * b for a, b in zip(embedding1, embedding2, strict=True))
+    norm1 = math.sqrt(sum(a * a for a in embedding1))
+    norm2 = math.sqrt(sum(b * b for b in embedding2))
 
-    # Convert to similarity
-    similarity = 1.0 / (1.0 + l2_distance)
-    return similarity
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+
+    return dot_product / (norm1 * norm2)
 
 
 def _evaluate_thresholds(
@@ -308,18 +309,29 @@ def _evaluate_thresholds(
 
     for entry in dataset.entries:
         # Compute similarities
-        question_sim = _compute_l2_similarity(
+        question_sim = _compute_cosine_similarity(
             entry.question_embedding, entry.cached_question_embedding
         )
-        context_sim = _compute_l2_similarity(
+        context_sim = _compute_cosine_similarity(
             entry.context_embedding, entry.cached_context_embedding
         )
 
-        # Apply threshold logic (same as production cache)
-        predicted_match = (
-            question_sim >= similarity_threshold
-            and context_sim >= context_similarity_threshold
-        )
+        # Apply threshold logic matching production cache behavior:
+        # 1. Question must meet threshold
+        # 2. Context threshold is skipped (bidirectional) when EITHER side
+        #    has no context (empty/whitespace-only string)
+        question_passes = question_sim >= similarity_threshold
+
+        query_has_context = bool(entry.context and entry.context.strip())
+        cached_has_context = bool(entry.cached_context and entry.cached_context.strip())
+
+        if query_has_context and cached_has_context:
+            context_passes = context_sim >= context_similarity_threshold
+        else:
+            # Bidirectional context-skip: no context on one or both sides
+            context_passes = True
+
+        predicted_match = question_passes and context_passes
 
         # Get expected match
         expected_match = entry.expected_match

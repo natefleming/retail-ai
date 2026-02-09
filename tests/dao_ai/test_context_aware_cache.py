@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -21,6 +22,14 @@ from dao_ai.genie.cache.context_aware.base import (
     build_context_string,
     get_conversation_history,
 )
+
+
+def _sql_to_str(query: Any) -> str:
+    """Convert SQL query (str or psycopg.sql.Composed) to plain string for assertions."""
+    if isinstance(query, str):
+        return query
+    return query.as_string(None).replace('"', "")
+
 
 # ============================================================================
 # Unit Tests for Context Building Functions
@@ -261,6 +270,9 @@ class TestPostgresContextAwareCacheContext:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
         params.database = Mock(spec=DatabaseModel)
         params.warehouse = Mock(spec=WarehouseModel)
         return params
@@ -401,20 +413,22 @@ class TestPostgresContextAwareCacheContext:
         service._pool = Mock()
 
         # Mock database to return a cache hit
+        # _find_similar now uses fetchall() and returns distance columns
         mock_cursor = Mock()
-        mock_cursor.fetchone.return_value = {
-            "id": 1,
-            "question": "What is inventory?",
-            "context_string": "Previous: Show Store 42\nCurrent: What is inventory?",
-            "sql_query": "SELECT * FROM inventory",
-            "description": "Inventory query",
-            "conversation_id": cached_entry_conversation_id,  # Cached conversation ID
-            "created_at": datetime.now(),
-            "question_similarity": 0.95,
-            "context_similarity": 0.95,
-            "combined_similarity": 0.95,
-            "is_valid": True,
-        }
+        mock_cursor.fetchall.return_value = [
+            {
+                "id": 1,
+                "question": "What is inventory?",
+                "conversation_context": "",
+                "sql_query": "SELECT * FROM inventory",
+                "description": "Inventory query",
+                "conversation_id": cached_entry_conversation_id,
+                "created_at": datetime.now(),
+                "message_id": None,
+                "question_distance": 0.05,  # 1 - 0.95
+                "context_distance": 0.05,
+            }
+        ]
         mock_cursor.__enter__ = Mock(return_value=mock_cursor)
         mock_cursor.__exit__ = Mock(return_value=False)
 
@@ -781,7 +795,7 @@ class TestPostgresContextAwareCacheGetEntries:
         # Check that execute was called
         assert mock_cursor.execute.called
         call_args = mock_cursor.execute.call_args
-        query = call_args[0][0]
+        query = _sql_to_str(call_args[0][0])
 
         # Should NOT include embedding columns
         assert "question_embedding" not in query
@@ -803,7 +817,7 @@ class TestPostgresContextAwareCacheGetEntries:
         service.get_entries(include_embeddings=True)
 
         call_args = mock_cursor.execute.call_args
-        query = call_args[0][0]
+        query = _sql_to_str(call_args[0][0])
 
         # Should include embedding columns
         assert "question_embedding" in query
@@ -820,7 +834,7 @@ class TestPostgresContextAwareCacheGetEntries:
         service.get_entries(conversation_id="conv-123")
 
         call_args = mock_cursor.execute.call_args
-        query = call_args[0][0]
+        query = _sql_to_str(call_args[0][0])
         params = call_args[0][1]
 
         assert "conversation_id = %s" in query
@@ -837,7 +851,7 @@ class TestPostgresContextAwareCacheGetEntries:
         service.get_entries(question_contains="sales")
 
         call_args = mock_cursor.execute.call_args
-        query = call_args[0][0]
+        query = _sql_to_str(call_args[0][0])
         params = call_args[0][1]
 
         assert "question ILIKE %s" in query
@@ -854,7 +868,7 @@ class TestPostgresContextAwareCacheGetEntries:
         service.get_entries(limit=10, offset=5)
 
         call_args = mock_cursor.execute.call_args
-        query = call_args[0][0]
+        query = _sql_to_str(call_args[0][0])
 
         assert "LIMIT 10" in query
         assert "OFFSET 5" in query
@@ -870,7 +884,7 @@ class TestPostgresContextAwareCacheGetEntries:
         service.get_entries()
 
         call_args = mock_cursor.execute.call_args
-        query = call_args[0][0]
+        query = _sql_to_str(call_args[0][0])
 
         assert "ORDER BY created_at DESC" in query
 

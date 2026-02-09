@@ -3,7 +3,7 @@ In-memory context-aware Genie cache implementation.
 
 This module provides a context-aware cache that stores embeddings and cache entries
 entirely in memory, without requiring external database dependencies like PostgreSQL
-or Databricks Lakebase. It uses L2 distance for similarity search and supports
+or Databricks Lakebase. It uses cosine similarity for similarity search and supports
 dual embedding matching (question + conversation context).
 
 Use this when:
@@ -26,7 +26,6 @@ from typing import Any
 import mlflow
 import numpy as np
 from databricks.sdk import WorkspaceClient
-from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
 from dao_ai.config import (
@@ -38,6 +37,7 @@ from dao_ai.genie.cache.base import (
     SQLCacheEntry,
 )
 from dao_ai.genie.cache.context_aware.base import ContextAwareGenieService
+from dao_ai.genie.core import GenieResponse
 
 
 @dataclass
@@ -46,7 +46,8 @@ class InMemoryCacheEntry:
     In-memory cache entry storing embeddings and SQL query metadata.
 
     This dataclass represents a single cache entry stored in memory, including
-    dual embeddings (question + context) for high-precision semantic matching.
+    pre-normalized dual embeddings (question + context) for fast cosine similarity
+    via dot product.
 
     Uses LRU (Least Recently Used) eviction strategy when capacity is reached.
 
@@ -54,8 +55,8 @@ class InMemoryCacheEntry:
         genie_space_id: The Genie space ID this entry belongs to
         question: The original question text
         conversation_context: Previous conversation context for embedding
-        question_embedding: Embedding vector for the question
-        context_embedding: Embedding vector for the conversation context
+        question_embedding: Pre-normalized embedding vector (np.ndarray) for the question
+        context_embedding: Pre-normalized embedding vector (np.ndarray) for the context
         sql_query: The SQL query to re-execute on cache hit
         description: Description of the query
         conversation_id: The conversation ID where this query originated
@@ -67,8 +68,8 @@ class InMemoryCacheEntry:
     genie_space_id: str
     question: str
     conversation_context: str
-    question_embedding: list[float]
-    context_embedding: list[float]
+    question_embedding: np.ndarray
+    context_embedding: np.ndarray
     sql_query: str
     description: str
     conversation_id: str
@@ -76,38 +77,47 @@ class InMemoryCacheEntry:
     last_accessed_at: datetime  # Track last access time for LRU eviction
     message_id: str | None = None  # Original Genie message ID for feedback
 
+    def __post_init__(self) -> None:
+        """Auto-normalize embeddings to unit vectors for fast dot-product similarity."""
+        if not isinstance(self.question_embedding, np.ndarray):
+            self.question_embedding = np.array(self.question_embedding)
+        self.question_embedding = _normalize(self.question_embedding)
 
-def l2_distance(a: list[float], b: list[float]) -> float:
+        if not isinstance(self.context_embedding, np.ndarray):
+            self.context_embedding = np.array(self.context_embedding)
+        self.context_embedding = _normalize(self.context_embedding)
+
+
+def _normalize(v: np.ndarray) -> np.ndarray:
+    """Normalize a vector to unit length. Returns zero vector if norm is 0."""
+    norm = np.linalg.norm(v)
+    if norm == 0:
+        return v
+    return v / norm
+
+
+def cosine_similarity(a: list[float], b: list[float]) -> float:
     """
-    Calculate L2 (Euclidean) distance between two embedding vectors.
+    Calculate cosine similarity between two embedding vectors.
 
-    This uses the same distance metric as PostgreSQL pg_vector to ensure
-    consistent behavior between in-memory and PostgreSQL caches.
+    This uses the same distance metric as PostgreSQL pg_vector's <=> operator
+    to ensure consistent behavior between in-memory and PostgreSQL caches.
+    Cosine similarity = 1 - cosine_distance.
 
     Args:
         a: First embedding vector
         b: Second embedding vector
 
     Returns:
-        L2 distance (0 = identical vectors, larger = more different)
+        Cosine similarity score where 1.0 = identical, 0 = orthogonal, -1 = opposite
     """
-    return float(np.linalg.norm(np.array(a) - np.array(b)))
-
-
-def distance_to_similarity(distance: float) -> float:
-    """
-    Convert L2 distance to similarity score in range [0, 1].
-
-    Uses the formula: similarity = 1.0 / (1.0 + distance)
-    This matches the conversion used by PostgreSQL context-aware cache.
-
-    Args:
-        distance: L2 distance value
-
-    Returns:
-        Similarity score where 1.0 = perfect match, approaching 0 = very different
-    """
-    return 1.0 / (1.0 + distance)
+    a_arr = np.array(a)
+    b_arr = np.array(b)
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
 
 
 class InMemoryContextAwareGenieService(ContextAwareGenieService):
@@ -269,8 +279,11 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         """
         Find a semantically similar cached entry using dual embedding matching.
 
-        Performs linear scan through all cache entries, filtering by space_id and
-        calculating L2 distances for similarity matching.
+        Performs linear scan through cached entries for this space, computing
+        cosine similarity via dot product on pre-normalized embeddings.
+
+        Lock is held only briefly to snapshot entries and clean up expired ones.
+        Similarity computation happens outside the lock to allow concurrent reads.
 
         Args:
             question: The original question (for logging)
@@ -288,57 +301,65 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         question_weight = self.question_weight
         context_weight = self.context_weight
 
+        # Pre-normalize query embeddings once for fast dot-product similarity
+        q_norm = _normalize(np.array(question_embedding))
+        c_norm = _normalize(np.array(context_embedding))
+
+        # Cache datetime.now() once for all TTL checks
+        now = datetime.now()
+
+        # Step 1: Snapshot space entries and identify expired ones under lock
+        expired_ids: set[int] = set()
+        with self._lock:
+            space_entries = [
+                entry for entry in self._cache if entry.genie_space_id == self.space_id
+            ]
+
+        # Step 2: Compute similarities outside the lock (read-only on entries)
+        valid_entries: list[InMemoryCacheEntry] = []
+        for entry in space_entries:
+            if not ttl_disabled:
+                age = now - entry.created_at
+                if age.total_seconds() > ttl_seconds:
+                    expired_ids.add(id(entry))
+                    continue
+            valid_entries.append(entry)
+
         best_entry: InMemoryCacheEntry | None = None
         best_question_sim: float = 0.0
         best_context_sim: float = 0.0
         best_combined_sim: float = 0.0
 
-        # Linear scan through all entries
-        with self._lock:
-            entries_to_delete: list[int] = []
+        similarity_threshold = self.similarity_threshold
+        for entry in valid_entries:
+            # Dot product of pre-normalized vectors = cosine similarity
+            question_sim = float(np.dot(q_norm, entry.question_embedding))
 
-            for idx, entry in enumerate(self._cache):
-                # Filter by space_id (partition)
-                if entry.genie_space_id != self.space_id:
-                    continue
+            # Early-exit: skip entries that can't meet the question threshold
+            if question_sim < similarity_threshold:
+                continue
 
-                # Check TTL
-                is_valid = True
-                if not ttl_disabled:
-                    age = datetime.now() - entry.created_at
-                    is_valid = age.total_seconds() <= ttl_seconds
+            context_sim = float(np.dot(c_norm, entry.context_embedding))
 
-                if not is_valid:
-                    entries_to_delete.append(idx)
-                    continue
+            combined_sim = (question_weight * question_sim) + (
+                context_weight * context_sim
+            )
 
-                # Calculate L2 distances and convert to similarities
-                question_distance = l2_distance(
-                    question_embedding, entry.question_embedding
+            if combined_sim > best_combined_sim:
+                best_entry = entry
+                best_question_sim = question_sim
+                best_context_sim = context_sim
+                best_combined_sim = combined_sim
+
+        # Step 3: Clean up expired entries under lock
+        if expired_ids:
+            with self._lock:
+                self._cache = [e for e in self._cache if id(e) not in expired_ids]
+                logger.trace(
+                    "Deleted expired entries",
+                    layer=self.name,
+                    count=len(expired_ids),
                 )
-                context_distance = l2_distance(
-                    context_embedding, entry.context_embedding
-                )
-
-                question_sim = distance_to_similarity(question_distance)
-                context_sim = distance_to_similarity(context_distance)
-
-                # Calculate weighted combined similarity
-                combined_sim = (question_weight * question_sim) + (
-                    context_weight * context_sim
-                )
-
-                # Track best match
-                if combined_sim > best_combined_sim:
-                    best_entry = entry
-                    best_question_sim = question_sim
-                    best_context_sim = context_sim
-                    best_combined_sim = combined_sim
-
-            # Delete expired entries
-            for idx in reversed(entries_to_delete):
-                del self._cache[idx]
-                logger.trace("Deleted expired entry", layer=self.name, index=idx)
 
         # No entries found
         if best_entry is None:
@@ -361,7 +382,7 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
             cached_question=best_entry.question[:50],
         )
 
-        # Check BOTH similarity thresholds
+        # Check question similarity threshold
         if best_question_sim < self.similarity_threshold:
             logger.info(
                 "Cache MISS (question similarity too low)",
@@ -371,20 +392,41 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
             )
             return None
 
-        if best_context_sim < self.context_similarity_threshold:
-            logger.info(
-                "Cache MISS (context similarity too low)",
+        # Bidirectional context-skip: skip context threshold when
+        # EITHER side has no context. This handles two scenarios:
+        # 1. Cached entry had no context (stored without conversation history)
+        # 2. Query has no context (first message in a new conversation)
+        # In both cases the entry is "context-agnostic" and should
+        # match on question similarity alone.
+        has_stored_context = bool(
+            best_entry.conversation_context and best_entry.conversation_context.strip()
+        )
+        query_has_context = bool(conversation_context and conversation_context.strip())
+
+        if has_stored_context and query_has_context:
+            if best_context_sim < self.context_similarity_threshold:
+                logger.info(
+                    "Cache MISS (context similarity too low)",
+                    layer=self.name,
+                    context_sim=f"{best_context_sim:.4f}",
+                    threshold=self.context_similarity_threshold,
+                )
+                return None
+        else:
+            logger.debug(
+                "Context threshold skipped (no context on one or both sides)",
                 layer=self.name,
                 context_sim=f"{best_context_sim:.4f}",
                 threshold=self.context_similarity_threshold,
+                has_stored_context=has_stored_context,
+                query_has_context=query_has_context,
             )
-            return None
 
         # Cache HIT - Update last accessed time
         with self._lock:
-            best_entry.last_accessed_at = datetime.now()
+            best_entry.last_accessed_at = now
 
-        cache_age_seconds = (datetime.now() - best_entry.created_at).total_seconds()
+        cache_age_seconds = (now - best_entry.created_at).total_seconds()
         logger.info(
             "Cache HIT",
             layer=self.name,
@@ -418,9 +460,14 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         message_id: str | None = None,
     ) -> None:
         """
-        Store a new cache entry with dual embeddings and message_id.
+        Store a new cache entry with pre-normalized dual embeddings and message_id.
 
-        If capacity is set and reached, evicts least recently used entry (LRU).
+        Embeddings are converted to NumPy arrays and normalized at storage time
+        so that cosine similarity can be computed as a simple dot product at
+        lookup time.
+
+        If capacity is set and reached, evicts least recently used entries in a
+        single O(n) pass instead of repeated scans.
         """
         now = datetime.now()
         new_entry = InMemoryCacheEntry(
@@ -438,46 +485,41 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         )
 
         with self._lock:
-            # Enforce capacity limit (LRU eviction)
+            # Enforce capacity limit (LRU eviction) in a single pass
             if self.parameters.capacity is not None:
-                space_entries = [
-                    e for e in self._cache if e.genie_space_id == self.space_id
-                ]
+                space_count = sum(
+                    1 for e in self._cache if e.genie_space_id == self.space_id
+                )
+                # +1 because we're about to add a new entry
+                entries_to_evict = max(0, space_count - self.parameters.capacity + 1)
 
-                while len(space_entries) >= self.parameters.capacity:
-                    # Find and remove least recently used entry
-                    lru_idx = None
-                    lru_time = None
-
-                    for idx, entry in enumerate(self._cache):
-                        if entry.genie_space_id == self.space_id:
-                            if lru_time is None or entry.last_accessed_at < lru_time:
-                                lru_time = entry.last_accessed_at
-                                lru_idx = idx
-
-                    if lru_idx is not None:
-                        evicted = self._cache.pop(lru_idx)
+                if entries_to_evict > 0:
+                    # Collect space entries sorted by LRU (oldest access first)
+                    space_entries = sorted(
+                        (e for e in self._cache if e.genie_space_id == self.space_id),
+                        key=lambda e: e.last_accessed_at,
+                    )
+                    evict_ids = {
+                        id(space_entries[i])
+                        for i in range(min(entries_to_evict, len(space_entries)))
+                    }
+                    for evicted in space_entries[:entries_to_evict]:
                         logger.trace(
                             "Evicted LRU cache entry",
                             layer=self.name,
                             question=evicted.question[:50],
                             capacity=self.parameters.capacity,
                         )
-                        space_entries = [
-                            e for e in self._cache if e.genie_space_id == self.space_id
-                        ]
-                    else:
-                        break
+                    self._cache = [e for e in self._cache if id(e) not in evict_ids]
 
             self._cache.append(new_entry)
+            new_size = sum(1 for e in self._cache if e.genie_space_id == self.space_id)
             logger.debug(
                 "Stored cache entry",
                 layer=self.name,
                 question=question[:50],
                 space=self.space_id,
-                cache_size=len(
-                    [e for e in self._cache if e.genie_space_id == self.space_id]
-                ),
+                cache_size=new_size,
                 capacity=self.parameters.capacity,
             )
 
@@ -580,14 +622,14 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         """Current number of entries in the cache for this Genie space."""
         self._setup()
         with self._lock:
-            return len([e for e in self._cache if e.genie_space_id == self.space_id])
+            return sum(1 for e in self._cache if e.genie_space_id == self.space_id)
 
     # Template Method implementations for stats()
 
     def _count_all_entries(self) -> int:
         """Count all cache entries for this Genie space."""
         with self._lock:
-            return len([e for e in self._cache if e.genie_space_id == self.space_id])
+            return sum(1 for e in self._cache if e.genie_space_id == self.space_id)
 
     def _count_entries_with_ttl(self, ttl_seconds: int) -> tuple[int, int]:
         """Count total and expired entries for this Genie space."""
@@ -700,8 +742,8 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
                 }
 
                 if include_embeddings:
-                    result["question_embedding"] = entry.question_embedding
-                    result["context_embedding"] = entry.context_embedding
+                    result["question_embedding"] = entry.question_embedding.tolist()
+                    result["context_embedding"] = entry.context_embedding.tolist()
 
                 entries.append(result)
 

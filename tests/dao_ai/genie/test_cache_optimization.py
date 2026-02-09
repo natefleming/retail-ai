@@ -1,6 +1,5 @@
 """Unit tests for context-aware cache threshold optimization."""
 
-import math
 from unittest.mock import Mock, patch
 
 import pytest
@@ -9,7 +8,7 @@ from dao_ai.genie.cache.context_aware.optimization import (
     ContextAwareCacheEvalDataset,
     ContextAwareCacheEvalEntry,
     ThresholdOptimizationResult,
-    _compute_l2_similarity,
+    _compute_cosine_similarity,
     _evaluate_thresholds,
     clear_judge_cache,
     optimize_context_aware_cache_thresholds,
@@ -17,55 +16,50 @@ from dao_ai.genie.cache.context_aware.optimization import (
 )
 
 
-class TestL2Similarity:
-    """Test L2 distance to similarity conversion."""
+class TestCosineSimilarity:
+    """Test cosine similarity computation."""
 
     def test_identical_vectors_return_one(self) -> None:
         """Identical vectors should have similarity of 1.0."""
         embedding = [1.0, 0.0, 0.0]
-        similarity = _compute_l2_similarity(embedding, embedding)
-        assert similarity == 1.0
+        similarity = _compute_cosine_similarity(embedding, embedding)
+        assert abs(similarity - 1.0) < 0.001
 
-    def test_orthogonal_vectors_have_low_similarity(self) -> None:
-        """Orthogonal unit vectors should have low similarity."""
+    def test_orthogonal_vectors_have_zero_similarity(self) -> None:
+        """Orthogonal unit vectors should have zero similarity."""
         embedding1 = [1.0, 0.0, 0.0]
         embedding2 = [0.0, 1.0, 0.0]
-        similarity = _compute_l2_similarity(embedding1, embedding2)
-        # L2 distance = sqrt(2), similarity = 1 / (1 + sqrt(2)) ≈ 0.414
-        expected = 1.0 / (1.0 + math.sqrt(2))
-        assert abs(similarity - expected) < 0.001
+        similarity = _compute_cosine_similarity(embedding1, embedding2)
+        assert abs(similarity) < 0.001
 
-    def test_opposite_vectors_have_low_similarity(self) -> None:
-        """Opposite unit vectors should have even lower similarity."""
+    def test_opposite_vectors_have_negative_similarity(self) -> None:
+        """Opposite unit vectors should have similarity of -1.0."""
         embedding1 = [1.0, 0.0, 0.0]
         embedding2 = [-1.0, 0.0, 0.0]
-        similarity = _compute_l2_similarity(embedding1, embedding2)
-        # L2 distance = 2, similarity = 1 / (1 + 2) = 0.333
-        expected = 1.0 / 3.0
-        assert abs(similarity - expected) < 0.001
+        similarity = _compute_cosine_similarity(embedding1, embedding2)
+        assert abs(similarity - (-1.0)) < 0.001
 
     def test_similar_vectors_have_high_similarity(self) -> None:
-        """Similar vectors should have high similarity."""
+        """Similar vectors should have high cosine similarity."""
         embedding1 = [0.9, 0.9, 0.9]
         embedding2 = [1.0, 1.0, 1.0]
-        similarity = _compute_l2_similarity(embedding1, embedding2)
-        # L2 distance = sqrt(0.01 + 0.01 + 0.01) = sqrt(0.03) ≈ 0.173
-        # similarity = 1 / (1 + 0.173) ≈ 0.852
-        assert similarity > 0.8
+        similarity = _compute_cosine_similarity(embedding1, embedding2)
+        # Same direction, cosine similarity = 1.0
+        assert similarity > 0.99
 
     def test_mismatched_dimensions_raises_error(self) -> None:
         """Vectors with different dimensions should raise ValueError."""
         embedding1 = [1.0, 0.0]
         embedding2 = [1.0, 0.0, 0.0]
         with pytest.raises(ValueError, match="Embedding dimensions must match"):
-            _compute_l2_similarity(embedding1, embedding2)
+            _compute_cosine_similarity(embedding1, embedding2)
 
     def test_similarity_is_symmetric(self) -> None:
         """Similarity should be the same regardless of argument order."""
         embedding1 = [0.5, 0.3, 0.8]
         embedding2 = [0.7, 0.2, 0.6]
-        sim1 = _compute_l2_similarity(embedding1, embedding2)
-        sim2 = _compute_l2_similarity(embedding2, embedding1)
+        sim1 = _compute_cosine_similarity(embedding1, embedding2)
+        sim2 = _compute_cosine_similarity(embedding2, embedding1)
         assert sim1 == sim2
 
 
@@ -196,9 +190,9 @@ class TestEvaluateThresholds:
             context="Previous context",
             context_embedding=[0.0, 1.0, 0.0],
             cached_question="Show me sales",
-            cached_question_embedding=[0.99, 0.05, 0.0],  # Very similar
+            cached_question_embedding=[0.9, 0.2, 0.0],  # Similar (cos ~0.976)
             cached_context="Previous context",
-            cached_context_embedding=[0.0, 0.99, 0.05],  # Very similar
+            cached_context_embedding=[0.0, 0.9, 0.2],  # Similar (cos ~0.976)
             expected_match=True,
         )
 

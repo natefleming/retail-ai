@@ -196,7 +196,7 @@ genie_tool:
         capacity: 1000                   # Max cached queries (default: 1000)
         time_to_live_seconds: 86400      # 1 day (default), use -1 or None for never expire
 
-      # L2: Context-aware similarity search via pg_vector
+      # L2: Context-aware similarity search via pg_vector (cosine similarity)
       context_aware_cache_parameters:
         database: *postgres_db
         warehouse: *warehouse
@@ -204,6 +204,10 @@ genie_tool:
         similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85), higher = stricter
         time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
         table_name: genie_context_aware_cache   # Optional, default: genie_context_aware_cache
+        # IVFFlat index tuning (auto-computed by default, scales to 1M+ rows)
+        # ivfflat_lists: null              # Auto: max(100, sqrt(row_count))
+        # ivfflat_probes: null             # Auto: max(10, sqrt(lists))
+        # ivfflat_candidates: 20           # Top-K for Python reranking
 ```
 
 ### Cache Architecture
@@ -264,22 +268,27 @@ The **Context-Aware Cache** finds similar questions even when worded differently
 
 #### PostgreSQL-Based Context-Aware Cache
 
-Uses PostgreSQL with pg_vector for persistent, multi-instance shared caching:
+Uses PostgreSQL with pg_vector for persistent, multi-instance shared caching. Similarity search uses **cosine similarity** with a two-phase approach: an IVFFlat index-optimized scan retrieves top-K candidates by question distance, then Python-side reranking applies combined similarity, threshold checks, and bidirectional context-skip logic.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `similarity_threshold` | 0.85 | Minimum similarity for cache hit (0.0-1.0) |
+| `similarity_threshold` | 0.85 | Minimum cosine similarity for cache hit (0.0-1.0) |
 | `time_to_live_seconds` | 86400 | Cache entry lifetime (-1 = never expire) |
 | `embedding_model` | `databricks-gte-large-en` | Model for generating question embeddings |
 | `database` | Required | PostgreSQL with pg_vector extension |
 | `warehouse` | Required | Databricks warehouse for SQL execution |
 | `table_name` | `genie_context_aware_cache` | Table name for cache storage |
-| `context_window_size` | 2 | Number of previous conversation turns to include |
-| `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
+| `context_window_size` | 4 | Number of previous conversation turns to include |
+| `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context (skipped when either side has no context) |
 | `question_weight` | 0.6 | Weight for question similarity in combined score (0.0-1.0) |
 | `context_weight` | 0.4 | Weight for context similarity (computed as 1 - question_weight if not set) |
 | `embedding_dims` | Auto-detected | Embedding vector dimensions (auto-detected from model if not specified) |
 | `max_context_tokens` | 2000 | Maximum token length for conversation context embeddings |
+| `ivfflat_lists` | `null` (auto) | IVF index lists. Auto-computed as `max(100, sqrt(row_count))` at index creation |
+| `ivfflat_probes` | `null` (auto) | Lists probed per query. Auto-computed as `max(10, sqrt(lists))` |
+| `ivfflat_candidates` | 20 | Top-K candidates retrieved before Python-side reranking |
+
+**Scaling**: With auto-computed defaults, the cache scales to **1 million+ rows** without manual tuning. The IVFFlat index parameters adapt to table size automatically.
 
 **Best for:** Production deployments with multiple instances, large cache sizes (thousands+), and cross-instance cache sharing
 
@@ -302,8 +311,8 @@ genie_tool:
         similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85)
         time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
         capacity: 1000                     # Max cache entries (LRU eviction when full)
-        context_window_size: 2             # Number of previous conversation turns (default)
-        context_similarity_threshold: 0.80 # Minimum context similarity
+        context_window_size: 4             # Number of previous conversation turns (default)
+        context_similarity_threshold: 0.80 # Minimum context similarity (bidirectional skip)
         question_weight: 0.6               # Weight for question similarity
         context_weight: 0.4                # Weight for context similarity
         embedding_dims: null               # Auto-detected from model
@@ -312,13 +321,13 @@ genie_tool:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `similarity_threshold` | 0.85 | Minimum similarity for cache hit (0.0-1.0) |
+| `similarity_threshold` | 0.85 | Minimum cosine similarity for cache hit (0.0-1.0) |
 | `time_to_live_seconds` | 86400 | Cache entry lifetime (-1 = never expire) |
 | `embedding_model` | `databricks-gte-large-en` | Model for generating question embeddings |
 | `warehouse` | Required | Databricks warehouse for SQL execution |
 | `capacity` | 1000 | Maximum cache entries (LRU eviction when full) |
-| `context_window_size` | 2 | Number of previous conversation turns to include |
-| `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context |
+| `context_window_size` | 4 | Number of previous conversation turns to include |
+| `context_similarity_threshold` | 0.80 | Minimum similarity for conversation context (skipped when either side has no context) |
 | `question_weight` | 0.6 | Weight for question similarity in combined score (0.0-1.0) |
 | `context_weight` | 0.4 | Weight for context similarity (computed as 1 - question_weight if not set) |
 | `embedding_dims` | Auto-detected | Embedding vector dimensions (auto-detected from model if not specified) |
@@ -328,7 +337,7 @@ genie_tool:
 
 **Key Differences:**
 - ✅ **No external database required** - Simpler setup and deployment
-- ✅ **Same L2 distance algorithm** - Consistent behavior with PostgreSQL version
+- ✅ **Same cosine similarity algorithm** - Consistent behavior with PostgreSQL version
 - ⚠️ **Per-instance cache** - Each replica has its own cache (not shared)
 - ⚠️ **No persistence** - Cache is lost on restart
 - ⚠️ **Memory-bound** - Limited by available RAM; use capacity limits
@@ -354,7 +363,7 @@ The `question_weight` and `context_weight` parameters control how question vs co
 
 1. **SQL Caching, Not Results**: The cache stores the *generated SQL query*, not the query results. On a cache hit, the SQL is re-executed against your warehouse, ensuring **data freshness**.
 
-2. **Conversation-Aware Matching**: The context-aware cache uses a rolling window of recent conversation turns to provide context for similarity matching. This helps resolve pronouns and references like "them", "that", or "the same products" by considering what was discussed previously.
+2. **Conversation-Aware Matching**: The context-aware cache uses a rolling window of recent conversation turns (default: 4) to provide context for similarity matching. This helps resolve pronouns and references like "them", "that", or "the same products" by considering what was discussed previously. A **bidirectional context-skip** rule automatically bypasses the context threshold when either the cached entry or the current query has no conversation context, preventing false misses for first messages or context-free queries.
 
 3. **Refresh on Hit**: When a context-aware cache entry is found but expired:
    - The expired entry is deleted

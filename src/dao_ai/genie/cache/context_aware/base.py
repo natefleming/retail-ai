@@ -32,7 +32,6 @@ from databricks.sdk.service.dashboards import (
     GenieListConversationMessagesResponse,
     GenieMessage,
 )
-from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
 from dao_ai.config import LLMModel, WarehouseModel
@@ -42,6 +41,7 @@ from dao_ai.genie.cache.base import (
     SQLCacheEntry,
 )
 from dao_ai.genie.cache.core import execute_sql_via_warehouse
+from dao_ai.genie.core import GenieResponse
 
 # Type variable for subclass return types
 T = TypeVar("T", bound="ContextAwareGenieService")

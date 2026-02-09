@@ -195,21 +195,37 @@ context_embedding = embed(context)
 
 ### Cache Hit Criteria
 
-**BOTH** similarities must exceed thresholds:
-```sql
+Similarity is computed using **cosine similarity** (via pg_vector's `<=>` operator). Both similarities must exceed thresholds:
+```
 question_similarity >= 0.85  (default)
 AND
-context_similarity >= 0.80  (default)
+context_similarity >= 0.80  (default, with bidirectional skip)
 ```
 
-**Combined score** (for ranking):
-```sql
+**Bidirectional context-skip**: The context threshold is automatically skipped when *either* side has no conversation context. This handles two scenarios:
+1. The cached entry was stored without conversation history (first message)
+2. The current query has no context (new conversation)
+
+In both cases, the match depends on question similarity alone -- this prevents false misses when context is unavailable.
+
+**Combined score** (for ranking top-K candidates):
+```
 combined = (0.6 × question_similarity) + (0.4 × context_similarity)
 ```
 
+### Two-Phase Search (PostgreSQL)
+
+For scalability, the PostgreSQL cache uses a two-phase search:
+
+**Phase 1 (SQL):** Uses pg_vector's native `ORDER BY embedding <=> query LIMIT K` pattern with `SET LOCAL ivfflat.probes` for index-optimized approximate nearest neighbor search. Retrieves the top-K candidates by question distance.
+
+**Phase 2 (Python):** Computes combined similarity on the K candidates, applies threshold checks (question, context with bidirectional skip, TTL), and picks the best match.
+
+This avoids materializing all rows in a CTE and allows the ivfflat index to do the heavy lifting.
+
 ## Context Window Example
 
-**Scenario**: 5 prompts with `context_window_size=2`
+**Scenario**: 5 prompts with `context_window_size=4` (default)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -286,16 +302,21 @@ genie_tools:
       
       # Prompt history configuration
       prompt_history_table: genie_prompt_history  # Table for prompt storage
-      context_window_size: 2  # Use last 2 prompts for context (default)
+      context_window_size: 4  # Use last 4 prompts for context (default)
       max_prompt_history_length: 50  # Max prompts per conversation (enforced)
       prompt_history_ttl_seconds: null  # TTL for prompts (null = use cache TTL)
       use_genie_api_for_history: false  # Fallback to Genie API if local empty
       
-      # Existing context-aware cache config
+      # Similarity search config
       similarity_threshold: 0.85
       context_similarity_threshold: 0.80
       question_weight: 0.6
       context_weight: 0.4
+      
+      # IVFFlat index tuning (all optional -- auto-computed by default)
+      # ivfflat_lists: null       # Auto: max(100, sqrt(row_count))
+      # ivfflat_probes: null      # Auto: max(10, sqrt(lists))
+      # ivfflat_candidates: 20    # Top-K candidates for Python reranking
 ```
 
 ### Configuration Parameters
@@ -303,10 +324,13 @@ genie_tools:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `prompt_history_table` | `genie_prompt_history` | Table name for storing prompts |
-| `context_window_size` | `2` | Number of previous prompts to include in context |
+| `context_window_size` | `4` | Number of previous prompts to include in context |
 | `max_prompt_history_length` | `50` | Maximum prompts to keep per conversation |
 | `prompt_history_ttl_seconds` | `null` | TTL for prompts (null uses cache TTL) |
 | `use_genie_api_for_history` | `false` | Fallback to Genie API if local history is empty |
+| `ivfflat_lists` | `null` (auto) | IVF index lists. Auto-computed as `max(100, sqrt(row_count))` |
+| `ivfflat_probes` | `null` (auto) | IVF probes per query. Auto-computed as `max(10, sqrt(lists))` |
+| `ivfflat_candidates` | `20` | Top-K candidates retrieved before Python-side reranking |
 
 ## Usage Example
 
@@ -525,18 +549,18 @@ sequenceDiagram
 
 ## Context Window Behavior
 
-With `context_window_size=2`:
+With `context_window_size=4` (default):
 
 ```
-Conversation: [P1, P2, P3, P4, P5, ...]
+Conversation: [P1, P2, P3, P4, P5, P6, ...]
 
-When processing P5:
-1. SELECT last 2: Returns [P3, P4] ← LIMIT 2
-2. Context = "Previous: P3\nPrevious: P4"
-3. Embed P5 with context of [P3, P4]
-4. Store P5
+When processing P6:
+1. SELECT last 4: Returns [P2, P3, P4, P5] ← LIMIT 4
+2. Context = "Previous: P2\nPrevious: P3\nPrevious: P4\nPrevious: P5"
+3. Embed P6 with context of [P2, P3, P4, P5]
+4. Store P6
 
-Result: Sliding window of last 2 prompts
+Result: Sliding window of last 4 prompts
 ```
 
 **Efficiency**: Constant time O(window_size), not O(total_prompts)
@@ -603,14 +627,21 @@ class GenieContextAwareCacheParametersModel:
     use_genie_api_for_history: bool = False
     """Fallback to Genie API if local history empty (default: False)"""
     
-    prompt_history_ttl_seconds: int | None = None
-    """TTL for prompts (None = use cache TTL, for future cleanup)"""
-    
-    context_window_size: int = 3
+    context_window_size: int = 4
     """Number of previous prompts to include in context embeddings"""
     
     max_context_tokens: int = 2000
     """Maximum tokens in context to prevent extremely long embeddings"""
+    
+    # IVFFlat index tuning for pg_vector (auto-computed when None)
+    ivfflat_lists: int | None = None
+    """Number of IVF lists. None = auto-computed as max(100, sqrt(row_count))"""
+    
+    ivfflat_probes: int | None = None
+    """Lists to probe per query. None = auto-computed as max(10, sqrt(lists))"""
+    
+    ivfflat_candidates: int = 20
+    """Top-K candidates for Python-side reranking"""
 ```
 
 ## API Methods
@@ -821,8 +852,10 @@ ORDER BY created_at DESC;
 2. **Tune context_window_size**: 
    - Smaller (1-2): Faster, less context
    - Larger (5-10): Better context, slower embeddings
+   - Default (4): Good balance for most use cases
 3. **Monitor storage**: Check prompt history table size periodically
 4. **Set appropriate TTL**: Align with your data freshness requirements
+5. **Let IVFFlat auto-tune**: Leave `ivfflat_lists` and `ivfflat_probes` as `null` unless you have specific needs
 
 ## Performance Tuning
 
@@ -830,20 +863,20 @@ ORDER BY created_at DESC;
 
 If conversations have 100+ prompts:
 
-```python
+```yaml
 # Optimize: Use smaller context window
 context_window_size: 3  # Only last 3 prompts
 
 # Optimize: Set max context tokens
 max_context_tokens: 1000  # Truncate if too long
 
-# Future: Add TTL to clean old prompts
+# Add TTL to clean old prompts
 prompt_history_ttl_seconds: 604800  # 7 days
 ```
 
 ### For High Throughput
 
-```python
+```yaml
 # Increase pool size for concurrent requests
 database:
   max_pool_size: 20  # More connections
@@ -852,6 +885,29 @@ database:
 database:
   instance_name: retail-consumer-goods
 ```
+
+### Scaling to Large Cache Sizes
+
+The IVFFlat index parameters auto-compute from the table size by default. Here's how they scale:
+
+| Cache rows | lists (auto) | probes (auto) | Expected recall |
+|------------|-------------|---------------|-----------------|
+| 1K-10K | 100 | 10 | Excellent |
+| 100K | 316 | 18 | Good |
+| 500K | 707 | 27 | Good |
+| 1M | 1000 | 32 | Good |
+
+For explicit control over the recall/speed trade-off:
+
+```yaml
+context_aware_cache_parameters:
+  # Override auto-computed values for specific needs
+  ivfflat_lists: 500          # More lists = finer partitioning
+  ivfflat_probes: 30          # More probes = better recall, slower queries
+  ivfflat_candidates: 30      # More candidates = better combined-score ranking
+```
+
+**Note**: After significantly growing the cache (e.g., 10x more rows), you should rebuild the IVFFlat indexes to maintain optimal recall. The auto-computed lists value is set at index creation time and does not adapt to table growth.
 
 ## Feedback and Cache Invalidation
 

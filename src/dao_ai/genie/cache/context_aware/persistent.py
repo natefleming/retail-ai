@@ -19,6 +19,7 @@ from abc import abstractmethod
 from typing import Any, Callable, TypeVar
 
 from loguru import logger
+from psycopg import sql
 
 from dao_ai.config import DatabaseModel
 from dao_ai.genie.cache.context_aware.base import (
@@ -209,6 +210,10 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
         )
         return cur.fetchone() is not None
 
+    # Counter for periodic prompt history cleanup (every N inserts)
+    _prompt_insert_count: int = 0
+    _CLEANUP_INTERVAL: int = 10
+
     def _store_user_prompt(
         self,
         prompt: str,
@@ -223,6 +228,9 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
 
         Prompt history is non-critical; failures are logged but don't crash the request.
 
+        Periodically enforces max_prompt_history_length (every N inserts) to avoid
+        running a DELETE query on every single insert.
+
         Args:
             prompt: The user's question/prompt
             conversation_id: The conversation ID
@@ -232,11 +240,13 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
             True if prompt was stored successfully, False otherwise
         """
         prompt_table_name = self.prompt_history_table
-        insert_sql: str = f"""
-            INSERT INTO {prompt_table_name} 
+        insert_sql = sql.SQL("""
+            INSERT INTO {} 
             (genie_space_id, conversation_id, prompt, cache_hit)
             VALUES (%s, %s, %s, %s)
-        """
+            ON CONFLICT (genie_space_id, conversation_id, prompt)
+            DO UPDATE SET cache_hit = EXCLUDED.cache_hit, created_at = CURRENT_TIMESTAMP
+        """).format(sql.Identifier(prompt_table_name))
 
         logger.debug(
             "Inserting prompt into history",
@@ -250,11 +260,17 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
         )
 
         try:
+            # Use a single connection for both insert and periodic cleanup
             with self._pool.connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         insert_sql, (self.space_id, conversation_id, prompt, cache_hit)
                     )
+
+                    # Periodic cleanup: enforce limit every N inserts
+                    self._prompt_insert_count += 1
+                    if self._prompt_insert_count % self._CLEANUP_INTERVAL == 0:
+                        self._enforce_prompt_history_limit(conversation_id, cur=cur)
 
             logger.info(
                 "Stored user prompt in history",
@@ -264,9 +280,6 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
                 prompt_preview=prompt[:50],
                 cache_hit=cache_hit,
             )
-
-            # Enforce max_prompt_history_length per conversation
-            self._enforce_prompt_history_limit(conversation_id)
 
             return True
         except Exception as e:
@@ -278,15 +291,18 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
             )
             return False
 
-    def _enforce_prompt_history_limit(self, conversation_id: str) -> int:
+    def _enforce_prompt_history_limit(
+        self, conversation_id: str, cur: Any | None = None
+    ) -> int:
         """
         Delete oldest prompts if conversation exceeds max_prompt_history_length.
 
-        This is called after inserting a new prompt to keep history bounded.
-        Uses a single DELETE with subquery for efficiency.
+        Uses a single DELETE with subquery for efficiency. Can reuse an existing
+        cursor to avoid acquiring a separate database connection.
 
         Args:
             conversation_id: The conversation ID to enforce limit for
+            cur: Optional existing cursor to reuse (avoids extra connection checkout)
 
         Returns:
             Number of prompts deleted (0 if within limit)
@@ -295,44 +311,52 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
         prompt_table_name = self.prompt_history_table
 
         # Delete prompts beyond the limit, keeping the most recent ones
-        delete_sql: str = f"""
-            DELETE FROM {prompt_table_name}
+        prompt_table_id = sql.Identifier(prompt_table_name)
+        delete_sql = sql.SQL("""
+            DELETE FROM {}
             WHERE genie_space_id = %s 
               AND conversation_id = %s
               AND created_at < (
-                  SELECT created_at FROM {prompt_table_name}
+                  SELECT created_at FROM {}
                   WHERE genie_space_id = %s 
                     AND conversation_id = %s
                   ORDER BY created_at DESC
                   LIMIT 1 OFFSET %s
               )
-        """
+        """).format(prompt_table_id, prompt_table_id)
+
+        params = (
+            self.space_id,
+            conversation_id,
+            self.space_id,
+            conversation_id,
+            max_length - 1,
+        )
 
         try:
-            with self._pool.connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        delete_sql,
-                        (
-                            self.space_id,
-                            conversation_id,
-                            self.space_id,
-                            conversation_id,
-                            max_length - 1,
-                        ),
-                    )
-                    deleted = cur.rowcount if isinstance(cur.rowcount, int) else 0
-
-                    if deleted > 0:
-                        logger.debug(
-                            "Enforced prompt history limit",
-                            layer=self.name,
-                            table=prompt_table_name,
-                            conversation_id=conversation_id,
-                            max_length=max_length,
-                            deleted=deleted,
+            if cur is not None:
+                # Reuse existing cursor (same connection/transaction)
+                cur.execute(delete_sql, params)
+                deleted = cur.rowcount if isinstance(cur.rowcount, int) else 0
+            else:
+                # Standalone call - acquire own connection
+                with self._pool.connection() as conn:
+                    with conn.cursor() as new_cur:
+                        new_cur.execute(delete_sql, params)
+                        deleted = (
+                            new_cur.rowcount if isinstance(new_cur.rowcount, int) else 0
                         )
-                    return deleted
+
+            if deleted > 0:
+                logger.debug(
+                    "Enforced prompt history limit",
+                    layer=self.name,
+                    table=prompt_table_name,
+                    conversation_id=conversation_id,
+                    max_length=max_length,
+                    deleted=deleted,
+                )
+            return deleted
         except Exception as e:
             logger.debug(
                 f"Failed to enforce prompt history limit (non-critical): {e}",
@@ -363,14 +387,14 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
             max_prompts = self.context_window_size
 
         prompt_table_name = self.prompt_history_table
-        query_sql: str = f"""
+        query_sql = sql.SQL("""
             SELECT prompt 
-            FROM {prompt_table_name}
+            FROM {}
             WHERE genie_space_id = %s 
               AND conversation_id = %s
             ORDER BY created_at DESC
             LIMIT %s
-        """
+        """).format(sql.Identifier(prompt_table_name))
 
         logger.debug(
             "Querying prompt history",
@@ -426,20 +450,21 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
             True if update was successful, False otherwise
         """
         prompt_table_name = self.prompt_history_table
-        update_sql: str = f"""
-            UPDATE {prompt_table_name}
+        prompt_table_id = sql.Identifier(prompt_table_name)
+        update_sql = sql.SQL("""
+            UPDATE {}
             SET cache_hit = %s, cache_entry_id = %s
             WHERE genie_space_id = %s 
               AND conversation_id = %s 
               AND prompt = %s 
               AND created_at = (
                   SELECT MAX(created_at) 
-                  FROM {prompt_table_name}
+                  FROM {}
                   WHERE genie_space_id = %s 
                     AND conversation_id = %s 
                     AND prompt = %s
               )
-        """
+        """).format(prompt_table_id, prompt_table_id)
 
         logger.debug(
             "Updating prompt cache_hit flag and cache_entry_id",
@@ -622,18 +647,28 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
 
         prompt_table_name = self.prompt_history_table
 
-        cache_filter = "" if include_cache_hits else "AND cache_hit = false"
-        limit_clause = f"LIMIT {max_prompts}" if max_prompts else ""
+        cache_filter = (
+            sql.SQL("AND cache_hit = false") if not include_cache_hits else sql.SQL("")
+        )
+        limit_clause = (
+            sql.SQL("LIMIT {}").format(sql.Literal(max_prompts))
+            if max_prompts
+            else sql.SQL("")
+        )
 
-        query_sql: str = f"""
+        query_sql = sql.SQL("""
             SELECT prompt, cache_hit, created_at
-            FROM {prompt_table_name}
+            FROM {}
             WHERE genie_space_id = %s 
               AND conversation_id = %s
-              {cache_filter}
+              {}
             ORDER BY created_at ASC
-            {limit_clause}
-        """
+            {}
+        """).format(
+            sql.Identifier(prompt_table_name),
+            cache_filter,
+            limit_clause,
+        )
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -708,18 +743,19 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
         self._setup()
 
         prompt_table_name = self.prompt_history_table
+        prompt_table_id = sql.Identifier(prompt_table_name)
 
         if conversation_id:
-            delete_sql: str = f"""
-                DELETE FROM {prompt_table_name}
+            delete_sql = sql.SQL("""
+                DELETE FROM {}
                 WHERE genie_space_id = %s AND conversation_id = %s
-            """
+            """).format(prompt_table_id)
             params = (self.space_id, conversation_id)
         else:
-            delete_sql = f"""
-                DELETE FROM {prompt_table_name}
+            delete_sql = sql.SQL("""
+                DELETE FROM {}
                 WHERE genie_space_id = %s
-            """
+            """).format(prompt_table_id)
             params = (self.space_id,)
 
         with self._pool.connection() as conn:
@@ -753,7 +789,11 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
             with conn.cursor() as cur:
                 # Drop cache table
                 try:
-                    cur.execute(f"DROP TABLE IF EXISTS {self.table_name} CASCADE")
+                    cur.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
+                            sql.Identifier(self.table_name)
+                        )
+                    )
                     results["cache"] = True
                     logger.info(
                         "Dropped cache table",
@@ -770,7 +810,9 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
                 # Drop prompt history table
                 try:
                     cur.execute(
-                        f"DROP TABLE IF EXISTS {self.prompt_history_table} CASCADE"
+                        sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
+                            sql.Identifier(self.prompt_history_table)
+                        )
                     )
                     results["prompt_history"] = True
                     logger.info(
@@ -791,9 +833,9 @@ class PersistentContextAwareGenieCacheService(ContextAwareGenieService):
     def size(self) -> int:
         """Current number of entries in the cache for this Genie space."""
         self._setup()
-        count_sql: str = (
-            f"SELECT COUNT(*) as count FROM {self.table_name} WHERE genie_space_id = %s"
-        )
+        count_sql = sql.SQL(
+            "SELECT COUNT(*) as count FROM {} WHERE genie_space_id = %s"
+        ).format(sql.Identifier(self.table_name))
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:

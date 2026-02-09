@@ -1891,11 +1891,17 @@ class MockCursor:
         pass
 
     def execute(self, query: str, params: tuple = ()) -> None:
+        # Convert psycopg.sql.Composed objects to plain strings
+        if not isinstance(query, str):
+            query = query.as_string(None).replace('"', "")
         self.pool.executed_queries.append((query, params))
-        # Only fetch a result for queries that START with SELECT
-        # (not DELETE/UPDATE with SELECT subqueries)
         query_stripped = query.strip().upper()
-        if query_stripped.startswith("SELECT"):
+        # SET LOCAL statements don't return results and shouldn't consume queue
+        if query_stripped.startswith("SET"):
+            self._last_result = None
+            self.rowcount = 0
+        # SELECT or WITH (CTEs) return results from the queue
+        elif query_stripped.startswith("SELECT") or query_stripped.startswith("WITH"):
             self._last_result = self.pool.get_next_result()
             self.rowcount = 1 if self._last_result else 0
         else:
@@ -1904,6 +1910,14 @@ class MockCursor:
 
     def fetchone(self) -> dict | None:
         return self._last_result
+
+    def fetchall(self) -> list[dict]:
+        if self._last_result is None:
+            return []
+        # Support returning a single dict as a one-element list
+        if isinstance(self._last_result, list):
+            return self._last_result
+        return [self._last_result]
 
 
 class MockEmbeddings:
@@ -1975,6 +1989,9 @@ class TestPostgresContextAwareCacheInitialization:
             params.max_prompt_history_length = 50
             params.use_genie_api_for_history = False
             params.prompt_history_ttl_seconds = None
+            params.ivfflat_lists = 100
+            params.ivfflat_probes = 10
+            params.ivfflat_candidates = 20
 
             cache = PostgresContextAwareGenieService(
                 impl=mock_service, parameters=params
@@ -2114,6 +2131,9 @@ class TestPostgresContextAwareCacheOperations:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         cache = PostgresContextAwareGenieService(
             impl=mock_service,
@@ -2187,12 +2207,17 @@ class TestPostgresContextAwareCacheOperations:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         # Query results order during initialization:
         # 1. dimension check - table doesn't exist (None)
-        # 2-5. _index_exists for 4 main table indexes (None each)
-        # 6-9. _index_exists for 4 prompt history table indexes (None each)
-        # 10. cache lookup - returns cached entry
+        # 2. row count for auto-computing ivfflat lists
+        # 3-6. _index_exists for 4 main table indexes (None each)
+        # 7-10. _index_exists for 4 prompt history table indexes (None each)
+        # 11. cache lookup (ORDER BY ... LIMIT K) - returns cached entry
+        # SET LOCAL is handled by MockCursor without consuming a result
         mock_pool.set_query_results(
             [
                 None,  # dimension check - table doesn't exist
@@ -2207,16 +2232,14 @@ class TestPostgresContextAwareCacheOperations:
                 {
                     "id": 1,
                     "question": "Similar question?",
-                    "context_string": "Similar question?",
+                    "conversation_context": "",
                     "sql_query": "SELECT * FROM inventory",
                     "description": "Cached description",
                     "conversation_id": "cached-conv-123",
                     "created_at": cached_time,
-                    "similarity": 0.92,  # Combined similarity
-                    "question_similarity": 0.92,
-                    "context_similarity": 0.92,
-                    "combined_similarity": 0.92,
-                    "is_valid": True,  # Within TTL
+                    "message_id": None,
+                    "question_distance": 0.08,  # 1 - 0.92 = 0.08
+                    "context_distance": 0.08,
                 },
             ]
         )
@@ -2263,7 +2286,7 @@ class TestPostgresContextAwareCacheOperations:
         params.similarity_threshold = 0.85
         params.context_similarity_threshold = 0.80
         params.question_weight = 0.6
-        params.context_weight = 0.4  # Threshold is 0.85
+        params.context_weight = 0.4
         params.embedding_dims = 1024
         params.embedding_model = "databricks-gte-large-en"
         params.table_name = "test_cache"
@@ -2271,12 +2294,15 @@ class TestPostgresContextAwareCacheOperations:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         # Query results order during initialization:
         # 1. dimension check - table doesn't exist (None)
         # 2-5. _index_exists for 4 main table indexes (None each)
         # 6-9. _index_exists for 4 prompt history table indexes (None each)
-        # 10. cache lookup - returns entry with similarity below threshold
+        # 10. cache lookup - returns entry with question below threshold
         mock_pool.set_query_results(
             [
                 None,  # dimension check - table doesn't exist
@@ -2292,15 +2318,13 @@ class TestPostgresContextAwareCacheOperations:
                     "id": 1,
                     "question": "Different question",
                     "conversation_context": "",
-                    "context_string": "Different question",
                     "sql_query": "SELECT * FROM inventory",
                     "description": "Description",
                     "conversation_id": "conv-123",
                     "created_at": cached_time,
-                    "question_similarity": 0.75,  # Below threshold
-                    "context_similarity": 0.85,
-                    "combined_similarity": 0.79,
-                    "is_valid": True,
+                    "message_id": None,
+                    "question_distance": 0.25,  # 1 - 0.75 = 0.25 (below 0.85 threshold)
+                    "context_distance": 0.15,
                 },
             ]
         )
@@ -2349,24 +2373,37 @@ class TestPostgresContextAwareCacheOperations:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
-        # Return entry with high similarity but EXPIRED (is_valid=False)
+        # Query results order during initialization:
+        # 1. dimension check - table doesn't exist (None)
+        # 2-5. _index_exists for 4 main table indexes (None each)
+        # 6-9. _index_exists for 4 prompt history table indexes (None each)
+        # 10. cache lookup - returns expired entry (old_time > TTL)
         mock_pool.set_query_results(
             [
                 None,  # dimension check - table doesn't exist
+                None,  # _index_exists for space_idx
+                None,  # _index_exists for question_embedding_idx
+                None,  # _index_exists for context_embedding_idx
+                None,  # _index_exists for unique_question_idx
+                None,  # _index_exists for prompt_history_conversation_idx
+                None,  # _index_exists for prompt_history_space_idx
+                None,  # _index_exists for prompt_history_unique_prompt_idx
+                None,  # _index_exists for prompt_history_cache_entry_idx
                 {
                     "id": 123,  # ID used for deletion
                     "question": "Similar question?",
                     "conversation_context": "",
-                    "context_string": "Similar question?",
                     "sql_query": "SELECT * FROM inventory",
                     "description": "Description",
                     "conversation_id": "conv-123",
                     "created_at": old_time,
-                    "question_similarity": 0.95,  # High similarity
-                    "context_similarity": 0.95,
-                    "combined_similarity": 0.95,
-                    "is_valid": False,  # EXPIRED - outside TTL window
+                    "message_id": None,
+                    "question_distance": 0.05,  # 1 - 0.95 = high similarity
+                    "context_distance": 0.05,
                 },
             ]
         )
@@ -2422,6 +2459,9 @@ class TestPostgresContextAwareCacheManagement:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         # First query for dimension check, second for table creation
         mock_pool.set_query_results([None])
@@ -2466,6 +2506,9 @@ class TestPostgresContextAwareCacheManagement:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         # First query for dimension check, second for table creation
         mock_pool.set_query_results([None])
@@ -2521,6 +2564,9 @@ class TestPostgresContextAwareCacheManagement:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         # Query results order during initialization:
         # 1. dimension check - table doesn't exist (None)
@@ -2580,6 +2626,9 @@ class TestPostgresContextAwareCacheManagement:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         # Query results order during initialization:
         # 1. dimension check - table doesn't exist (None)
@@ -2647,6 +2696,9 @@ class TestPostgresContextAwareCacheTableCreation:
         params.max_prompt_history_length = 50
         params.use_genie_api_for_history = False
         params.prompt_history_ttl_seconds = None
+        params.ivfflat_lists = 100
+        params.ivfflat_probes = 10
+        params.ivfflat_candidates = 20
 
         # Dimension check returns None (table doesn't exist), table count returns 0
         mock_pool.set_query_results([None, None])
@@ -2708,6 +2760,9 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.max_prompt_history_length = 50
         semantic_params.use_genie_api_for_history = False
         semantic_params.prompt_history_ttl_seconds = None
+        semantic_params.ivfflat_lists = 100
+        semantic_params.ivfflat_probes = 10
+        semantic_params.ivfflat_candidates = 20
 
         # Dimension check, table count returns 0, then no similar entry found
         mock_pool.set_query_results([None, None])
@@ -2795,6 +2850,9 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.max_prompt_history_length = 50
         semantic_params.use_genie_api_for_history = False
         semantic_params.prompt_history_ttl_seconds = None
+        semantic_params.ivfflat_lists = 100
+        semantic_params.ivfflat_probes = 10
+        semantic_params.ivfflat_candidates = 20
 
         mock_pool.set_query_results([None, None])
 
@@ -2833,7 +2891,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         select_queries_after_second = [
             q
             for q, _ in mock_pool.executed_queries[queries_after_first_call:]
-            if "SELECT" in q and "similarity" in q
+            if "SELECT" in q and "question_embedding" in q
         ]
         assert len(select_queries_after_second) == 0, (
             "Context-aware cache should not be queried on LRU hit"
@@ -2887,6 +2945,9 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.max_prompt_history_length = 50
         semantic_params.use_genie_api_for_history = False
         semantic_params.prompt_history_ttl_seconds = None
+        semantic_params.ivfflat_lists = 100
+        semantic_params.ivfflat_probes = 10
+        semantic_params.ivfflat_candidates = 20
 
         cached_time = datetime.now(timezone.utc)
 
@@ -2896,27 +2957,25 @@ class TestLRUPlusContextAwareCacheIntegration:
         #   2-5. _index_exists for 4 main table indexes (None each)
         #   6-9. _index_exists for 4 prompt history table indexes (None each)
         # First call (ask_question "What is the inventory?"):
+        #   - SET LOCAL (no result consumed)
         #   10. find_similar SELECT (consumes result) - miss
         #   - INSERT for cache entry (no result consumed)
         #   - INSERT for prompt history (no result consumed)
-        #   - DELETE for prompt history limit (no result consumed)
         # Second call (ask_question "Show me inventory count"):
+        #   - SET LOCAL (no result consumed)
         #   11. find_similar SELECT (consumes result) - hit!
         #   - INSERT for prompt history (no result consumed)
-        #   - DELETE for prompt history limit (no result consumed)
         cache_hit_entry = {
             "id": 1,
             "question": "What is the inventory?",
             "conversation_context": "",
-            "context_string": "What is the inventory?",
             "sql_query": "SELECT COUNT(*) FROM inventory",
             "description": "Inventory count",
             "conversation_id": "conv-123",
             "created_at": cached_time,
-            "question_similarity": 0.92,
-            "context_similarity": 0.90,
-            "combined_similarity": 0.91,
-            "is_valid": True,
+            "message_id": None,
+            "question_distance": 0.08,  # 1 - 0.92
+            "context_distance": 0.10,
         }
 
         mock_pool.set_query_results(
@@ -3025,6 +3084,9 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.max_prompt_history_length = 50
         semantic_params.use_genie_api_for_history = False
         semantic_params.prompt_history_ttl_seconds = None
+        semantic_params.ivfflat_lists = 100
+        semantic_params.ivfflat_probes = 10
+        semantic_params.ivfflat_candidates = 20
 
         cached_time = datetime.now(timezone.utc)
 
@@ -3049,15 +3111,13 @@ class TestLRUPlusContextAwareCacheIntegration:
                     "id": 1,
                     "question": "Original question",
                     "conversation_context": "",
-                    "context_string": "Original question",  # Context string
                     "sql_query": "SELECT * FROM data",
                     "description": "Description",
                     "conversation_id": "conv-id",
                     "created_at": cached_time,
-                    "question_similarity": 0.95,  # High similarity
-                    "context_similarity": 0.95,
-                    "combined_similarity": 0.95,
-                    "is_valid": True,  # Within TTL
+                    "message_id": None,
+                    "question_distance": 0.05,  # 1 - 0.95
+                    "context_distance": 0.05,
                 },
             ]
         )
@@ -3125,7 +3185,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.similarity_threshold = 0.85
         semantic_params.context_similarity_threshold = 0.80
         semantic_params.question_weight = 0.6
-        semantic_params.context_weight = 0.4  # Threshold is 0.85
+        semantic_params.context_weight = 0.4
         semantic_params.embedding_dims = 1024
         semantic_params.embedding_model = "databricks-gte-large-en"
         semantic_params.table_name = "test_cache"
@@ -3135,10 +3195,13 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.max_prompt_history_length = 50
         semantic_params.use_genie_api_for_history = False
         semantic_params.prompt_history_ttl_seconds = None
+        semantic_params.ivfflat_lists = 100
+        semantic_params.ivfflat_probes = 10
+        semantic_params.ivfflat_candidates = 20
 
         cached_time = datetime.now(timezone.utc)
 
-        # Return entry with similarity BELOW threshold
+        # Return entry with question similarity BELOW threshold
         mock_pool.set_query_results(
             [
                 None,  # Dimension check - table doesn't exist
@@ -3146,15 +3209,13 @@ class TestLRUPlusContextAwareCacheIntegration:
                     "id": 1,
                     "question": "Unrelated question",
                     "conversation_context": "",
-                    "context_string": "Unrelated question",
                     "sql_query": "SELECT * FROM other",
                     "description": "Description",
                     "conversation_id": "conv-id",
                     "created_at": cached_time,
-                    "question_similarity": 0.60,  # Below 0.85 threshold
-                    "context_similarity": 0.65,
-                    "combined_similarity": 0.62,
-                    "is_valid": True,
+                    "message_id": None,
+                    "question_distance": 0.40,  # 1 - 0.60 = below threshold
+                    "context_distance": 0.35,
                 },
             ]
         )

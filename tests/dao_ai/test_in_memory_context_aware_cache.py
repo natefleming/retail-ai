@@ -18,8 +18,7 @@ from dao_ai.genie import GenieService
 from dao_ai.genie.cache import InMemoryContextAwareGenieService
 from dao_ai.genie.cache.context_aware.in_memory import (
     InMemoryCacheEntry,
-    distance_to_similarity,
-    l2_distance,
+    cosine_similarity,
 )
 
 # ============================================================================
@@ -27,81 +26,52 @@ from dao_ai.genie.cache.context_aware.in_memory import (
 # ============================================================================
 
 
-class TestL2Distance:
-    """Unit tests for l2_distance function."""
+class TestCosineSimilarity:
+    """Unit tests for cosine_similarity function."""
 
     def test_identical_vectors(self) -> None:
-        """Test that L2 distance is 0 for identical vectors."""
+        """Test that cosine similarity is 1.0 for identical vectors."""
         vec = [1.0, 2.0, 3.0]
-        distance = l2_distance(vec, vec)
-        assert distance == 0.0
+        similarity = cosine_similarity(vec, vec)
+        assert abs(similarity - 1.0) < 1e-10
 
     def test_orthogonal_vectors(self) -> None:
-        """Test L2 distance for orthogonal vectors."""
+        """Test cosine similarity for orthogonal vectors."""
         vec_a = [1.0, 0.0, 0.0]
         vec_b = [0.0, 1.0, 0.0]
-        distance = l2_distance(vec_a, vec_b)
-        # Distance should be sqrt(2) ≈ 1.414
-        assert abs(distance - np.sqrt(2)) < 1e-10
+        similarity = cosine_similarity(vec_a, vec_b)
+        assert abs(similarity) < 1e-10
 
     def test_opposite_vectors(self) -> None:
-        """Test L2 distance for opposite direction vectors."""
+        """Test cosine similarity for opposite direction vectors."""
         vec_a = [1.0, 0.0, 0.0]
         vec_b = [-1.0, 0.0, 0.0]
-        distance = l2_distance(vec_a, vec_b)
-        assert abs(distance - 2.0) < 1e-10
+        similarity = cosine_similarity(vec_a, vec_b)
+        assert abs(similarity - (-1.0)) < 1e-10
 
     def test_same_direction_different_magnitude(self) -> None:
-        """Test L2 distance for vectors in same direction but different magnitude."""
+        """Test cosine similarity for vectors in same direction but different magnitude."""
         vec_a = [1.0, 2.0, 3.0]
         vec_b = [2.0, 4.0, 6.0]
-        distance = l2_distance(vec_a, vec_b)
-        # Distance should be sqrt(1^2 + 2^2 + 3^2) = sqrt(14) ≈ 3.742
-        assert abs(distance - np.sqrt(14)) < 1e-10
+        similarity = cosine_similarity(vec_a, vec_b)
+        # Same direction = cosine similarity of 1.0
+        assert abs(similarity - 1.0) < 1e-10
 
     def test_high_dimensional_vectors(self) -> None:
-        """Test L2 distance with high-dimensional vectors (like embeddings)."""
+        """Test cosine similarity with high-dimensional vectors (like embeddings)."""
         dim = 1024
         vec_a = [1.0] * dim
-        vec_b = [0.0] * dim
-        distance = l2_distance(vec_a, vec_b)
-        # Distance should be sqrt(dim)
-        assert abs(distance - np.sqrt(dim)) < 1e-10
+        vec_b = [0.0] * (dim // 2) + [1.0] * (dim // 2)
+        similarity = cosine_similarity(vec_a, vec_b)
+        # Partial overlap, should be between 0 and 1
+        assert 0.0 < similarity < 1.0
 
-
-class TestDistanceToSimilarity:
-    """Unit tests for distance_to_similarity function."""
-
-    def test_zero_distance_is_perfect_match(self) -> None:
-        """Test that zero distance gives similarity of 1.0."""
-        similarity = distance_to_similarity(0.0)
-        assert similarity == 1.0
-
-    def test_small_distance(self) -> None:
-        """Test similarity for small distance."""
-        similarity = distance_to_similarity(0.1)
-        # similarity = 1 / (1 + 0.1) ≈ 0.909
-        assert abs(similarity - (1.0 / 1.1)) < 1e-10
-
-    def test_unit_distance(self) -> None:
-        """Test similarity for unit distance."""
-        similarity = distance_to_similarity(1.0)
-        assert similarity == 0.5
-
-    def test_large_distance(self) -> None:
-        """Test similarity for large distance."""
-        similarity = distance_to_similarity(10.0)
-        # similarity = 1 / 11 ≈ 0.091
-        assert abs(similarity - (1.0 / 11.0)) < 1e-10
-
-    def test_similarity_decreases_with_distance(self) -> None:
-        """Test that similarity monotonically decreases with increasing distance."""
-        distances = [0.0, 0.5, 1.0, 2.0, 5.0, 10.0]
-        similarities = [distance_to_similarity(d) for d in distances]
-
-        # Check that each similarity is less than the previous one
-        for i in range(1, len(similarities)):
-            assert similarities[i] < similarities[i - 1]
+    def test_zero_vector_returns_zero(self) -> None:
+        """Test that zero vector gives similarity of 0.0."""
+        vec_a = [1.0, 2.0, 3.0]
+        vec_b = [0.0, 0.0, 0.0]
+        similarity = cosine_similarity(vec_a, vec_b)
+        assert similarity == 0.0
 
 
 # ============================================================================
@@ -1315,8 +1285,13 @@ class TestInMemoryCacheGetEntries:
         assert len(entries) == 1
         assert "question_embedding" in entries[0]
         assert "context_embedding" in entries[0]
-        assert entries[0]["question_embedding"] == [0.4, 0.5, 0.6]
-        assert entries[0]["context_embedding"] == [0.0, 0.0, 0.0]
+        # Embeddings are pre-normalized, so check they are unit vectors (or zero)
+        q_emb = np.array(entries[0]["question_embedding"])
+        c_emb = np.array(entries[0]["context_embedding"])
+        assert len(q_emb) == 3
+        assert abs(np.linalg.norm(q_emb) - 1.0) < 1e-6
+        # Context embedding is zero vector → norm stays 0
+        assert np.linalg.norm(c_emb) < 1e-6
 
     def test_get_entries_excludes_embeddings_by_default(
         self, cache_with_entries: InMemoryContextAwareGenieService

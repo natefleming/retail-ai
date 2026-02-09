@@ -170,11 +170,19 @@ class TestFromSpaceIntegration:
         # Initialize
         cache_service.initialize()
 
+        # Use a fixed time window so both runs see identical data,
+        # preventing flakiness from new messages appearing between runs.
+        # Avoid max_messages here because it slices before the time filter
+        # in from_space(), which can produce non-deterministic message sets.
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=1)
+
         # First run
         cache_service.from_space(
             space_id=genie_space_id,
             include_all_messages=True,
-            max_messages=5,
+            max_conversations=5,
+            to_datetime=cutoff,
         )
 
         # Get counts after first run
@@ -185,7 +193,8 @@ class TestFromSpaceIntegration:
         cache_service.from_space(
             space_id=genie_space_id,
             include_all_messages=True,
-            max_messages=5,
+            max_conversations=5,
+            to_datetime=cutoff,
         )
 
         # Get counts after second run

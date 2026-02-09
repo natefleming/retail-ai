@@ -1,5 +1,6 @@
 """Unit and integration tests for prompt history tracking in context-aware cache."""
 
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,6 +11,13 @@ from dao_ai.config import (
     WarehouseModel,
 )
 from dao_ai.genie.cache import PostgresContextAwareGenieService
+
+
+def _sql_to_str(query: Any) -> str:
+    """Convert SQL query (str or psycopg.sql.Composed) to plain string for assertions."""
+    if isinstance(query, str):
+        return query
+    return query.as_string(None).replace('"', "")
 
 
 class TestPromptHistoryStorage:
@@ -83,13 +91,15 @@ class TestPromptHistoryStorage:
             service.initialize()
 
         # Verify prompt history table creation SQL was called
-        execute_calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
+        execute_calls = [
+            _sql_to_str(call[0][0]) for call in mock_cursor.execute.call_args_list
+        ]
 
         # Check that prompt history table creation was attempted
         prompt_table_creates = [
-            sql
-            for sql in execute_calls
-            if "test_prompt_history" in sql and "CREATE TABLE" in sql
+            q
+            for q in execute_calls
+            if "test_prompt_history" in q and "CREATE TABLE" in q
         ]
         assert len(prompt_table_creates) > 0, "Prompt history table should be created"
 
@@ -141,18 +151,18 @@ class TestPromptHistoryStorage:
         # Find the INSERT call among all execute calls
         insert_call = None
         for call in mock_cursor.execute.call_args_list:
-            sql = call[0][0]
-            if "INSERT INTO test_prompt_history" in sql:
+            sql_str = _sql_to_str(call[0][0])
+            if "INSERT INTO test_prompt_history" in sql_str:
                 insert_call = call
                 break
 
         assert insert_call is not None, (
             "INSERT INTO test_prompt_history not found in execute calls"
         )
-        sql = insert_call[0][0]
+        sql_str = _sql_to_str(insert_call[0][0])
         params = insert_call[0][1]
 
-        assert "INSERT INTO test_prompt_history" in sql
+        assert "INSERT INTO test_prompt_history" in sql_str
         assert params[0] == "test-space"  # genie_space_id
         assert params[1] == "conv-123"  # conversation_id
         assert params[2] == "What are total sales?"  # prompt
@@ -198,12 +208,12 @@ class TestPromptHistoryStorage:
         # Verify SELECT was called with LIMIT
         assert mock_cursor.execute.called
         call_args = mock_cursor.execute.call_args[0]
-        sql = call_args[0]
+        sql_str = _sql_to_str(call_args[0])
         params = call_args[1]
 
-        assert "SELECT prompt" in sql
-        assert "FROM test_prompt_history" in sql
-        assert "LIMIT" in sql
+        assert "SELECT prompt" in sql_str
+        assert "FROM test_prompt_history" in sql_str
+        assert "LIMIT" in sql_str
         assert params[2] == 2  # LIMIT value
 
         # Verify prompts are returned in chronological order
@@ -247,12 +257,12 @@ class TestPromptHistoryStorage:
         # Verify UPDATE was called
         assert mock_cursor.execute.called
         call_args = mock_cursor.execute.call_args[0]
-        sql = call_args[0]
+        sql_str = _sql_to_str(call_args[0])
         params = call_args[1]
 
-        assert "UPDATE test_prompt_history" in sql
-        assert "SET cache_hit" in sql
-        assert "WHERE genie_space_id" in sql
+        assert "UPDATE test_prompt_history" in sql_str
+        assert "SET cache_hit" in sql_str
+        assert "WHERE genie_space_id" in sql_str
         assert params[0] is True  # new cache_hit value
 
 
@@ -524,7 +534,7 @@ def test_configuration_validation() -> None:
         warehouse=warehouse,
     )
     assert params.prompt_history_table == "genie_prompt_history"
-    assert params.context_window_size == 2
+    assert params.context_window_size == 4
 
     # Test custom values
     params_custom = GenieContextAwareCacheParametersModel(
@@ -764,8 +774,9 @@ class TestFromSpace:
         insert_calls = [
             call
             for call in mock_cursor.execute.call_args_list
-            if "INSERT INTO test_prompt_history" in str(call)
-            and "ON CONFLICT" in str(call[0][0])
+            if "INSERT INTO" in _sql_to_str(call[0][0])
+            and "test_prompt_history" in _sql_to_str(call[0][0])
+            and "ON CONFLICT" in _sql_to_str(call[0][0])
         ]
         assert len(insert_calls) > 0, "Should have called INSERT with ON CONFLICT"
 
@@ -957,7 +968,8 @@ class TestFromSpace:
         insert_calls = [
             call
             for call in mock_cursor.execute.call_args_list
-            if "INSERT INTO test_prompt_history" in str(call[0][0])
+            if "INSERT INTO" in _sql_to_str(call[0][0])
+            and "test_prompt_history" in _sql_to_str(call[0][0])
         ]
         assert len(insert_calls) == 1
 
@@ -1017,7 +1029,8 @@ class TestFromSpace:
         insert_calls = [
             call
             for call in mock_cursor.execute.call_args_list
-            if "INSERT INTO test_prompt_history" in str(call[0][0])
+            if "INSERT INTO" in _sql_to_str(call[0][0])
+            and "test_prompt_history" in _sql_to_str(call[0][0])
         ]
         assert len(insert_calls) == 2
 

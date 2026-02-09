@@ -1,6 +1,7 @@
 import atexit
 import importlib
 import os
+import re
 import sys
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -79,6 +80,7 @@ from pydantic import (
     Field,
     PrivateAttr,
     field_serializer,
+    field_validator,
     model_validator,
 )
 
@@ -1752,7 +1754,7 @@ class GenieContextAwareCacheParametersBase(BaseModel):
     embedding_model: str | LLMModel = "databricks-gte-large-en"
     embedding_dims: int | None = None  # Auto-detected if None
     warehouse: WarehouseModel
-    context_window_size: int = 2  # Number of previous turns to include for context
+    context_window_size: int = 4  # Number of previous turns to include for context
     max_context_tokens: int = (
         2000  # Maximum context length to prevent extremely long embeddings
     )
@@ -1818,6 +1820,29 @@ class GenieContextAwareCacheParametersModel(GenieContextAwareCacheParametersBase
     prompt_history_ttl_seconds: int | None = (
         None  # TTL for prompts (None = use cache TTL)
     )
+    # IVFFlat index tuning for pg_vector similarity search.
+    # These parameters control recall vs speed trade-offs at scale.
+    ivfflat_lists: int | None = (
+        None  # Number of IVF lists. None = auto-computed as max(100, sqrt(row_count))
+    )
+    ivfflat_probes: int | None = (
+        None  # Number of lists to probe per query. None = auto-computed as max(10, sqrt(lists)).
+    )
+    ivfflat_candidates: int = (
+        20  # Number of top-K candidates to retrieve before Python-side reranking.
+    )
+
+    @field_validator("table_name", "prompt_history_table")
+    @classmethod
+    def validate_sql_identifier(cls, v: str) -> str:
+        """Validate that table names are safe SQL identifiers to prevent injection."""
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", v):
+            raise ValueError(
+                f"Invalid SQL identifier: {v!r}. "
+                "Table names must start with a letter or underscore and contain "
+                "only letters, digits, and underscores."
+            )
+        return v
 
 
 # Memory estimation for capacity planning:
@@ -2469,6 +2494,10 @@ class InlineFunctionModel(BaseFunctionModel):
     This allows you to define simple tools without creating separate Python files.
     The code should define a function decorated with @tool from langchain.tools.
 
+    SECURITY WARNING: This model uses exec() to execute arbitrary Python code
+    from the YAML configuration. Only load configurations from trusted sources.
+    A malicious configuration could execute arbitrary code on the host system.
+
     Example YAML:
         tools:
           calculator:
@@ -2497,15 +2526,24 @@ class InlineFunctionModel(BaseFunctionModel):
     )
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
-        """Execute the inline code and return the tool(s) defined in it."""
+        """Execute the inline code and return the tool(s) defined in it.
+
+        SECURITY WARNING: This method uses exec() to run arbitrary Python code.
+        Only use with trusted configuration sources.
+        """
         from langchain_core.tools import BaseTool
+
+        logger.warning(
+            "Executing inline tool code - ensure this code comes from a trusted source",
+            code_preview=self.code[:100],
+        )
 
         # Create a namespace for executing the code
         namespace: dict[str, Any] = {}
 
         # Execute the code in the namespace
         try:
-            exec(self.code, namespace)
+            exec(self.code, namespace)  # noqa: S102
         except Exception as e:
             raise ValueError(f"Failed to execute inline tool code: {e}") from e
 

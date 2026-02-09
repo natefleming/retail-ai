@@ -7,7 +7,7 @@ Databricks Lakebase connections via the DatabaseModel abstraction.
 
 Features:
 - Dual embedding matching (question + conversation context)
-- pg_vector similarity search with L2 distance
+- pg_vector cosine similarity search
 - Prompt history tracking for conversation context
 - TTL-based expiration with refresh-on-hit
 - Space-partitioned cache entries
@@ -15,13 +15,15 @@ Features:
 
 from __future__ import annotations
 
+import json
+import math
 from datetime import datetime, timedelta
 from typing import Any, Self
 
 import mlflow
 from databricks.sdk import WorkspaceClient
-from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
+from psycopg import sql
 
 from dao_ai.config import (
     DatabaseModel,
@@ -37,6 +39,12 @@ from dao_ai.genie.cache.context_aware.persistent import (
     DbRow,
     PersistentContextAwareGenieCacheService,
 )
+from dao_ai.genie.core import GenieResponse
+
+
+def _serialize_embedding(embedding: list[float]) -> str:
+    """Serialize embedding vector to pg_vector string format using C-optimized json.dumps."""
+    return json.dumps(embedding, separators=(",", ":"))
 
 
 class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
@@ -111,6 +119,9 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         self._embedding_dims = None
         self._setup_complete = False
         self._prompt_stored_for_current_request = False
+        self._resolved_ivfflat_lists: int = (
+            100  # Set during _create_table_if_not_exists
+        )
 
     def _setup(self) -> None:
         """Initialize embeddings and database connection pool lazily."""
@@ -221,49 +232,67 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
               AND attname = 'question_embedding'
         """
 
-        create_table_sql: str = f"""
-            CREATE TABLE IF NOT EXISTS {self.table_name} (
+        table_id = sql.Identifier(self.table_name)
+        dims = self.embedding_dims
+
+        create_table_sql = sql.SQL("""
+            CREATE TABLE IF NOT EXISTS {} (
                 id SERIAL PRIMARY KEY,
                 genie_space_id TEXT NOT NULL,
                 question TEXT NOT NULL,
                 conversation_context TEXT,
                 context_string TEXT,
-                question_embedding vector({self.embedding_dims}),
-                context_embedding vector({self.embedding_dims}),
+                question_embedding vector({}),
+                context_embedding vector({}),
                 sql_query TEXT NOT NULL,
                 description TEXT,
                 conversation_id TEXT,
                 message_id TEXT,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
-        """
+        """).format(table_id, sql.Literal(dims), sql.Literal(dims))
 
         # Migration: Add message_id column if it doesn't exist
-        add_message_id_sql: str = f"""
-            ALTER TABLE {self.table_name} 
+        add_message_id_sql = sql.SQL("""
+            ALTER TABLE {} 
             ADD COLUMN IF NOT EXISTS message_id TEXT
-        """
+        """).format(table_id)
+        # Compute ivfflat lists parameter.
+        # Explicit config value takes priority; otherwise auto-compute from table size.
+        ivfflat_lists = self.parameters.ivfflat_lists
+        # ivfflat_lists will be resolved after table creation (needs row count)
+
         # Index for efficient similarity search partitioned by genie_space_id
-        create_question_embedding_index_sql: str = f"""
-            CREATE INDEX IF NOT EXISTS {self.table_name}_question_embedding_idx 
-            ON {self.table_name} 
-            USING ivfflat (question_embedding vector_l2_ops)
-            WITH (lists = 100)
-        """
-        create_context_embedding_index_sql: str = f"""
-            CREATE INDEX IF NOT EXISTS {self.table_name}_context_embedding_idx 
-            ON {self.table_name} 
-            USING ivfflat (context_embedding vector_l2_ops)
-            WITH (lists = 100)
-        """
-        create_space_index_sql: str = f"""
-            CREATE INDEX IF NOT EXISTS {self.table_name}_space_idx 
-            ON {self.table_name} (genie_space_id)
-        """
-        create_unique_question_index_sql: str = f"""
-            CREATE UNIQUE INDEX IF NOT EXISTS {self.table_name}_unique_question_idx
-            ON {self.table_name} (genie_space_id, question)
-        """
+        # The lists parameter is set dynamically below after table creation.
+        def _make_ivfflat_index_sql(
+            idx_name: str, column: str, lists_val: int
+        ) -> sql.Composed:
+            return sql.SQL("""
+                CREATE INDEX IF NOT EXISTS {} 
+                ON {} 
+                USING ivfflat ({} vector_cosine_ops)
+                WITH (lists = {})
+            """).format(
+                sql.Identifier(idx_name),
+                table_id,
+                sql.Identifier(column),
+                sql.Literal(lists_val),
+            )
+
+        create_space_index_sql = sql.SQL("""
+            CREATE INDEX IF NOT EXISTS {} 
+            ON {} (genie_space_id)
+        """).format(
+            sql.Identifier(f"{self.table_name}_space_idx"),
+            table_id,
+        )
+        create_unique_question_index_sql = sql.SQL("""
+            CREATE UNIQUE INDEX IF NOT EXISTS {}
+            ON {} (genie_space_id, question)
+        """).format(
+            sql.Identifier(f"{self.table_name}_unique_question_idx"),
+            table_id,
+        )
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -283,7 +312,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                                 expected_dims=self.embedding_dims,
                                 table_name=self.table_name,
                             )
-                            cur.execute(f"DROP TABLE {self.table_name}")
+                            cur.execute(sql.SQL("DROP TABLE {}").format(table_id))
                 except Exception:
                     pass
 
@@ -309,6 +338,38 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                         f"message_id column migration skipped: {e}",
                         layer=self.name,
                     )
+
+                # Auto-compute ivfflat lists if not explicitly configured.
+                if ivfflat_lists is None:
+                    try:
+                        cur.execute(
+                            sql.SQL("SELECT COUNT(*) as cnt FROM {}").format(table_id)
+                        )
+                        count_row = cur.fetchone()
+                        row_count = count_row.get("cnt", 0) if count_row else 0
+                        ivfflat_lists = max(100, int(math.sqrt(row_count)))
+                    except Exception:
+                        ivfflat_lists = 100
+
+                # Store resolved lists for probes auto-computation in _find_similar
+                self._resolved_ivfflat_lists = ivfflat_lists
+
+                logger.debug(
+                    "Using ivfflat lists",
+                    layer=self.name,
+                    ivfflat_lists=ivfflat_lists,
+                )
+
+                create_question_embedding_index_sql = _make_ivfflat_index_sql(
+                    f"{self.table_name}_question_embedding_idx",
+                    "question_embedding",
+                    ivfflat_lists,
+                )
+                create_context_embedding_index_sql = _make_ivfflat_index_sql(
+                    f"{self.table_name}_context_embedding_idx",
+                    "context_embedding",
+                    ivfflat_lists,
+                )
 
                 # Create indexes
                 for idx_name, idx_sql in [
@@ -351,9 +412,10 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
     def _create_prompt_history_table(self, cur: Any) -> None:
         """Create the prompt history table for tracking user prompts."""
         prompt_table_name = self.prompt_history_table
+        prompt_table_id = sql.Identifier(prompt_table_name)
 
-        create_prompt_table_sql: str = f"""
-            CREATE TABLE IF NOT EXISTS {prompt_table_name} (
+        create_prompt_table_sql = sql.SQL("""
+            CREATE TABLE IF NOT EXISTS {} (
                 id SERIAL PRIMARY KEY,
                 genie_space_id TEXT NOT NULL,
                 conversation_id TEXT NOT NULL,
@@ -362,31 +424,43 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                 cache_entry_id INTEGER,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
-        """
+        """).format(prompt_table_id)
 
         # Migration: Add cache_entry_id column if it doesn't exist
-        add_cache_entry_id_sql: str = f"""
-            ALTER TABLE {prompt_table_name} 
+        add_cache_entry_id_sql = sql.SQL("""
+            ALTER TABLE {} 
             ADD COLUMN IF NOT EXISTS cache_entry_id INTEGER
-        """
+        """).format(prompt_table_id)
 
-        create_conversation_index_sql: str = f"""
-            CREATE INDEX IF NOT EXISTS {prompt_table_name}_conversation_idx 
-            ON {prompt_table_name} (genie_space_id, conversation_id, created_at DESC)
-        """
-        create_space_index_sql: str = f"""
-            CREATE INDEX IF NOT EXISTS {prompt_table_name}_space_idx 
-            ON {prompt_table_name} (genie_space_id, created_at DESC)
-        """
-        create_unique_prompt_index_sql: str = f"""
-            CREATE UNIQUE INDEX IF NOT EXISTS {prompt_table_name}_unique_prompt_idx
-            ON {prompt_table_name} (genie_space_id, conversation_id, prompt)
-        """
-        create_cache_entry_index_sql: str = f"""
-            CREATE INDEX IF NOT EXISTS {prompt_table_name}_cache_entry_idx
-            ON {prompt_table_name} (cache_entry_id)
+        create_conversation_index_sql = sql.SQL("""
+            CREATE INDEX IF NOT EXISTS {} 
+            ON {} (genie_space_id, conversation_id, created_at DESC)
+        """).format(
+            sql.Identifier(f"{prompt_table_name}_conversation_idx"),
+            prompt_table_id,
+        )
+        create_space_index_sql = sql.SQL("""
+            CREATE INDEX IF NOT EXISTS {} 
+            ON {} (genie_space_id, created_at DESC)
+        """).format(
+            sql.Identifier(f"{prompt_table_name}_space_idx"),
+            prompt_table_id,
+        )
+        create_unique_prompt_index_sql = sql.SQL("""
+            CREATE UNIQUE INDEX IF NOT EXISTS {}
+            ON {} (genie_space_id, conversation_id, prompt)
+        """).format(
+            sql.Identifier(f"{prompt_table_name}_unique_prompt_idx"),
+            prompt_table_id,
+        )
+        create_cache_entry_index_sql = sql.SQL("""
+            CREATE INDEX IF NOT EXISTS {}
+            ON {} (cache_entry_id)
             WHERE cache_entry_id IS NOT NULL
-        """
+        """).format(
+            sql.Identifier(f"{prompt_table_name}_cache_entry_idx"),
+            prompt_table_id,
+        )
 
         try:
             cur.execute(create_prompt_table_sql)
@@ -439,57 +513,76 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         context_embedding: list[float],
         conversation_id: str | None = None,
     ) -> tuple[SQLCacheEntry, float] | None:
-        """Find a semantically similar cached entry using pg_vector."""
+        """Find a semantically similar cached entry using pg_vector.
+
+        Uses a two-phase approach for scalability:
+        Phase 1 (SQL): Use pg_vector's native ``ORDER BY embedding <=> query LIMIT K``
+            pattern which is optimized to use the ivfflat index. This retrieves the
+            top-K candidates by question distance. ``SET LOCAL ivfflat.probes`` controls
+            recall quality.
+        Phase 2 (Python): Compute combined similarity on the K candidates, apply
+            threshold checks (question, context, TTL), and pick the best match.
+
+        This avoids the previous CTE approach which materialized all filtered rows
+        before ranking, defeating the ivfflat index optimization.
+        """
         ttl_seconds = self.time_to_live_seconds
         ttl_disabled = ttl_seconds is None or ttl_seconds < 0
 
-        if ttl_disabled:
-            is_valid_expr = "TRUE"
-        else:
-            is_valid_expr = f"created_at > NOW() - INTERVAL '{ttl_seconds} seconds'"
-
         question_weight = self.question_weight
         context_weight = self.context_weight
+        candidates_k = self.parameters.ivfflat_candidates
 
-        search_sql: str = f"""
-            SELECT 
-                id,
-                question,
-                conversation_context,
-                sql_query,
-                description,
-                conversation_id,
-                message_id,
-                created_at,
-                1.0 / (1.0 + (question_embedding <-> %s::vector)) as question_similarity,
-                1.0 / (1.0 + (context_embedding <-> %s::vector)) as context_similarity,
-                ({question_weight} * (1.0 / (1.0 + (question_embedding <-> %s::vector)))) +
-                ({context_weight} * (1.0 / (1.0 + (context_embedding <-> %s::vector)))) as combined_similarity,
-                {is_valid_expr} as is_valid
-            FROM {self.table_name}
+        # Resolve ivfflat probes: explicit config or auto-compute as sqrt(lists).
+        # sqrt(lists) is the standard recommendation for good recall at any scale.
+        configured_probes = self.parameters.ivfflat_probes
+        if configured_probes is not None:
+            ivfflat_probes = configured_probes
+        else:
+            ivfflat_probes = max(10, int(math.sqrt(self._resolved_ivfflat_lists)))
+
+        # Phase 1: Retrieve top-K candidates using pg_vector index scan.
+        # The ORDER BY ... LIMIT K pattern is specifically optimized by pg_vector
+        # to use the ivfflat index for approximate nearest neighbor search,
+        # unlike WHERE-based distance filters or CTEs which cause full scans.
+        search_sql = sql.SQL("""
+            SELECT id, question, conversation_context, sql_query,
+                   description, conversation_id, message_id, created_at,
+                   (question_embedding <=> %s::vector) as question_distance,
+                   COALESCE(NULLIF((context_embedding <=> %s::vector), 'NaN'::float8), 0.0) as context_distance
+            FROM {}
             WHERE genie_space_id = %s
-            ORDER BY combined_similarity DESC
-            LIMIT 1
-        """
+            ORDER BY question_embedding <=> %s::vector
+            LIMIT %s
+        """).format(sql.Identifier(self.table_name))
 
-        question_emb_str = f"[{','.join(str(x) for x in question_embedding)}]"
-        context_emb_str = f"[{','.join(str(x) for x in context_embedding)}]"
+        question_emb_str = _serialize_embedding(question_embedding)
+        context_emb_str = _serialize_embedding(context_embedding)
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
+                # Set ivfflat probes for this transaction only.
+                # SET LOCAL resets when the transaction ends, so it is
+                # safe for connection pools.
+                cur.execute(
+                    sql.SQL("SET LOCAL ivfflat.probes = {}").format(
+                        sql.Literal(ivfflat_probes)
+                    )
+                )
+
                 cur.execute(
                     search_sql,
                     (
                         question_emb_str,
                         context_emb_str,
-                        question_emb_str,
-                        context_emb_str,
                         self.space_id,
+                        question_emb_str,
+                        candidates_k,
                     ),
                 )
-                row: DbRow | None = cur.fetchone()
+                rows: list[DbRow] = cur.fetchall()
 
-                if row is None:
+                if not rows:
                     logger.info(
                         "Cache MISS (no entries)",
                         layer=self.name,
@@ -498,51 +591,74 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                     )
                     return None
 
-                entry_id = row.get("id")
-                cached_question = row.get("question", "")
-                sql_query = row["sql_query"]
-                description = row.get("description", "")
-                conversation_id_cached = row.get("conversation_id", "")
-                created_at = row["created_at"]
-                question_similarity = row["question_similarity"]
-                context_similarity = row["context_similarity"]
-                combined_similarity = row["combined_similarity"]
-                is_valid = row.get("is_valid", False)
-
-                logger.debug(
-                    "Best match found",
-                    layer=self.name,
-                    question_sim=f"{question_similarity:.4f}",
-                    context_sim=f"{context_similarity:.4f}",
-                    combined_sim=f"{combined_similarity:.4f}",
-                    is_valid=is_valid,
+                # Phase 2: Python-side reranking of K candidates.
+                # Convert distances to similarities and apply threshold checks.
+                query_has_context = bool(
+                    conversation_context and conversation_context.strip()
                 )
 
-                if question_similarity < self.similarity_threshold:
+                best_row: DbRow | None = None
+                best_question_sim: float = 0.0
+                best_context_sim: float = 0.0
+                best_combined_sim: float = 0.0
+
+                for row in rows:
+                    question_similarity = 1.0 - row["question_distance"]
+                    context_similarity = 1.0 - row["context_distance"]
+
+                    # Question threshold gate
+                    if question_similarity < self.similarity_threshold:
+                        continue
+
+                    # Bidirectional context-skip: skip context threshold when
+                    # EITHER side has no context.
+                    cached_context = row.get("conversation_context", "")
+                    has_stored_context = bool(cached_context and cached_context.strip())
+
+                    if has_stored_context and query_has_context:
+                        if context_similarity < self.context_similarity_threshold:
+                            continue
+
+                    combined = (
+                        question_weight * question_similarity
+                        + context_weight * context_similarity
+                    )
+
+                    if combined > best_combined_sim:
+                        best_row = row
+                        best_question_sim = question_similarity
+                        best_context_sim = context_similarity
+                        best_combined_sim = combined
+
+                if best_row is None:
                     logger.info(
-                        "Cache MISS (question similarity too low)",
+                        "Cache MISS (no candidates pass thresholds)",
                         layer=self.name,
-                        question_sim=f"{question_similarity:.4f}",
-                        threshold=self.similarity_threshold,
+                        question=question[:50],
+                        space=self.space_id,
+                        candidates_checked=len(rows),
                     )
                     return None
 
-                if context_similarity < self.context_similarity_threshold:
-                    logger.info(
-                        "Cache MISS (context similarity too low)",
-                        layer=self.name,
-                        context_sim=f"{context_similarity:.4f}",
-                        threshold=self.context_similarity_threshold,
-                    )
-                    return None
+                # TTL check on the best candidate
+                entry_id = best_row.get("id")
+                created_at = best_row["created_at"]
 
-                if not is_valid:
-                    cur.execute(
-                        f"DELETE FROM {self.table_name} WHERE id = %s", (entry_id,)
-                    )
-                    logger.info("Cache MISS (expired, deleted)", layer=self.name)
-                    return None
+                if not ttl_disabled and created_at:
+                    age_seconds = (
+                        datetime.now(created_at.tzinfo) - created_at
+                    ).total_seconds()
+                    if age_seconds > ttl_seconds:
+                        cur.execute(
+                            sql.SQL("DELETE FROM {} WHERE id = %s").format(
+                                sql.Identifier(self.table_name)
+                            ),
+                            (entry_id,),
+                        )
+                        logger.info("Cache MISS (expired, deleted)", layer=self.name)
+                        return None
 
+                cached_question = best_row.get("question", "")
                 cache_age_seconds = None
                 if created_at:
                     cache_age_seconds = (
@@ -557,22 +673,21 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                     cache_age_seconds=round(cache_age_seconds, 1)
                     if cache_age_seconds
                     else None,
-                    question_similarity=f"{question_similarity:.4f}",
-                    context_similarity=f"{context_similarity:.4f}",
-                    combined_similarity=f"{combined_similarity:.4f}",
+                    question_similarity=f"{best_question_sim:.4f}",
+                    context_similarity=f"{best_context_sim:.4f}",
+                    combined_similarity=f"{best_combined_sim:.4f}",
+                    candidates_checked=len(rows),
                 )
-
-                message_id_cached = row.get("message_id")
 
                 entry = SQLCacheEntry(
-                    query=sql_query,
-                    description=description,
-                    conversation_id=conversation_id_cached,
+                    query=best_row["sql_query"],
+                    description=best_row.get("description", ""),
+                    conversation_id=best_row.get("conversation_id", ""),
                     created_at=created_at,
-                    message_id=message_id_cached,
+                    message_id=best_row.get("message_id"),
                     cache_entry_id=entry_id,
                 )
-                return entry, combined_similarity
+                return entry, best_combined_sim
 
     def _store_entry(
         self,
@@ -584,15 +699,26 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         message_id: str | None = None,
     ) -> None:
         """Store a new cache entry with dual embeddings and message_id."""
-        insert_sql: str = f"""
-            INSERT INTO {self.table_name} 
+        insert_sql = sql.SQL("""
+            INSERT INTO {} 
             (genie_space_id, question, conversation_context, context_string, 
              question_embedding, context_embedding, sql_query, description, 
              conversation_id, message_id)
             VALUES (%s, %s, %s, %s, %s::vector, %s::vector, %s, %s, %s, %s)
-        """
-        question_emb_str = f"[{','.join(str(x) for x in question_embedding)}]"
-        context_emb_str = f"[{','.join(str(x) for x in context_embedding)}]"
+            ON CONFLICT (genie_space_id, question)
+            DO UPDATE SET
+                conversation_context = EXCLUDED.conversation_context,
+                context_string = EXCLUDED.context_string,
+                question_embedding = EXCLUDED.question_embedding,
+                context_embedding = EXCLUDED.context_embedding,
+                sql_query = EXCLUDED.sql_query,
+                description = EXCLUDED.description,
+                conversation_id = EXCLUDED.conversation_id,
+                message_id = EXCLUDED.message_id,
+                created_at = CURRENT_TIMESTAMP
+        """).format(sql.Identifier(self.table_name))
+        question_emb_str = _serialize_embedding(question_embedding)
+        context_emb_str = _serialize_embedding(context_embedding)
 
         if conversation_context:
             full_context_string = f"{conversation_context}\nCurrent: {question}"
@@ -626,9 +752,9 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
     def _on_stale_cache_entry(self, question: str) -> None:
         """Delete stale cache entry from database."""
-        delete_sql = (
-            f"DELETE FROM {self.table_name} WHERE genie_space_id = %s AND question = %s"
-        )
+        delete_sql = sql.SQL(
+            "DELETE FROM {} WHERE genie_space_id = %s AND question = %s"
+        ).format(sql.Identifier(self.table_name))
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(delete_sql, (self.space_id, question))
@@ -653,9 +779,9 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         Returns:
             True if an entry was found and invalidated, False otherwise
         """
-        delete_sql = (
-            f"DELETE FROM {self.table_name} WHERE genie_space_id = %s AND question = %s"
-        )
+        delete_sql = sql.SQL(
+            "DELETE FROM {} WHERE genie_space_id = %s AND question = %s"
+        ).format(sql.Identifier(self.table_name))
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(delete_sql, (self.space_id, question))
@@ -735,11 +861,11 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         result: dict[str, int] = {"cache": 0, "prompt_history": 0}
 
         # Delete expired cache entries
-        delete_cache_sql = f"""
-            DELETE FROM {self.table_name}
+        delete_cache_sql = sql.SQL("""
+            DELETE FROM {}
             WHERE genie_space_id = %s
               AND created_at < NOW() - INTERVAL '%s seconds'
-        """
+        """).format(sql.Identifier(self.table_name))
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -755,11 +881,11 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         # Delete expired prompt history
         if prompt_ttl_seconds is not None and prompt_ttl_seconds >= 0:
             try:
-                delete_prompt_sql = f"""
-                    DELETE FROM {self.prompt_history_table}
+                delete_prompt_sql = sql.SQL("""
+                    DELETE FROM {}
                     WHERE genie_space_id = %s
                       AND created_at < NOW() - INTERVAL '%s seconds'
-                """
+                """).format(sql.Identifier(self.prompt_history_table))
                 with self._pool.connection() as conn:
                     with conn.cursor() as cur:
                         cur.execute(
@@ -776,7 +902,9 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
     def _delete_all_entries(self) -> int:
         """Delete all cache entries for this Genie space."""
-        delete_sql = f"DELETE FROM {self.table_name} WHERE genie_space_id = %s"
+        delete_sql = sql.SQL("DELETE FROM {} WHERE genie_space_id = %s").format(
+            sql.Identifier(self.table_name)
+        )
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -791,9 +919,9 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
     def _count_all_entries(self) -> int:
         """Count all cache entries for this Genie space."""
-        count_sql = (
-            f"SELECT COUNT(*) as total FROM {self.table_name} WHERE genie_space_id = %s"
-        )
+        count_sql = sql.SQL(
+            "SELECT COUNT(*) as total FROM {} WHERE genie_space_id = %s"
+        ).format(sql.Identifier(self.table_name))
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(count_sql, (self.space_id,))
@@ -802,13 +930,13 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
     def _count_entries_with_ttl(self, ttl_seconds: int) -> tuple[int, int]:
         """Count total and expired entries for this Genie space."""
-        stats_sql = f"""
+        stats_sql = sql.SQL("""
             SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '%s seconds') as expired
-            FROM {self.table_name}
+            FROM {}
             WHERE genie_space_id = %s
-        """
+        """).format(sql.Identifier(self.table_name))
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(stats_sql, (ttl_seconds, self.space_id))
@@ -819,15 +947,15 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
     def _get_additional_stats(self) -> dict[str, Any]:
         """Add prompt history stats."""
-        prompt_stats_sql = f"""
+        prompt_stats_sql = sql.SQL("""
             SELECT
                 COUNT(*) as total_prompts,
                 COUNT(*) FILTER (WHERE cache_hit = true) as cache_hit_prompts,
                 COUNT(*) FILTER (WHERE cache_hit = false) as cache_miss_prompts,
                 COUNT(DISTINCT conversation_id) as total_conversations
-            FROM {self.prompt_history_table}
+            FROM {}
             WHERE genie_space_id = %s
-        """
+        """).format(sql.Identifier(self.prompt_history_table))
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(prompt_stats_sql, (self.space_id,))
@@ -925,19 +1053,23 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
         where_str = " AND ".join(where_clauses)
 
-        # Build full query
-        query = f"""
-            SELECT {columns_str}
-            FROM {self.table_name}
-            WHERE {where_str}
+        # Build full query using safe SQL composition
+        query = sql.SQL("""
+            SELECT {}
+            FROM {}
+            WHERE {}
             ORDER BY created_at DESC
-        """
+        """).format(
+            sql.SQL(columns_str),
+            sql.Identifier(self.table_name),
+            sql.SQL(where_str),
+        )
 
         if limit is not None:
-            query += f" LIMIT {int(limit)}"
+            query += sql.SQL(" LIMIT {}").format(sql.Literal(int(limit)))
 
         if offset is not None:
-            query += f" OFFSET {int(offset)}"
+            query += sql.SQL(" OFFSET {}").format(sql.Literal(int(offset)))
 
         # Execute query
         with self._pool.connection() as conn:
@@ -1159,9 +1291,16 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
 
             message_created_at = None
             if message.created_timestamp:
+                # Inherit timezone from the filter parameters so comparisons
+                # don't mix offset-naive and offset-aware datetimes.
+                tz = (
+                    from_datetime.tzinfo
+                    if from_datetime
+                    else (to_datetime.tzinfo if to_datetime else None)
+                )
                 message_created_at = datetime.fromtimestamp(
                     message.created_timestamp / 1000.0,
-                    tz=from_datetime.tzinfo if from_datetime else None,
+                    tz=tz,
                 )
 
             if message_created_at:
@@ -1265,23 +1404,23 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
     ) -> bool:
         """Store prompt with ON CONFLICT DO NOTHING."""
         target_space_id = space_id or self.space_id
-        prompt_table_name = self.prompt_history_table
+        prompt_table_id = sql.Identifier(self.prompt_history_table)
 
         if created_at:
-            insert_sql = f"""
-                INSERT INTO {prompt_table_name} 
+            insert_sql = sql.SQL("""
+                INSERT INTO {} 
                 (genie_space_id, conversation_id, prompt, cache_hit, created_at)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (genie_space_id, conversation_id, prompt) DO NOTHING
-            """
+            """).format(prompt_table_id)
             params = (target_space_id, conversation_id, prompt, cache_hit, created_at)
         else:
-            insert_sql = f"""
-                INSERT INTO {prompt_table_name} 
+            insert_sql = sql.SQL("""
+                INSERT INTO {} 
                 (genie_space_id, conversation_id, prompt, cache_hit)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (genie_space_id, conversation_id, prompt) DO NOTHING
-            """
+            """).format(prompt_table_id)
             params = (target_space_id, conversation_id, prompt, cache_hit)
 
         try:
@@ -1306,15 +1445,15 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         """Store cache entry with ON CONFLICT DO NOTHING."""
         target_space_id = space_id or self.space_id
 
-        insert_sql = f"""
-            INSERT INTO {self.table_name} 
+        insert_sql = sql.SQL("""
+            INSERT INTO {} 
             (genie_space_id, question, conversation_context, context_string, 
              question_embedding, context_embedding, sql_query, description, conversation_id)
             VALUES (%s, %s, %s, %s, %s::vector, %s::vector, %s, %s, %s)
             ON CONFLICT (genie_space_id, question) DO NOTHING
-        """
-        question_emb_str = f"[{','.join(str(x) for x in question_embedding)}]"
-        context_emb_str = f"[{','.join(str(x) for x in context_embedding)}]"
+        """).format(sql.Identifier(self.table_name))
+        question_emb_str = _serialize_embedding(question_embedding)
+        context_emb_str = _serialize_embedding(context_embedding)
         full_context = (
             f"{conversation_context}\nCurrent: {question}"
             if conversation_context

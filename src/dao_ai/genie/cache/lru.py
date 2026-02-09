@@ -16,7 +16,6 @@ import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.dashboards import GenieFeedbackRating
-from databricks_ai_bridge.genie import GenieResponse
 from loguru import logger
 
 from dao_ai.config import GenieLRUCacheParametersModel, WarehouseModel
@@ -26,6 +25,7 @@ from dao_ai.genie.cache.base import (
     SQLCacheEntry,
 )
 from dao_ai.genie.cache.core import execute_sql_via_warehouse
+from dao_ai.genie.core import GenieResponse
 
 
 class LRUCacheService(GenieServiceBase):
