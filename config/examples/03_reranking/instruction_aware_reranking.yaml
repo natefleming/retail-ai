@@ -74,25 +74,37 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      schema_description: |
-        Products table columns:
-        - product_id (BIGINT): Unique product identifier
-        - sku (STRING): Stock keeping unit - internal product code
-        - upc (STRING): Universal Product Code - barcode number
-        - brand_name (STRING): Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)
-        - product_name (STRING): Product display name
-        - merchandise_class (STRING): Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)
-        - class_cd (STRING): Category code
-        - description (STRING): Detailed product description
-        
-        Valid filter operators for Databricks Vector Search:
-        - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
-        - Exclusion: {"column NOT": "value"}
-        - Pattern: {"column LIKE": "pattern"}
+      # Column metadata is the single source of truth for schema context.
+      # Each pipeline component generates the context it needs from this data.
+      columns:
+        - name: product_id
+          type: number
+          description: "Unique product identifier"
+        - name: sku
+          type: string
+          description: "Stock keeping unit - internal product code"
+        - name: upc
+          type: string
+          description: "Universal Product Code - barcode number"
+        - name: brand_name
+          type: string
+          description: "Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)"
+        - name: product_name
+          type: string
+          description: "Product display name"
+        - name: merchandise_class
+          type: string
+          description: "Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)"
+        - name: class_cd
+          type: string
+          description: "Category code"
+        - name: description
+          type: string
+          description: "Detailed product description"
       constraints:
         - "Use merchandise_class for category filtering"
         - "Use brand_name for brand filtering"
-        - "Only use columns listed in schema_description"
+        - "Only use columns listed above"
       decomposition:
         model: *reranker_llm
         normalize_filter_case: uppercase
@@ -206,7 +218,7 @@ app:
 #
 # Configuration Tips:
 # - Use small/fast LLM for decomposition and instruction reranking
-# - schema_description must accurately describe filterable columns
+# - columns must accurately describe filterable columns
 # - examples help the LLM generate correct filter syntax
 # - normalize_filter_case ensures filter values match stored data
 #

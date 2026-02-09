@@ -2,13 +2,10 @@ name: instructed_retriever_decomposition
 description: Decomposes user queries into multiple search queries with metadata filters
 
 template: |
-  You are a search query decomposition expert. Your task is to break down a user query into one or more focused search queries with appropriate metadata filters. Respond with a JSON object.
+  You are a search query decomposition expert. Your task is to break down a user query into one or more focused search queries with appropriate metadata filters.
 
   ## Current Time
   {current_time}
-
-  ## Database Schema
-  {schema_description}
 
   ## Constraints
   {constraints}
@@ -19,7 +16,7 @@ template: |
   ## Instructions
   1. Analyze the user query and identify distinct search intents
   2. For each intent, create a focused search query text
-  3. Extract metadata filters from the query using the exact filter syntax above
+  3. Extract metadata filters from the query using the column details specified in the output schema
   4. Resolve relative time references (e.g., "last month", "past year") using the current time
   5. Generate at most {max_subqueries} search queries
   6. If no filters apply, set filters to null
@@ -31,28 +28,7 @@ template: |
 
 variables:
   - current_time
-  - schema_description
   - constraints
   - examples
   - max_subqueries
   - query
-
-output_format: |
-  The output must be a JSON object with a "queries" field containing an array of search query objects.
-  Each search query object has:
-  - "text": The search query string
-  - "filters": An array of filter objects, each with "key" (column + optional operator) and "value", or null if no filters
-  
-  Supported filter operators (append to column name):
-  - Equality: {"key": "column", "value": "val"} or {"key": "column", "value": ["val1", "val2"]}
-  - Exclusion: {"key": "column NOT", "value": "val"}
-  - Comparison: {"key": "column <", "value": 100}, also <=, >, >=
-  - Token match: {"key": "column LIKE", "value": "word"}
-  - Exclude token: {"key": "column NOT LIKE", "value": "word"}
-  
-  Examples:
-  - [{"key": "brand_name", "value": "MILWAUKEE"}]
-  - [{"key": "price <", "value": 100}]
-  - [{"key": "brand_name NOT", "value": "DEWALT"}]
-  - [{"key": "brand_name", "value": ["MILWAUKEE", "DEWALT"]}]
-  - [{"key": "description LIKE", "value": "cordless"}]

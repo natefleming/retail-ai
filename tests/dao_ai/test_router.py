@@ -4,8 +4,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dao_ai.config import RouterModel
+from dao_ai.config import ColumnInfo, RouterModel
 from dao_ai.tools.router import RouterDecision, route_query
+
+# -- Shared test column fixtures ------------------------------------------------
+
+BASIC_COLUMNS = [
+    ColumnInfo(name="brand_name", type="string", description="Brand/manufacturer"),
+    ColumnInfo(
+        name="price",
+        type="number",
+        operators=["", "<", "<=", ">", ">="],
+        description="Product price in USD",
+    ),
+]
 
 
 @pytest.mark.unit
@@ -81,7 +93,7 @@ class TestRouteQuery:
         result = route_query(
             llm=mock_llm,
             query="drill bits",
-            schema_description="products table with price, brand columns",
+            columns=BASIC_COLUMNS,
         )
 
         assert result == "standard"
@@ -101,7 +113,7 @@ class TestRouteQuery:
         result = route_query(
             llm=mock_llm,
             query="Milwaukee drills under $200",
-            schema_description="products table with price, brand columns",
+            columns=BASIC_COLUMNS,
         )
 
         assert result == "instructed"
@@ -121,7 +133,7 @@ class TestRouteQuery:
         route_query(
             llm=mock_llm,
             query="test query",
-            schema_description="test schema",
+            columns=BASIC_COLUMNS,
         )
 
         # Verify with_structured_output is called with RouterDecision schema
@@ -129,10 +141,10 @@ class TestRouteQuery:
 
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
-    def test_formats_prompt_correctly(
+    def test_formats_prompt_with_compact_column_context(
         self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
     ) -> None:
-        """Test that the prompt is formatted with schema and query."""
+        """Test that the prompt receives compact column context, not full schema."""
         mock_load_prompt.return_value = {
             "template": "Schema: {schema_description}\nQuery: {query}"
         }
@@ -141,11 +153,14 @@ class TestRouteQuery:
         route_query(
             llm=mock_llm,
             query="my test query",
-            schema_description="my schema desc",
+            columns=BASIC_COLUMNS,
         )
 
         # Get the structured LLM and check invoke args
         structured_llm = mock_llm.with_structured_output.return_value
         call_args = structured_llm.invoke.call_args[0][0]
-        assert "my schema desc" in call_args
+        # Should contain compact column summary
+        assert "Filterable columns:" in call_args
+        assert "brand_name (string)" in call_args
+        assert "price (number)" in call_args
         assert "my test query" in call_args

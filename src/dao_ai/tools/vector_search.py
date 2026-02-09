@@ -172,6 +172,10 @@ def create_vector_search_tool(
     instructed_config: Optional[InstructedRetrieverModel] = retriever.instructed
 
     # Extract nested configs from instructed (all depend on schema context)
+    # Columns are the single source of truth for schema context.
+    instructed_columns: list[ColumnInfo] = (
+        instructed_config.columns if instructed_config else []
+    )
     decomposition_config: Optional[DecompositionModel] = (
         instructed_config.decomposition if instructed_config else None
     )
@@ -390,20 +394,14 @@ def create_vector_search_tool(
         try:
             decomposition_llm = _get_cached_llm(decomposition_config.model)
 
-            # Fall back to retriever columns if instructed columns not provided
-            instructed_columns: list[ColumnInfo] | None = instructed_config.columns
-            if instructed_columns is None and columns:
-                instructed_columns = [ColumnInfo(name=col) for col in columns]
-
             subqueries: list[SearchQuery] = decompose_query(
                 llm=decomposition_llm,
                 query=query,
-                schema_description=instructed_config.schema_description,
+                columns=instructed_columns,
                 constraints=instructed_config.constraints,
                 max_subqueries=decomposition_config.max_subqueries,
                 examples=decomposition_config.examples,
                 previous_feedback=previous_feedback,
-                columns=instructed_columns,
             )
 
             if not subqueries:
@@ -545,21 +543,12 @@ def create_vector_search_tool(
             )
 
             if instruction_llm:
-                schema_desc = instructed_config.schema_description
-                # Get columns for dynamic instruction generation
-                rerank_columns: list[ColumnInfo] | None = None
-                if instructed_config.columns:
-                    rerank_columns = instructed_config.columns
-                elif columns:
-                    rerank_columns = [ColumnInfo(name=col) for col in columns]
-
                 documents = instruction_aware_rerank(
                     llm=instruction_llm,
                     query=query,
                     documents=documents,
                     instructions=instruction_rerank_config.instructions,
-                    schema_description=schema_desc,
-                    columns=rerank_columns,
+                    columns=instructed_columns,
                     top_n=instruction_rerank_config.top_n,
                 )
 
@@ -572,7 +561,6 @@ def create_vector_search_tool(
             )
 
             if verifier_llm:
-                schema_desc = instructed_config.schema_description
                 constraints = instructed_config.constraints
                 retry_count = 0
                 verification_result: VerificationResult | None = None
@@ -583,7 +571,7 @@ def create_vector_search_tool(
                         llm=verifier_llm,
                         query=query,
                         documents=documents,
-                        schema_description=schema_desc,
+                        columns=instructed_columns,
                         constraints=constraints,
                         previous_feedback=previous_feedback,
                     )
@@ -669,7 +657,7 @@ def create_vector_search_tool(
                     mode = route_query(
                         llm=router_llm,
                         query=query,
-                        schema_description=instructed_config.schema_description,
+                        columns=instructed_columns,
                     )
                 except Exception as e:
                     # Router fail-safe: default to standard mode

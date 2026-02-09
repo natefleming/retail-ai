@@ -152,24 +152,32 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      schema_description: |
-        Products table for a hardware/home improvement store.
-        
-        Columns:
-        - product_id (STRING): Unique product identifier
-        - sku (STRING): Stock keeping unit code
-        - upc (STRING): Universal product code barcode
-        - brand_name (STRING): Brand/manufacturer (e.g., Milwaukee, DeWalt, Makita, Craftsman, Black+Decker, Ryobi, Bosch, Stanley, Husky)
-        - product_name (STRING): Product display name
-        - merchandise_class (STRING): Category (e.g., Power Tools, Hand Tools, Paint, Plumbing, Electrical, Lumber, Hardware, Outdoor)
-        - class_cd (STRING): Category code
-        - description (STRING): Full product description
-        
-        Valid filter operators for Databricks Vector Search:
-        - Equality: {"column": "value"} or {"column": ["val1", "val2"]}
-        - Comparison: {"column >": value}, {"column >=": value}, {"column <": value}, {"column <=": value}
-        - Exclusion: {"column NOT": "value"} or {"column NOT": ["val1", "val2"]}
-        - Pattern: {"column LIKE": "pattern"} (matches tokens in text)
+      # Schema description is auto-generated from the columns below.
+      columns:
+        - name: product_id
+          type: string
+          description: "Unique product identifier"
+        - name: sku
+          type: string
+          description: "Stock keeping unit code"
+        - name: upc
+          type: string
+          description: "Universal product code barcode"
+        - name: brand_name
+          type: string
+          description: "Brand/manufacturer (e.g., Milwaukee, DeWalt, Makita, Craftsman, Black+Decker, Ryobi, Bosch, Stanley, Husky)"
+        - name: product_name
+          type: string
+          description: "Product display name"
+        - name: merchandise_class
+          type: string
+          description: "Category (e.g., Power Tools, Hand Tools, Paint, Plumbing, Electrical, Lumber, Hardware, Outdoor)"
+        - name: class_cd
+          type: string
+          description: "Category code"
+        - name: description
+          type: string
+          description: "Full product description"
       constraints:
         - "Use brand_name filter for specific brand requests"
         - "Use merchandise_class filter for category-based queries"

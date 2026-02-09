@@ -33,7 +33,7 @@ resources:
         - job_cluster_key: common-cluster
           new_cluster:
             node_type_id: ${var.node_type}
-            spark_version: 16.2.x-scala2.12
+            spark_version: 17.3.x-scala2.12
             num_workers: 1
       environments:
         - environment_key: dao-ai-env

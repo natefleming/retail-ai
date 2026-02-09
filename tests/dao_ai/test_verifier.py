@@ -5,13 +5,25 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.documents import Document
 
-from dao_ai.config import VerificationResult, VerifierModel
+from dao_ai.config import ColumnInfo, VerificationResult, VerifierModel
 from dao_ai.tools.verifier import (
     _format_constraints,
     _format_results_summary,
     add_verification_metadata,
     verify_results,
 )
+
+# -- Shared test column fixtures ------------------------------------------------
+
+BASIC_COLUMNS = [
+    ColumnInfo(name="brand_name", type="string", description="Brand/manufacturer"),
+    ColumnInfo(
+        name="price",
+        type="number",
+        operators=["", "<", "<=", ">", ">="],
+        description="Product price in USD",
+    ),
+]
 
 
 @pytest.mark.unit
@@ -217,7 +229,7 @@ class TestVerifyResults:
             llm=mock_llm,
             query="test query",
             documents=docs,
-            schema_description="test schema",
+            columns=BASIC_COLUMNS,
         )
 
         assert isinstance(result, VerificationResult)
@@ -242,7 +254,7 @@ class TestVerifyResults:
             llm=mock_llm,
             query="test",
             documents=docs,
-            schema_description="schema",
+            columns=BASIC_COLUMNS,
         )
 
         # Verify with_structured_output is called with VerificationResult schema
@@ -264,10 +276,36 @@ class TestVerifyResults:
             llm=mock_llm,
             query="test",
             documents=docs,
-            schema_description="schema",
+            columns=BASIC_COLUMNS,
             previous_feedback="Previous attempt failed",
         )
 
         structured_llm = mock_llm.with_structured_output.return_value
         call_args = structured_llm.invoke.call_args[0][0]
         assert "Previous attempt failed" in call_args
+
+    @patch("dao_ai.tools.verifier._load_prompt_template")
+    @patch("dao_ai.tools.verifier.mlflow")
+    def test_formats_prompt_with_verification_context(
+        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    ) -> None:
+        """Test that the prompt receives verification-focused column context."""
+        mock_load_prompt.return_value = {
+            "template": "Schema: {schema_description}\nQuery: {query}\n{constraints}\n{num_results}\n{results_summary}\n{previous_feedback}"
+        }
+        mock_llm = self._create_mock_llm(passed=True, confidence=0.9)
+
+        docs = [Document(page_content="Test", metadata={})]
+        verify_results(
+            llm=mock_llm,
+            query="test",
+            documents=docs,
+            columns=BASIC_COLUMNS,
+        )
+
+        structured_llm = mock_llm.with_structured_output.return_value
+        call_args = structured_llm.invoke.call_args[0][0]
+        # Should contain verification-focused context (descriptions, no operators)
+        assert "Available columns:" in call_args
+        assert "brand_name (string): Brand/manufacturer" in call_args
+        assert "price (number): Product price in USD" in call_args

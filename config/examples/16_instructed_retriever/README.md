@@ -152,17 +152,22 @@ retrievers:
       num_results: 50
       query_type: HYBRID
     instructed:
-      schema_description: |
-        Products table columns:
-        - brand_name (STRING): Brand/manufacturer name
-        - category (STRING): Product category
-        - price (DOUBLE): Price in USD
-        - updated_at (TIMESTAMP): Last update timestamp
-        
-        Valid filter operators:
-        - Equality: {"column": "value"}
-        - Comparison: {"column >": value}
-        - Exclusion: {"column NOT": "value"}
+      # Column metadata is the single source of truth for schema context.
+      columns:
+        - name: brand_name
+          type: string
+          description: "Brand/manufacturer name"
+        - name: category
+          type: string
+          description: "Product category"
+        - name: price
+          type: number
+          description: "Price in USD"
+          operators: ["", "<", "<=", ">", ">="]
+        - name: updated_at
+          type: datetime
+          description: "Last update timestamp"
+          operators: ["", ">", ">=", "<", "<="]
       constraints:
         - "Prefer recently updated products"
       decomposition:
@@ -220,11 +225,11 @@ graph TB
 
 ## Key Configuration Fields
 
-### `schema_description`
-Critical for filter translation. Must include:
-- Exact column names and types
-- Valid filter syntax for Databricks Vector Search
-- Example values when helpful
+### `columns`
+Critical for filter translation. Provide structured `columns` with descriptions:
+- Set `name` and `type` for each filterable column
+- Add `description` with example values when helpful (these are embedded in JSON schemas for better LLM accuracy)
+- Customize `operators` per column if not all operators apply (per-column operators prevent invalid filter combinations)
 
 ### `decomposition.model`
 Use a smaller, faster model (GPT-3.5, Llama 3 8B) for decomposition to keep latency low while the main agent uses a larger model for synthesis.
@@ -436,7 +441,7 @@ dao-ai chat -c config/examples/16_instructed_retriever/full_pipeline.yaml
 %%{init: {'theme': 'base'}}%%
 graph TB
     subgraph Best["✅ Best Practices"]
-        BP1["📊 Provide comprehensive schema_description"]
+        BP1["📊 Provide columns with descriptions"]
         BP2["📝 Include 3-5 few-shot examples"]
         BP3["⚡ Use small models for decomposition"]
         BP4["🔄 Enable auto_bypass for mixed workloads"]

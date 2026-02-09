@@ -17,6 +17,8 @@ from loguru import logger
 from mlflow.entities import SpanType
 from pydantic import BaseModel, ConfigDict, Field
 
+from dao_ai.config import ColumnInfo
+
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "router.yaml"
 
@@ -49,7 +51,7 @@ class RouterDecision(BaseModel):
 def route_query(
     llm: BaseChatModel,
     query: str,
-    schema_description: str,
+    columns: list[ColumnInfo],
 ) -> Literal["standard", "instructed"]:
     """
     Determine the execution mode for a search query.
@@ -57,16 +59,18 @@ def route_query(
     Args:
         llm: Language model for routing decision
         query: User's search query
-        schema_description: Column names, types, and filter syntax
+        columns: Structured column metadata for generating compact context
 
     Returns:
         "standard" for simple queries, "instructed" for constrained queries
     """
+    from dao_ai.tools.instructed_retriever import format_columns_for_routing
+
     prompt_config = _load_prompt_template()
     prompt_template = prompt_config["template"]
 
     prompt = prompt_template.format(
-        schema_description=schema_description,
+        schema_description=format_columns_for_routing(columns),
         query=query,
     )
 

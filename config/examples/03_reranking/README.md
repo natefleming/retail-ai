@@ -311,7 +311,11 @@ rerank:
   model: ms-marco-MiniLM-L-12-v2
   top_n: 20                          # FlashRank outputs 20 candidates
 instructed:
-  schema_description: "..."
+  columns:
+    - name: brand_name
+      type: string
+      description: "Brand/manufacturer"
+    # ... more columns with descriptions
   rerank:
     model: *fast_llm                 # Use small model for speed
     instructions: |

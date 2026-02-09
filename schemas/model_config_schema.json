@@ -572,7 +572,7 @@
     },
     "ColumnInfo": {
       "additionalProperties": false,
-      "description": "Column metadata for dynamic schema generation in structured output.\n\nWhen provided, column information is embedded directly into the JSON schema\nthat with_structured_output sends to the LLM, improving filter accuracy.",
+      "description": "Column metadata for dynamic schema generation in structured output.\n\nWhen provided, column information is embedded directly into the JSON schema\nthat with_structured_output sends to the LLM, improving filter accuracy.\n\nThe optional ``description`` field lets users annotate a column with semantic\ncontext (e.g. example values, business meaning).  Descriptions are embedded\ninto JSON schemas and prompt context that pipeline components (decomposition,\nrouting, verification, reranking) generate from the column metadata.",
       "properties": {
         "name": {
           "description": "Column name as it appears in the database",
@@ -608,6 +608,19 @@
           },
           "title": "Operators",
           "type": "array"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable description of the column for LLM context. Include example values or business meaning to improve filter accuracy (e.g. 'Brand/manufacturer (MILWAUKEE, DEWALT, etc.)').",
+          "title": "Description"
         }
       },
       "required": [
@@ -2881,28 +2894,15 @@
     },
     "InstructedRetrieverModel": {
       "additionalProperties": false,
-      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nGroups all schema-aware, LLM-driven features: query decomposition, instruction-aware\nreranking, query routing, and result verification. These features share schema context\n(schema_description, columns, constraints) and are co-located here to enforce that\ndependency at the type level.\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        schema_description: |\n          Products table: product_id, brand_name, category, price, updated_at\n          Filter operators: {\"col\": val}, {\"col >\": val}, {\"col NOT\": val}\n        columns:\n          - name: brand_name\n            type: string\n          - name: price\n            type: number\n            operators: [\"\", \"<\", \"<=\", \">\", \">=\"]\n        constraints:\n          - \"Prefer recent products\"\n        decomposition:\n          model: *fast_llm\n          max_subqueries: 3\n          examples:\n            - query: \"cheap drills\"\n              filters: {\"price <\": 100}\n        rerank:\n          model: *fast_llm\n          instructions: \"Prioritize by brand preferences\"\n          top_n: 10\n        router:\n          model: *fast_llm\n          default_mode: standard\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n    ```",
+      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nGroups all schema-aware, LLM-driven features: query decomposition, instruction-aware\nreranking, query routing, and result verification. These features share schema context\n(columns, constraints) and are co-located here to enforce that dependency at the type\nlevel.\n\nColumn metadata is the single source of truth for schema context. Each pipeline\ncomponent (decomposition, routing, verification, reranking) generates the specific\ncontext it needs from the structured ``columns`` data:\n- Decomposition embeds column info into the JSON schema for ``with_structured_output``\n- Routing generates a compact column summary\n- Verification generates a context with column descriptions (no operator syntax)\n- Reranking uses column names and types for instruction generation\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        columns:\n          - name: brand_name\n            type: string\n            description: \"Brand/manufacturer (MILWAUKEE, DEWALT, etc.)\"\n          - name: price\n            type: number\n            operators: [\"\", \"<\", \"<=\", \">\", \">=\"]\n            description: \"Product price in USD\"\n        constraints:\n          - \"Prefer recent products\"\n        decomposition:\n          model: *fast_llm\n          max_subqueries: 3\n          examples:\n            - query: \"cheap drills\"\n              filters: {\"price <\": 100}\n        rerank:\n          model: *fast_llm\n          instructions: \"Prioritize by brand preferences\"\n          top_n: 10\n        router:\n          model: *fast_llm\n          default_mode: standard\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n    ```",
       "properties": {
-        "schema_description": {
-          "description": "Column names, types, and valid filter syntax for the LLM",
-          "title": "Schema Description",
-          "type": "string"
-        },
         "columns": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/ColumnInfo"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Structured column info for dynamic schema generation. When provided, column names are embedded in the JSON schema for better LLM accuracy.",
-          "title": "Columns"
+          "description": "Structured column info used by all pipeline components. Column names, types, operators, and descriptions are embedded into JSON schemas and prompts for each component automatically.",
+          "items": {
+            "$ref": "#/$defs/ColumnInfo"
+          },
+          "title": "Columns",
+          "type": "array"
         },
         "constraints": {
           "anyOf": [
@@ -2970,14 +2970,14 @@
         }
       },
       "required": [
-        "schema_description"
+        "columns"
       ],
       "title": "InstructedRetrieverModel",
       "type": "object"
     },
     "InstructionAwareRerankModel": {
       "additionalProperties": false,
-      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    instructed:\n      schema_description: \"...\"\n      rerank:\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
+      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    instructed:\n      columns:\n        - name: brand_name\n          type: string\n      rerank:\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
       "properties": {
         "model": {
           "anyOf": [
@@ -4314,7 +4314,7 @@
     },
     "RouterModel": {
       "additionalProperties": false,
-      "description": "Select internal execution mode based on query characteristics.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nRoutes to internal modes within the same retriever, not external retrievers.\nCross-index routing belongs at the agent/tool-selection level.\n\nExecution Modes:\n- \"standard\": Single similarity_search() for simple keyword/product searches\n- \"instructed\": Decompose -> Parallel Search -> RRF for constrained queries\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        schema_description: \"...\"\n        router:\n          model: *fast_llm\n          default_mode: standard\n          auto_bypass: true\n    ```",
+      "description": "Select internal execution mode based on query characteristics.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nRoutes to internal modes within the same retriever, not external retrievers.\nCross-index routing belongs at the agent/tool-selection level.\n\nExecution Modes:\n- \"standard\": Single similarity_search() for simple keyword/product searches\n- \"instructed\": Decompose -> Parallel Search -> RRF for constrained queries\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        columns:\n          - name: brand_name\n            type: string\n        router:\n          model: *fast_llm\n          default_mode: standard\n          auto_bypass: true\n    ```",
       "properties": {
         "model": {
           "anyOf": [
@@ -5398,7 +5398,7 @@
     },
     "VerifierModel": {
       "additionalProperties": false,
-      "description": "Validate results against user constraints with structured feedback.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nSkipped for 'standard' mode when auto_bypass=true in router config.\nReturns structured feedback for intelligent retry, not blind retry.\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        schema_description: \"...\"\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n          max_retries: 1\n    ```",
+      "description": "Validate results against user constraints with structured feedback.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nSkipped for 'standard' mode when auto_bypass=true in router config.\nReturns structured feedback for intelligent retry, not blind retry.\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        columns:\n          - name: brand_name\n            type: string\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n          max_retries: 1\n    ```",
       "properties": {
         "model": {
           "anyOf": [

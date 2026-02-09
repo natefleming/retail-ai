@@ -1885,7 +1885,9 @@ class InstructionAwareRerankModel(BaseModel):
     Example:
         ```yaml
         instructed:
-          schema_description: "..."
+          columns:
+            - name: brand_name
+              type: string
           rerank:
             model: *fast_llm
             instructions: |
@@ -2034,6 +2036,11 @@ class ColumnInfo(BaseModel):
 
     When provided, column information is embedded directly into the JSON schema
     that with_structured_output sends to the LLM, improving filter accuracy.
+
+    The optional ``description`` field lets users annotate a column with semantic
+    context (e.g. example values, business meaning).  Descriptions are embedded
+    into JSON schemas and prompt context that pipeline components (decomposition,
+    routing, verification, reranking) generate from the column metadata.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -2046,6 +2053,14 @@ class ColumnInfo(BaseModel):
     operators: list[str] = Field(
         default=["", "NOT", "<", "<=", ">", ">=", "LIKE", "NOT LIKE"],
         description="Valid filter operators for this column",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description=(
+            "Human-readable description of the column for LLM context. "
+            "Include example values or business meaning to improve filter accuracy "
+            "(e.g. 'Brand/manufacturer (MILWAUKEE, DEWALT, etc.)')."
+        ),
     )
 
 
@@ -2099,23 +2114,30 @@ class InstructedRetrieverModel(BaseModel):
 
     Groups all schema-aware, LLM-driven features: query decomposition, instruction-aware
     reranking, query routing, and result verification. These features share schema context
-    (schema_description, columns, constraints) and are co-located here to enforce that
-    dependency at the type level.
+    (columns, constraints) and are co-located here to enforce that dependency at the type
+    level.
+
+    Column metadata is the single source of truth for schema context. Each pipeline
+    component (decomposition, routing, verification, reranking) generates the specific
+    context it needs from the structured ``columns`` data:
+    - Decomposition embeds column info into the JSON schema for ``with_structured_output``
+    - Routing generates a compact column summary
+    - Verification generates a context with column descriptions (no operator syntax)
+    - Reranking uses column names and types for instruction generation
 
     Example:
         ```yaml
         retriever:
           vector_store: *products_vector_store
           instructed:
-            schema_description: |
-              Products table: product_id, brand_name, category, price, updated_at
-              Filter operators: {"col": val}, {"col >": val}, {"col NOT": val}
             columns:
               - name: brand_name
                 type: string
+                description: "Brand/manufacturer (MILWAUKEE, DEWALT, etc.)"
               - name: price
                 type: number
                 operators: ["", "<", "<=", ">", ">="]
+                description: "Product price in USD"
             constraints:
               - "Prefer recent products"
             decomposition:
@@ -2139,14 +2161,11 @@ class InstructedRetrieverModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    schema_description: str = Field(
-        description="Column names, types, and valid filter syntax for the LLM"
-    )
-    columns: Optional[list[ColumnInfo]] = Field(
-        default=None,
+    columns: list[ColumnInfo] = Field(
         description=(
-            "Structured column info for dynamic schema generation. "
-            "When provided, column names are embedded in the JSON schema for better LLM accuracy."
+            "Structured column info used by all pipeline components. "
+            "Column names, types, operators, and descriptions are embedded into "
+            "JSON schemas and prompts for each component automatically."
         ),
     )
     constraints: Optional[list[str]] = Field(
@@ -2186,7 +2205,9 @@ class RouterModel(BaseModel):
         ```yaml
         retriever:
           instructed:
-            schema_description: "..."
+            columns:
+              - name: brand_name
+                type: string
             router:
               model: *fast_llm
               default_mode: standard
@@ -2256,7 +2277,9 @@ class VerifierModel(BaseModel):
         ```yaml
         retriever:
           instructed:
-            schema_description: "..."
+            columns:
+              - name: brand_name
+                type: string
             verifier:
               model: *fast_llm
               on_failure: warn_and_retry

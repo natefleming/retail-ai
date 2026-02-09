@@ -86,14 +86,51 @@ def _format_examples(examples: list[dict[str, Any]] | None) -> str:
     return "\n".join(formatted)
 
 
+def _format_column_detail(col: ColumnInfo) -> str:
+    """Format a single column's info for JSON schema field descriptions."""
+    parts = [f"{col.name} ({col.type})"]
+    if col.description:
+        parts.append(f": {col.description}")
+    named_ops = sorted(set(col.operators) - {""})
+    if named_ops:
+        parts.append(f" [operators: (none)/equality, {', '.join(named_ops)}]")
+    else:
+        parts.append(" [equality only]")
+    return "".join(parts)
+
+
+def format_columns_for_routing(columns: list[ColumnInfo]) -> str:
+    """Generate a compact column summary for routing decisions.
+
+    The router only needs to know what columns exist to decide whether a query
+    has filterable constraints.  No operator syntax is included.
+    """
+    col_parts = [f"{c.name} ({c.type})" for c in columns]
+    return f"Filterable columns: {', '.join(col_parts)}"
+
+
+def format_columns_for_verification(columns: list[ColumnInfo]) -> str:
+    """Generate a verification-focused column summary.
+
+    The verifier checks whether results satisfy constraints.  It needs column
+    names, types, and semantic descriptions but NOT filter operator syntax.
+    """
+    lines: list[str] = ["Available columns:"]
+    for col in columns:
+        desc_suffix = f": {col.description}" if col.description else ""
+        lines.append(f"- {col.name} ({col.type}){desc_suffix}")
+    return "\n".join(lines)
+
+
 def create_decomposition_schema(
     columns: list[ColumnInfo] | None = None,
 ) -> type[BaseModel]:
     """Create schema-aware DecomposedQueries model with dynamic descriptions.
 
-    When columns are provided, the column names and valid operators are embedded
-    directly into the JSON schema that with_structured_output sends to the LLM.
-    This improves accuracy by making valid filter keys explicit in the schema.
+    When columns are provided, the column names, types, operators, and semantic
+    descriptions are embedded directly into the JSON schema that
+    ``with_structured_output`` sends to the LLM.  This is the authoritative
+    source of column info -- it should NOT be duplicated in prompt text.
 
     Args:
         columns: List of column metadata for dynamic schema generation
@@ -105,20 +142,12 @@ def create_decomposition_schema(
         # Fall back to generic models
         return DecomposedQueries
 
-    # Build column info with types for the schema description
-    column_info = ", ".join(f"{c.name} ({c.type})" for c in columns)
+    # Build per-column details with descriptions and operators
+    column_details = "; ".join(_format_column_detail(c) for c in columns)
 
-    # Build operator list from column definitions (union of all column operators)
-    all_operators: set[str] = set()
-    for col in columns:
-        all_operators.update(col.operators)
-    # Remove empty string (equality) and sort for consistent output
-    named_operators = sorted(all_operators - {""})
-    operator_list = ", ".join(named_operators) if named_operators else "equality only"
-
-    # Build valid key examples with operators
+    # Build valid key examples with operators (first 3 columns)
     key_examples: list[str] = []
-    for col in columns[:3]:  # Show examples for first 3 columns
+    for col in columns[:3]:
         key_examples.append(f"'{col.name}'")
         if "<" in col.operators:
             key_examples.append(f"'{col.name} <'")
@@ -133,9 +162,8 @@ def create_decomposition_schema(
         key: str = Field(
             description=(
                 f"Column name with optional operator suffix. "
-                f"Valid columns: {column_info}. "
-                f"Operators: (none) for equality, {operator_list}. "
-                f"Examples: {', '.join(key_examples[:5])}"
+                f"Available columns: {column_details}. "
+                f"Examples: {', '.join(key_examples[:6])}"
             )
         )
         value: Union[str, int, float, bool, list[Union[str, int, float, bool]]] = Field(
@@ -158,7 +186,7 @@ def create_decomposition_schema(
             default=None,
             description=(
                 f"Metadata filters to constrain search results. "
-                f"Valid filter columns: {column_info}. "
+                f"Available columns: {column_details}. "
                 f"Set to null if no filters apply."
             ),
         )
@@ -183,29 +211,28 @@ def create_decomposition_schema(
 def decompose_query(
     llm: BaseChatModel,
     query: str,
-    schema_description: str,
+    columns: list[ColumnInfo],
     constraints: list[str] | None = None,
     max_subqueries: int = 3,
     examples: list[dict[str, Any]] | None = None,
     previous_feedback: str | None = None,
-    columns: list[ColumnInfo] | None = None,
 ) -> list[SearchQuery]:
     """
     Decompose a user query into multiple search queries with filters.
 
     Uses structured output for reliable parsing and injects current time
-    for resolving relative date references. When columns are provided,
-    schema-aware Pydantic models are used for improved filter accuracy.
+    for resolving relative date references.  Column metadata is embedded
+    into the JSON schema via ``create_decomposition_schema`` -- the prompt
+    focuses on decomposition strategy, not column details.
 
     Args:
         llm: Language model for decomposition
         query: User's search query
-        schema_description: Column names, types, and valid filter syntax
+        columns: Structured column info for dynamic schema generation
         constraints: Default constraints to apply
         max_subqueries: Maximum number of subqueries to generate
         examples: Few-shot examples for domain-specific filter translation
         previous_feedback: Feedback from failed verification (for retry)
-        columns: Structured column info for dynamic schema generation
 
     Returns:
         List of SearchQuery objects with text and optional filters
@@ -224,7 +251,6 @@ def decompose_query(
     prompt = (
         prompt_template.format(
             current_time=current_time,
-            schema_description=schema_description,
             constraints=_format_constraints(constraints),
             examples=_format_examples(examples),
             max_subqueries=max_subqueries,

@@ -64,7 +64,6 @@ def instruction_aware_rerank(
     query: str,
     documents: list[Document],
     instructions: str | None = None,
-    schema_description: str | None = None,
     columns: list[ColumnInfo] | None = None,
     top_n: int | None = None,
 ) -> list[Document]:
@@ -76,7 +75,6 @@ def instruction_aware_rerank(
         query: User's search query
         documents: Documents to rerank (typically FlashRank output)
         instructions: Custom reranking instructions
-        schema_description: Column names and types for context
         columns: Structured column info for dynamic instruction generation
         top_n: Number of documents to return (None = all scored documents)
 
@@ -102,10 +100,10 @@ def instruction_aware_rerank(
             "Prefer more specific matches over general results."
         )
 
-    # Build effective instructions - use columns for context (ignore verbose schema_description)
+    # Build effective instructions from columns context
     effective_instructions = instructions or default_instructions
 
-    # Add column context if available (simpler than full schema_description)
+    # Add column context if available
     if columns:
         effective_instructions += (
             f"\n\nAvailable metadata fields: {_format_column_info(columns)}"

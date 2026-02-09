@@ -22,8 +22,27 @@ from dao_ai.tools.instructed_retriever import (
     _format_examples,
     create_decomposition_schema,
     decompose_query,
+    format_columns_for_routing,
+    format_columns_for_verification,
     rrf_merge,
 )
+
+# -- Shared test column fixtures ------------------------------------------------
+
+BASIC_COLUMNS = [
+    ColumnInfo(name="brand_name", type="string", description="Brand/manufacturer"),
+    ColumnInfo(
+        name="price",
+        type="number",
+        operators=["", "<", "<=", ">", ">="],
+        description="Product price in USD",
+    ),
+]
+
+MINIMAL_COLUMNS = [
+    ColumnInfo(name="brand_name", type="string"),
+    ColumnInfo(name="price", type="number"),
+]
 
 
 @pytest.mark.unit
@@ -91,7 +110,7 @@ class TestInstructedRetrieverModel:
 
     def test_default_values(self) -> None:
         """Test that InstructedRetrieverModel has sensible defaults."""
-        model = InstructedRetrieverModel(schema_description="Test schema")
+        model = InstructedRetrieverModel(columns=BASIC_COLUMNS)
         assert model.decomposition is None
         assert model.constraints is None
         assert model.rerank is None
@@ -108,7 +127,7 @@ class TestInstructedRetrieverModel:
             examples=[{"query": "test", "filters": {"col": "val"}}],
         )
         model = InstructedRetrieverModel(
-            schema_description="Products table with columns...",
+            columns=BASIC_COLUMNS,
             constraints=["Prefer recent products"],
             decomposition=decomposition,
         )
@@ -117,6 +136,25 @@ class TestInstructedRetrieverModel:
         assert model.decomposition.max_subqueries == 5
         assert model.decomposition.rrf_k == 40
         assert len(model.decomposition.examples) == 1
+
+    def test_columns_are_required(self) -> None:
+        """Test that columns must be provided."""
+        with pytest.raises(Exception):
+            InstructedRetrieverModel()
+
+    def test_column_info_description_field(self) -> None:
+        """Test that ColumnInfo accepts an optional description field."""
+        col = ColumnInfo(
+            name="brand_name",
+            type="string",
+            description="Brand/manufacturer (MILWAUKEE, DEWALT, etc.)",
+        )
+        assert col.description == "Brand/manufacturer (MILWAUKEE, DEWALT, etc.)"
+
+    def test_column_info_description_defaults_to_none(self) -> None:
+        """Test that ColumnInfo description defaults to None."""
+        col = ColumnInfo(name="brand_name", type="string")
+        assert col.description is None
 
 
 def create_mock_vector_store() -> Mock:
@@ -142,9 +180,7 @@ class TestRetrieverModelWithInstructed:
         """Test that RetrieverModel accepts instructed configuration."""
         vector_store = create_mock_vector_store()
 
-        instructed = InstructedRetrieverModel(
-            schema_description="Test schema",
-        )
+        instructed = InstructedRetrieverModel(columns=BASIC_COLUMNS)
 
         retriever = RetrieverModel(
             vector_store=vector_store,
@@ -152,7 +188,7 @@ class TestRetrieverModelWithInstructed:
         )
 
         assert retriever.instructed is not None
-        assert retriever.instructed.schema_description == "Test schema"
+        assert len(retriever.instructed.columns) == 2
 
     def test_retriever_without_instructed(self) -> None:
         """Test that RetrieverModel works without instructed."""
@@ -357,7 +393,7 @@ class TestDecomposeQuery:
         result = decompose_query(
             llm=mock_llm,
             query="Find Milwaukee drills under $200",
-            schema_description="Test schema",
+            columns=BASIC_COLUMNS,
         )
 
         assert len(result) == 2
@@ -382,7 +418,7 @@ class TestDecomposeQuery:
         result = decompose_query(
             llm=mock_llm,
             query="test",
-            schema_description="Test schema",
+            columns=BASIC_COLUMNS,
             max_subqueries=3,
         )
 
@@ -402,7 +438,7 @@ class TestDecomposeQuery:
             decompose_query(
                 llm=mock_llm,
                 query="test",
-                schema_description="Test schema",
+                columns=BASIC_COLUMNS,
             )
 
 
@@ -420,11 +456,7 @@ class TestDynamicSchemaGeneration:
 
     def test_returns_dynamic_model_with_columns(self) -> None:
         """Test that factory returns a dynamic model when columns provided."""
-        columns = [
-            ColumnInfo(name="brand_name", type="string"),
-            ColumnInfo(name="price", type="number"),
-        ]
-        result = create_decomposition_schema(columns)
+        result = create_decomposition_schema(MINIMAL_COLUMNS)
 
         # Should not be the generic class
         assert result is not DecomposedQueries
@@ -451,11 +483,7 @@ class TestDynamicSchemaGeneration:
 
     def test_dynamic_model_can_be_instantiated(self) -> None:
         """Test that the dynamic model can be instantiated with valid data."""
-        columns = [
-            ColumnInfo(name="brand_name", type="string"),
-            ColumnInfo(name="price", type="number"),
-        ]
-        SchemaModel = create_decomposition_schema(columns)
+        SchemaModel = create_decomposition_schema(MINIMAL_COLUMNS)
 
         # Create an instance with nested data
         instance = SchemaModel(
@@ -479,11 +507,6 @@ class TestDynamicSchemaGeneration:
         """Test that decompose_query uses dynamic schema when columns provided."""
         mock_load_prompt.return_value = {"template": "{query}"}
 
-        columns = [
-            ColumnInfo(name="brand_name", type="string"),
-            ColumnInfo(name="price", type="number"),
-        ]
-
         # Create a mock that returns a result compatible with the dynamic schema
         mock_llm = MagicMock()
         mock_structured_llm = MagicMock()
@@ -504,8 +527,7 @@ class TestDynamicSchemaGeneration:
         result = decompose_query(
             llm=mock_llm,
             query="Find Milwaukee drills",
-            schema_description="Test schema",
-            columns=columns,
+            columns=MINIMAL_COLUMNS,
         )
 
         # Verify the schema passed to with_structured_output is not the generic one
@@ -562,10 +584,6 @@ class TestDynamicSchemaGeneration:
         assert "LIKE" in schema_str
         assert "NOT" in schema_str
 
-        # NOT LIKE should NOT appear since no column has it
-        # (This tests that we're using column operators, not hardcoded list)
-        assert "NOT LIKE" not in schema_str
-
     def test_dynamic_model_with_equality_only_operators(self) -> None:
         """Test schema when columns only support equality operator."""
         columns = [
@@ -579,6 +597,66 @@ class TestDynamicSchemaGeneration:
 
         # Should show "equality only" when no named operators
         assert "equality only" in schema_str
+
+    def test_dynamic_model_includes_column_descriptions(self) -> None:
+        """Test that column descriptions appear in the schema when provided."""
+        columns = [
+            ColumnInfo(
+                name="brand_name",
+                type="string",
+                description="Brand/manufacturer (MILWAUKEE, DEWALT, etc.)",
+            ),
+            ColumnInfo(name="price", type="number", description="Product price in USD"),
+        ]
+        result = create_decomposition_schema(columns)
+
+        schema = result.model_json_schema()
+        schema_str = str(schema)
+
+        assert "Brand/manufacturer" in schema_str
+        assert "Product price in USD" in schema_str
+
+
+@pytest.mark.unit
+class TestFormatColumnsForRouting:
+    """Unit tests for format_columns_for_routing helper."""
+
+    def test_basic_formatting(self) -> None:
+        """Test that routing context is compact."""
+        result = format_columns_for_routing(BASIC_COLUMNS)
+        assert "Filterable columns:" in result
+        assert "brand_name (string)" in result
+        assert "price (number)" in result
+
+    def test_no_operator_syntax(self) -> None:
+        """Test that routing context does NOT include operator syntax."""
+        result = format_columns_for_routing(BASIC_COLUMNS)
+        assert "LIKE" not in result
+        assert "<" not in result
+
+
+@pytest.mark.unit
+class TestFormatColumnsForVerification:
+    """Unit tests for format_columns_for_verification helper."""
+
+    def test_basic_formatting(self) -> None:
+        """Test that verification context includes descriptions."""
+        result = format_columns_for_verification(BASIC_COLUMNS)
+        assert "Available columns:" in result
+        assert "brand_name (string): Brand/manufacturer" in result
+        assert "price (number): Product price in USD" in result
+
+    def test_no_operator_syntax(self) -> None:
+        """Test that verification context does NOT include operator syntax."""
+        result = format_columns_for_verification(BASIC_COLUMNS)
+        assert "LIKE" not in result
+        assert "<" not in result
+
+    def test_without_descriptions(self) -> None:
+        """Test that columns without descriptions don't have trailing colon."""
+        result = format_columns_for_verification(MINIMAL_COLUMNS)
+        assert "brand_name (string)" in result
+        assert ": " not in result.split("\n")[1]  # no trailing desc
 
 
 @pytest.mark.unit

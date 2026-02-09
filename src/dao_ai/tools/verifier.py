@@ -16,7 +16,7 @@ from langchain_core.runnables import Runnable
 from loguru import logger
 from mlflow.entities import SpanType
 
-from dao_ai.config import VerificationResult
+from dao_ai.config import ColumnInfo, VerificationResult
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "verifier.yaml"
@@ -62,7 +62,7 @@ def verify_results(
     llm: BaseChatModel,
     query: str,
     documents: list[Document],
-    schema_description: str,
+    columns: list[ColumnInfo],
     constraints: list[str] | None = None,
     previous_feedback: str | None = None,
 ) -> VerificationResult:
@@ -73,19 +73,21 @@ def verify_results(
         llm: Language model for verification
         query: User's original search query
         documents: Retrieved documents to verify
-        schema_description: Column names, types, and filter syntax
+        columns: Structured column metadata for verification context
         constraints: Explicit constraints to verify
         previous_feedback: Feedback from previous failed attempt (for retry)
 
     Returns:
         VerificationResult with pass/fail status and structured feedback
     """
+    from dao_ai.tools.instructed_retriever import format_columns_for_verification
+
     prompt_config = _load_prompt_template()
     prompt_template = prompt_config["template"]
 
     prompt = prompt_template.format(
         query=query,
-        schema_description=schema_description,
+        schema_description=format_columns_for_verification(columns),
         constraints=_format_constraints(constraints),
         num_results=len(documents),
         results_summary=_format_results_summary(documents),
