@@ -177,7 +177,6 @@ def get_installed_packages() -> list[str]:
         f"mcp=={version('mcp')}",
         f"mlflow=={version('mlflow')}",
         f"nest-asyncio=={version('nest-asyncio')}",
-        f"openevals=={version('openevals')}",
         f"openpyxl=={version('openpyxl')}",
         f"psycopg[binary,pool]=={version('psycopg')}",
         f"pydantic=={version('pydantic')}",

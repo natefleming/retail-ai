@@ -51,12 +51,20 @@ from dao_ai.middleware.context_editing import (
 )
 from dao_ai.middleware.core import create_factory_middleware
 from dao_ai.middleware.guardrails import (
+    ConcisenessGuardrailMiddleware,
     ContentFilterMiddleware,
     GuardrailMiddleware,
+    RelevanceGuardrailMiddleware,
     SafetyGuardrailMiddleware,
+    ToneGuardrailMiddleware,
+    VeracityGuardrailMiddleware,
+    create_conciseness_guardrail_middleware,
     create_content_filter_middleware,
     create_guardrail_middleware,
+    create_relevance_guardrail_middleware,
     create_safety_guardrail_middleware,
+    create_tone_guardrail_middleware,
+    create_veracity_guardrail_middleware,
 )
 from dao_ai.middleware.human_in_the_loop import (
     create_hitl_middleware_from_tool_models,
@@ -121,6 +129,10 @@ __all__ = [
     "GuardrailMiddleware",
     "ContentFilterMiddleware",
     "SafetyGuardrailMiddleware",
+    "VeracityGuardrailMiddleware",
+    "RelevanceGuardrailMiddleware",
+    "ToneGuardrailMiddleware",
+    "ConcisenessGuardrailMiddleware",
     "MessageValidationMiddleware",
     "UserIdValidationMiddleware",
     "ThreadIdValidationMiddleware",
@@ -141,6 +153,10 @@ __all__ = [
     "create_guardrail_middleware",
     "create_content_filter_middleware",
     "create_safety_guardrail_middleware",
+    "create_veracity_guardrail_middleware",
+    "create_relevance_guardrail_middleware",
+    "create_tone_guardrail_middleware",
+    "create_conciseness_guardrail_middleware",
     "create_user_id_validation_middleware",
     "create_thread_id_validation_middleware",
     "create_custom_field_validation_middleware",

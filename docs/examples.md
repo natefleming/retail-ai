@@ -169,13 +169,13 @@ Approval workflows for sensitive operations.
 
 ### 08. Guardrails [📖 README](../config/examples/08_guardrails/README.md)
 
-Automated safety and validation.
+Automated safety and validation using MLflow judges (`mlflow.genai.judges.make_judge`). The prompt determines the evaluation type -- tone, completeness, veracity/groundedness, or any custom criteria. Tool context from the conversation is automatically extracted for veracity checks.
 
 | Example | Description |
 |---------|-------------|
-| `guardrails_basic.yaml` | Content filtering and safety guardrails |
+| `guardrails_basic.yaml` | Tone, completeness, and veracity guardrails with MLflow judges |
 
-**Prerequisites:** Guardrail services (optional)  
+**Prerequisites:** MLflow with Databricks model endpoints  
 **Next:** Enforce schemas in `09_structured_output/`
 
 ---

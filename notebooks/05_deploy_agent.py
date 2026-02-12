@@ -68,7 +68,6 @@ pip_requirements: Sequence[str] = [
     f"langmem=={version('langmem')}",
     f"loguru=={version('loguru')}",
     f"mlflow=={version('mlflow')}",
-    f"openevals=={version('openevals')}",
     f"psycopg[binary,pool]=={version('psycopg')}",
     f"pydantic=={version('pydantic')}",
     f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",

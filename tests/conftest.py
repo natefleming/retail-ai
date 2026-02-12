@@ -177,6 +177,7 @@ def create_mock_llm_model() -> MagicMock:
     mock_llm_model = MagicMock(spec=LLMModel)
     mock_llm_model.as_chat_model.return_value = mock_llm
     mock_llm_model.name = "test-model"
+    mock_llm_model.uri = "databricks:/test-model"
 
     # Add IsDatabricksResource attributes
     add_databricks_resource_attrs(mock_llm_model)

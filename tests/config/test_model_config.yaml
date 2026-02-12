@@ -435,10 +435,10 @@ guardrails:
       Be detailed in your critique so the assistant can understand exactly how to improve.
 
       ### Inputs:
-      {inputs}
+      {{ inputs }}
 
       ### Response:
-      {outputs}
+      {{ outputs }}
 
 # =============================================================================
 # MEMORY CONFIGURATION

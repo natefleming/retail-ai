@@ -20,7 +20,7 @@ dao-ai/
 │   ├── middleware/        # Agent middleware
 │   │   ├── assertions.py  # Assert, Suggest, Refine middleware
 │   │   ├── summarization.py # Conversation summarization
-│   │   ├── guardrails.py  # Content filtering and safety
+│   │   ├── guardrails.py  # MLflow judge-based guardrails, content filtering, and safety
 │   │   └── ...
 │   ├── orchestration/     # Multi-agent orchestration
 │   │   ├── supervisor.py  # Supervisor pattern

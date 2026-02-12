@@ -1,55 +1,53 @@
 # 08. Guardrails
 
-**LLM-based quality control for agent responses**
+**MLflow judge-based quality control for agent responses**
 
-Use a judge LLM to evaluate response quality and automatically retry with feedback when standards aren't met.
+Use MLflow judges (`mlflow.genai.judges.make_judge`) to evaluate response quality and automatically retry with feedback when standards aren't met. The **prompt determines the evaluation type** -- tone, completeness, veracity/groundedness, or any custom criteria.
+
+Tool context from `ToolMessage` objects in the conversation (search results, SQL results, Genie responses) is automatically extracted and included in `{{ inputs }}`, enabling veracity checks.
 
 ## Architecture Overview
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#e65100'}}}%%
 flowchart TB
-    subgraph Agent["🤖 Agent"]
-        LLM["🧠 Agent LLM<br/><i>Claude Sonnet</i>"]
-        Response["📝 Generated Response"]
+    subgraph Agent["Agent"]
+        LLM["Agent LLM"]
+        Response["Generated Response"]
         LLM --> Response
     end
 
-    subgraph Guardrails["🛡️ Guardrail Evaluation"]
-        Judge["⚖️ Judge LLM<br/><i>Evaluates quality</i>"]
+    subgraph Guardrails["Guardrail Evaluation"]
+        Judge["MLflow Judge"]
         
         subgraph Checks["Quality Checks"]
             direction LR
-            Tone["👔 Tone Check<br/><i>Professional?</i>"]
-            Complete["✅ Completeness<br/><i>Thorough?</i>"]
+            Tone["Tone Check"]
+            Complete["Completeness"]
+            Veracity["Veracity"]
         end
         
         Judge --> Checks
     end
 
-    subgraph Result["📊 Result"]
-        Pass{Score?}
-        Retry["🔄 Retry with Feedback<br/><i>Judge's critique</i>"]
-        Approve["✅ Return to User"]
+    subgraph Result["Result"]
+        Pass{Pass?}
+        Retry["Retry with Feedback"]
+        Approve["Return to User"]
     end
 
     Response --> Judge
     Checks --> Pass
-    Pass -->|"0 (fail)"| Retry
+    Pass -->|"false"| Retry
     Retry -->|"Improve"| LLM
-    Pass -->|"1 (pass)"| Approve
-
-    style Agent fill:#e3f2fd,stroke:#1565c0
-    style Guardrails fill:#fff3e0,stroke:#e65100
-    style Approve fill:#e8f5e9,stroke:#2e7d32
-    style Retry fill:#ffebee,stroke:#c62828
+    Pass -->|"true"| Approve
 ```
 
 ## Examples
 
 | File | Description |
 |------|-------------|
-| [`guardrails_basic.yaml`](./guardrails_basic.yaml) | LLM-based guardrails with tone and completeness checks |
+| [`guardrails_basic.yaml`](./guardrails_basic.yaml) | MLflow judge-based guardrails with tone, completeness, and veracity checks |
 
 ## How Guardrails Work
 
@@ -57,51 +55,41 @@ flowchart TB
 %%{init: {'theme': 'base'}}%%
 sequenceDiagram
     autonumber
-    participant 👤 as User
-    participant 🤖 as Agent LLM
-    participant ⚖️ as Judge LLM
-    participant 🛡️ as Guardrails
+    participant User
+    participant AgentLLM as Agent LLM
+    participant Tools
+    participant JudgeLLM as MLflow Judge
+    participant GuardrailMW as Guardrails
 
-    👤->>🤖: How can I help?
-    🤖->>🤖: Generate response
-    🤖->>🛡️: Submit for evaluation
+    User->>AgentLLM: User query
+    AgentLLM->>Tools: Call tools
+    Tools-->>AgentLLM: Tool results
+    AgentLLM->>AgentLLM: Generate response
+    AgentLLM->>GuardrailMW: Submit for evaluation
     
-    🛡️->>⚖️: Evaluate TONE
-    ⚖️-->>🛡️: Score: 1 ✅
+    Note over GuardrailMW: Extract tool context from ToolMessages
     
-    🛡️->>⚖️: Evaluate COMPLETENESS
-    ⚖️-->>🛡️: Score: 0 ❌ "Too brief"
+    GuardrailMW->>JudgeLLM: Evaluate with inputs + context
+    JudgeLLM-->>GuardrailMW: value: false, rationale: "Too brief"
     
-    🛡️->>🤖: Retry with feedback
-    Note over 🤖: "Make response more complete"
-    🤖->>🤖: Generate improved response
+    GuardrailMW->>AgentLLM: Retry with feedback
+    Note over AgentLLM: "Make response more complete"
+    AgentLLM->>AgentLLM: Generate improved response
     
-    🤖->>🛡️: Re-evaluate
-    🛡️->>⚖️: Evaluate COMPLETENESS
-    ⚖️-->>🛡️: Score: 1 ✅
+    AgentLLM->>GuardrailMW: Re-evaluate
+    GuardrailMW->>JudgeLLM: Evaluate again
+    JudgeLLM-->>GuardrailMW: value: true
     
-    🛡️-->>👤: Final approved response
+    GuardrailMW-->>User: Final approved response
 ```
 
 ## Configuration
 
-### 1️⃣ Define Guardrail Prompts
+### 1. Define Guardrail Prompts
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-graph TB
-    subgraph Prompts["📝 Guardrail Prompts"]
-        subgraph Tone["👔 Tone Prompt"]
-            T["Evaluate if response is professional...<br/><br/><code>{inputs}</code> ← User request<br/><code>{outputs}</code> ← Agent response<br/><br/>Score 1 if criteria met, 0 if not."]
-        end
-        
-        subgraph Complete["✅ Completeness Prompt"]
-            C["Evaluate if response fully addresses...<br/><br/><code>{inputs}</code> ← User request<br/><code>{outputs}</code> ← Agent response<br/><br/>Score 1 if complete, 0 if incomplete."]
-        end
-    end
-
-    style Prompts fill:#e3f2fd,stroke:#1565c0
-```
+Prompts use Jinja2 template variables:
+- `{{ inputs }}` -- Contains the user query AND extracted tool context
+- `{{ outputs }}` -- Contains the agent's response
 
 ```yaml
 prompts:
@@ -111,32 +99,30 @@ prompts:
     default_template: |
       Evaluate if the response is professional and appropriate.
       
-      User Request: {inputs}
-      Agent Response: {outputs}
+      User Request: {{ inputs }}
+      Agent Response: {{ outputs }}
       
       The response should:
       - Use professional language (no slang)
       - Be respectful and courteous
       - Be clear and easy to understand
       
-      Score 1 if criteria met, 0 if not.
-      Provide a brief comment explaining your decision.
+      Rate as true if criteria met, false if not.
+
+  # Veracity prompt -- leverages tool context in {{ inputs }}
+  veracity_guardrail_prompt: &veracity_guardrail_prompt
+    schema: *retail_schema
+    name: veracity_guardrail
+    default_template: |
+      Evaluate whether the response is grounded in the retrieved context.
+
+      User query and retrieved context: {{ inputs }}
+      Agent response: {{ outputs }}
+
+      Rate as true if all claims are grounded, false if any are fabricated.
 ```
 
-### 2️⃣ Define Guardrails
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-graph TB
-    subgraph Guardrail["🛡️ Guardrail Definition"]
-        Name["<b>name:</b> tone_check"]
-        Model["<b>model:</b> *judge_llm"]
-        Prompt["<b>prompt:</b> *professional_tone_prompt"]
-        Retries["<b>num_retries:</b> 2"]
-    end
-
-    style Guardrail fill:#fff3e0,stroke:#e65100
-```
+### 2. Define Guardrails
 
 ```yaml
 guardrails:
@@ -151,9 +137,16 @@ guardrails:
     model: *judge_llm
     prompt: *completeness_guardrail_prompt
     num_retries: 2
+
+  veracity_guardrail: &veracity_guardrail
+    name: veracity_check
+    model: *judge_llm
+    prompt: *veracity_guardrail_prompt
+    num_retries: 2
+    fail_open: true               # Let responses through if judge fails
 ```
 
-### 3️⃣ Apply to Agents
+### 3. Apply to Agents
 
 ```yaml
 agents:
@@ -163,71 +156,105 @@ agents:
     tools:
       - *search_tool
     
-    # 🛡️ Apply guardrails to this agent
+    # Apply guardrails to this agent
     guardrails:
       - *tone_guardrail
       - *completeness_guardrail
+      - *veracity_guardrail
 ```
 
-## Evaluation Flow
+## Specialized Guardrails (Zero-Config)
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart TB
-    subgraph Input["📥 Input"]
-        Response["Agent Response:<br/><i>'Sure.'</i>"]
-    end
+Specialized guardrails provide built-in expert prompts -- no prompt authoring needed. Configure via the `middleware:` section.
 
-    subgraph Evaluation["⚖️ Guardrail Evaluation"]
-        subgraph ToneCheck["👔 tone_check"]
-            TS["Score: 1 ✅"]
-        end
-        
-        subgraph CompleteCheck["✅ completeness_check"]
-            CS["Score: 0 ❌"]
-            Feedback["Feedback:<br/><i>'Response is too brief.<br/>Needs more detail.'</i>"]
-        end
-    end
+### Veracity Guardrail
 
-    subgraph Retry["🔄 Retry Logic"]
-        R1["Retry 1 of 2"]
-        Improve["Agent improves response"]
-    end
+Checks if the response is grounded in tool/retrieval context. **Automatically skips** when no tool context is present.
 
-    subgraph Output["📤 Output"]
-        Final["✅ Approved Response:<br/><i>'I'd be happy to help!<br/>What can I assist with?'</i>"]
-    end
-
-    Response --> ToneCheck
-    Response --> CompleteCheck
-    CS --> Feedback
-    Feedback --> R1
-    R1 --> Improve
-    Improve --> Final
-
-    style Evaluation fill:#fff3e0,stroke:#e65100
-    style Retry fill:#ffebee,stroke:#c62828
-    style Final fill:#e8f5e9,stroke:#2e7d32
+```yaml
+middleware:
+  veracity_check:
+    name: dao_ai.middleware.create_veracity_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      num_retries: 2
 ```
+
+### Relevance Guardrail
+
+Ensures the response directly addresses the user's query. Detects topic drift.
+
+```yaml
+middleware:
+  relevance_check:
+    name: dao_ai.middleware.create_relevance_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+```
+
+### Tone Guardrail
+
+Validates response tone against a preset profile. Profiles: `professional`, `casual`, `technical`, `empathetic`, `concise`.
+
+```yaml
+middleware:
+  tone_check:
+    name: dao_ai.middleware.create_tone_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      tone: professional   # or: casual, technical, empathetic, concise
+```
+
+### Conciseness Guardrail
+
+Hybrid deterministic length check + LLM verbosity evaluation. The length check runs first with zero LLM cost.
+
+```yaml
+middleware:
+  conciseness_check:
+    name: dao_ai.middleware.create_conciseness_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      max_length: 2000
+      min_length: 50
+      check_verbosity: true
+```
+
+## Guardrail Types Summary
+
+| Type | Config | Prompt Required | Key Feature |
+|------|--------|----------------|-------------|
+| **Generic** | `guardrails:` section | Yes | Fully customizable evaluation |
+| **Veracity** | `middleware:` section | No | Auto-skips when no tool context |
+| **Relevance** | `middleware:` section | No | Topic drift detection |
+| **Tone** | `middleware:` section | No | Preset profiles (professional, etc.) |
+| **Conciseness** | `middleware:` section | No | Hybrid deterministic + LLM |
+| **Content Filter** | `middleware:` section | No | Deterministic keyword blocking |
+| **Safety** | `middleware:` section | No | Structured safe/unsafe output |
+
+## Configuration Options
+
+### Generic Guardrails (`guardrails:` section)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | required | Guardrail identifier |
+| `model` | string/LLMModel | required | LLM for the MLflow judge |
+| `prompt` | string/PromptModel | required | Evaluation instructions with `{{ inputs }}`/`{{ outputs }}` |
+| `num_retries` | int | 3 | Max retry attempts |
+| `fail_open` | bool | true | Let responses through on judge error |
+| `max_context_length` | int | 8000 | Max chars for extracted tool context |
+
+### Specialized Guardrails (`middleware:` section)
+
+| Guardrail | Required Args | Optional Args |
+|-----------|---------------|---------------|
+| **Veracity** | `model` | `num_retries` (2), `fail_open` (true), `max_context_length` (8000) |
+| **Relevance** | `model` | `num_retries` (2), `fail_open` (true) |
+| **Tone** | `model` | `tone` ("professional"), `custom_guidelines`, `num_retries` (2), `fail_open` (true) |
+| **Conciseness** | `model` | `max_length` (3000), `min_length` (20), `check_verbosity` (true), `num_retries` (2), `fail_open` (true) |
 
 ## LLM Configuration
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-graph LR
-    subgraph LLMs["🧠 Two LLMs"]
-        subgraph Agent["Agent LLM"]
-            A["<b>default_llm</b><br/>━━━━━━━━━━━━━━━━<br/>temperature: 0.7<br/>max_tokens: 4096<br/><i>Generates responses</i>"]
-        end
-        
-        subgraph Judge["Judge LLM"]
-            J["<b>judge_llm</b><br/>━━━━━━━━━━━━━━━━<br/>temperature: 0.3<br/>max_tokens: 2048<br/><i>Evaluates quality</i>"]
-        end
-    end
-
-    style Agent fill:#e3f2fd,stroke:#1565c0
-    style Judge fill:#fff3e0,stroke:#e65100
-```
 
 ```yaml
 resources:
@@ -243,21 +270,6 @@ resources:
       max_tokens: 2048
 ```
 
-## Guardrail Types
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-graph TB
-    subgraph Types["🛡️ Common Guardrail Types"]
-        Tone["👔 <b>Tone</b><br/><i>Professional, courteous</i>"]
-        Complete["✅ <b>Completeness</b><br/><i>Thorough, addresses question</i>"]
-        Accuracy["🎯 <b>Accuracy</b><br/><i>No fabrication, uses tools</i>"]
-        Safety["🔒 <b>Safety</b><br/><i>No harmful content</i>"]
-    end
-
-    style Types fill:#e3f2fd,stroke:#1565c0
-```
-
 ## Quick Start
 
 ```bash
@@ -269,26 +281,21 @@ dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml --log-level D
 ```
 
 **Look for in logs:**
-- `"Guardrail 'X' evaluating..."` — Starting evaluation
-- `"Response approved by guardrail 'X'"` — Passed
-- `"Guardrail 'X' requested improvements (retry N/M)"` — Failed, retrying
-- `"Judge's critique: ..."` — Feedback for retry
+- `"Evaluating response with guardrail"` -- Starting evaluation
+- `"Response approved by guardrail"` -- Passed
+- `"Guardrail requested improvements"` -- Failed, retrying
+- `"Guardrail failed - max retries reached"` -- Exhausted retries
+- `"Guardrail failing open"` -- Judge error, letting through
 
 ## Best Practices
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-graph TB
-    subgraph BestPractices["✅ Best Practices"]
-        BP1["📊 Monitor trigger rates"]
-        BP2["⚖️ Balance quality vs latency"]
-        BP3["🌡️ Use lower temp for judge"]
-        BP4["🧪 Test edge cases"]
-        BP5["📚 Version prompts in MLflow"]
-    end
-
-    style BestPractices fill:#e8f5e9,stroke:#2e7d32
-```
+1. **Monitor trigger rates** -- Track how often each guardrail triggers retries
+2. **Balance quality vs latency** -- Each retry adds a full model call
+3. **Use lower temperature for judge** -- More consistent evaluations
+4. **Test edge cases** -- Verify guardrails don't block valid responses
+5. **Version prompts in MLflow** -- Track prompt changes over time
+6. **Use fail_open: true** -- Prefer availability over strictness for most use cases
+7. **Combine with offline evaluation** -- Use `create_veracity_scorer` for thorough trace-based evaluation
 
 ## Troubleshooting
 
@@ -296,8 +303,9 @@ graph TB
 |-------|----------|
 | Too many retries | Improve agent prompt, reduce strictness |
 | Guardrails never trigger | Check prompt scoring criteria |
-| High latency | Reduce num_retries, faster judge model |
+| High latency | Reduce num_retries, use faster judge model |
 | Inconsistent evaluation | Lower judge temperature |
+| Judge errors | Check model endpoint availability, verify fail_open setting |
 
 ## Next Steps
 

@@ -2956,11 +2956,34 @@ class PromptModel(BaseModel, HasFullName):
 
 
 class GuardrailModel(BaseModel):
+    """Configuration for an LLM-based guardrail.
+
+    Guardrails use MLflow judges to evaluate agent responses against criteria
+    defined by the prompt. The prompt determines the evaluation type -- tone,
+    completeness, veracity/groundedness, or any custom criteria.
+
+    Tool context from ToolMessage objects in the conversation is automatically
+    extracted and included in the ``inputs`` dict, so veracity prompts can
+    reference it via ``{{ inputs }}``.
+
+    Attributes:
+        name: Name identifying this guardrail
+        model: LLM model for the judge. Accepts a string (model name) or LLMModel.
+            The model's Databricks URI is used as the MLflow judge model endpoint.
+        prompt: Evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}``
+            template variables. Accepts a string or PromptModel.
+        num_retries: Maximum retry attempts when evaluation fails (default: 3)
+        fail_open: If True, let responses through when the judge call fails (default: True)
+        max_context_length: Max character length for extracted tool context (default: 8000)
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     model: str | LLMModel
     prompt: str | PromptModel
     num_retries: Optional[int] = 3
+    fail_open: Optional[bool] = True
+    max_context_length: Optional[int] = 8000
 
     @model_validator(mode="after")
     def validate_llm_model(self) -> Self:

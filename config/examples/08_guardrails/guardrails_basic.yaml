@@ -68,8 +68,8 @@ prompts:
       Evaluate if the following response is professional, helpful, and appropriate 
       for customer service.
       
-      User Request: {inputs}
-      Agent Response: {outputs}
+      User Request: {{ inputs }}
+      Agent Response: {{ outputs }}
       
       The response should:
       - Use professional language (no slang or jargon)
@@ -78,8 +78,7 @@ prompts:
       - Maintain a helpful, service-oriented tone
       - Avoid being overly casual or too formal
       
-      Score 1 if the response meets these criteria, 0 if it doesn't.
-      Provide a brief comment explaining your decision.
+      Rate as true if the response meets these criteria, false if it doesn't.
     tags:
       type: guardrail
       category: tone
@@ -93,8 +92,8 @@ prompts:
     default_template: |
       Evaluate if the response fully addresses the user's question.
       
-      User Request: {inputs}
-      Agent Response: {outputs}
+      User Request: {{ inputs }}
+      Agent Response: {{ outputs }}
       
       The response should:
       - Should be more than one word.
@@ -104,12 +103,34 @@ prompts:
       - Include next steps or follow-up guidance when appropriate
       - Address all parts of multi-part questions
       
-      Score 1 if the response is complete and thorough, 0 if it's incomplete,
+      Rate as true if the response is complete and thorough, false if it's incomplete,
       vague, or doesn't fully address the question.
-      Provide specific feedback on what's missing if you score 0.
     tags:
       type: guardrail
       category: completeness
+
+  # Veracity/groundedness guardrail prompt
+  # This prompt leverages tool context automatically extracted from ToolMessages
+  veracity_guardrail_prompt: &veracity_guardrail_prompt
+    schema: *retail_schema
+    name: veracity_guardrail
+    description: "Evaluates if responses are grounded in retrieved tool context"
+    default_template: |
+      Evaluate whether the response is grounded in and faithful to the provided context.
+
+      User query and retrieved context: {{ inputs }}
+      Agent response: {{ outputs }}
+
+      Check:
+      1. Are all claims in the response supported by the retrieved context?
+      2. Does the response fabricate information not present in the context?
+      3. Does the response accurately represent the context without distortion?
+
+      Rate as true if all claims are grounded, false if any claims are fabricated
+      or unsupported by the context.
+    tags:
+      type: guardrail
+      category: veracity
 
 
 
@@ -158,7 +179,56 @@ guardrails:
     prompt: *professional_tone_prompt
     num_retries: 2
 
+  # Veracity guardrail - ensures responses are grounded in tool context
+  # This guardrail uses tool results (search, SQL, Genie) as reference context
+  # to check if the agent's response is factually grounded.
+  veracity_guardrail: &veracity_guardrail
+    name: veracity_check
+    model: *judge_llm
+    prompt: *veracity_guardrail_prompt
+    num_retries: 2
+    fail_open: true
 
+
+# =============================================================================
+# SPECIALIZED GUARDRAILS (via Middleware)
+# =============================================================================
+# These zero-config guardrails use built-in expert prompts -- no prompt
+# authoring needed. Configure via the middleware section with factory functions.
+
+middleware:
+
+  # Veracity check - ensures responses are grounded in tool/retrieval context.
+  # Automatically skips when no tool context is present.
+  veracity_middleware: &veracity_middleware
+    name: dao_ai.middleware.create_veracity_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      num_retries: 2
+
+  # Relevance check - ensures responses address the user's actual query.
+  relevance_middleware: &relevance_middleware
+    name: dao_ai.middleware.create_relevance_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      num_retries: 2
+
+  # Tone check - validates tone against a preset profile.
+  # Profiles: professional, casual, technical, empathetic, concise
+  tone_middleware: &tone_middleware
+    name: dao_ai.middleware.create_tone_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      tone: professional
+
+  # Conciseness check - hybrid deterministic length + LLM verbosity check.
+  conciseness_middleware: &conciseness_middleware
+    name: dao_ai.middleware.create_conciseness_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      max_length: 2000
+      min_length: 50
+      check_verbosity: true
 
 
 # =============================================================================
@@ -184,10 +254,16 @@ agents:
       - *greeting_tool
 
     
-    # Comprehensive guardrails for quality responses
+    # Prompt-based guardrails (requires writing an evaluation prompt)
     guardrails:
       - *tone_guardrail
       - *completeness_guardrail
+
+    # Specialized guardrails (zero-config, built-in expert prompts)
+    middleware:
+      - *veracity_middleware
+      - *relevance_middleware
+      - *conciseness_middleware
     
     prompt: |
       You are a helpful, knowledgeable assistant designed to provide accurate and 
@@ -273,7 +349,9 @@ app:
 #
 # 4. PROMPT TEMPLATES
 #    - Guardrail prompts are stored in MLflow Prompt Registry
-#    - All prompts include {inputs} and {outputs} placeholders
+#    - All prompts use {{ inputs }} and {{ outputs }} Jinja2 template variables
+#    - {{ inputs }} contains the user query AND tool context (for veracity checks)
+#    - {{ outputs }} contains the agent's response
 #    - Prompts can be versioned and updated without config changes
 #    - Use default_template as fallback if registry unavailable
 #
@@ -288,7 +366,10 @@ app:
 #    To add additional guardrails:
 #    - Define the guardrail in the `guardrails:` section (with anchor)
 #    - Reference it in the agent's `guardrails:` list
-#    - Create the prompt template with {inputs} and {outputs}
+#    - Create the prompt template with {{ inputs }} and {{ outputs }}
+#    - The prompt determines the evaluation type (tone, veracity, etc.)
+#    - Tool context is automatically included in {{ inputs }}
+#    - Optional: set fail_open (default: true) and max_context_length (default: 8000)
 #    - Test thoroughly before deploying
 #
 # 7. TESTING GUARDRAILS

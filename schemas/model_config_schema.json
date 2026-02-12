@@ -2574,6 +2574,7 @@
     },
     "GuardrailModel": {
       "additionalProperties": false,
+      "description": "Configuration for an LLM-based guardrail using MLflow judges. The prompt determines the evaluation type (tone, completeness, veracity, etc.). Tool context from ToolMessages is automatically extracted and included in {{ inputs }}.",
       "properties": {
         "name": {
           "title": "Name",
@@ -2588,9 +2589,11 @@
               "$ref": "#/$defs/LLMModel"
             }
           ],
-          "title": "Model"
+          "title": "Model",
+          "description": "LLM model for the MLflow judge. The model's Databricks URI is used as the judge endpoint."
         },
         "prompt": {
+          "description": "Evaluation instructions using {{ inputs }} and {{ outputs }} Jinja2 template variables.",
           "anyOf": [
             {
               "type": "string"
@@ -2611,7 +2614,34 @@
             }
           ],
           "default": 3,
-          "title": "Num Retries"
+          "title": "Num Retries",
+          "description": "Maximum number of retry attempts when evaluation fails."
+        },
+        "fail_open": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": true,
+          "title": "Fail Open",
+          "description": "If true, let responses through when the judge call fails. Defaults to true."
+        },
+        "max_context_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 8000,
+          "title": "Max Context Length",
+          "description": "Maximum character length for extracted tool context. Defaults to 8000."
         }
       },
       "required": [
