@@ -2925,6 +2925,40 @@ class PromptModel(BaseModel, HasFullName):
         return prompt_version.to_single_brace_format()
 
     @property
+    def jinja_template(self) -> str:
+        """Return the template in Jinja2 format (with {{ }} variables).
+
+        Unlike ``template`` which converts to single-brace Python format,
+        this property ensures the template uses Jinja2 double-brace
+        variables (e.g. ``{{ inputs }}``, ``{{ outputs }}``) required by
+        MLflow judges.
+
+        If the registry stores the older single-brace format
+        (``{inputs}``), the known MLflow judge variables are automatically
+        converted to double-brace Jinja2 syntax.
+        """
+        import re
+
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: DatabricksProvider = DatabricksProvider()
+        prompt_version = provider.get_prompt(self)
+        raw_template: str = prompt_version.template
+
+        # Convert single-brace MLflow judge variables to Jinja2 double-brace
+        # format when the template was stored in legacy format.
+        _JUDGE_VARS = ("inputs", "outputs", "trace", "expectations", "conversation")
+        for var in _JUDGE_VARS:
+            # Match {var} but NOT {{var}} (already Jinja2)
+            raw_template = re.sub(
+                r"(?<!\{)\{" + var + r"\}(?!\})",
+                "{{ " + var + " }}",
+                raw_template,
+            )
+
+        return raw_template
+
+    @property
     def full_name(self) -> str:
         prompt_name: str = self.name
         if self.schema_model:

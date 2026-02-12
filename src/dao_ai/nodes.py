@@ -88,10 +88,11 @@ def _create_middleware_list(
             guardrail_names=guardrail_names,
         )
     for guardrail in agent.guardrails:
-        # Extract template string from PromptModel if needed
+        # Extract template string from PromptModel if needed.
+        # Use jinja_template to preserve {{ }} variables required by MLflow judges.
         prompt_str: str
         if isinstance(guardrail.prompt, PromptModel):
-            prompt_str = guardrail.prompt.template
+            prompt_str = guardrail.prompt.jinja_template
         else:
             prompt_str = guardrail.prompt
 
