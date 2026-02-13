@@ -41,7 +41,9 @@ from typing import TYPE_CHECKING
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from loguru import logger
 
+from dao_ai.config import PromptModel
 from dao_ai.middleware._backends import resolve_backend
+from dao_ai.middleware._prompt_utils import resolve_prompt
 
 if TYPE_CHECKING:
     from dao_ai.config import VolumePathModel
@@ -56,7 +58,7 @@ def create_filesystem_middleware(
     root_dir: str | None = None,
     volume_path: str | VolumePathModel | None = None,
     tool_token_limit_before_evict: int | None = 20000,
-    system_prompt: str | None = None,
+    system_prompt: str | PromptModel | None = None,
     custom_tool_descriptions: dict[str, str] | None = None,
 ) -> FilesystemMiddleware:
     """
@@ -87,7 +89,8 @@ def create_filesystem_middleware(
             tool result to the filesystem. Set to ``None`` to disable
             eviction. Defaults to 20000.
         system_prompt: Custom system prompt override for filesystem
-            tool guidance.
+            tool guidance. Accepts a plain string or a ``PromptModel``
+            from the prompt registry.
         custom_tool_descriptions: Optional dict mapping tool names to
             custom descriptions.
 
@@ -126,9 +129,13 @@ def create_filesystem_middleware(
         custom_system_prompt=system_prompt is not None,
     )
 
+    resolved_system_prompt: str | None = (
+        resolve_prompt(system_prompt) if system_prompt is not None else None
+    )
+
     middleware = FilesystemMiddleware(
         backend=backend,
-        system_prompt=system_prompt,
+        system_prompt=resolved_system_prompt,
         custom_tool_descriptions=custom_tool_descriptions,
         tool_token_limit_before_evict=tool_token_limit_before_evict,
     )

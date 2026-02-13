@@ -23,7 +23,9 @@ from langgraph.runtime import Runtime
 from loguru import logger
 from mlflow.genai.judges import make_judge
 
+from dao_ai.config import PromptModel
 from dao_ai.messages import last_ai_message, last_human_message
+from dao_ai.middleware._prompt_utils import resolve_prompt
 from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.state import AgentState, Context
 
@@ -132,7 +134,8 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
     Args:
         name: Name identifying this guardrail
         model: MLflow model string for the judge (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
-        prompt: The evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}`` template variables
+        prompt: The evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}`` template variables.
+            Accepts a plain string or a ``PromptModel`` from the prompt registry.
         num_retries: Maximum number of retry attempts (default: 3)
         fail_open: If True, let responses through when the judge call fails (default: True)
         max_context_length: Maximum character length for extracted tool context (default: 8000)
@@ -142,7 +145,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         self,
         name: str,
         model: str,
-        prompt: str,
+        prompt: str | PromptModel,
         num_retries: int = 3,
         fail_open: bool = True,
         max_context_length: int = 8000,
@@ -150,7 +153,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         super().__init__()
         self.guardrail_name = name
         self.model_endpoint = model
-        self.prompt = prompt
+        self.prompt = resolve_prompt(prompt, jinja=True)
         self.num_retries = num_retries
         self.fail_open = fail_open
         self.max_context_length = max_context_length
@@ -754,8 +757,9 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
     Args:
         model: MLflow model string for the judge
         tone: Preset tone profile name (default: ``"professional"``)
-        custom_guidelines: Custom tone guidelines string. If provided,
-            overrides the preset tone profile.
+        custom_guidelines: Custom tone guidelines. If provided,
+            overrides the preset tone profile. Accepts a plain string
+            or a ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
         fail_open: Let responses through on judge error (default: True)
 
@@ -770,12 +774,12 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
         self,
         model: str,
         tone: str = "professional",
-        custom_guidelines: Optional[str] = None,
+        custom_guidelines: str | PromptModel | None = None,
         num_retries: int = 2,
         fail_open: bool = True,
     ):
         if custom_guidelines:
-            prompt = custom_guidelines
+            prompt: str | PromptModel = custom_guidelines
         elif tone in TONE_PROFILES:
             prompt = TONE_PROFILES[tone]
         else:
@@ -953,7 +957,7 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
 def create_guardrail_middleware(
     name: str,
     model: str,
-    prompt: str,
+    prompt: str | PromptModel,
     num_retries: int = 3,
     fail_open: bool = True,
     max_context_length: int = 8000,
@@ -971,7 +975,8 @@ def create_guardrail_middleware(
     Args:
         name: Name identifying this guardrail
         model: MLflow model string for the judge (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
-        prompt: The evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}`` template variables
+        prompt: The evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}`` template variables.
+            Accepts a plain string or a ``PromptModel`` from the prompt registry.
         num_retries: Maximum number of retry attempts (default: 3)
         fail_open: If True, let responses through when the judge call fails (default: True)
         max_context_length: Maximum character length for extracted tool context (default: 8000)
@@ -1140,7 +1145,7 @@ def create_relevance_guardrail_middleware(
 def create_tone_guardrail_middleware(
     model: str,
     tone: str = "professional",
-    custom_guidelines: Optional[str] = None,
+    custom_guidelines: str | PromptModel | None = None,
     num_retries: int = 2,
     fail_open: bool = True,
 ) -> ToneGuardrailMiddleware:
@@ -1159,7 +1164,8 @@ def create_tone_guardrail_middleware(
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
         tone: Preset tone profile (default: ``"professional"``)
         custom_guidelines: Custom tone guidelines. Overrides the preset
-            profile if provided.
+            profile if provided. Accepts a plain string or a
+            ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
         fail_open: Let responses through on judge error (default: True)
 

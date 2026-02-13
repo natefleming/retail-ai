@@ -23,7 +23,9 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.runtime import Runtime
 from loguru import logger
 
+from dao_ai.config import PromptModel
 from dao_ai.messages import last_ai_message, last_human_message
+from dao_ai.middleware._prompt_utils import resolve_prompt
 from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.state import AgentState, Context
 
@@ -145,7 +147,7 @@ class LLMConstraint(Constraint):
     def __init__(
         self,
         model: LanguageModelLike,
-        prompt: str,
+        prompt: str | PromptModel,
         name: Optional[str] = None,
         threshold: float = 0.5,
     ):
@@ -154,11 +156,12 @@ class LLMConstraint(Constraint):
         Args:
             model: LLM to use for evaluation
             prompt: Evaluation prompt. Should include {response} and optionally {input} placeholders.
+                Accepts a plain string or a ``PromptModel`` from the prompt registry.
             name: Name for logging
             threshold: Score threshold for passing (0.0-1.0)
         """
         self._model = model
-        self._prompt = prompt
+        self._prompt = resolve_prompt(prompt)
         self._name = name or "LLMConstraint"
         self._threshold = threshold
 

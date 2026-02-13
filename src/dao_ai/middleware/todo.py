@@ -32,6 +32,9 @@ from langchain.agents.middleware import TodoListMiddleware
 from langchain.agents.middleware.todo import PlanningState, Todo
 from loguru import logger
 
+from dao_ai.config import PromptModel
+from dao_ai.middleware._prompt_utils import resolve_prompt
+
 __all__ = [
     "TodoListMiddleware",
     "Todo",
@@ -41,7 +44,7 @@ __all__ = [
 
 
 def create_todo_list_middleware(
-    system_prompt: str | None = None,
+    system_prompt: str | PromptModel | None = None,
     tool_description: str | None = None,
 ) -> TodoListMiddleware:
     """
@@ -61,7 +64,8 @@ def create_todo_list_middleware(
 
     Args:
         system_prompt: Custom system prompt to guide todo usage. If None, uses
-            the built-in prompt from LangChain.
+            the built-in prompt from LangChain. Accepts a plain string or a
+            ``PromptModel`` from the prompt registry.
         tool_description: Custom description for the ``write_todos`` tool. If None,
             uses the built-in description from LangChain.
 
@@ -81,7 +85,7 @@ def create_todo_list_middleware(
     """
     kwargs: dict[str, str] = {}
     if system_prompt is not None:
-        kwargs["system_prompt"] = system_prompt
+        kwargs["system_prompt"] = resolve_prompt(system_prompt)
     if tool_description is not None:
         kwargs["tool_description"] = tool_description
 

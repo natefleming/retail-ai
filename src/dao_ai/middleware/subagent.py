@@ -77,7 +77,9 @@ from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from loguru import logger
 
+from dao_ai.config import PromptModel
 from dao_ai.middleware._backends import resolve_backend
+from dao_ai.middleware._prompt_utils import resolve_prompt
 
 if TYPE_CHECKING:
     from dao_ai.config import LLMModel, VolumePathModel
@@ -164,7 +166,7 @@ def create_subagent_middleware(
     backend_type: str = "state",
     root_dir: str | None = None,
     volume_path: str | VolumePathModel | None = None,
-    system_prompt: str | None = None,
+    system_prompt: str | PromptModel | None = None,
     task_description: str | None = None,
 ) -> SubAgentMiddleware:
     """
@@ -209,6 +211,8 @@ def create_subagent_middleware(
         volume_path: Volume path for Databricks Volume backend.
             Required when ``backend_type="volume"``.
         system_prompt: Custom system prompt for guiding task tool usage.
+            Accepts a plain string or a ``PromptModel`` from the prompt
+            registry.
         task_description: Custom description for the ``task`` tool.
 
     Returns:
@@ -264,7 +268,7 @@ def create_subagent_middleware(
     if subagents is not None:
         kwargs["subagents"] = _resolve_subagent_models(subagents)
     if system_prompt is not None:
-        kwargs["system_prompt"] = system_prompt
+        kwargs["system_prompt"] = resolve_prompt(system_prompt)
     if task_description is not None:
         kwargs["task_description"] = task_description
 
