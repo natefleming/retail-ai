@@ -73,6 +73,7 @@ dependencies = [
     "sqlparse>=0.5.4",
     "tomli>=2.3.0",
     "unitycatalog-ai[databricks]>=0.3.2",
+    "deepagents>=0.4.1",
 ]
 
 [project.scripts]
@@ -109,7 +110,6 @@ databricks = [
     "pyspark>=3.5.0",
     "databricks-connect>=16.0.0",
 ]
-
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

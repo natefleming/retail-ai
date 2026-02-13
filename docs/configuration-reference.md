@@ -348,6 +348,137 @@ include_tools: ["execute_query", "list_tables"]  # Only these 2
 
 ---
 
+## Deep Agents Middleware
+
+DAO AI provides factory functions for the [Deep Agents](https://pypi.org/project/deepagents/) middleware stack. These are configured in the `middleware` section using `name` (factory import path) and `args` (keyword arguments).
+
+### Factory Configuration Pattern
+
+```yaml
+middleware:
+  my_middleware: &my_middleware
+    name: dao_ai.middleware.<module>.create_<type>_middleware
+    args:
+      backend_type: state          # state | filesystem | store | volume
+      root_dir: /workspace         # Required for backend_type: filesystem
+      volume_path: /Volumes/c/s/v  # Required for backend_type: volume
+      # ... additional factory-specific args
+```
+
+### Available Factories
+
+```yaml
+middleware:
+  # Task planning -- adds write_todos tool
+  todo: &todo
+    name: dao_ai.middleware.todo.create_todo_list_middleware
+    args:
+      system_prompt: string | null       # Custom system prompt (optional)
+      tool_description: string | null    # Custom tool description (optional)
+
+  # File operations -- adds ls, read_file, write_file, edit_file, glob, grep
+  filesystem: &filesystem
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: state                # state | filesystem | store | volume
+      root_dir: string | null            # Required for filesystem backend
+      volume_path: string | null         # Required for volume backend
+      tool_token_limit_before_evict: int | null  # Default: 20000, null to disable
+      system_prompt: string | null       # Custom system prompt (optional)
+
+  # Subagent spawning -- adds task tool
+  subagent: &subagent
+    name: dao_ai.middleware.subagent.create_subagent_middleware
+    args:
+      subagents:                         # List of subagent specifications
+        - name: string
+          description: string
+          system_prompt: string
+          model: string | LLMModel dict  # See "Subagent model" note below
+          tools: [object]
+      backend_type: state
+      root_dir: string | null
+      volume_path: string | null
+      system_prompt: string | null       # Custom system prompt for task tool
+      task_description: string | null    # Custom task tool description
+
+  # AGENTS.md memory -- loads context from AGENTS.md files
+  memory: &memory
+    name: dao_ai.middleware.memory_agents.create_agents_memory_middleware
+    args:
+      sources: [string]                  # Required: list of AGENTS.md paths
+      backend_type: state
+      root_dir: string | null
+      volume_path: string | null
+
+  # Skill discovery -- discovers SKILL.md files
+  skills: &skills
+    name: dao_ai.middleware.skills.create_skills_middleware
+    args:
+      sources: [string]                  # Required: list of skill source paths
+      backend_type: state
+      root_dir: string | null
+      volume_path: string | null
+
+  # Enhanced summarization -- backend offloading + arg truncation
+  summarization: &summarization
+    name: dao_ai.middleware.summarization.create_deep_summarization_middleware
+    args:
+      model: string                      # Required: model identifier
+      backend_type: state
+      root_dir: string | null
+      volume_path: string | null
+      trigger: [string, int] | null      # e.g. ["tokens", 100000]
+      keep: [string, int]                # Default: ["messages", 20]
+      history_path_prefix: string        # Default: /conversation_history
+      truncate_args_trigger: [string, int] | null
+      truncate_args_keep: [string, int]  # Default: ["messages", 20]
+      truncate_args_max_length: int      # Default: 2000
+```
+
+### Backend Types
+
+| Backend | Description | Required Args |
+|---------|-------------|---------------|
+| `state` (default) | Ephemeral storage in LangGraph state | None |
+| `filesystem` | Real disk storage | `root_dir` |
+| `store` | Persistent via LangGraph Store | None |
+| `volume` | Databricks Unity Catalog Volume | `volume_path` |
+
+The `volume` backend uses the Databricks SDK `WorkspaceClient.files` API. The `volume_path` must start with `/Volumes/` and can be either a string path (e.g. `/Volumes/catalog/schema/volume`) or reference a `VolumePathModel` from the config.
+
+### Subagent Model
+
+The `model` field in each subagent specification supports multiple formats:
+
+| Format | Description | Example |
+|--------|-------------|---------|
+| String | `"provider:model"` identifier, passed directly to deepagents | `"openai:gpt-4o-mini"` |
+| Dict (LLMModel) | Mapping of `LLMModel` fields, converted to `ChatDatabricks` via `LLMModel.as_chat_model()` | `{name: "my-endpoint", temperature: 0.1}` |
+| LLMModel instance | DAO AI `LLMModel` object (Python API only), converted via `as_chat_model()` | `LLMModel(name="my-endpoint")` |
+| BaseChatModel instance | LangChain chat model (Python API only), passed through directly | `ChatDatabricks(model="my-endpoint")` |
+
+**YAML example with a Databricks serving endpoint:**
+
+```yaml
+subagents:
+  - name: analyst
+    description: "Data analysis agent"
+    system_prompt: "You are a data analyst."
+    model:
+      name: "databricks-meta-llama-3-3-70b-instruct"
+      temperature: 0.1
+      max_tokens: 4096
+    tools: []
+```
+
+### See Also
+
+- Full example: [`config/examples/12_middleware/deepagents_middleware.yaml`](../config/examples/12_middleware/deepagents_middleware.yaml)
+- Middleware examples: [`config/examples/12_middleware/README.md`](../config/examples/12_middleware/README.md)
+
+---
+
 ## Navigation
 
 - [← Previous: Key Capabilities](key-capabilities.md)

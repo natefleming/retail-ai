@@ -44,6 +44,7 @@ flowchart TB
 |------|-------------|
 | [`middleware_basic.yaml`](./middleware_basic.yaml) | PII detection and logging middleware |
 | [`middleware_advanced.yaml`](./middleware_advanced.yaml) | Custom preprocessing and formatting |
+| [`deepagents_middleware.yaml`](./deepagents_middleware.yaml) | Deep Agents middleware (todo, filesystem, subagent, skills, memory, summarization) |
 
 ## Middleware Execution Flow
 
@@ -273,6 +274,72 @@ graph TB
 | PII not detected | Check entity types, try presidio |
 | PII not restored | Ensure restoration middleware after agent |
 | Performance issues | Use local strategy, reduce entities |
+
+## Deep Agents Middleware
+
+DAO AI integrates with the [Deep Agents](https://pypi.org/project/deepagents/) library to provide advanced agent middleware through simple factory functions. All factories are configurable via YAML using `name` + `args`.
+
+### Available Factories
+
+| Factory | Module | Description |
+|---------|--------|-------------|
+| `create_todo_list_middleware` | `dao_ai.middleware.todo` | Task planning via `write_todos` tool |
+| `create_filesystem_middleware` | `dao_ai.middleware.filesystem` | File operations (ls, read, write, edit, grep, glob) |
+| `create_subagent_middleware` | `dao_ai.middleware.subagent` | Spawn isolated subagents via `task` tool |
+| `create_skills_middleware` | `dao_ai.middleware.skills` | SKILL.md discovery with progressive disclosure |
+| `create_agents_memory_middleware` | `dao_ai.middleware.memory_agents` | AGENTS.md context loading |
+| `create_deep_summarization_middleware` | `dao_ai.middleware.summarization` | Enhanced summarization with backend offloading |
+
+### Backend Types
+
+Middleware that use file storage accept a `backend_type` argument:
+
+| Backend | Description | Required Args |
+|---------|-------------|---------------|
+| `state` (default) | Ephemeral storage in LangGraph state | None |
+| `filesystem` | Real disk storage | `root_dir` |
+| `store` | Persistent via LangGraph Store | None |
+| `volume` | Databricks Unity Catalog Volume | `volume_path` |
+
+### Subagent Model
+
+The `model` field in each subagent spec accepts a string (`"openai:gpt-4o-mini"`) **or** an LLMModel dict that is automatically converted to a `ChatDatabricks` instance:
+
+```yaml
+subagents:
+  - name: analyst
+    model:                                   # Dict -> ChatDatabricks
+      name: "databricks-meta-llama-3-3-70b-instruct"
+      temperature: 0.1
+```
+
+In Python code you can also pass `LLMModel(...)` or `ChatDatabricks(...)` directly.
+
+### Quick Example
+
+```yaml
+middleware:
+  todo: &todo
+    name: dao_ai.middleware.todo.create_todo_list_middleware
+
+  filesystem: &filesystem
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+
+  # Volume backend for Databricks
+  filesystem_volume: &filesystem_volume
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: volume
+      volume_path: /Volumes/catalog/schema/agent_workspace
+
+agents:
+  my_agent:
+    middleware:
+      - *todo
+      - *filesystem
+```
+
+See [`deepagents_middleware.yaml`](./deepagents_middleware.yaml) for a complete example.
 
 ## Next Steps
 

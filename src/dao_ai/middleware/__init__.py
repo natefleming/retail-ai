@@ -40,6 +40,9 @@ from dao_ai.middleware.assertions import (
     create_refine_middleware,
     create_suggest_middleware,
 )
+
+# Deep Agents backends and middleware factories
+from dao_ai.middleware.backends import DatabricksVolumeBackend
 from dao_ai.middleware.base import (
     AgentMiddleware,
     ModelRequest,
@@ -50,6 +53,7 @@ from dao_ai.middleware.context_editing import (
     create_context_editing_middleware,
 )
 from dao_ai.middleware.core import create_factory_middleware
+from dao_ai.middleware.filesystem import create_filesystem_middleware
 from dao_ai.middleware.guardrails import (
     ConcisenessGuardrailMiddleware,
     ContentFilterMiddleware,
@@ -70,6 +74,7 @@ from dao_ai.middleware.human_in_the_loop import (
     create_hitl_middleware_from_tool_models,
     create_human_in_the_loop_middleware,
 )
+from dao_ai.middleware.memory_agents import create_agents_memory_middleware
 from dao_ai.middleware.message_validation import (
     CustomFieldValidationMiddleware,
     FilterLastHumanMessageMiddleware,
@@ -85,9 +90,18 @@ from dao_ai.middleware.message_validation import (
 from dao_ai.middleware.model_call_limit import create_model_call_limit_middleware
 from dao_ai.middleware.model_retry import create_model_retry_middleware
 from dao_ai.middleware.pii import create_pii_middleware
+from dao_ai.middleware.skills import create_skills_middleware
+from dao_ai.middleware.subagent import create_subagent_middleware
 from dao_ai.middleware.summarization import (
     LoggingSummarizationMiddleware,
+    create_deep_summarization_middleware,
     create_summarization_middleware,
+)
+from dao_ai.middleware.todo import (
+    PlanningState,
+    Todo,
+    TodoListMiddleware,
+    create_todo_list_middleware,
 )
 from dao_ai.middleware.tool_call_limit import create_tool_call_limit_middleware
 from dao_ai.middleware.tool_call_observability import (
@@ -123,6 +137,10 @@ __all__ = [
     "ContextEditingMiddleware",
     "ClearToolUsesEdit",
     "PIIMiddleware",
+    # TodoListMiddleware (from LangChain, also used by Deep Agents)
+    "TodoListMiddleware",
+    "Todo",
+    "PlanningState",
     # Core factory function
     "create_factory_middleware",
     # DAO AI middleware implementations
@@ -183,4 +201,14 @@ __all__ = [
     # Tool call observability middleware
     "ToolCallObservabilityMiddleware",
     "create_tool_call_observability_middleware",
+    # TodoList middleware factory
+    "create_todo_list_middleware",
+    # Deep Agents backends
+    "DatabricksVolumeBackend",
+    # Deep Agents middleware factories
+    "create_filesystem_middleware",
+    "create_subagent_middleware",
+    "create_agents_memory_middleware",
+    "create_skills_middleware",
+    "create_deep_summarization_middleware",
 ]

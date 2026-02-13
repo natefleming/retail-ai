@@ -1,0 +1,312 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Example: Deep Agents Middleware Stack
+#
+# This example demonstrates the Deep Agents middleware factories available
+# in DAO AI. These provide agents with task planning, filesystem access,
+# subagent spawning, skill discovery, AGENTS.md memory, and enhanced
+# conversation summarization.
+#
+# Deep Agents middleware uses pluggable backends:
+#   - "state"      (default) - Ephemeral storage in LangGraph state
+#   - "filesystem"           - Real disk (requires root_dir)
+#   - "store"                - Persistent via LangGraph Store
+#   - "volume"               - Databricks Unity Catalog Volume (requires volume_path)
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: quick_serve_restaurant
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+    summarization_llm: &summarization_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.0
+      max_tokens: 2048
+
+# =============================================================================
+# DEEP AGENTS MIDDLEWARE CONFIGURATION
+# =============================================================================
+
+middleware:
+  # ---------------------------------------------------------------------------
+  # 1. Task Planning (TodoListMiddleware)
+  # ---------------------------------------------------------------------------
+  # Adds a `write_todos` tool for creating and managing structured task lists.
+  # Agents automatically break complex tasks into manageable steps.
+  todo: &todo
+    name: dao_ai.middleware.todo.create_todo_list_middleware
+    # Optional args:
+    #   system_prompt: "Custom instructions for when to use todos..."
+    #   tool_description: "Custom description for the write_todos tool"
+
+  # ---------------------------------------------------------------------------
+  # 2. Filesystem Access (FilesystemMiddleware)
+  # ---------------------------------------------------------------------------
+  # Provides file operation tools: ls, read_file, write_file, edit_file,
+  # glob, grep, and execute (when using a sandbox backend).
+  # Large tool results are auto-evicted to prevent context window saturation.
+  #
+  # The `backend_type` argument controls WHERE files are stored. This is the
+  # pluggable storage layer that all Deep Agents file-aware middleware share.
+  #
+  # backend_type options:
+  #
+  #   "state" (default)
+  #     Ephemeral -- files live in LangGraph state for the current agent turn
+  #     only. No persistence across turns or restarts. Zero configuration.
+  #     USE WHEN: Development, testing, stateless agents, or when files are
+  #     only needed within a single turn (e.g. scratch space for reasoning).
+  #
+  #   "filesystem"
+  #     Real disk -- files are written to the local filesystem under root_dir.
+  #     Requires: root_dir (e.g. "/workspace/agent_files")
+  #     USE WHEN: Local development where you want files to persist on disk,
+  #     sandbox environments, or containerized agents with mounted volumes.
+  #
+  #   "store"
+  #     LangGraph Store -- files persist across agent turns within the same
+  #     thread via the LangGraph Store abstraction. No extra args required.
+  #     USE WHEN: Multi-turn conversations where agents need to remember
+  #     files created in previous turns (e.g. iterative code editing).
+  #
+  #   "volume"
+  #     Databricks Unity Catalog Volume -- files are read/written via the
+  #     Databricks SDK WorkspaceClient.files API. Agent-visible paths are
+  #     relative to the volume root (e.g. /data/report.txt maps to
+  #     /Volumes/catalog/schema/volume/data/report.txt).
+  #     Requires: volume_path (e.g. "/Volumes/catalog/schema/volume")
+  #     USE WHEN: Production on Databricks where file access must be
+  #     governed by Unity Catalog permissions, or when agents need to
+  #     read/write shared datasets in Volumes.
+  #
+  # Example with "state" backend (ephemeral, no persistence):
+  filesystem: &filesystem
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: state
+      tool_token_limit_before_evict: 20000
+
+  # Example with "volume" backend (Databricks Unity Catalog Volumes):
+  # Agent reads and writes files in /Volumes/my_catalog/my_schema/agent_workspace.
+  # All file paths the agent sees are relative to this root.
+  filesystem_volume: &filesystem_volume
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: volume
+      volume_path: /Volumes/my_catalog/my_schema/agent_workspace
+      tool_token_limit_before_evict: 20000
+
+  # ---------------------------------------------------------------------------
+  # 3. Subagent Spawning (SubAgentMiddleware)
+  # ---------------------------------------------------------------------------
+  # Enables the agent to spawn isolated subagents via a `task` tool.
+  # Each subagent gets its own context and tools.
+  #
+  # The `model` field in each subagent spec supports multiple formats:
+  #
+  #   String (provider:model):
+  #     Passed directly to deepagents.  Use the "provider:model" format
+  #     recognised by LangChain's init_chat_model (e.g. "openai:gpt-4o",
+  #     "anthropic:claude-sonnet-4-20250514").
+  #     Example:  model: "openai:gpt-4o-mini"
+  #
+  #   Dict (LLMModel config -> ChatDatabricks):
+  #     A mapping with LLMModel fields.  The factory constructs an LLMModel
+  #     and calls as_chat_model(), producing a ChatDatabricks instance.
+  #     This is the recommended approach for Databricks Model Serving
+  #     endpoints.
+  #     Example:
+  #       model:
+  #         name: "databricks-meta-llama-3-3-70b-instruct"
+  #         temperature: 0.1
+  #         max_tokens: 4096
+  #
+  #   In Python code you can also pass:
+  #     - An LLMModel instance  (converted via as_chat_model())
+  #     - A BaseChatModel instance  (e.g. ChatDatabricks(...), passed through)
+  #
+  subagent: &subagent
+    name: dao_ai.middleware.subagent.create_subagent_middleware
+    args:
+      subagents:
+        # String model -- passed through to deepagents
+        - name: researcher
+          description: "Research agent for gathering information"
+          system_prompt: "You are a research specialist. Find and summarize information."
+          model: "openai:gpt-4o-mini"
+          tools: []
+        # Dict model -- converted to ChatDatabricks via LLMModel.as_chat_model()
+        - name: analyst
+          description: "Data analysis agent using a Databricks serving endpoint"
+          system_prompt: "You are a data analyst. Analyze data and provide insights."
+          model:
+            name: "databricks-meta-llama-3-3-70b-instruct"
+            temperature: 0.1
+            max_tokens: 4096
+          tools: []
+
+  # ---------------------------------------------------------------------------
+  # 4. Skill Discovery (SkillsMiddleware)
+  # ---------------------------------------------------------------------------
+  # Discovers SKILL.md files and injects a skill listing into the system
+  # prompt with progressive disclosure. Agents can read full skill content
+  # on demand.
+  skills: &skills
+    name: dao_ai.middleware.skills.create_skills_middleware
+    args:
+      sources:
+        - /skills/base/
+        - /skills/user/
+
+  # ---------------------------------------------------------------------------
+  # 5. AGENTS.md Memory (MemoryMiddleware)
+  # ---------------------------------------------------------------------------
+  # Loads context from AGENTS.md files at startup and injects it into the
+  # system prompt. Encourages the agent to update memory files as it learns.
+  memory: &memory
+    name: dao_ai.middleware.memory_agents.create_agents_memory_middleware
+    args:
+      sources:
+        - ~/.deepagents/AGENTS.md
+        - ./.deepagents/AGENTS.md
+
+  # ---------------------------------------------------------------------------
+  # 6. Enhanced Summarization (Deep Agents SummarizationMiddleware)
+  # ---------------------------------------------------------------------------
+  # Extends LangChain's summarization with:
+  #   - Backend offloading of full conversation history before summarizing
+  #   - Tool argument truncation for large write_file/edit_file args
+  #   - Fraction-based triggers using model profile data
+  #   - Thread-aware storage at configurable path prefix
+  summarization: &summarization
+    name: dao_ai.middleware.summarization.create_deep_summarization_middleware
+    args:
+      model: "openai:gpt-4o-mini"
+      backend_type: state
+      trigger: ["tokens", 100000]
+      keep: ["messages", 20]
+      history_path_prefix: /conversation_history
+      # Optional: truncate large tool arguments in old messages
+      # truncate_args_trigger: ["messages", 50]
+      # truncate_args_max_length: 2000
+
+tools:
+  time_tool: &time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Agent with Deep Agents Middleware
+  # ---------------------------------------------------------------------------
+  coding_agent: &coding_agent
+    name: coding_agent
+    description: "An agent with Deep Agents middleware for task planning and file operations"
+    model: *default_llm
+    tools:
+      - *time_tool
+    middleware:
+      - *todo                  # Task planning via write_todos tool
+      - *filesystem            # File operations (ephemeral state backend)
+      # - *filesystem_volume   # Swap above for Databricks Volume backend
+      - *summarization         # Context management via enhanced summarization
+    prompt: |
+      You are a helpful coding assistant with file operation capabilities.
+
+      Use the write_todos tool to plan multi-step tasks before starting work.
+      Use filesystem tools (ls, read_file, write_file, edit_file, glob, grep)
+      to explore and modify files.
+
+  # ---------------------------------------------------------------------------
+  # Agent with Subagent Support
+  # ---------------------------------------------------------------------------
+  supervisor_agent: &supervisor_agent
+    name: supervisor_agent
+    description: "A supervisor agent that can delegate to specialized subagents"
+    model: *default_llm
+    tools:
+      - *time_tool
+    middleware:
+      - *todo                  # Task planning
+      - *subagent              # Spawn isolated subagents via task tool
+    prompt: |
+      You are a supervisor agent. Break complex tasks into subtasks and
+      delegate them to specialized subagents using the task tool.
+
+      Available subagents:
+      - researcher: For gathering and summarizing information
+      - analyst: For data analysis and insights
+
+app:
+  name: deepagents_middleware_example
+  description: "Example demonstrating Deep Agents middleware factories"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: deepagents_middleware_dao
+  endpoint_name: deepagents_middleware_demo
+  agents:
+    - *coding_agent
+    - *supervisor_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    messages:
+      - role: user
+        content: Create a todo list for building a REST API
+    custom_inputs:
+      configurable: {}
+      session: {}
+
+# =============================================================================
+# BACKEND TYPES
+# =============================================================================
+#
+# All Deep Agents middleware factories accept a backend_type argument:
+#
+# "state" (default)
+#   Ephemeral storage in LangGraph state. Files exist only for the
+#   current agent turn. No configuration required.
+#
+# "filesystem"
+#   Real disk backend. Requires root_dir argument.
+#   Example:
+#     args:
+#       backend_type: filesystem
+#       root_dir: /workspace
+#
+# "store"
+#   Persistent storage via LangGraph Store. Files survive across
+#   agent turns within the same thread. No additional args required.
+#
+# "volume"
+#   Databricks Unity Catalog Volume backend. Reads and writes files
+#   via the Databricks SDK WorkspaceClient.files API.
+#   Requires volume_path argument (string or VolumePathModel).
+#   Example:
+#     args:
+#       backend_type: volume
+#       volume_path: /Volumes/catalog/schema/volume
+#
+# =============================================================================
+# FACTORIES REFERENCE
+# =============================================================================
+#
+# | Factory | Module | Description |
+# |---------|--------|-------------|
+# | create_todo_list_middleware | dao_ai.middleware.todo | Task planning (write_todos) |
+# | create_filesystem_middleware | dao_ai.middleware.filesystem | File operations |
+# | create_subagent_middleware | dao_ai.middleware.subagent | Spawn isolated subagents |
+# | create_skills_middleware | dao_ai.middleware.skills | SKILL.md discovery |
+# | create_agents_memory_middleware | dao_ai.middleware.memory_agents | AGENTS.md context |
+# | create_deep_summarization_middleware | dao_ai.middleware.summarization | Enhanced summarization |

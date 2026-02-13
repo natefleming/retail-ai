@@ -1270,6 +1270,314 @@ agents:
 
 ---
 
+## 16. Deep Agents (Task Planning, Filesystem, Subagents, Skills)
+
+**What is this?** DAO AI integrates with the [Deep Agents](https://pypi.org/project/deepagents/) library to provide a suite of advanced agent capabilities through middleware factories. These give your agents the ability to plan tasks, read and write files, spawn subagents, discover skills, load memory context, and perform enhanced conversation summarization.
+
+**Why this matters:**
+- **Task planning**: Agents can break complex requests into step-by-step todo lists, improving reliability on multi-step tasks
+- **Filesystem access**: Agents can create, read, edit, and search files -- essential for coding assistants, document processors, and data pipelines
+- **Subagent spawning**: A supervisor agent can delegate specialized work to isolated subagents, each with their own tools and context
+- **Skill discovery**: Agents progressively discover and use `SKILL.md` files, enabling modular capability expansion without prompt bloat
+- **Memory context**: Agents load persistent context from `AGENTS.md` files, carrying learned preferences across sessions
+- **Enhanced summarization**: Long conversations are summarized with full history offloaded to a backend, preventing context window overflow
+
+All capabilities are configurable via YAML with no custom code required.
+
+### Available Middleware Factories
+
+| Factory | Module | Description |
+|---------|--------|-------------|
+| `create_todo_list_middleware` | `dao_ai.middleware.todo` | Adds a `write_todos` tool for structured task planning. Agents break complex work into pending/in_progress/completed steps. |
+| `create_filesystem_middleware` | `dao_ai.middleware.filesystem` | Adds file operation tools: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`. Auto-evicts large results to prevent context overflow. |
+| `create_subagent_middleware` | `dao_ai.middleware.subagent` | Adds a `task` tool that spawns isolated subagents. Each subagent has its own context window and tool set. |
+| `create_skills_middleware` | `dao_ai.middleware.skills` | Discovers `SKILL.md` files from configured source directories and injects a skill listing with progressive disclosure. |
+| `create_agents_memory_middleware` | `dao_ai.middleware.memory_agents` | Loads context from `AGENTS.md` files at startup and injects it into the system prompt. Encourages the agent to update memory as it learns. |
+| `create_deep_summarization_middleware` | `dao_ai.middleware.summarization` | Enhanced summarization that offloads full conversation history to a backend before summarizing, truncates large tool arguments, and supports fraction-based triggers. |
+
+### Quick Start
+
+Add middleware to any agent with YAML anchors:
+
+```yaml
+middleware:
+  # Task planning
+  todo: &todo
+    name: dao_ai.middleware.todo.create_todo_list_middleware
+
+  # File operations
+  filesystem: &filesystem
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+
+  # Enhanced summarization
+  summarization: &summarization
+    name: dao_ai.middleware.summarization.create_deep_summarization_middleware
+    args:
+      model: "openai:gpt-4o-mini"
+      trigger: ["tokens", 100000]
+      keep: ["messages", 20]
+
+agents:
+  coding_agent:
+    name: coding_agent
+    model: *default_llm
+    middleware:
+      - *todo
+      - *filesystem
+      - *summarization
+    prompt: |
+      You are a coding assistant. Use write_todos for multi-step tasks.
+      Use filesystem tools to read, create, and edit files.
+```
+
+### Pluggable Backends
+
+Middleware that use file storage accept a `backend_type` argument. This determines where files are stored:
+
+| Backend | Description | Required Args | Best For |
+|---------|-------------|---------------|----------|
+| `state` (default) | Ephemeral storage in LangGraph state | None | Development, testing, stateless agents |
+| `filesystem` | Real disk storage | `root_dir` | Local development, sandbox environments |
+| `store` | Persistent via LangGraph Store | None | Multi-turn persistence within a thread |
+| `volume` | Databricks Unity Catalog Volume | `volume_path` | Production on Databricks, governed file access |
+
+```yaml
+middleware:
+  # Ephemeral (default) -- files live in agent state only
+  filesystem_ephemeral: &fs_ephemeral
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: state
+
+  # Real disk -- files persist on the filesystem
+  filesystem_disk: &fs_disk
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: filesystem
+      root_dir: /workspace/agent_files
+
+  # Databricks Volume -- files stored in Unity Catalog Volumes
+  filesystem_volume: &fs_volume
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: volume
+      volume_path: /Volumes/my_catalog/my_schema/agent_workspace
+```
+
+### Databricks Volume Backend
+
+**What is this?** The `DatabricksVolumeBackend` lets agents read and write files in Databricks Unity Catalog Volumes. This is ideal for production deployments where file access needs to be governed by Unity Catalog permissions.
+
+**How it works:** The backend maps the Deep Agents filesystem abstraction to the Databricks SDK `WorkspaceClient.files` API. Agent-visible paths are relative to the configured volume root -- when an agent writes to `/data/report.txt`, it is stored at `/Volumes/catalog/schema/volume/data/report.txt`.
+
+**Supported operations:**
+
+| Operation | Tool | Description |
+|-----------|------|-------------|
+| List | `ls` | List files and directories in the volume |
+| Read | `read_file` | Read file content with line numbers |
+| Write | `write_file` | Create new files (create-only semantics prevents overwrites) |
+| Edit | `edit_file` | Replace string occurrences in existing files |
+| Search | `grep` | Search for text patterns across files |
+| Find | `glob` | Find files matching glob patterns (e.g. `*.py`) |
+
+All operations have async variants for use in async agent pipelines.
+
+**Configuration:**
+
+```yaml
+schemas:
+  agent_schema: &agent_schema
+    catalog_name: production
+    schema_name: agents
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+# Volume path can also reference a VolumePathModel from config
+# resources:
+#   volumes:
+#     agent_volume: &agent_volume
+#       schema: *agent_schema
+#       name: workspace_files
+
+middleware:
+  # File operations backed by Databricks Volume
+  filesystem: &filesystem
+    name: dao_ai.middleware.filesystem.create_filesystem_middleware
+    args:
+      backend_type: volume
+      volume_path: /Volumes/production/agents/workspace_files
+      tool_token_limit_before_evict: 20000
+
+  # Task planning
+  todo: &todo
+    name: dao_ai.middleware.todo.create_todo_list_middleware
+
+  # Enhanced summarization -- also backed by Volume for history offloading
+  summarization: &summarization
+    name: dao_ai.middleware.summarization.create_deep_summarization_middleware
+    args:
+      model: "openai:gpt-4o-mini"
+      backend_type: volume
+      volume_path: /Volumes/production/agents/workspace_files
+      trigger: ["tokens", 100000]
+      keep: ["messages", 20]
+      history_path_prefix: /conversation_history
+
+agents:
+  document_agent: &document_agent
+    name: document_agent
+    description: "Agent that reads and writes documents in Databricks Volumes"
+    model: *default_llm
+    middleware:
+      - *todo
+      - *filesystem
+      - *summarization
+    prompt: |
+      You are a document processing agent with access to files stored
+      in Databricks Unity Catalog Volumes.
+
+      Use write_todos to plan multi-step document tasks.
+      Use filesystem tools to read, create, edit, and search files.
+      Files are stored in the /Volumes/production/agents/workspace_files volume.
+
+app:
+  name: volume_document_agent
+  description: "Document agent with Databricks Volume file storage"
+  agents:
+    - *document_agent
+  orchestration:
+    memory:
+      checkpointer:
+        name: memory
+        type: memory
+```
+
+**Python usage:**
+
+```python
+from dao_ai.middleware import create_filesystem_middleware
+from dao_ai.middleware.backends import DatabricksVolumeBackend
+
+# Direct factory usage
+middleware = create_filesystem_middleware(
+    backend_type="volume",
+    volume_path="/Volumes/production/agents/workspace_files",
+)
+
+# Or create the backend directly
+backend = DatabricksVolumeBackend(
+    volume_path="/Volumes/production/agents/workspace_files",
+)
+files = backend.ls_info("/")
+content = backend.read("/data/report.txt")
+```
+
+**Important notes:**
+- The `volume_path` must start with `/Volumes/`
+- Agent paths are relative to the volume root (`/report.txt` maps to `/Volumes/.../report.txt`)
+- `write_file` uses create-only semantics -- it will not overwrite existing files (use `edit_file` instead)
+- The backend creates parent directories automatically
+- Authentication uses the `WorkspaceClient` default (environment-based or explicit)
+
+### Subagent Configuration
+
+Subagents are spawned as isolated agents with their own context. Configure them with name, description, system prompt, model, and tools.
+
+The `model` field is flexible -- it accepts a `"provider:model"` string **or** an `LLMModel` dict that is automatically converted to a `ChatDatabricks` instance:
+
+| Format | Description |
+|--------|-------------|
+| `"openai:gpt-4o-mini"` | String identifier -- passed to deepagents as-is |
+| `{name: ..., temperature: ...}` | LLMModel dict -- converted to `ChatDatabricks` via `LLMModel.as_chat_model()` |
+| `LLMModel(...)` | Python API -- converted via `as_chat_model()` |
+| `ChatDatabricks(...)` | Python API -- passed through directly |
+
+```yaml
+middleware:
+  subagent: &subagent
+    name: dao_ai.middleware.subagent.create_subagent_middleware
+    args:
+      subagents:
+        # String model -- uses provider:model format
+        - name: researcher
+          description: "Gathers information from various sources"
+          system_prompt: |
+            You are a research specialist. Find accurate, relevant
+            information and provide well-organized summaries.
+          model: "openai:gpt-4o-mini"
+          tools: []
+        # Dict model -- converted to ChatDatabricks automatically
+        - name: writer
+          description: "Creates well-structured documents and reports"
+          system_prompt: |
+            You are a technical writer. Create clear, well-organized
+            documents based on the information provided.
+          model:
+            name: "databricks-meta-llama-3-3-70b-instruct"
+            temperature: 0.1
+            max_tokens: 4096
+          tools: []
+
+agents:
+  supervisor:
+    middleware:
+      - *subagent
+    prompt: |
+      You are a supervisor. Use the task tool to delegate work:
+      - "researcher" for information gathering
+      - "writer" for document creation
+```
+
+### Skills and Memory
+
+**Skills** provide modular capability expansion. Place `SKILL.md` files in source directories and the agent discovers them automatically:
+
+```yaml
+middleware:
+  skills: &skills
+    name: dao_ai.middleware.skills.create_skills_middleware
+    args:
+      sources:
+        - /skills/base/         # Built-in skills
+        - /skills/project/      # Project-specific skills
+```
+
+**Memory** loads persistent context from `AGENTS.md` files:
+
+```yaml
+middleware:
+  memory: &memory
+    name: dao_ai.middleware.memory_agents.create_agents_memory_middleware
+    args:
+      sources:
+        - ~/.deepagents/AGENTS.md     # User-level preferences
+        - ./.deepagents/AGENTS.md     # Project-level context
+```
+
+### When to Use Which Middleware
+
+| Use Case | Recommended Middleware |
+|----------|----------------------|
+| Multi-step task execution | `create_todo_list_middleware` |
+| Code generation / file editing | `create_filesystem_middleware` |
+| Delegating specialized work | `create_subagent_middleware` |
+| Modular capability expansion | `create_skills_middleware` |
+| Persistent agent preferences | `create_agents_memory_middleware` |
+| Long conversation management | `create_deep_summarization_middleware` |
+| Production file storage on Databricks | `create_filesystem_middleware` with `backend_type: volume` |
+
+**Example configurations:**
+- See [`config/examples/12_middleware/deepagents_middleware.yaml`](../config/examples/12_middleware/deepagents_middleware.yaml) for a complete example
+- See [`config/examples/12_middleware/README.md`](../config/examples/12_middleware/README.md) for all middleware examples
+
+---
+
 ## Navigation
 
 - [← Previous: Architecture](architecture.md)
