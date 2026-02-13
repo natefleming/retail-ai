@@ -2302,7 +2302,7 @@
           "$ref": "#/$defs/WarehouseModel"
         },
         "context_window_size": {
-          "default": 2,
+          "default": 4,
           "title": "Context Window Size",
           "type": "integer"
         },
@@ -2345,6 +2345,35 @@
           ],
           "default": null,
           "title": "Prompt History Ttl Seconds"
+        },
+        "ivfflat_lists": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ivfflat Lists"
+        },
+        "ivfflat_probes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ivfflat Probes"
+        },
+        "ivfflat_candidates": {
+          "default": 20,
+          "title": "Ivfflat Candidates",
+          "type": "integer"
         }
       },
       "required": [
@@ -2574,6 +2603,7 @@
     },
     "GuardrailModel": {
       "additionalProperties": false,
+      "description": "Configuration for an LLM-based guardrail.\n\nGuardrails use MLflow judges to evaluate agent responses against criteria\ndefined by the prompt. The prompt determines the evaluation type -- tone,\ncompleteness, veracity/groundedness, or any custom criteria.\n\nTool context from ToolMessage objects in the conversation is automatically\nextracted and included in the ``inputs`` dict, so veracity prompts can\nreference it via ``{{ inputs }}``.\n\nAttributes:\n    name: Name identifying this guardrail\n    model: LLM model for the judge. Accepts a string (model name) or LLMModel.\n        The model's Databricks URI is used as the MLflow judge model endpoint.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}``\n        template variables. Accepts a string or PromptModel.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3)\n    fail_open: If True, let responses through when the judge call fails (default: True)\n    max_context_length: Max character length for extracted tool context (default: 8000)",
       "properties": {
         "name": {
           "title": "Name",
@@ -2612,6 +2642,30 @@
           ],
           "default": 3,
           "title": "Num Retries"
+        },
+        "fail_open": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": true,
+          "title": "Fail Open"
+        },
+        "max_context_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 8000,
+          "title": "Max Context Length"
         }
       },
       "required": [
@@ -2861,7 +2915,7 @@
     },
     "InlineFunctionModel": {
       "additionalProperties": false,
-      "description": "Inline function model for defining tool code directly in YAML configuration.\n\nThis allows you to define simple tools without creating separate Python files.\nThe code should define a function decorated with @tool from langchain.tools.\n\nExample YAML:\n    tools:\n      calculator:\n        name: calculator\n        function:\n          type: inline\n          code: |\n            from langchain.tools import tool\n\n            @tool\n            def calculator(expression: str) -> str:\n                '''Evaluate a mathematical expression.'''\n                return str(eval(expression))\n\nThe code block must:\n- Import @tool from langchain.tools\n- Define exactly one function decorated with @tool\n- The function name becomes the tool name",
+      "description": "Inline function model for defining tool code directly in YAML configuration.\n\nThis allows you to define simple tools without creating separate Python files.\nThe code should define a function decorated with @tool from langchain.tools.\n\nSECURITY WARNING: This model uses exec() to execute arbitrary Python code\nfrom the YAML configuration. Only load configurations from trusted sources.\nA malicious configuration could execute arbitrary code on the host system.\n\nExample YAML:\n    tools:\n      calculator:\n        name: calculator\n        function:\n          type: inline\n          code: |\n            from langchain.tools import tool\n\n            @tool\n            def calculator(expression: str) -> str:\n                '''Evaluate a mathematical expression.'''\n                return str(eval(expression))\n\nThe code block must:\n- Import @tool from langchain.tools\n- Define exactly one function decorated with @tool\n- The function name becomes the tool name",
       "properties": {
         "type": {
           "const": "inline",

@@ -64,7 +64,6 @@ pip_requirements: Sequence[str] = (
   f"mlflow=={version('mlflow')}",
   f"python-dotenv=={version('python-dotenv')}",
   f"loguru=={version('loguru')}",
-  f"openevals=={version('openevals')}",
   f"ddgs=={version('ddgs')}",
   f"faker=={version('faker')}",
 )
@@ -519,7 +518,7 @@ from langgraph_reflection import create_reflection_graph
 from langchain.chat_models import init_chat_model
 from langgraph.graph import StateGraph, MessagesState, START, END
 from typing import TypedDict
-from openevals.llm import create_llm_as_judge
+from mlflow.genai.judges import make_judge
 from langchain_core.language_models import LanguageModelLike
 from databricks_langchain import ChatDatabricks
 
@@ -574,20 +573,21 @@ Be detailed in your critique so the assistant can understand exactly how to impr
 # Define the judge function with a more robust evaluation approach
 def judge_response(state, config):
     """Evaluate the assistant's response using a separate judge model."""
-    evaluator = create_llm_as_judge(
-        prompt=critique_prompt,
-        judge=llm,
-       #feedback_key="pass",
+    evaluator = make_judge(
+        name="critique_judge",
+        instructions=critique_prompt,
+        feedback_value_type=bool,
+        model="databricks:/databricks-meta-llama-3-3-70b-instruct",
     )
-    eval_result = evaluator(outputs=state["messages"][-1].content, inputs=None)
+    feedback = evaluator(outputs={"response": state["messages"][-1].content}, inputs={})
 
-    if eval_result["score"]:
+    if feedback.value:
         print("✅ Response approved by judge")
         return
     else:
         # Otherwise, return the judge's critique as a new user message
         print("⚠️ Judge requested improvements")
-        return {"messages": [{"role": "user", "content": eval_result["comment"]}]}
+        return {"messages": [{"role": "user", "content": feedback.rationale}]}
 
 
 # Define the judge graph

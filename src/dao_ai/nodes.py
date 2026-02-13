@@ -88,18 +88,24 @@ def _create_middleware_list(
             guardrail_names=guardrail_names,
         )
     for guardrail in agent.guardrails:
-        # Extract template string from PromptModel if needed
+        # Extract template string from PromptModel if needed.
+        # Use jinja_template to preserve {{ }} variables required by MLflow judges.
         prompt_str: str
         if isinstance(guardrail.prompt, PromptModel):
-            prompt_str = guardrail.prompt.template
+            prompt_str = guardrail.prompt.jinja_template
         else:
             prompt_str = guardrail.prompt
 
+        # Use the LLMModel's URI as the MLflow judge model endpoint
+        model_endpoint: str = guardrail.model.uri
+
         guardrail_middleware: GuardrailMiddleware = GuardrailMiddleware(
             name=guardrail.name,
-            model=guardrail.model.as_chat_model(),
+            model=model_endpoint,
             prompt=prompt_str,
             num_retries=guardrail.num_retries or 3,
+            fail_open=guardrail.fail_open if guardrail.fail_open is not None else True,
+            max_context_length=guardrail.max_context_length or 8000,
         )
         logger.trace(
             "Created guardrail middleware", guardrail=guardrail.name, agent=agent.name

@@ -255,9 +255,10 @@ class TestSummarizationInference:
         # The exact message format may vary, just check debug was called
         assert mock_logger.debug.called
 
+    @patch("dao_ai.middleware.guardrails.make_judge")
     @patch("dao_ai.nodes.create_agent")
     def test_create_agent_node_with_guardrails_and_chat_history(
-        self, mock_create_agent, mock_llm_model
+        self, mock_create_agent, mock_make_judge, mock_llm_model
     ):
         """Test create_agent_node with both guardrails and chat history."""
         from dao_ai.config import GuardrailModel
@@ -265,6 +266,7 @@ class TestSummarizationInference:
         mock_compiled_agent = MagicMock()
         mock_compiled_agent.name = "test_agent"
         mock_create_agent.return_value = mock_compiled_agent
+        mock_make_judge.return_value = MagicMock()
 
         agent_model = AgentModel(
             name="test_agent",

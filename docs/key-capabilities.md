@@ -604,6 +604,7 @@ optimizations:
 - In the wrong format or tone
 - Off-topic or irrelevant
 - Containing sensitive keywords that should be blocked
+- Not grounded in the retrieved data (hallucinations)
 
 DAO provides two complementary middleware systems for response quality control:
 
@@ -611,21 +612,25 @@ DAO provides two complementary middleware systems for response quality control:
 
 ### A. Guardrail Middleware (Content Safety & Quality)
 
-**GuardrailMiddleware** uses LLM-as-judge to evaluate responses against custom criteria, with automatic retry and improvement loops.
+**GuardrailMiddleware** uses MLflow judges (`mlflow.genai.judges.make_judge`) to evaluate responses against custom criteria, with automatic retry and improvement loops. The **prompt determines the evaluation type** -- tone, completeness, veracity/groundedness, or any custom criteria.
+
+Tool context from `ToolMessage` objects in the conversation (search results, SQL results, Genie responses) is automatically extracted and included in the `inputs` dict. This enables veracity/groundedness prompts that check whether the response is faithful to the retrieved data.
 
 **Use cases:**
 - Professional tone validation
 - Completeness checks (did the agent fully answer the question?)
-- Accuracy verification
+- Veracity/groundedness (is the response faithful to retrieved data?)
 - Brand voice consistency
 - Custom business rules
 
 **How it works:**
 1. Agent generates a response
-2. LLM judge evaluates against your criteria (prompt-based)
-3. If fails: Provides feedback and asks agent to try again
-4. If passes: Response goes to user
-5. After max retries: Falls back or raises error
+2. Tool context is extracted from the conversation history
+3. MLflow judge evaluates against your criteria (prompt-based)
+4. If fails: Provides feedback and asks agent to try again
+5. If passes: Response goes to user
+6. After max retries: Falls back with a quality warning
+7. If judge call fails: Configurable fail-open (default) or fail-closed
 
 ```yaml
 agents:
@@ -642,37 +647,77 @@ agents:
       - name: completeness_check
         model: *judge_llm
         prompt: |
-          Does the response fully address the user's question?
-          Score 1 if yes, 0 if no. Explain your reasoning.
+          Does the response in {{ outputs }} fully address the question in {{ inputs }}?
+          Rate as true if yes, false if no.
         num_retries: 2
+      
+      # Veracity/groundedness check
+      # Tool context is automatically available in {{ inputs }}
+      - name: veracity_check
+        model: *judge_llm
+        prompt: |
+          Is the response in {{ outputs }} grounded in the retrieved context in {{ inputs }}?
+          Rate as true if grounded, false if it fabricates information.
+        num_retries: 2
+        fail_open: true
+```
+
+**Prompt template format:** Guardrail prompts use Jinja2 template variables:
+- `{{ inputs }}` -- Contains the user query AND extracted tool context (search results, SQL results, etc.)
+- `{{ outputs }}` -- Contains the agent's response
+
+**Specialized guardrails (zero-config, no prompt needed):**
+
+These guardrails have built-in expert prompts and sensible defaults. Configure via the `middleware:` section:
+
+```yaml
+middleware:
+  # Veracity - grounded in tool/retrieval context (auto-skips when no tools used)
+  veracity_check:
+    name: dao_ai.middleware.create_veracity_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+
+  # Relevance - ensures response addresses the actual query
+  relevance_check:
+    name: dao_ai.middleware.create_relevance_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+
+  # Tone - validates against preset profiles (professional, casual, technical, empathetic, concise)
+  tone_check:
+    name: dao_ai.middleware.create_tone_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      tone: professional
+
+  # Conciseness - hybrid length check + LLM verbosity evaluation
+  conciseness_check:
+    name: dao_ai.middleware.create_conciseness_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      max_length: 2000
+      check_verbosity: true
 ```
 
 **Additional guardrail types:**
 
 ```yaml
-# Content Filter - Deterministic keyword blocking
-guardrails:
-  - name: sensitive_content_filter
-    type: content_filter
-    blocked_keywords:
-      - password
-      - credit_card
-      - ssn
-    case_sensitive: false
-    on_failure: fallback
-    fallback_message: "I cannot provide that information."
+# Content Filter - Deterministic keyword blocking (no LLM needed)
+# Uses compiled regex for efficient matching
+middleware:
+  content_filter:
+    name: dao_ai.middleware.create_content_filter_middleware
+    args:
+      banned_keywords: [password, credit_card, ssn]
+      block_message: "I cannot provide that information."
 
-# Safety Guardrail - Model-based safety evaluation
-guardrails:
-  - name: safety_check
-    type: safety
-    model: *safety_model
-    categories:
-      - violence
-      - hate_speech
-      - self_harm
-    threshold: 0.7           # Sensitivity threshold
-    num_retries: 1
+  # Safety Guardrail - MLflow judge-based safety evaluation
+  # Uses structured output (safe/unsafe) for reliable classification
+  safety_check:
+    name: dao_ai.middleware.create_safety_guardrail_middleware
+    args:
+      safety_model: "databricks:/databricks-claude-3-7-sonnet"
 ```
 
 **Real-world example:**  

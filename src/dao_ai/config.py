@@ -2925,6 +2925,40 @@ class PromptModel(BaseModel, HasFullName):
         return prompt_version.to_single_brace_format()
 
     @property
+    def jinja_template(self) -> str:
+        """Return the template in Jinja2 format (with {{ }} variables).
+
+        Unlike ``template`` which converts to single-brace Python format,
+        this property ensures the template uses Jinja2 double-brace
+        variables (e.g. ``{{ inputs }}``, ``{{ outputs }}``) required by
+        MLflow judges.
+
+        If the registry stores the older single-brace format
+        (``{inputs}``), the known MLflow judge variables are automatically
+        converted to double-brace Jinja2 syntax.
+        """
+        import re
+
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: DatabricksProvider = DatabricksProvider()
+        prompt_version = provider.get_prompt(self)
+        raw_template: str = prompt_version.template
+
+        # Convert single-brace MLflow judge variables to Jinja2 double-brace
+        # format when the template was stored in legacy format.
+        _JUDGE_VARS = ("inputs", "outputs", "trace", "expectations", "conversation")
+        for var in _JUDGE_VARS:
+            # Match {var} but NOT {{var}} (already Jinja2)
+            raw_template = re.sub(
+                r"(?<!\{)\{" + var + r"\}(?!\})",
+                "{{ " + var + " }}",
+                raw_template,
+            )
+
+        return raw_template
+
+    @property
     def full_name(self) -> str:
         prompt_name: str = self.name
         if self.schema_model:
@@ -2956,11 +2990,34 @@ class PromptModel(BaseModel, HasFullName):
 
 
 class GuardrailModel(BaseModel):
+    """Configuration for an LLM-based guardrail.
+
+    Guardrails use MLflow judges to evaluate agent responses against criteria
+    defined by the prompt. The prompt determines the evaluation type -- tone,
+    completeness, veracity/groundedness, or any custom criteria.
+
+    Tool context from ToolMessage objects in the conversation is automatically
+    extracted and included in the ``inputs`` dict, so veracity prompts can
+    reference it via ``{{ inputs }}``.
+
+    Attributes:
+        name: Name identifying this guardrail
+        model: LLM model for the judge. Accepts a string (model name) or LLMModel.
+            The model's Databricks URI is used as the MLflow judge model endpoint.
+        prompt: Evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}``
+            template variables. Accepts a string or PromptModel.
+        num_retries: Maximum retry attempts when evaluation fails (default: 3)
+        fail_open: If True, let responses through when the judge call fails (default: True)
+        max_context_length: Max character length for extracted tool context (default: 8000)
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     model: str | LLMModel
     prompt: str | PromptModel
     num_retries: Optional[int] = 3
+    fail_open: Optional[bool] = True
+    max_context_length: Optional[int] = 8000
 
     @model_validator(mode="after")
     def validate_llm_model(self) -> Self:

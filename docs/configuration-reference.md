@@ -111,6 +111,18 @@ prompts:
     default_template: string
     tags: {}
 
+# Guardrails (MLflow judge-based evaluation)
+guardrails:
+  guardrail_name: &guardrail_name
+    name: string                    # Guardrail identifier
+    model: *judge_llm               # LLM model for the MLflow judge
+    prompt: string | *prompt_ref    # Evaluation instructions with {{ inputs }} and {{ outputs }}
+    num_retries: int | null         # Max retry attempts (default: 3)
+    fail_open: bool | null          # Let responses through on error (default: true)
+    max_context_length: int | null  # Max tool context chars (default: 8000)
+    # Note: {{ inputs }} includes user query + extracted tool context
+    # Note: {{ outputs }} includes the agent's response
+
 # Response format (structured output)
 response_formats:
   format_name: &format_name
