@@ -165,6 +165,7 @@ def get_installed_packages() -> list[str]:
         f"databricks-mcp=={version('databricks-mcp')}",
         f"databricks-sdk[openai]=={version('databricks-sdk')}",
         f"ddgs=={version('ddgs')}",
+        f"deepagents=={version('deepagents')}",
         f"flashrank=={version('flashrank')}",
         f"langchain=={version('langchain')}",
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
