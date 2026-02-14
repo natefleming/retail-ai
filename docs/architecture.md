@@ -273,6 +273,25 @@ orchestration:
       inventory: []            # Terminal agent - no outbound handoffs
 ```
 
+Handoffs support two modes:
+- **Agentic** (default): A handoff tool is created and the LLM decides when to invoke it.
+- **Deterministic**: Control always transfers to the target after the source agent completes, with no LLM tool call.
+
+```yaml
+# Deterministic handoff example (pipeline-style)
+orchestration:
+  swarm:
+    default_agent: triage
+    handoffs:
+      triage:
+        - agent: resolver              # HandoffRouteModel
+          is_deterministic: true        # always route here after triage
+      resolver:
+        - agent: summarizer
+          is_deterministic: true        # always route here after resolution
+        - escalation_agent              # agentic: LLM can choose to escalate
+```
+
 ```mermaid
 graph TB
     general[General<br/>Agent]

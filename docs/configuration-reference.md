@@ -166,7 +166,12 @@ app:
     swarm:
       default_agent: *agent_name
       handoffs:
-        agent_a: [agent_b, agent_c]
+        agent_a: [agent_b, agent_c]          # agentic handoffs (LLM decides)
+        agent_b:
+          - agent: agent_c                   # HandoffRouteModel
+            is_deterministic: true           # deterministic: always route here
+          - agent_a                          # agentic: LLM decides via tool
+      middleware: [*middleware_ref]
     memory: *memory
   
   initialization_hooks: [string]

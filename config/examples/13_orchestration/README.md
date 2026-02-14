@@ -38,6 +38,7 @@ flowchart TB
 |------|---------|-------------|
 | [`supervisor_pattern.yaml`](./supervisor_pattern.yaml) | 👔 Supervisor | Central LLM routes to specialized agents |
 | [`swarm_pattern.yaml`](./swarm_pattern.yaml) | 🐝 Swarm | Agents use handoff tools to transfer |
+| [`deterministic_handoff_pattern.yaml`](./deterministic_handoff_pattern.yaml) | 🔗 Deterministic | Pipeline-style predetermined routing |
 
 ## Pattern Comparison
 
@@ -242,6 +243,69 @@ sequenceDiagram
     📦->>📦: Check inventory...
     Note over 📦: 15 units available
     📦-->>👤: The Dewalt 18V drill has 1/2" chuck,<br/>500 RPM, and we have 15 in stock!
+```
+
+---
+
+## 🔗 Deterministic Handoff Pattern
+
+Agents always transfer control to a predetermined next agent after completing their turn, creating a pipeline-style workflow. Deterministic handoffs can be combined with agentic (tool-based) handoffs.
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart LR
+    subgraph Pipeline["🔗 Deterministic Pipeline"]
+        direction LR
+        T["🏷️ Triage Agent"]
+        R["🔧 Resolution Agent"]
+        S["📝 Summary Agent"]
+        E["⚠️ Escalation Agent"]
+
+        T -->|"deterministic"| R
+        R -->|"deterministic"| S
+        R -.->|"agentic (optional)"| E
+    end
+
+    style Pipeline fill:#fff3e0,stroke:#e65100
+```
+
+### Configuration
+
+Use `HandoffRouteModel` with `is_deterministic: true` to declare deterministic routes:
+
+```yaml
+orchestration:
+  swarm:
+    default_agent: triage_agent
+    handoffs:
+      triage_agent:
+        - agent: resolution_agent
+          is_deterministic: true       # always hand off here
+      resolution_agent:
+        - agent: summary_agent
+          is_deterministic: true       # always hand off here
+        - escalation_agent             # agentic: LLM decides via tool
+```
+
+### Sequence Diagram
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant User
+    participant Triage as Triage Agent
+    participant Resolution as Resolution Agent
+    participant Summary as Summary Agent
+
+    User->>Triage: I was charged twice
+    Triage->>Triage: Classify: billing issue
+    Note over Triage,Resolution: Deterministic handoff (no tool call)
+    Triage->>Resolution: Classified billing issue
+    Resolution->>Resolution: Investigate and resolve
+    Note over Resolution,Summary: Deterministic handoff (no tool call)
+    Resolution->>Summary: Issue resolved
+    Summary-->>User: Summary: duplicate charge refunded
 ```
 
 ---

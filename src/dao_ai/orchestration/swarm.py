@@ -6,10 +6,22 @@ without a central coordinator. Each agent has handoff tools for the agents
 they are allowed to transfer control to. This provides decentralized,
 peer-to-peer collaboration.
 
+Supports two handoff modes:
+- **Agentic** (default): The LLM decides when to transfer control via tool calls.
+- **Deterministic**: Control always transfers to the specified agent after the
+  source agent completes its turn, without LLM routing.
+
 Based on: https://github.com/langchain-ai/langgraph-swarm-py
 """
 
-from typing import Callable, Sequence
+from __future__ import annotations
+
+from collections.abc import Awaitable
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Callable, Sequence
+
+if TYPE_CHECKING:
+    from langgraph.runtime import Runtime
 
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -21,6 +33,7 @@ from loguru import logger
 from dao_ai.config import (
     AgentModel,
     AppConfig,
+    HandoffRouteModel,
     MemoryModel,
     OrchestrationModel,
     SwarmModel,
@@ -36,58 +49,139 @@ from dao_ai.orchestration import (
 from dao_ai.state import AgentState, Context
 
 
+@dataclass(frozen=True)
+class HandoffResult:
+    """
+    Result of resolving handoff configuration for an agent.
+
+    Separates agentic handoff tools (LLM-invoked) from the optional
+    deterministic handoff target (always-routed).
+    """
+
+    tools: list[BaseTool] = field(default_factory=list)
+    deterministic_target: str | None = None
+
+
+def _resolve_agent(
+    handoff_entry: AgentModel | str | HandoffRouteModel,
+) -> tuple[AgentModel | str, bool]:
+    """
+    Normalize a handoff entry into (agent_ref, is_deterministic).
+
+    Args:
+        handoff_entry: A handoff target — may be a plain agent name,
+            an ``AgentModel``, or a ``HandoffRouteModel``.
+
+    Returns:
+        A tuple of (agent reference, is_deterministic flag).
+    """
+    if isinstance(handoff_entry, HandoffRouteModel):
+        return handoff_entry.agent, handoff_entry.is_deterministic
+    return handoff_entry, False
+
+
 def _handoffs_for_agent(
     agent: AgentModel,
     config: AppConfig,
-) -> Sequence[BaseTool]:
+) -> HandoffResult:
     """
-    Create handoff tools for an agent based on configuration.
+    Resolve handoff configuration for an agent.
+
+    Processes the swarm ``handoffs`` mapping and produces:
+    - A list of agentic handoff **tools** (LLM-invoked via ``create_handoff_tool``).
+    - An optional **deterministic target** agent name that the source agent
+      always routes to after completing its turn.
 
     Handoff tools route to the parent graph since agents are subgraphs
     wrapped in handlers.
 
     Args:
-        agent: The agent to create handoff tools for
-        config: The application configuration
+        agent: The agent to resolve handoff configuration for.
+        config: The application configuration.
 
     Returns:
-        List of handoff tools for the agent
+        A ``HandoffResult`` containing agentic tools and an optional
+        deterministic target.
+
+    Raises:
+        ValueError: If more than one deterministic handoff is configured for
+            the same agent, or if a deterministic handoff references itself.
     """
     handoff_tools: list[BaseTool] = []
+    deterministic_target: str | None = None
 
-    handoffs: dict[str, Sequence[AgentModel | str] | None] = (
+    handoffs: dict[str, Sequence[AgentModel | str | HandoffRouteModel] | None] = (
         config.app.orchestration.swarm.handoffs or {}
     )
-    agent_handoffs: Sequence[AgentModel | str] | None = handoffs.get(agent.name)
+
+    agent_handoffs: Sequence[AgentModel | str | HandoffRouteModel] | None = (
+        handoffs.get(agent.name)
+    )
     if agent_handoffs is None:
         agent_handoffs = config.app.agents
 
-    for handoff_to_agent in agent_handoffs:
-        if isinstance(handoff_to_agent, str):
+    for handoff_entry in agent_handoffs:
+        agent_ref: AgentModel | str
+        is_deterministic: bool
+        agent_ref, is_deterministic = _resolve_agent(handoff_entry)
+
+        # Resolve string references to AgentModel using the app-level agent list.
+        # We search config.app.agents (not config.find_agents) because the swarm
+        # should only reference agents registered in the app's agent list.
+        handoff_to_agent: AgentModel | None
+        if isinstance(agent_ref, str):
             handoff_to_agent = next(
-                iter(config.find_agents(lambda a: a.name == handoff_to_agent)), None
+                (a for a in config.app.agents if a.name == agent_ref),
+                None,
             )
+        else:
+            handoff_to_agent = agent_ref
 
         if handoff_to_agent is None:
             logger.warning("Handoff agent not found in configuration", agent=agent.name)
             continue
+
+        # Skip self-referencing handoffs
         if agent.name == handoff_to_agent.name:
+            if is_deterministic:
+                raise ValueError(
+                    f"Agent '{agent.name}' cannot have a deterministic "
+                    f"handoff to itself."
+                )
             continue
-        logger.debug(
-            "Creating handoff tool",
-            from_agent=agent.name,
-            to_agent=handoff_to_agent.name,
-        )
 
-        handoff_description: str = get_handoff_description(handoff_to_agent)
-
-        handoff_tools.append(
-            create_handoff_tool(
-                target_agent_name=handoff_to_agent.name,
-                description=handoff_description,
+        if is_deterministic:
+            if deterministic_target is not None:
+                raise ValueError(
+                    f"Agent '{agent.name}' has multiple deterministic handoffs. "
+                    f"Only one deterministic handoff is allowed per agent. "
+                    f"Found targets: '{deterministic_target}' and "
+                    f"'{handoff_to_agent.name}'."
+                )
+            deterministic_target = handoff_to_agent.name
+            logger.debug(
+                "Registered deterministic handoff",
+                from_agent=agent.name,
+                to_agent=handoff_to_agent.name,
             )
-        )
-    return handoff_tools
+        else:
+            logger.debug(
+                "Creating handoff tool",
+                from_agent=agent.name,
+                to_agent=handoff_to_agent.name,
+            )
+            handoff_description: str = get_handoff_description(handoff_to_agent)
+            handoff_tools.append(
+                create_handoff_tool(
+                    target_agent_name=handoff_to_agent.name,
+                    description=handoff_description,
+                )
+            )
+
+    return HandoffResult(
+        tools=handoff_tools,
+        deterministic_target=deterministic_target,
+    )
 
 
 def _create_swarm_router(
@@ -138,6 +232,44 @@ def _create_swarm_router(
     return router
 
 
+def _create_deterministic_handler(
+    inner_handler: Callable[[AgentState, "Runtime[Context]"], "Awaitable[AgentState]"],
+    target_agent_name: str,
+) -> Callable[["AgentState", "Runtime[Context]"], "Awaitable[AgentState]"]:
+    """
+    Wrap an agent node handler to set ``active_agent`` for deterministic routing.
+
+    After the inner handler completes, ``active_agent`` is unconditionally set
+    to *target_agent_name* so that:
+
+    1. The ``add_edge`` in the parent graph routes to the deterministic target.
+    2. The swarm router correctly resumes at the target on re-entry
+       (e.g. after checkpoint restore).
+
+    If the agent invoked an agentic handoff tool during its turn, the resulting
+    ``Command(graph=Command.PARENT)`` takes precedence over the static edge,
+    so this wrapper is effectively a no-op in that case.
+
+    Args:
+        inner_handler: The original handler produced by ``create_agent_node_handler``.
+        target_agent_name: The agent name to deterministically route to.
+
+    Returns:
+        An async handler with the same signature as *inner_handler*.
+    """
+
+    async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
+        result: AgentState = await inner_handler(state, runtime)
+        result["active_agent"] = target_agent_name
+        logger.debug(
+            "Deterministic handoff: setting active_agent",
+            target_agent=target_agent_name,
+        )
+        return result
+
+    return handler
+
+
 def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     """
     Create a swarm-based multi-agent graph.
@@ -146,11 +278,21 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     without a central coordinator. Each agent has handoff tools for the agents
     they are allowed to transfer control to.
 
+    Supports two handoff modes:
+
+    - **Agentic** (default): Handoff tools are added to the agent and the LLM
+      decides when to invoke them via ``Command(goto=..., graph=Command.PARENT)``.
+    - **Deterministic**: A static ``add_edge`` in the parent graph routes
+      control to a fixed target agent after the source agent completes its
+      turn. The handler wrapper sets ``active_agent`` for checkpoint
+      resumption.
+
     Key features:
-    1. Router function checks `active_agent` state to resume with last active agent
-    2. Handoff tools update `active_agent` and use Command(goto=...) to route
-    3. Agents are CompiledStateGraphs wrapped in handlers for message filtering
+    1. Router function checks ``active_agent`` state to resume with last active agent
+    2. Handoff tools update ``active_agent`` and use ``Command(goto=...)`` to route
+    3. Agents are ``CompiledStateGraph`` instances wrapped in handlers for message filtering
     4. Checkpointer persists state to enable conversation resumption
+    5. Deterministic handoffs use ``add_edge`` for unconditional routing
 
     Args:
         config: The application configuration
@@ -185,6 +327,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # Create agent subgraphs with their specific handoff tools
     # Each agent gets handoff tools only for agents they're allowed to hand off to
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
+    deterministic_targets: dict[str, str] = {}
     memory: MemoryModel | None = orchestration.memory
 
     # Get swarm-level middleware to apply to all agents
@@ -197,11 +340,17 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         )
 
     for registered_agent in config.app.agents:
-        # Get handoff tools for this agent
-        handoff_tools: Sequence[BaseTool] = _handoffs_for_agent(
+        # Resolve handoff configuration for this agent
+        handoff_result: HandoffResult = _handoffs_for_agent(
             agent=registered_agent,
             config=config,
         )
+
+        # Track deterministic targets for graph wiring
+        if handoff_result.deterministic_target is not None:
+            deterministic_targets[registered_agent.name] = (
+                handoff_result.deterministic_target
+            )
 
         # Merge swarm-level middleware with agent-specific middleware
         # Swarm middleware is applied first, then agent middleware
@@ -230,13 +379,14 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             agent=agent_with_middleware,
             memory=memory,
             chat_history=config.app.chat_history,
-            additional_tools=handoff_tools,
+            additional_tools=handoff_result.tools,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
         logger.debug(
             "Created swarm agent subgraph",
             agent=registered_agent.name,
-            handoffs_count=len(handoff_tools),
+            handoffs_count=len(handoff_result.tools),
+            deterministic_target=handoff_result.deterministic_target,
         )
 
     # Set up memory store and checkpointer
@@ -263,7 +413,33 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             agent=agent_subgraph,
             output_mode="last_message",
         )
+
+        # Wrap the handler for deterministic routing:
+        # - Sets active_agent so the swarm router resumes correctly
+        # - The add_edge below provides the actual graph routing
+        if agent_name in deterministic_targets:
+            target: str = deterministic_targets[agent_name]
+            handler = _create_deterministic_handler(handler, target)
+            logger.debug(
+                "Wrapped agent handler for deterministic handoff",
+                agent=agent_name,
+                deterministic_target=target,
+            )
+
         workflow.add_node(agent_name, handler)
+
+    # Wire deterministic edges in the parent graph
+    # When the agent finishes without an agentic handoff tool firing,
+    # the static edge routes control to the deterministic target.
+    # If an agentic handoff tool fires, Command(graph=Command.PARENT)
+    # overrides this static edge (standard LangGraph behavior).
+    for source_agent, target_agent in deterministic_targets.items():
+        workflow.add_edge(source_agent, target_agent)
+        logger.info(
+            "Added deterministic edge",
+            from_agent=source_agent,
+            to_agent=target_agent,
+        )
 
     # Create the swarm router that checks active_agent state
     # This enables resuming conversations with the last active agent

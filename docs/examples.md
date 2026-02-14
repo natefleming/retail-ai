@@ -378,6 +378,7 @@ Multi-agent coordination patterns.
 |---------|-------------|
 | `supervisor_pattern.yaml` | Supervisor orchestration pattern |
 | `swarm_pattern.yaml` | Swarm orchestration pattern |
+| `deterministic_handoff_pattern.yaml` | Deterministic handoff pipeline pattern |
 
 **Prerequisites:** Understanding of multi-agent systems  
 **Next:** Try basic tools in `14_basic_tools/`

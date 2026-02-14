@@ -1,0 +1,134 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# DETERMINISTIC HANDOFF PATTERN - Pipeline-Style Swarm Orchestration
+# =============================================================================
+# This example demonstrates deterministic handoffs where agents always transfer
+# control to a fixed next agent, creating a pipeline-style workflow.
+#
+# Pattern: Agent → Agent → Agent (deterministic chain)
+# Use case: Multi-step workflows with a predetermined processing order
+#
+# In this example, a triage agent classifies the customer's issue, then
+# always hands off to a resolution agent, which always hands off to a
+# summary agent. No LLM routing decisions are needed for these transitions.
+#
+# Deterministic handoffs can be mixed with agentic handoffs. The resolution
+# agent has an agentic (tool-based) handoff to an escalation agent that the
+# LLM can optionally invoke during its turn.
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  # Step 1: Triage agent classifies the issue
+  triage_agent: &triage_agent
+    name: triage_agent
+    description: "Classifies and categorizes customer issues"
+    model: *default_llm
+    prompt: |
+      You are a customer support triage specialist. Your job is to:
+      1. Understand the customer's issue
+      2. Classify it (billing, technical, account, general)
+      3. Summarize the issue clearly for the next agent
+
+      You do NOT need to resolve the issue. Just classify and summarize it.
+      After you respond, control will automatically pass to the resolution agent.
+    handoff_prompt: |
+      Initial customer issue classification and categorization.
+
+  # Step 2: Resolution agent addresses the issue
+  resolution_agent: &resolution_agent
+    name: resolution_agent
+    description: "Resolves customer issues based on triage classification"
+    model: *default_llm
+    prompt: |
+      You are a customer support resolution specialist. A triage agent has
+      already classified the customer's issue. Your job is to:
+      1. Review the classification
+      2. Provide a resolution or answer
+      3. If the issue is too complex, escalate it
+
+      After you respond, control will automatically pass to the summary agent.
+      If the issue requires human intervention, use the escalation handoff tool.
+    handoff_prompt: |
+      Resolving classified customer issues with appropriate solutions.
+
+  # Step 3: Summary agent wraps up the interaction
+  summary_agent: &summary_agent
+    name: summary_agent
+    description: "Summarizes the support interaction"
+    model: *default_llm
+    prompt: |
+      You are a customer support summarizer. Review the entire conversation
+      and provide:
+      1. A brief summary of the issue
+      2. The resolution provided
+      3. Any follow-up actions needed
+
+      Be concise and professional.
+    handoff_prompt: |
+      Final summary of the support interaction.
+
+  # Optional: Escalation agent (reached via agentic handoff from resolution)
+  escalation_agent: &escalation_agent
+    name: escalation_agent
+    description: "Handles escalated complex issues"
+    model: *default_llm
+    prompt: |
+      You are a senior support specialist handling escalated issues.
+      Provide detailed technical assistance for complex problems.
+    handoff_prompt: |
+      Complex issues requiring senior specialist attention.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: deterministic_handoff_dao
+  description: "Pipeline-style swarm with deterministic handoffs"
+  log_level: INFO
+
+  registered_model:
+    name: deterministic_handoff_dao
+
+  agents:
+    - *triage_agent
+    - *resolution_agent
+    - *summary_agent
+    - *escalation_agent
+
+  orchestration:
+    swarm:
+      default_agent: triage_agent
+
+      # Handoff configuration with deterministic routing
+      # ------------------------------------------------
+      # triage_agent → resolution_agent (deterministic: always)
+      # resolution_agent → summary_agent (deterministic: always)
+      #                   → escalation_agent (agentic: LLM decides)
+      # summary_agent: no handoffs (terminal node)
+      # escalation_agent: no handoffs (terminal node)
+      handoffs:
+        triage_agent:
+          - agent: resolution_agent
+            is_deterministic: true
+        resolution_agent:
+          - agent: summary_agent
+            is_deterministic: true
+          - escalation_agent           # agentic: LLM can choose to escalate
+
+  input_example:
+    messages:
+      - role: user
+        content: "I've been charged twice for my subscription this month. Can you help?"

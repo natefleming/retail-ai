@@ -2698,6 +2698,35 @@
       "title": "GuidelineModel",
       "type": "object"
     },
+    "HandoffRouteModel": {
+      "additionalProperties": false,
+      "description": "Configuration model for a handoff route in a swarm.\n\nA handoff route specifies a target agent and whether the handoff should be\ndeterministic (always route to this agent) or agentic (LLM decides via tool call).\n\nWhen ``is_deterministic`` is ``True``, the source agent will **always** transfer\ncontrol to this target agent after completing its turn, without requiring the\nLLM to invoke a handoff tool. This is useful for pipeline-style workflows\nwhere the routing order is predetermined.\n\nWhen ``is_deterministic`` is ``False`` (the default), a handoff tool is created\nfor the target agent and the LLM decides when to invoke it. This is the\nstandard agentic handoff behavior.\n\nExample YAML::\n\n    handoffs:\n      triage_agent:\n        - agent: billing_agent\n          is_deterministic: true\n      billing_agent:\n        - support_agent            # shorthand for agentic handoff",
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentModel"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "The target agent to hand off to, specified as an AgentModel or agent name string.",
+          "title": "Agent"
+        },
+        "is_deterministic": {
+          "default": false,
+          "description": "When true, the handoff is deterministic: control always transfers to this agent after the source agent completes its turn, without LLM tool-call routing. When false (default), a handoff tool is created and the LLM decides when to invoke it.",
+          "title": "Is Deterministic",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "title": "HandoffRouteModel",
+      "type": "object"
+    },
     "HumanInTheLoopModel": {
       "additionalProperties": false,
       "description": "Configuration for Human-in-the-Loop tool approval.\n\nThis model configures when and how tools require human approval before execution.\nIt maps to LangChain's HumanInTheLoopMiddleware.\n\nLangChain supports three decision types:\n- \"approve\": Execute tool with original arguments\n- \"edit\": Modify arguments before execution\n- \"reject\": Skip execution with optional feedback message",
@@ -4763,6 +4792,9 @@
                         },
                         {
                           "type": "string"
+                        },
+                        {
+                          "$ref": "#/$defs/HandoffRouteModel"
                         }
                       ]
                     },
@@ -4779,6 +4811,7 @@
               "type": "null"
             }
           ],
+          "description": "Mapping of agent names to their allowed handoff targets. Each target can be an agent name (str), an AgentModel, or a HandoffRouteModel for deterministic routing. Use null (~) to allow handoffs to all agents.",
           "title": "Handoffs"
         }
       },

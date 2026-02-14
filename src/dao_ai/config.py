@@ -3325,6 +3325,46 @@ class SupervisorModel(BaseModel):
     )
 
 
+class HandoffRouteModel(BaseModel):
+    """
+    Configuration model for a handoff route in a swarm.
+
+    A handoff route specifies a target agent and whether the handoff should be
+    deterministic (always route to this agent) or agentic (LLM decides via tool call).
+
+    When ``is_deterministic`` is ``True``, the source agent will **always** transfer
+    control to this target agent after completing its turn, without requiring the
+    LLM to invoke a handoff tool. This is useful for pipeline-style workflows
+    where the routing order is predetermined.
+
+    When ``is_deterministic`` is ``False`` (the default), a handoff tool is created
+    for the target agent and the LLM decides when to invoke it. This is the
+    standard agentic handoff behavior.
+
+    Example YAML::
+
+        handoffs:
+          triage_agent:
+            - agent: billing_agent
+              is_deterministic: true
+          billing_agent:
+            - support_agent            # shorthand for agentic handoff
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    agent: AgentModel | str = Field(
+        description="The target agent to hand off to, specified as an AgentModel or agent name string.",
+    )
+    is_deterministic: bool = Field(
+        default=False,
+        description=(
+            "When true, the handoff is deterministic: control always transfers to this "
+            "agent after the source agent completes its turn, without LLM tool-call routing. "
+            "When false (default), a handoff tool is created and the LLM decides when to invoke it."
+        ),
+    )
+
+
 class SwarmModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     default_agent: Optional[AgentModel | str] = None
@@ -3332,8 +3372,16 @@ class SwarmModel(BaseModel):
         default_factory=list,
         description="List of middleware to apply to all agents in the swarm",
     )
-    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
-        default_factory=dict
+    handoffs: Optional[
+        dict[str, Optional[list[AgentModel | str | HandoffRouteModel]]]
+    ] = Field(
+        default_factory=dict,
+        description=(
+            "Mapping of agent names to their allowed handoff targets. "
+            "Each target can be an agent name (str), an AgentModel, or a "
+            "HandoffRouteModel for deterministic routing. "
+            "Use null (~) to allow handoffs to all agents."
+        ),
     )
 
 
