@@ -492,6 +492,21 @@ def create_vector_search_tool(
                 merged_results=len(merged),
             )
 
+            # Fallback when decomposed filters are too restrictive
+            if not merged:
+                logger.warning(
+                    "All instructed subqueries returned empty results, "
+                    "falling back to standard unfiltered search",
+                    num_subqueries=len(subqueries),
+                    queries=[sq.text[:50] for sq in subqueries],
+                )
+                return vs.similarity_search(
+                    query=query,
+                    k=search_parameters.num_results or 5,
+                    filter=base_filters if base_filters else None,
+                    query_type=search_parameters.query_type or "ANN",
+                )
+
             return merged
 
         except Exception as e:

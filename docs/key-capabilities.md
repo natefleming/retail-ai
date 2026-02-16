@@ -375,7 +375,7 @@ The `question_weight` and `context_weight` parameters control how question vs co
 
 5. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
 
-## 5. Vector Search Reranking
+## 5. Vector Search Reranking & Instructed Retrieval
 
 **The problem:** Vector search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
 
@@ -461,6 +461,167 @@ rerank:
 ```
 
 **Note:** Model weights are downloaded automatically on first use (~34MB for MiniLM-L-12-v2).
+
+### Instructed Retrieval
+
+**The problem:** Standard vector search ignores metadata constraints entirely. When a user asks "Milwaukee power drills under $200 from last month", vector search only matches on semantic similarity — it can't enforce brand, price, or recency constraints. Queries with multiple intents or exclusions ("cordless tools excluding DeWalt") fare even worse.
+
+**The solution:** Instructed Retrieval extends basic RAG by automatically translating natural language constraints into executable metadata filters. An LLM decomposes complex queries into focused subqueries with filters, executes them in parallel, and merges results using Reciprocal Rank Fusion (RRF).
+
+**Benefits:**
+- Automatic filter extraction from natural language ("under $200" becomes `price < 200`)
+- Multi-intent queries split into parallel subqueries for broader recall
+- RRF merging produces a unified, deduplicated ranking
+- Optional instruction-aware reranking, query routing, and result verification
+
+### How Instructed Retrieval Works
+
+```mermaid
+graph TB
+    query[/"Query: 'Milwaukee power drills under $200'"/]
+    
+    stage1["Stage 1: Query Decomposition<br/>• LLM extracts metadata filters<br/>• Resolves relative dates<br/>• Generates focused subqueries"]
+    
+    subqueries[("3 subqueries + filters<br/>brand_name: MILWAUKEE<br/>price < 200")]
+    
+    stage2["Stage 2: Parallel Vector Search<br/>• Each subquery searched independently<br/>• HYBRID or ANN query type<br/>• 50 candidates per subquery"]
+    
+    docs150[("150 total results")]
+    
+    stage3["Stage 3: RRF Merge<br/>• Reciprocal Rank Fusion<br/>• Score = 1/(k + rank)<br/>• Deduplicate by primary key"]
+    
+    merged[("50 merged results<br/>(deduplicated)")]
+    
+    stage4["Stage 4: Instruction-Aware Rerank<br/>• LLM reranks with constraint awareness<br/>• Enforces brand/price preferences<br/>• Returns top N results"]
+    
+    final[/"10 results<br/>(constraint-aware ordering)"/]
+    
+    query --> stage1
+    stage1 --> subqueries
+    subqueries --> stage2
+    stage2 --> docs150
+    docs150 --> stage3
+    stage3 --> merged
+    merged --> stage4
+    stage4 --> final
+    
+    style query fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+    style stage1 fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
+    style subqueries fill:#42BA91,stroke:#00875C,stroke-width:3px,color:#1B3139
+    style stage2 fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style docs150 fill:#FCBA33,stroke:#7D5319,stroke-width:3px,color:#1B3139
+    style stage3 fill:#9C6ADE,stroke:#7b1fa2,stroke-width:3px,color:#fff
+    style merged fill:#C4CCD6,stroke:#1B3139,stroke-width:2px,color:#1B3139
+    style stage4 fill:#618794,stroke:#143D4A,stroke-width:3px,color:#fff
+    style final fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
+```
+
+### Instructed Retrieval Configuration
+
+```yaml
+retrievers:
+  instructed_retriever: &instructed_retriever
+    vector_store: *products_vector_store
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID
+    instructed:
+      # Column metadata — single source of truth for all pipeline components
+      columns:
+        - name: brand_name
+          type: string
+          description: "Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)"
+        - name: merchandise_class
+          type: string
+          description: "Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)"
+        - name: price
+          type: number
+          description: "Price in USD"
+          operators: ["", "<", "<=", ">", ">="]
+        - name: updated_at
+          type: datetime
+          description: "Last update timestamp"
+          operators: ["", ">", ">=", "<", "<="]
+      constraints:
+        - "Use merchandise_class for category filtering"
+        - "Use brand_name for brand filtering"
+      decomposition:
+        model: *fast_llm          # Smaller model for low latency
+        max_subqueries: 3
+        rrf_k: 60
+        normalize_filter_case: uppercase
+        examples:
+          - query: "cheap Milwaukee drills"
+            filters: {"price <": 100, "brand_name": "MILWAUKEE"}
+          - query: "cordless power tools excluding DeWalt"
+            filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+      # Instruction-aware LLM reranking (uses schema context above)
+      rerank:
+        model: *fast_llm
+        instructions: |
+          Prioritize results based on user constraints:
+          - Brand preferences: boost specified brands, demote excluded brands
+          - Category: prefer exact merchandise_class matches
+        top_n: 10
+```
+
+### Key Configuration Fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `columns` | Required | Column metadata (name, type, description, operators) used by all pipeline components |
+| `constraints` | `null` | Default constraints to always apply (e.g., "Prefer recent products") |
+| `decomposition.model` | `null` | LLM for query decomposition — use a fast model (Haiku, GPT-3.5) for low latency |
+| `decomposition.max_subqueries` | 3 | Maximum number of parallel subqueries |
+| `decomposition.rrf_k` | 60 | RRF constant — lower values weight top ranks more heavily |
+| `decomposition.examples` | `null` | Few-shot examples teaching your metadata "dialect" for filter translation |
+| `decomposition.normalize_filter_case` | `null` | Auto-normalize filter string values to `uppercase` or `lowercase` |
+
+### Optional Pipeline Components
+
+Beyond core query decomposition and RRF merging, instructed retrieval supports three additional pipeline stages:
+
+**Instruction-Aware Reranking** (`instructed.rerank`): An LLM-based reranking stage that uses schema context and custom instructions to reorder results. Unlike FlashRank (which is model-based and local), this stage understands your domain constraints and can enforce brand preferences, category matching, and other business rules.
+
+```yaml
+instructed:
+  rerank:
+    model: *fast_llm
+    instructions: "Prioritize by brand preferences and category match"
+    top_n: 10
+```
+
+**Query Router** (`instructed.router`): Automatically routes simple queries (e.g., "drill bits") through a fast standard search path and complex queries (e.g., "Milwaukee drills excluding DeWalt") through the full instructed pipeline. When `auto_bypass: true` (default), simple queries skip the instruction reranker and verifier entirely.
+
+```yaml
+instructed:
+  router:
+    model: *fast_llm
+    default_mode: standard      # Fallback if routing fails
+    auto_bypass: true           # Skip expensive stages for simple queries
+```
+
+**Result Verifier** (`instructed.verifier`): Validates that returned results satisfy the user's constraints. Returns structured feedback (unmet constraints, suggested filter adjustments) for intelligent retry when results don't match intent.
+
+```yaml
+instructed:
+  verifier:
+    model: *fast_llm
+    on_failure: warn_and_retry  # Options: warn, retry, warn_and_retry
+    max_retries: 1
+```
+
+### Latency Comparison
+
+| Configuration | Latency | Use Case |
+|--------------|---------|----------|
+| Standard (no decomposition) | ~100ms | Simple keyword queries |
+| Instructed (decomposition + RRF) | ~200-300ms | Queries with metadata constraints |
+| Full Pipeline (all stages) | ~800-1200ms | Complex queries with routing and verification |
+
+**Fallback behavior:** If decomposition fails (LLM error, parsing error), the system automatically falls back to standard single-query search, ensuring robustness in production.
+
+**Example configurations:** See [`config/examples/16_instructed_retriever/`](../config/examples/16_instructed_retriever/) for complete working examples including basic instructed retrieval and the full pipeline with router and verifier.
 
 ## 6. Human-in-the-Loop Approvals
 
