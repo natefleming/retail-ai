@@ -292,7 +292,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: pii_middleware_dao
-  endpoint_name: pii_middleware_demo
+  endpoint_name: pii_middleware_demo_dao
   agents:
     - *customer_service_agent
     - *healthcare_agent

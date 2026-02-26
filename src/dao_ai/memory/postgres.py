@@ -429,6 +429,26 @@ class PostgresPoolManager:
                     kwargs=kwargs,
                 )
 
+            # Validate connectivity before caching the pool.
+            # Fail fast with a clear error instead of letting callers
+            # discover a broken pool via a generic PoolTimeout.
+            try:
+                with pool.connection(timeout=5.0) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+            except Exception as e:
+                pool.close()
+                cls._lakebase_pools.pop(connection_key, None)
+                instance_hint = (
+                    f" Lakebase instance '{database.instance_name}'"
+                    if database.is_lakebase
+                    else f" host '{database.host}'"
+                )
+                raise ConnectionError(
+                    f"Cannot connect to{instance_hint}. "
+                    f"Verify the instance is running and accessible: {e}"
+                ) from e
+
             cls._pools[connection_key] = pool
             return pool
 

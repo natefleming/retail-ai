@@ -142,7 +142,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: logging_middleware_dao
-  endpoint_name: logging_middleware_demo
+  endpoint_name: logging_middleware_demo_dao
   agents:
     - *logged_agent
     - *monitored_agent

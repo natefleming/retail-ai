@@ -1,624 +1,239 @@
 """
 DAO AI Evaluation Module
 
-Provides reusable scorers and helper functions for MLflow GenAI evaluation.
-Implements MLflow 3.8+ best practices for trace linking and scorer patterns.
+Provides reusable utilities for MLflow GenAI evaluation using built-in
+MLflow 3.10+ judges and scorers.
 """
 
-from typing import Any, Callable, Optional, TypedDict, Union
+import json
+from typing import Any, Optional
 
-import mlflow
+import pandas as pd
 from loguru import logger
-from mlflow.entities import Feedback, SpanStatus, SpanStatusCode, Trace
-from mlflow.entities.span import Span
-from mlflow.genai.scorers import Guidelines, Safety, scorer
-
-# -----------------------------------------------------------------------------
-# Type Definitions
-# -----------------------------------------------------------------------------
-
-
-class ResponseOutput(TypedDict, total=False):
-    """Expected output format with response content."""
-
-    response: str
+from mlflow.genai.datasets import create_dataset, get_dataset
+from mlflow.genai.scorers import (
+    Completeness,
+    Guidelines,
+    RelevanceToQuery,
+    Safety,
+    ToolCallEfficiency,
+)
 
 
-class NestedOutput(TypedDict, total=False):
-    """Nested output format from some MLflow configurations."""
-
-    outputs: ResponseOutput
-
-
-# Union type for all possible output formats from MLflow
-ScorerOutputs = Union[str, ResponseOutput, NestedOutput, dict[str, Any]]
-
-
-# -----------------------------------------------------------------------------
-# Helper for extracting response content
-# -----------------------------------------------------------------------------
-
-
-def _extract_response_content(outputs: ScorerOutputs) -> tuple[str, Optional[str]]:
+def normalize_eval_inputs(raw_inputs: Any) -> dict[str, Any]:
     """
-    Extract response content from various output formats.
+    Normalize various evaluation input formats to the standard
+    ``{"messages": [{"role": "user", "content": "..."}]}`` structure.
+
+    Handles:
+    - Dicts with a ``messages`` key (passthrough)
+    - Lists of message dicts (wrapping)
+    - Dicts with a ``request`` key (inference table format)
+    - Raw strings or other types (fallback)
 
     Args:
-        outputs: Model outputs in any supported format
+        raw_inputs: Raw input data in any supported format.
 
     Returns:
-        Tuple of (content_string, error_message). If error_message is not None,
-        content_string will be empty and the error should be returned.
+        Normalized dict with a ``messages`` key.
     """
-    if isinstance(outputs, str):
-        return outputs, None
+    if isinstance(raw_inputs, dict) and "messages" in raw_inputs:
+        messages_val = raw_inputs.get("messages")
+        if isinstance(messages_val, list):
+            return {"messages": messages_val}
+        return {"messages": [{"role": "user", "content": str(messages_val)}]}
 
-    if isinstance(outputs, dict):
-        # Check for nested format first: {"outputs": {"response": "..."}}
-        nested_outputs = outputs.get("outputs")
-        if isinstance(nested_outputs, dict):
-            content = nested_outputs.get("response", "")
-            return str(content) if content else "", None
+    if isinstance(raw_inputs, list) and (
+        not raw_inputs or isinstance(raw_inputs[0], dict)
+    ):
+        return {"messages": raw_inputs}
 
-        # Flat format: {"response": "..."}
-        content = outputs.get("response", "")
-        return str(content) if content else "", None
+    if isinstance(raw_inputs, dict) and "request" in raw_inputs:
+        return {"messages": [{"role": "user", "content": str(raw_inputs["request"])}]}
 
-    return "", f"Unexpected output type: {type(outputs).__name__}"
-
-
-# -----------------------------------------------------------------------------
-# Custom Scorers
-# -----------------------------------------------------------------------------
+    return {"messages": [{"role": "user", "content": str(raw_inputs)}]}
 
 
-@scorer
-def response_completeness(outputs: ScorerOutputs) -> Feedback:
+def prepare_eval_dataframe(
+    spark_df: Any,
+    num_evals: int | None = None,
+) -> pd.DataFrame:
     """
-    Evaluate if the response appears complete and meaningful.
+    Convert a Spark DataFrame with STRUCT columns into a Pandas DataFrame
+    with plain JSON-serializable Python dicts.
 
-    This scorer checks:
-    - Response is not too short (< 10 characters)
-    - Response doesn't end with incomplete markers
+    PySpark's ``toPandas()`` can produce Row objects or other non-serializable
+    types for nested STRUCT/ARRAY columns.  This function sidesteps that by
+    converting those columns to JSON strings **in Spark** (where serialization
+    is reliable), calling ``toPandas()``, and parsing them back to plain Python
+    dicts via ``json.loads``.
+
+    The ``inputs`` column is automatically normalized via
+    :func:`normalize_eval_inputs` after conversion.
 
     Args:
-        outputs: Model outputs - can be a string, dict with "response" key,
-                 or nested dict with "outputs.response".
+        spark_df: A PySpark DataFrame with ``inputs`` (and optionally
+            ``expectations``) columns.
+        num_evals: If provided, limits the result to the first *n* rows.
 
     Returns:
-        Feedback: Pass/Fail feedback with rationale
+        A Pandas DataFrame ready for ``merge_records`` and
+        ``mlflow.genai.evaluate``.
     """
-    content, error = _extract_response_content(outputs)
+    import pyspark.sql.functions as F
+    from pyspark.sql.types import ArrayType, StructType
 
-    if error:
-        return Feedback(value=False, rationale=error)
+    struct_columns: list[str] = [
+        field.name
+        for field in spark_df.schema
+        if isinstance(field.dataType, (StructType, ArrayType))
+    ]
 
-    if not content:
-        return Feedback(value=False, rationale="No response content found in outputs")
+    for col_name in struct_columns:
+        spark_df = spark_df.withColumn(col_name, F.to_json(F.col(col_name)))
 
-    if len(content.strip()) < 10:
-        return Feedback(value=False, rationale="Response too short to be meaningful")
+    eval_df: pd.DataFrame = spark_df.toPandas()
 
-    incomplete_markers = ("...", "etc", "and so on", "to be continued")
-    if content.lower().rstrip().endswith(incomplete_markers):
-        return Feedback(value=False, rationale="Response appears incomplete")
+    if num_evals is not None:
+        eval_df = eval_df.head(num_evals)
 
-    return Feedback(value=True, rationale="Response appears complete")
+    for col_name in struct_columns:
+        if col_name in eval_df.columns:
+            eval_df[col_name] = eval_df[col_name].apply(
+                lambda x: json.loads(x) if isinstance(x, str) else x
+            )
 
+    if "inputs" in eval_df.columns:
+        eval_df["inputs"] = eval_df["inputs"].apply(normalize_eval_inputs)
 
-@scorer
-def tool_call_efficiency(trace: Optional[Trace]) -> Feedback:
-    """
-    Evaluate how effectively the agent uses tools.
-
-    This trace-based scorer checks:
-    - Presence of tool calls
-    - Redundant tool calls (same tool called multiple times)
-    - Failed tool calls
-
-    Args:
-        trace: MLflow Trace object containing span information.
-               May be None if tracing is not enabled.
-
-    Returns:
-        Feedback: Pass/Fail feedback with rationale, or error if trace unavailable
-    """
-    if trace is None:
-        # MLflow 3.8+ requires error instead of value=None
-        return Feedback(error=Exception("No trace available for tool call analysis"))
-
-    try:
-        # Retrieve all tool call spans from the trace
-        tool_calls: list[Span] = trace.search_spans(span_type="TOOL")
-    except Exception as e:
-        logger.warning(f"Error searching trace spans: {e}")
-        return Feedback(error=Exception(f"Error accessing trace spans: {str(e)}"))
-
-    if not tool_calls:
-        # No tools used is valid but not evaluable - return True with note
-        return Feedback(
-            value=True,
-            rationale="No tool usage to evaluate - agent responded without tools",
-        )
-
-    # Check for redundant calls (same tool name called multiple times)
-    tool_names: list[str] = [span.name for span in tool_calls]
-    if len(tool_names) != len(set(tool_names)):
-        # Count duplicates for better feedback
-        duplicates = [name for name in set(tool_names) if tool_names.count(name) > 1]
-        return Feedback(
-            value=False, rationale=f"Redundant tool calls detected: {duplicates}"
-        )
-
-    # Check for failed tool calls using typed SpanStatus
-    failed_calls: list[str] = []
-    for span in tool_calls:
-        span_status: SpanStatus = span.status
-        if span_status.status_code != SpanStatusCode.OK:
-            failed_calls.append(span.name)
-
-    if failed_calls:
-        return Feedback(
-            value=False,
-            rationale=f"{len(failed_calls)} tool calls failed: {failed_calls}",
-        )
-
-    return Feedback(
-        value=True,
-        rationale=f"Efficient tool usage: {len(tool_calls)} successful calls",
-    )
-
-
-# -----------------------------------------------------------------------------
-# Response Clarity Scorer
-# -----------------------------------------------------------------------------
-
-# Instructions for the response clarity judge
-RESPONSE_CLARITY_INSTRUCTIONS = """Evaluate the clarity and readability of the response in {{ outputs }}.
-
-Consider:
-- Is the response easy to understand?
-- Is the information well-organized?
-- Does it avoid unnecessary jargon or explain technical terms when used?
-- Is the sentence structure clear and coherent?
-- Does the response directly address what was asked in {{ inputs }}?
-
-Return "clear" if the response is clear and readable, "unclear" if it is confusing or poorly structured."""
-
-
-def create_response_clarity_scorer(
-    judge_model: str,
-    name: str = "response_clarity",
-) -> Any:
-    """
-    Create a response clarity scorer using MLflow's make_judge.
-
-    This scorer evaluates whether a response is clear, well-organized,
-    and easy to understand. It uses an LLM judge for nuanced assessment
-    of qualities like:
-    - Sentence structure and coherence
-    - Information organization
-    - Appropriate use of technical language
-    - Overall readability
-
-    Args:
-        judge_model: The model endpoint to use for evaluation.
-                     Example: "databricks:/databricks-claude-3-7-sonnet"
-        name: Name for this scorer instance.
-
-    Returns:
-        A judge scorer created by make_judge
-
-    Example:
-        ```python
-        from dao_ai.evaluation import create_response_clarity_scorer
-
-        # Create the scorer with a judge model
-        clarity_scorer = create_response_clarity_scorer(
-            judge_model="databricks:/databricks-claude-3-7-sonnet",
-        )
-
-        # Use in evaluation
-        mlflow.genai.evaluate(
-            data=eval_data,
-            predict_fn=predict_fn,
-            scorers=[clarity_scorer],
-        )
-        ```
-    """
-    from mlflow.genai.judges import make_judge
-
-    return make_judge(
-        name=name,
-        instructions=RESPONSE_CLARITY_INSTRUCTIONS,
-        # No feedback_value_type - avoids response_schema parameter
-        # which Databricks endpoints don't support
-        model=judge_model,
-    )
-
-
-# -----------------------------------------------------------------------------
-# Agent Routing Scorer
-# -----------------------------------------------------------------------------
-
-# Instructions for the agent routing judge
-# Note: When using {{ trace }}, it must be the ONLY template variable per MLflow make_judge rules
-AGENT_ROUTING_INSTRUCTIONS = """Evaluate whether the agent routing was appropriate for the user's request.
-
-Analyze the {{ trace }} to determine:
-1. What was the user's original query or request
-2. Which agents, chains, or components were invoked to handle it
-3. Whether the routing sequence was logical and appropriate
-
-Consider:
-- **Relevance**: Based on the names of the components invoked, do they seem appropriate for the question type?
-- **Logical Flow**: Does the sequence of invocations make sense for answering the query?
-- **Completeness**: Were the right types of components invoked to fully address the query?
-
-Note: You may not know all possible agents in the system. Focus on whether the components that WERE invoked seem reasonable given the user's query found in the trace.
-
-Return "appropriate" if routing was appropriate, "inappropriate" if it was clearly wrong."""
-
-
-def create_agent_routing_scorer(
-    judge_model: str,
-    name: str = "agent_routing",
-) -> Any:
-    """
-    Create an agent routing scorer using MLflow's make_judge.
-
-    This scorer analyzes the execution trace to evaluate whether the routing
-    decisions were appropriate for the user's query. It uses MLflow's built-in
-    trace-based judge functionality.
-
-    The scorer is general-purpose and does not require knowledge of specific
-    agent names - it relies on the LLM to interpret whether the components
-    invoked (based on their names and context) were suitable for the query.
-
-    Args:
-        judge_model: The model endpoint to use for evaluation.
-                     Example: "databricks:/databricks-claude-3-7-sonnet"
-        name: Name for this scorer instance.
-
-    Returns:
-        A judge scorer created by make_judge
-
-    Example:
-        ```python
-        from dao_ai.evaluation import create_agent_routing_scorer
-
-        # Create the scorer with a judge model
-        agent_routing = create_agent_routing_scorer(
-            judge_model="databricks:/databricks-claude-3-7-sonnet",
-        )
-
-        # Use in evaluation
-        mlflow.genai.evaluate(
-            data=eval_data,
-            predict_fn=predict_fn,
-            scorers=[agent_routing],
-        )
-        ```
-    """
-    from mlflow.genai.judges import make_judge
-
-    return make_judge(
-        name=name,
-        instructions=AGENT_ROUTING_INSTRUCTIONS,
-        # No feedback_value_type - avoids response_schema parameter
-        # which Databricks endpoints don't support
-        model=judge_model,
-    )
-
-
-# -----------------------------------------------------------------------------
-# Veracity/Groundedness Scorer (Agent-as-a-Judge)
-# -----------------------------------------------------------------------------
-
-# Instructions for the veracity judge (uses {{ trace }} for Agent-as-a-Judge)
-# Note: When using {{ trace }}, it must be the ONLY template variable per MLflow make_judge rules
-VERACITY_INSTRUCTIONS = """Evaluate the agent's response for veracity and groundedness by analyzing {{ trace }}.
-
-Your task:
-1. Identify the user's original query from the trace
-2. Find all tool calls and their results (search results, SQL queries, Genie responses, etc.)
-3. Examine the final response generated by the agent
-4. Determine whether the response is faithfully grounded in the tool results
-
-Check for:
-- **Fabrication**: Does the response include claims not supported by any tool results?
-- **Misrepresentation**: Does the response distort or misinterpret the tool results?
-- **Omission**: Does the response omit critical information from the tool results?
-- **Attribution**: When the response cites data, does it match the actual tool output?
-
-If no tools were called, evaluate whether the response appropriately acknowledges
-the lack of specific data rather than fabricating answers.
-
-Return "grounded" if the response is faithful to the retrieved context,
-"partially_grounded" if some claims are supported but others are not,
-or "ungrounded" if the response fabricates or significantly distorts information."""
-
-
-def create_veracity_scorer(
-    judge_model: str,
-    name: str = "veracity",
-) -> Any:
-    """
-    Create a veracity/groundedness scorer using MLflow's Agent-as-a-Judge.
-
-    This scorer uses the ``{{ trace }}`` template variable to autonomously
-    explore the full execution trace via MCP tools. It verifies that the
-    agent's response is grounded in the tool results (search documents,
-    SQL results, Genie responses, etc.).
-
-    This is designed for **offline evaluation** (not runtime guardrails)
-    because Agent-as-a-Judge requires a completed trace and is slower
-    than standard LLM-as-judge.
-
-    For runtime veracity checking, use ``GuardrailMiddleware`` with a
-    groundedness prompt that references ``{{ inputs }}`` (which includes
-    automatically extracted tool context).
-
-    Args:
-        judge_model: The model endpoint to use for evaluation.
-                     Example: "databricks:/databricks-claude-3-7-sonnet"
-        name: Name for this scorer instance.
-
-    Returns:
-        A judge scorer created by make_judge
-
-    Example:
-        ```python
-        from dao_ai.evaluation import create_veracity_scorer
-
-        # Create the scorer with a judge model
-        veracity = create_veracity_scorer(
-            judge_model="databricks:/databricks-claude-3-7-sonnet",
-        )
-
-        # Use in evaluation
-        mlflow.genai.evaluate(
-            data=traces,
-            scorers=[veracity],
-        )
-        ```
-    """
-    from mlflow.genai.judges import make_judge
-
-    return make_judge(
-        name=name,
-        instructions=VERACITY_INSTRUCTIONS,
-        # No feedback_value_type - avoids response_schema parameter
-        # which Databricks endpoints don't support
-        model=judge_model,
-    )
-
-
-# -----------------------------------------------------------------------------
-# Helper Functions
-# -----------------------------------------------------------------------------
-
-
-def create_traced_predict_fn(
-    predict_callable: Callable[[dict[str, Any]], dict[str, Any]],
-    span_name: str = "predict",
-) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """
-    Wrap a predict function with MLflow tracing.
-
-    This ensures traces are created for each prediction, allowing
-    trace-based scorers to access span information.
-
-    Args:
-        predict_callable: The original prediction function
-        span_name: Name for the trace span
-
-    Returns:
-        Wrapped function with MLflow tracing enabled
-    """
-
-    @mlflow.trace(name=span_name, span_type="CHAIN")
-    def traced_predict(inputs: dict[str, Any]) -> dict[str, Any]:
-        result = predict_callable(inputs)
-        # Normalize output format to flat structure
-        if "outputs" in result and isinstance(result["outputs"], dict):
-            # Extract from nested format
-            return result["outputs"]
-        return result
-
-    return traced_predict
+    return eval_df
 
 
 def create_guidelines_scorers(
     guidelines_config: list[Any],
-    judge_model: str,
+    judge_model: Optional[str] = None,
 ) -> list[Guidelines]:
     """
-    Create Guidelines scorers from configuration with proper judge model.
+    Create Guidelines scorers from configuration.
+
+    Uses the default managed Databricks judge when no judge_model is specified.
 
     Args:
-        guidelines_config: List of guideline configurations with name and guidelines
-        judge_model: The model endpoint to use for evaluation (e.g., "databricks:/model-name")
+        guidelines_config: List of guideline configurations with ``name`` and
+            ``guidelines`` attributes.
+        judge_model: Optional model endpoint override.
 
     Returns:
-        List of configured Guidelines scorers
+        List of configured Guidelines scorers.
     """
-    scorers = []
+    scorers: list[Guidelines] = []
     for guideline in guidelines_config:
-        scorer_instance = Guidelines(
-            name=guideline.name,
-            guidelines=guideline.guidelines,
-            model=judge_model,
-        )
-        scorers.append(scorer_instance)
-        logger.debug(
-            f"Created Guidelines scorer: {guideline.name} with model {judge_model}"
-        )
-
+        kwargs: dict[str, Any] = {
+            "name": guideline.name,
+            "guidelines": guideline.guidelines,
+        }
+        if judge_model:
+            kwargs["model"] = judge_model
+        scorers.append(Guidelines(**kwargs))
+        logger.debug(f"Created Guidelines scorer: {guideline.name}")
     return scorers
 
 
-def get_default_scorers(
-    include_trace_scorers: bool = True,
-    include_agent_routing: bool = False,
-    judge_model: Optional[str] = None,
-) -> list[Any]:
+def build_scorers(evaluation_config: Any) -> list[Any]:
     """
-    Get the default set of scorers for evaluation.
+    Build the complete scorer list from evaluation configuration.
+
+    Assembles built-in MLflow judges (Safety, Completeness, RelevanceToQuery,
+    ToolCallEfficiency) and any Guidelines scorers defined in the config.
 
     Args:
-        include_trace_scorers: Whether to include trace-based scorers like tool_call_efficiency
-        include_agent_routing: Whether to include the agent routing scorer
-        judge_model: The model endpoint to use for LLM-based scorers (Safety, clarity, routing).
-                     Example: "databricks-gpt-5-2"
+        evaluation_config: EvaluationModel configuration with optional
+            ``guidelines`` attribute.
 
     Returns:
-        List of scorer instances
+        List of scorer instances ready for ``mlflow.genai.evaluate()``.
     """
-    # Safety requires a judge model for LLM-based evaluation
-    if judge_model:
-        safety_scorer = Safety(model=judge_model)
-    else:
-        safety_scorer = Safety()
-        logger.warning(
-            "No judge_model provided for Safety scorer. "
-            "This may cause errors if no default model is configured."
-        )
-
     scorers: list[Any] = [
-        safety_scorer,
-        response_completeness,
+        Safety(),
+        Completeness(),
+        RelevanceToQuery(),
+        ToolCallEfficiency(),
     ]
 
-    # TODO: Re-enable when Databricks endpoints support make_judge
-    # if judge_model:
-    #     scorers.append(create_response_clarity_scorer(judge_model=judge_model))
-
-    if include_trace_scorers:
-        scorers.append(tool_call_efficiency)
-
-    # TODO: Re-enable when Databricks endpoints support make_judge
-    # if include_agent_routing and judge_model:
-    #     scorers.append(create_agent_routing_scorer(judge_model=judge_model))
+    if evaluation_config.guidelines:
+        guideline_scorers = create_guidelines_scorers(evaluation_config.guidelines)
+        scorers.extend(guideline_scorers)
+        logger.info(f"Added {len(guideline_scorers)} Guidelines scorers")
 
     return scorers
 
 
-def setup_evaluation_tracking(
-    experiment_id: Optional[str] = None,
-    experiment_name: Optional[str] = None,
-) -> None:
-    """
-    Set up MLflow tracking for evaluation.
-
-    Configures:
-    - Registry URI to databricks-uc
-    - Experiment context
-    - Autologging for LangChain
-
-    Args:
-        experiment_id: Optional experiment ID to use
-        experiment_name: Optional experiment name to use (creates if doesn't exist)
-    """
-    mlflow.set_registry_uri("databricks-uc")
-
-    if experiment_id:
-        mlflow.set_experiment(experiment_id=experiment_id)
-    elif experiment_name:
-        mlflow.set_experiment(experiment_name=experiment_name)
-
-    # Enable autologging with trace support
-    mlflow.langchain.autolog(log_traces=True)
-    logger.debug("MLflow evaluation tracking configured")
-
-
-def run_evaluation(
-    data: Any,
-    predict_fn: Callable,
-    model_id: Optional[str] = None,
-    scorers: Optional[list[Any]] = None,
-    judge_model: Optional[str] = None,
-    guidelines: Optional[list[Any]] = None,
+def create_or_get_eval_dataset(
+    name: str,
+    experiment_id: str,
+    source_df: pd.DataFrame,
+    tags: Optional[dict[str, str]] = None,
 ) -> Any:
     """
-    Run MLflow GenAI evaluation with proper configuration.
+    Create or load a versioned MLflow evaluation dataset and populate it.
 
-    This is a convenience wrapper around mlflow.genai.evaluate() that:
-    - Wraps predict_fn with tracing
-    - Configures default scorers
-    - Sets up Guidelines with judge model
+    On the first call for a given ``name``, a new dataset is created in the
+    experiment.  Subsequent calls load the existing dataset.  In both cases
+    the rows in ``source_df`` are merged into the dataset -- MLflow
+    deduplicates records by input hash automatically.
 
     Args:
-        data: Evaluation dataset (DataFrame or list of dicts)
-        predict_fn: Function to generate predictions
-        model_id: Optional model ID for linking
-        scorers: Optional list of scorers (uses defaults if not provided)
-        judge_model: Model endpoint for LLM-based scorers
-        guidelines: Optional list of guideline configurations
+        name: Human-readable dataset name.  A good convention is to derive
+            it from the evaluation table (e.g.
+            ``"catalog_schema_evaluation"``).
+        experiment_id: MLflow experiment ID to associate the dataset with.
+        source_df: DataFrame with ``inputs`` (and optionally
+            ``expectations``) columns that will be merged into the dataset.
+        tags: Optional key-value tags for organising and filtering datasets.
 
     Returns:
-        EvaluationResult from mlflow.genai.evaluate()
+        An ``mlflow.entities.EvaluationDataset`` that can be passed directly
+        to ``mlflow.genai.evaluate(data=...)``.
     """
-    # Wrap predict function with tracing
-    traced_fn = create_traced_predict_fn(predict_fn)
+    try:
+        dataset = get_dataset(name=name)
+        logger.info(f"Loaded existing evaluation dataset: {name}")
+    except Exception:
+        kwargs: dict[str, Any] = {
+            "name": name,
+            "experiment_id": [experiment_id],
+        }
+        if tags:
+            kwargs["tags"] = tags
+        dataset = create_dataset(**kwargs)
+        logger.info(f"Created new evaluation dataset: {name}")
 
-    # Build scorer list
-    if scorers is None:
-        scorers = get_default_scorers(include_trace_scorers=True)
-
-    # Add Guidelines scorers if provided
-    if guidelines and judge_model:
-        guideline_scorers = create_guidelines_scorers(guidelines, judge_model)
-        scorers.extend(guideline_scorers)
-    elif guidelines:
-        logger.warning(
-            "Guidelines provided but no judge_model specified - Guidelines scorers will not be created"
-        )
-
-    # Run evaluation
-    eval_kwargs: dict[str, Any] = {
-        "data": data,
-        "predict_fn": traced_fn,
-        "scorers": scorers,
-    }
-
-    if model_id:
-        eval_kwargs["model_id"] = model_id
-
-    return mlflow.genai.evaluate(**eval_kwargs)
+    dataset = dataset.merge_records(source_df)
+    logger.info(f"Merged {len(source_df)} records into dataset {name}")
+    return dataset
 
 
-def prepare_eval_results_for_display(eval_results: Any) -> Any:
+def prepare_eval_results_for_display(eval_results: Any) -> pd.DataFrame:
     """
     Prepare evaluation results DataFrame for display in Databricks.
 
-    The 'assessments' column and other complex object columns can't be
-    directly converted to Arrow format for display. This function converts
-    them to string representation.
+    Converts complex columns (e.g. ``assessments``) to string representation
+    to avoid Arrow serialization issues.
 
     Args:
-        eval_results: EvaluationResult from mlflow.genai.evaluate()
+        eval_results: EvaluationResult from ``mlflow.genai.evaluate()``.
 
     Returns:
-        DataFrame copy with complex columns converted to strings
+        DataFrame copy with complex columns converted to strings.
     """
-    try:
-        import pandas as pd
-    except ImportError:
-        logger.warning("pandas not available, returning original results")
-        return eval_results.tables.get("eval_results")
-
     results_df: pd.DataFrame = eval_results.tables["eval_results"].copy()
 
-    # Convert complex columns to string for display compatibility
     if "assessments" in results_df.columns:
         results_df["assessments"] = results_df["assessments"].astype(str)
 
-    # Convert any other object columns that might cause Arrow conversion issues
     for col in results_df.columns:
         if results_df[col].dtype == "object":
             try:
-                # Try to keep as-is first, only convert if it fails
                 results_df[col].to_list()
             except Exception:
                 results_df[col] = results_df[col].astype(str)

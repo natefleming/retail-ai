@@ -155,9 +155,9 @@ app:
   
   registered_model:
     schema: *retail_schema
-    name: hitl_demo_app
+    name: hitl_demo_app_dao
   
-  endpoint_name: hitl_demo_app
+  endpoint_name: hitl_demo_app_dao
   
   agents:
     - *admin_agent

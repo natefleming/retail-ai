@@ -293,7 +293,7 @@ app:
   
   registered_model:
     schema: *retail_schema
-    name: guardrails_example_agent
+    name: guardrails_example_agent_dao
   
   agents:
     - *general_agent

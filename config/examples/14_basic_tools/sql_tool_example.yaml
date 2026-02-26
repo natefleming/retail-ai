@@ -136,6 +136,6 @@ app:
   log_level: INFO
   registered_model:
     schema: *hardware_store_schema
-    name: sql_tool_example_agent
+    name: sql_tool_example_agent_dao
   agents:
     - *inventory_analyst

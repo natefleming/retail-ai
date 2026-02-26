@@ -215,8 +215,8 @@ app:
   log_level: INFO
   registered_model:
     schema: *retail_schema
-    name: instructed_retriever_demo
-  endpoint_name: instructed_retriever_agent
+    name: instructed_retriever_demo_dao
+  endpoint_name: instructed_retriever_agent_dao
   tags:
     demo: instructed_retriever
     feature: query_decomposition

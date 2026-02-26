@@ -52,7 +52,7 @@ app:
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: reservations_system_dao
-  endpoint_name: reservation_agent                    # Model serving endpoint name
+  endpoint_name: reservation_agent_dao               # Model serving endpoint name
   agents:                                           # List of agents included in the system
     - *reservation                                        # Order management agent
   orchestration:                                    # Agent orchestration configuration

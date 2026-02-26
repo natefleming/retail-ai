@@ -368,7 +368,7 @@ app:
   registered_model:                                
     schema: *executive_research_schema
     name: deep_research_dao                        
-  endpoint_name: deep_research_executive_assistant    
+  endpoint_name: deep_research_executive_assistant_dao    
   environment_vars: 
     TAVILY_API_KEY: "{{secrets/retail_consumer_goods/TAVILY_API_KEY}}" 
   tags:                                            

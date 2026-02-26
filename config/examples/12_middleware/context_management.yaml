@@ -249,7 +249,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: context_management_dao
-  endpoint_name: context_management_demo
+  endpoint_name: context_management_demo_dao
   agents:
     - *data_analyst_agent
     - *research_agent

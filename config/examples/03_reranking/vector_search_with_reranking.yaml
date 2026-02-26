@@ -194,7 +194,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: vector_search_with_reranking_dao
-  endpoint_name: vector_search_reranking_agent
+  endpoint_name: vector_search_reranking_agent_dao
   tags:
     demo: reranking
     feature: vector_search

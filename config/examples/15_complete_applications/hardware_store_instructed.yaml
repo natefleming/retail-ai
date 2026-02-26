@@ -439,8 +439,8 @@ app:
   log_level: DEBUG
   registered_model:
     schema: *retail_schema
-    name: hardware_store_instructed
-  endpoint_name: hardware_store_instructed_agent
+    name: hardware_store_instructed_dao
+  endpoint_name: hardware_store_instructed_agent_dao
   tags:
     business: rcg
     feature: instructed_retriever

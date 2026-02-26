@@ -117,8 +117,8 @@ app:
   
   registered_model:
     schema: *demo_schema
-    name: conversation_summarization_demo
-  endpoint_name: conversation_summarization_demo
+    name: conversation_summarization_demo_dao
+  endpoint_name: conversation_summarization_demo_dao
   
   tags:
     feature: conversation_summarization

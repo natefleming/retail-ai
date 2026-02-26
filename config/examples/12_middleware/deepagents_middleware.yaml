@@ -253,7 +253,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: deepagents_middleware_dao
-  endpoint_name: deepagents_middleware_demo
+  endpoint_name: deepagents_middleware_demo_dao
   agents:
     - *coding_agent
     - *supervisor_agent

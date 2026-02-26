@@ -176,8 +176,8 @@ app:
   log_level: TRACE
   registered_model:
     schema: *retail_schema
-    name: instruction_aware_reranking_demo
-  endpoint_name: instruction_reranking_agent
+    name: instruction_aware_reranking_demo_dao
+  endpoint_name: instruction_reranking_agent_dao
   tags:
     demo: instruction_aware_reranking
     feature: reranking

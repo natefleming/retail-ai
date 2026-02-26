@@ -200,8 +200,8 @@ app:
   log_level: INFO
   registered_model:
     schema: *retail_schema
-    name: full_pipeline_demo
-  endpoint_name: full_pipeline_agent
+    name: full_pipeline_demo_dao
+  endpoint_name: full_pipeline_agent_dao
   tags:
     demo: full_pipeline
     feature: instructed_retriever

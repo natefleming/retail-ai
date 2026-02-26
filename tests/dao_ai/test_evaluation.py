@@ -1,530 +1,549 @@
 """
 Tests for DAO AI Evaluation Module
 
-Unit and integration tests for MLflow GenAI evaluation scorers and helpers.
+Unit tests for MLflow GenAI evaluation utilities.
 """
 
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
-from mlflow.entities import Feedback, SpanStatus, SpanStatusCode
+from mlflow.genai.scorers import (
+    Completeness,
+    Guidelines,
+    RelevanceToQuery,
+    Safety,
+    ToolCallEfficiency,
+)
 
 # -----------------------------------------------------------------------------
-# Unit Tests
+# normalize_eval_inputs
 # -----------------------------------------------------------------------------
 
 
-class TestResponseCompleteness:
-    """Unit tests for response_completeness scorer."""
+class TestNormalizeEvalInputs:
+    """Tests for normalize_eval_inputs."""
 
     @pytest.mark.unit
-    def test_complete_response_flat_format(self) -> None:
-        """Test that a complete response passes with flat output format."""
-        from dao_ai.evaluation import response_completeness
+    def test_dict_with_messages_list(self) -> None:
+        from dao_ai.evaluation import normalize_eval_inputs
 
-        outputs = {
-            "response": "This is a complete and helpful response to your question."
+        messages = [{"role": "user", "content": "hello"}]
+        result = normalize_eval_inputs({"messages": messages})
+        assert result == {"messages": messages}
+
+    @pytest.mark.unit
+    def test_dict_with_messages_string(self) -> None:
+        from dao_ai.evaluation import normalize_eval_inputs
+
+        result = normalize_eval_inputs({"messages": "hello"})
+        assert result == {"messages": [{"role": "user", "content": "hello"}]}
+
+    @pytest.mark.unit
+    def test_list_of_message_dicts(self) -> None:
+        from dao_ai.evaluation import normalize_eval_inputs
+
+        messages = [{"role": "user", "content": "hello"}]
+        result = normalize_eval_inputs(messages)
+        assert result == {"messages": messages}
+
+    @pytest.mark.unit
+    def test_dict_with_request_field(self) -> None:
+        from dao_ai.evaluation import normalize_eval_inputs
+
+        result = normalize_eval_inputs({"request": "What is X?"})
+        assert result == {"messages": [{"role": "user", "content": "What is X?"}]}
+
+    @pytest.mark.unit
+    def test_raw_string_fallback(self) -> None:
+        from dao_ai.evaluation import normalize_eval_inputs
+
+        result = normalize_eval_inputs("hello world")
+        assert result == {"messages": [{"role": "user", "content": "hello world"}]}
+
+    @pytest.mark.unit
+    def test_empty_list(self) -> None:
+        from dao_ai.evaluation import normalize_eval_inputs
+
+        result = normalize_eval_inputs([])
+        assert result == {"messages": []}
+
+    @pytest.mark.unit
+    def test_dict_with_extra_keys_keeps_only_messages(self) -> None:
+        from dao_ai.evaluation import normalize_eval_inputs
+
+        messages = [{"role": "user", "content": "hello"}]
+        result = normalize_eval_inputs({"messages": messages, "extra": "ignored"})
+        assert result == {"messages": messages}
+
+
+# -----------------------------------------------------------------------------
+# prepare_eval_dataframe
+# -----------------------------------------------------------------------------
+
+
+class TestPrepareEvalDataframe:
+    """Tests for prepare_eval_dataframe."""
+
+    @pytest.mark.unit
+    def test_converts_struct_columns_via_json(self) -> None:
+        """Verify STRUCT columns go through to_json -> json.loads round-trip."""
+        from pyspark.sql.types import (
+            StringType,
+            StructField,
+            StructType,
+        )
+
+        from dao_ai.evaluation import prepare_eval_dataframe
+
+        schema = StructType(
+            [
+                StructField(
+                    "inputs",
+                    StructType(
+                        [
+                            StructField("messages", StringType()),
+                        ]
+                    ),
+                ),
+                StructField("plain_col", StringType()),
+            ]
+        )
+
+        mock_spark_df = MagicMock()
+        mock_spark_df.schema = schema
+
+        json_converted_df = MagicMock()
+        json_converted_df.schema = schema
+        mock_spark_df.withColumn.return_value = json_converted_df
+
+        pandas_df = pd.DataFrame(
+            [
+                {"inputs": '{"messages": "What products?"}', "plain_col": "hello"},
+            ]
+        )
+        json_converted_df.toPandas.return_value = pandas_df
+
+        result = prepare_eval_dataframe(mock_spark_df)
+
+        mock_spark_df.withColumn.assert_called_once()
+        assert result["inputs"].iloc[0] == {
+            "messages": [{"role": "user", "content": "What products?"}]
         }
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is True
-        assert "complete" in result.rationale.lower()
+        assert result["plain_col"].iloc[0] == "hello"
 
     @pytest.mark.unit
-    def test_complete_response_nested_format(self) -> None:
-        """Test that a complete response passes with nested output format."""
-        from dao_ai.evaluation import response_completeness
+    def test_num_evals_limits_rows(self) -> None:
+        from pyspark.sql.types import StringType, StructField, StructType
 
-        outputs = {"outputs": {"response": "This is a complete and helpful response."}}
-        result = response_completeness(outputs)
+        from dao_ai.evaluation import prepare_eval_dataframe
 
-        assert isinstance(result, Feedback)
-        assert result.value is True
+        schema = StructType([StructField("inputs", StringType())])
 
-    @pytest.mark.unit
-    def test_short_response_fails(self) -> None:
-        """Test that a too-short response fails."""
-        from dao_ai.evaluation import response_completeness
-
-        outputs = {"response": "Hi"}
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-        assert "short" in result.rationale.lower()
-
-    @pytest.mark.unit
-    def test_incomplete_response_ellipsis(self) -> None:
-        """Test that response ending with ... fails."""
-        from dao_ai.evaluation import response_completeness
-
-        outputs = {"response": "The answer to your question is..."}
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-        assert "incomplete" in result.rationale.lower()
-
-    @pytest.mark.unit
-    def test_incomplete_response_etc(self) -> None:
-        """Test that response ending with 'etc' fails."""
-        from dao_ai.evaluation import response_completeness
-
-        outputs = {"response": "You can use tools like hammers, screwdrivers, etc"}
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-
-    @pytest.mark.unit
-    def test_empty_response_fails(self) -> None:
-        """Test that empty response fails."""
-        from dao_ai.evaluation import response_completeness
-
-        outputs = {"response": ""}
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-
-    @pytest.mark.unit
-    def test_missing_response_key_fails(self) -> None:
-        """Test that missing response key fails."""
-        from dao_ai.evaluation import response_completeness
-
-        outputs = {"other_field": "value"}
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-
-    @pytest.mark.unit
-    def test_string_output_passes(self) -> None:
-        """Test that a direct string output passes."""
-        from dao_ai.evaluation import response_completeness
-
-        outputs = "This is a complete and helpful response to your question."
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is True
-        assert "complete" in result.rationale.lower()
-
-    @pytest.mark.unit
-    def test_short_string_output_fails(self) -> None:
-        """Test that a too-short string output fails."""
-        from dao_ai.evaluation import response_completeness
-
-        outputs = "Hi"
-        result = response_completeness(outputs)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-        assert "short" in result.rationale.lower()
-
-
-class TestToolCallEfficiency:
-    """Unit tests for tool_call_efficiency scorer."""
-
-    @pytest.mark.unit
-    def test_none_trace_returns_error(self) -> None:
-        """Test that None trace returns error feedback (MLflow 3.8+ behavior)."""
-        from dao_ai.evaluation import tool_call_efficiency
-
-        result = tool_call_efficiency(None)
-
-        assert isinstance(result, Feedback)
-        # MLflow 3.8+ uses error instead of value=None
-        assert result.error is not None
-        assert "no trace" in str(result.error).lower()
-
-    @pytest.mark.unit
-    def test_no_tool_calls_returns_true(self) -> None:
-        """Test that trace with no tool calls returns True (valid response without tools)."""
-        from dao_ai.evaluation import tool_call_efficiency
-
-        mock_trace = MagicMock()
-        mock_trace.search_spans.return_value = []
-
-        result = tool_call_efficiency(mock_trace)
-
-        assert isinstance(result, Feedback)
-        assert result.value is True
-        assert "no tool usage" in result.rationale.lower()
-
-    @pytest.mark.unit
-    def test_successful_unique_tool_calls_passes(self) -> None:
-        """Test that unique successful tool calls pass."""
-        from dao_ai.evaluation import tool_call_efficiency
-
-        # Create mock spans with different names using typed SpanStatus
-        mock_span1 = MagicMock()
-        mock_span1.name = "search_products"
-        mock_span1.status = SpanStatus(status_code=SpanStatusCode.OK, description="")
-
-        mock_span2 = MagicMock()
-        mock_span2.name = "get_inventory"
-        mock_span2.status = SpanStatus(status_code=SpanStatusCode.OK, description="")
-
-        mock_trace = MagicMock()
-        mock_trace.search_spans.return_value = [mock_span1, mock_span2]
-
-        result = tool_call_efficiency(mock_trace)
-
-        assert isinstance(result, Feedback)
-        assert result.value is True
-        assert "2 successful" in result.rationale.lower()
-
-    @pytest.mark.unit
-    def test_redundant_tool_calls_fails(self) -> None:
-        """Test that redundant tool calls fail."""
-        from dao_ai.evaluation import tool_call_efficiency
-
-        # Create mock spans with same name (redundant) using typed SpanStatus
-        mock_span1 = MagicMock()
-        mock_span1.name = "search_products"
-        mock_span1.status = SpanStatus(status_code=SpanStatusCode.OK, description="")
-
-        mock_span2 = MagicMock()
-        mock_span2.name = "search_products"  # Same name = redundant
-        mock_span2.status = SpanStatus(status_code=SpanStatusCode.OK, description="")
-
-        mock_trace = MagicMock()
-        mock_trace.search_spans.return_value = [mock_span1, mock_span2]
-
-        result = tool_call_efficiency(mock_trace)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-        assert "redundant" in result.rationale.lower()
-
-    @pytest.mark.unit
-    def test_failed_tool_calls_fails(self) -> None:
-        """Test that failed tool calls result in failure."""
-        from dao_ai.evaluation import tool_call_efficiency
-
-        # Create mock span with ERROR status using typed SpanStatus
-        mock_span = MagicMock()
-        mock_span.name = "search_products"
-        mock_span.status = SpanStatus(
-            status_code=SpanStatusCode.ERROR, description="Tool failed"
+        mock_spark_df = MagicMock()
+        mock_spark_df.schema = schema
+        mock_spark_df.toPandas.return_value = pd.DataFrame(
+            [
+                {"inputs": "a"},
+                {"inputs": "b"},
+                {"inputs": "c"},
+            ]
         )
 
-        mock_trace = MagicMock()
-        mock_trace.search_spans.return_value = [mock_span]
-
-        result = tool_call_efficiency(mock_trace)
-
-        assert isinstance(result, Feedback)
-        assert result.value is False
-        assert "failed" in result.rationale.lower()
+        result = prepare_eval_dataframe(mock_spark_df, num_evals=2)
+        assert len(result) == 2
 
     @pytest.mark.unit
-    def test_trace_search_exception_handled(self) -> None:
-        """Test that exceptions during trace search are handled (MLflow 3.8+ behavior)."""
-        from dao_ai.evaluation import tool_call_efficiency
+    def test_normalizes_inputs_column(self) -> None:
+        from pyspark.sql.types import StringType, StructField, StructType
 
-        mock_trace = MagicMock()
-        mock_trace.search_spans.side_effect = Exception("Trace error")
+        from dao_ai.evaluation import prepare_eval_dataframe
 
-        result = tool_call_efficiency(mock_trace)
+        schema = StructType([StructField("inputs", StringType())])
 
-        assert isinstance(result, Feedback)
-        # MLflow 3.8+ uses error instead of value=None
-        assert result.error is not None
-        assert "error" in str(result.error).lower()
-
-
-class TestResponseClarityScorer:
-    """Unit tests for create_response_clarity_scorer factory."""
-
-    @pytest.mark.unit
-    def test_factory_returns_callable(self) -> None:
-        """Test that the factory returns a callable scorer."""
-        from dao_ai.evaluation import create_response_clarity_scorer
-
-        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
-            mock_scorer = MagicMock()
-            mock_make_judge.return_value = mock_scorer
-
-            scorer = create_response_clarity_scorer(
-                judge_model="databricks:/test-model"
-            )
-
-            mock_make_judge.assert_called_once()
-            assert scorer is mock_scorer
-
-    @pytest.mark.unit
-    def test_factory_passes_correct_parameters(self) -> None:
-        """Test that the factory passes correct parameters to make_judge."""
-        from dao_ai.evaluation import (
-            RESPONSE_CLARITY_INSTRUCTIONS,
-            create_response_clarity_scorer,
+        mock_spark_df = MagicMock()
+        mock_spark_df.schema = schema
+        mock_spark_df.toPandas.return_value = pd.DataFrame(
+            [
+                {"inputs": "What is X?"},
+            ]
         )
 
-        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
-            mock_make_judge.return_value = MagicMock()
-
-            create_response_clarity_scorer(
-                judge_model="databricks-gpt-5-2",
-                name="custom_clarity",
-            )
-
-            call_kwargs = mock_make_judge.call_args[1]
-            assert call_kwargs["name"] == "custom_clarity"
-            assert call_kwargs["instructions"] == RESPONSE_CLARITY_INSTRUCTIONS
-            assert call_kwargs["model"] == "databricks-gpt-5-2"
-
-    @pytest.mark.unit
-    def test_factory_uses_default_name(self) -> None:
-        """Test that the factory uses default name when not specified."""
-        from dao_ai.evaluation import create_response_clarity_scorer
-
-        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
-            mock_make_judge.return_value = MagicMock()
-
-            create_response_clarity_scorer(judge_model="databricks-gpt-5-2")
-
-            call_kwargs = mock_make_judge.call_args[1]
-            assert call_kwargs["name"] == "response_clarity"
+        result = prepare_eval_dataframe(mock_spark_df)
+        assert result["inputs"].iloc[0] == {
+            "messages": [{"role": "user", "content": "What is X?"}]
+        }
 
 
-class TestAgentRoutingScorer:
-    """Unit tests for create_agent_routing_scorer factory."""
+# -----------------------------------------------------------------------------
+# create_guidelines_scorers
+# -----------------------------------------------------------------------------
+
+
+class TestCreateGuidelinesScorers:
+    """Tests for create_guidelines_scorers."""
 
     @pytest.mark.unit
-    def test_factory_returns_callable(self) -> None:
-        """Test that the factory returns a callable scorer."""
-        from dao_ai.evaluation import create_agent_routing_scorer
-
-        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
-            mock_scorer = MagicMock()
-            mock_make_judge.return_value = mock_scorer
-
-            scorer = create_agent_routing_scorer(judge_model="databricks-gpt-5-2")
-
-            mock_make_judge.assert_called_once()
-            assert scorer is mock_scorer
-
-    @pytest.mark.unit
-    def test_factory_passes_correct_parameters(self) -> None:
-        """Test that the factory passes correct parameters to make_judge."""
-        from dao_ai.evaluation import (
-            AGENT_ROUTING_INSTRUCTIONS,
-            create_agent_routing_scorer,
-        )
-
-        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
-            mock_make_judge.return_value = MagicMock()
-
-            create_agent_routing_scorer(
-                judge_model="databricks-gpt-5-2",
-                name="custom_routing",
-            )
-
-            call_kwargs = mock_make_judge.call_args[1]
-            assert call_kwargs["name"] == "custom_routing"
-            assert call_kwargs["instructions"] == AGENT_ROUTING_INSTRUCTIONS
-            assert call_kwargs["model"] == "databricks-gpt-5-2"
-
-    @pytest.mark.unit
-    def test_factory_uses_default_name(self) -> None:
-        """Test that the factory uses default name when not specified."""
-        from dao_ai.evaluation import create_agent_routing_scorer
-
-        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
-            mock_make_judge.return_value = MagicMock()
-
-            create_agent_routing_scorer(judge_model="databricks-gpt-5-2")
-
-            call_kwargs = mock_make_judge.call_args[1]
-            assert call_kwargs["name"] == "agent_routing"
-
-
-class TestHelperFunctions:
-    """Unit tests for helper functions."""
-
-    @pytest.mark.unit
-    def test_create_traced_predict_fn_normalizes_output(self) -> None:
-        """Test that traced predict function normalizes nested output."""
-        from dao_ai.evaluation import create_traced_predict_fn
-
-        def nested_predict(inputs: dict) -> dict:
-            return {"outputs": {"response": "test response"}}
-
-        with patch("mlflow.trace") as mock_trace:
-            # Make the decorator pass through the function
-            mock_trace.return_value = lambda f: f
-
-            traced_fn = create_traced_predict_fn(nested_predict)
-            result = traced_fn({"messages": [{"role": "user", "content": "hi"}]})
-            assert result == {"response": "test response"}
-
-    @pytest.mark.unit
-    def test_get_default_scorers_without_judge_model(self) -> None:
-        """Test default scorers without judge model."""
-        from dao_ai.evaluation import get_default_scorers
-
-        scorers = get_default_scorers(include_trace_scorers=True)
-
-        # Without judge_model: clarity scorer not added
-        # Returns: Safety (default), response_completeness, tool_call_efficiency
-        assert len(scorers) == 3
-
-    @pytest.mark.unit
-    def test_get_default_scorers_with_judge_model(self) -> None:
-        """Test default scorers with judge model."""
-        from dao_ai.evaluation import get_default_scorers
-
-        scorers = get_default_scorers(
-            include_trace_scorers=True,
-            judge_model="databricks-gpt-5-2",
-        )
-
-        # make_judge scorers disabled until Databricks endpoints support them
-        # Returns: Safety, response_completeness, tool_call_efficiency
-        assert len(scorers) == 3
-
-    @pytest.mark.unit
-    def test_get_default_scorers_excludes_trace_scorers(self) -> None:
-        """Test that trace scorers can be excluded."""
-        from dao_ai.evaluation import get_default_scorers
-
-        scorers = get_default_scorers(
-            include_trace_scorers=False,
-            judge_model="databricks-gpt-5-2",
-        )
-
-        # Without trace scorers: Safety, response_completeness
-        assert len(scorers) == 2
-
-    @pytest.mark.unit
-    def test_get_default_scorers_with_agent_routing(self) -> None:
-        """Test that agent routing scorer param is ignored (disabled)."""
-        from dao_ai.evaluation import get_default_scorers
-
-        scorers = get_default_scorers(
-            include_trace_scorers=True,
-            include_agent_routing=True,
-            judge_model="databricks-gpt-5-2",
-        )
-
-        # make_judge scorers disabled, so agent_routing is ignored
-        # Returns: Safety, response_completeness, tool_call_efficiency
-        assert len(scorers) == 3
-
-    @pytest.mark.unit
-    def test_create_guidelines_scorers(self) -> None:
-        """Test creating Guidelines scorers from config."""
+    def test_creates_scorers_from_config(self) -> None:
         from dao_ai.evaluation import create_guidelines_scorers
 
-        # Create mock guideline config
         class MockGuideline:
             name = "test_guideline"
             guidelines = ["Be helpful", "Be accurate"]
 
-        guidelines = [MockGuideline()]
-        judge_model = "databricks:/test-model"
-
-        scorers = create_guidelines_scorers(guidelines, judge_model)
+        scorers = create_guidelines_scorers([MockGuideline()])
 
         assert len(scorers) == 1
         assert scorers[0].name == "test_guideline"
+        assert scorers[0].model is None
+
+    @pytest.mark.unit
+    def test_creates_scorers_with_judge_model(self) -> None:
+        from dao_ai.evaluation import create_guidelines_scorers
+
+        class MockGuideline:
+            name = "quality"
+            guidelines = ["Be concise"]
+
+        scorers = create_guidelines_scorers(
+            [MockGuideline()],
+            judge_model="databricks:/test-model",
+        )
+
+        assert len(scorers) == 1
+        assert scorers[0].model == "databricks:/test-model"
+
+    @pytest.mark.unit
+    def test_creates_multiple_scorers(self) -> None:
+        from dao_ai.evaluation import create_guidelines_scorers
+
+        class G1:
+            name = "g1"
+            guidelines = ["Rule 1"]
+
+        class G2:
+            name = "g2"
+            guidelines = ["Rule 2"]
+
+        scorers = create_guidelines_scorers([G1(), G2()])
+
+        assert len(scorers) == 2
+        assert scorers[0].name == "g1"
+        assert scorers[1].name == "g2"
 
 
 # -----------------------------------------------------------------------------
-# Integration Tests
+# build_scorers
 # -----------------------------------------------------------------------------
 
 
-class TestEvaluationIntegration:
-    """Integration tests for MLflow evaluation."""
+class TestBuildScorers:
+    """Tests for build_scorers."""
 
-    @pytest.mark.integration
-    def test_heuristic_scorers_return_feedback_objects(self) -> None:
-        """Test that heuristic scorers return valid Feedback objects."""
-        from dao_ai.evaluation import (
-            response_completeness,
-            tool_call_efficiency,
+    @pytest.mark.unit
+    def test_builds_default_scorers(self) -> None:
+        from dao_ai.evaluation import build_scorers
+
+        class MockEvalConfig:
+            guidelines = []
+
+        scorers = build_scorers(MockEvalConfig())
+
+        assert len(scorers) == 4
+        types = [type(s) for s in scorers]
+        assert Safety in types
+        assert Completeness in types
+        assert RelevanceToQuery in types
+        assert ToolCallEfficiency in types
+
+    @pytest.mark.unit
+    def test_builds_scorers_with_guidelines(self) -> None:
+        from dao_ai.evaluation import build_scorers
+
+        class MockGuideline:
+            name = "my_guideline"
+            guidelines = ["Be polite"]
+
+        class MockEvalConfig:
+            guidelines = [MockGuideline()]
+
+        scorers = build_scorers(MockEvalConfig())
+
+        assert len(scorers) == 5
+        guideline_scorers = [s for s in scorers if isinstance(s, Guidelines)]
+        assert len(guideline_scorers) == 1
+        assert guideline_scorers[0].name == "my_guideline"
+
+    @pytest.mark.unit
+    def test_builds_scorers_with_empty_guidelines(self) -> None:
+        from dao_ai.evaluation import build_scorers
+
+        class MockEvalConfig:
+            guidelines = []
+
+        scorers = build_scorers(MockEvalConfig())
+
+        assert len(scorers) == 4
+        guideline_scorers = [s for s in scorers if isinstance(s, Guidelines)]
+        assert len(guideline_scorers) == 0
+
+
+# -----------------------------------------------------------------------------
+# prepare_eval_results_for_display
+# -----------------------------------------------------------------------------
+
+
+class TestPrepareEvalResultsForDisplay:
+    """Tests for prepare_eval_results_for_display."""
+
+    @pytest.mark.unit
+    def test_converts_assessments_to_string(self) -> None:
+        from dao_ai.evaluation import prepare_eval_results_for_display
+
+        mock_results = MagicMock()
+        mock_results.tables = {
+            "eval_results": pd.DataFrame(
+                {
+                    "inputs": ["test"],
+                    "outputs": ["result"],
+                    "assessments": [{"scorer": "safety", "value": True}],
+                }
+            )
+        }
+
+        result_df = prepare_eval_results_for_display(mock_results)
+        assert isinstance(result_df["assessments"].iloc[0], str)
+
+    @pytest.mark.unit
+    def test_handles_no_assessments_column(self) -> None:
+        from dao_ai.evaluation import prepare_eval_results_for_display
+
+        mock_results = MagicMock()
+        mock_results.tables = {
+            "eval_results": pd.DataFrame(
+                {
+                    "inputs": ["test"],
+                    "outputs": ["result"],
+                }
+            )
+        }
+
+        result_df = prepare_eval_results_for_display(mock_results)
+        assert "assessments" not in result_df.columns
+
+
+# -----------------------------------------------------------------------------
+# create_or_get_eval_dataset
+# -----------------------------------------------------------------------------
+
+
+class TestCreateOrGetEvalDataset:
+    """Tests for create_or_get_eval_dataset."""
+
+    @pytest.mark.unit
+    def test_creates_new_dataset_when_none_exists(self) -> None:
+        from dao_ai.evaluation import create_or_get_eval_dataset
+
+        source_df = pd.DataFrame(
+            [{"inputs": {"messages": [{"role": "user", "content": "hi"}]}}]
         )
 
-        # Test response_completeness
-        result1 = response_completeness({"response": "Test response here."})
-        assert isinstance(result1, Feedback)
-        assert result1.value is not None or result1.rationale is not None
+        mock_dataset = MagicMock()
+        mock_dataset.merge_records.return_value = mock_dataset
 
-        # Test tool_call_efficiency with None trace
-        result2 = tool_call_efficiency(None)
-        assert isinstance(result2, Feedback)
-
-    @pytest.mark.integration
-    def test_llm_scorer_factories_create_valid_scorers(self) -> None:
-        """Test that LLM-based scorer factories create valid scorers."""
-        from dao_ai.evaluation import (
-            create_agent_routing_scorer,
-            create_response_clarity_scorer,
-        )
-
-        with patch("mlflow.genai.judges.make_judge") as mock_make_judge:
-            mock_scorer = MagicMock()
-            mock_make_judge.return_value = mock_scorer
-
-            # Test response clarity scorer factory
-            clarity_scorer = create_response_clarity_scorer(
-                judge_model="databricks:/test-model"
-            )
-            assert clarity_scorer is mock_scorer
-
-            # Test agent routing scorer factory
-            routing_scorer = create_agent_routing_scorer(
-                judge_model="databricks:/test-model"
-            )
-            assert routing_scorer is mock_scorer
-
-    @pytest.mark.integration
-    def test_setup_evaluation_tracking(self) -> None:
-        """Test that evaluation tracking setup doesn't error."""
-        from dao_ai.evaluation import setup_evaluation_tracking
-
-        with patch("mlflow.set_registry_uri") as mock_registry:
-            with patch("mlflow.set_experiment") as mock_experiment:
-                with patch("mlflow.langchain.autolog") as mock_autolog:
-                    setup_evaluation_tracking(experiment_name="test_experiment")
-
-                    mock_registry.assert_called_once_with("databricks-uc")
-                    mock_experiment.assert_called_once_with(
-                        experiment_name="test_experiment"
-                    )
-                    mock_autolog.assert_called_once_with(log_traces=True)
-
-    @pytest.mark.integration
-    def test_run_evaluation_with_mocked_mlflow(self) -> None:
-        """Test run_evaluation with mocked MLflow."""
-        from dao_ai.evaluation import run_evaluation
-
-        def simple_predict(inputs: dict) -> dict:
-            return {"response": "Test response"}
-
-        mock_result = MagicMock()
-        mock_result.metrics = {"response_completeness/v1/mean": 1.0}
-
-        with patch("mlflow.genai.evaluate", return_value=mock_result) as mock_eval:
-            with patch("mlflow.trace") as mock_trace:
-                mock_trace.return_value = lambda f: f
-
-                data = [{"inputs": {"messages": [{"role": "user", "content": "test"}]}}]
-
-                # Note: This would need actual MLflow setup in real integration test
-                # For now, we verify the function calls correctly
-                eval_result = run_evaluation(
-                    data=data,
-                    predict_fn=simple_predict,
+        with patch("dao_ai.evaluation.get_dataset", side_effect=Exception("not found")):
+            with patch(
+                "dao_ai.evaluation.create_dataset", return_value=mock_dataset
+            ) as mock_create:
+                result = create_or_get_eval_dataset(
+                    name="test_dataset",
+                    experiment_id="123",
+                    source_df=source_df,
                 )
 
-                mock_eval.assert_called_once()
-                assert eval_result is mock_result
+                mock_create.assert_called_once_with(
+                    name="test_dataset",
+                    experiment_id=["123"],
+                )
+                mock_dataset.merge_records.assert_called_once_with(source_df)
+                assert result is mock_dataset
+
+    @pytest.mark.unit
+    def test_loads_existing_dataset(self) -> None:
+        from dao_ai.evaluation import create_or_get_eval_dataset
+
+        source_df = pd.DataFrame(
+            [{"inputs": {"messages": [{"role": "user", "content": "hi"}]}}]
+        )
+
+        mock_dataset = MagicMock()
+        mock_dataset.merge_records.return_value = mock_dataset
+
+        with patch(
+            "dao_ai.evaluation.get_dataset", return_value=mock_dataset
+        ) as mock_get:
+            with patch("dao_ai.evaluation.create_dataset") as mock_create:
+                result = create_or_get_eval_dataset(
+                    name="existing_dataset",
+                    experiment_id="456",
+                    source_df=source_df,
+                )
+
+                mock_get.assert_called_once_with(name="existing_dataset")
+                mock_create.assert_not_called()
+                mock_dataset.merge_records.assert_called_once_with(source_df)
+                assert result is mock_dataset
+
+    @pytest.mark.unit
+    def test_passes_tags_on_create(self) -> None:
+        from dao_ai.evaluation import create_or_get_eval_dataset
+
+        source_df = pd.DataFrame(
+            [{"inputs": {"messages": [{"role": "user", "content": "hi"}]}}]
+        )
+
+        mock_dataset = MagicMock()
+        mock_dataset.merge_records.return_value = mock_dataset
+
+        with patch("dao_ai.evaluation.get_dataset", side_effect=Exception("not found")):
+            with patch(
+                "dao_ai.evaluation.create_dataset", return_value=mock_dataset
+            ) as mock_create:
+                create_or_get_eval_dataset(
+                    name="tagged_dataset",
+                    experiment_id="789",
+                    source_df=source_df,
+                    tags={"team": "ai", "stage": "dev"},
+                )
+
+                mock_create.assert_called_once_with(
+                    name="tagged_dataset",
+                    experiment_id=["789"],
+                    tags={"team": "ai", "stage": "dev"},
+                )
+
+    @pytest.mark.unit
+    def test_merges_records_from_source_df(self) -> None:
+        from dao_ai.evaluation import create_or_get_eval_dataset
+
+        source_df = pd.DataFrame(
+            [
+                {"inputs": {"messages": [{"role": "user", "content": "q1"}]}},
+                {"inputs": {"messages": [{"role": "user", "content": "q2"}]}},
+                {"inputs": {"messages": [{"role": "user", "content": "q3"}]}},
+            ]
+        )
+
+        mock_dataset = MagicMock()
+        mock_dataset.merge_records.return_value = mock_dataset
+
+        with patch("dao_ai.evaluation.get_dataset", return_value=mock_dataset):
+            create_or_get_eval_dataset(
+                name="multi_record",
+                experiment_id="100",
+                source_df=source_df,
+            )
+
+            merged_df = mock_dataset.merge_records.call_args[0][0]
+            assert len(merged_df) == 3
+
+
+# -----------------------------------------------------------------------------
+# Pipeline Integration Tests
+# -----------------------------------------------------------------------------
+
+
+class TestEvaluationPipeline:
+    """Tests that exercise the full evaluation pipeline with the YAML config."""
+
+    @pytest.mark.unit
+    def test_scorers_from_yaml_config(self) -> None:
+        from dao_ai.config import AppConfig
+        from dao_ai.evaluation import build_scorers
+
+        config = AppConfig.from_file(
+            "config/examples/15_complete_applications/hardware_store_lakebase.yaml"
+        )
+
+        scorers = build_scorers(config.evaluation)
+
+        safety_scorers = [s for s in scorers if isinstance(s, Safety)]
+        assert len(safety_scorers) == 1
+
+        guideline_scorers = [s for s in scorers if isinstance(s, Guidelines)]
+        assert len(guideline_scorers) == 1
+        assert guideline_scorers[0].name == "my_relevance_guideline"
+        assert guideline_scorers[0].model is None
+
+        # Safety + Completeness + RelevanceToQuery + ToolCallEfficiency + 1 guideline
+        assert len(scorers) == 5
+
+    @pytest.mark.unit
+    def test_evaluate_pipeline_with_mocked_mlflow(self) -> None:
+        from dao_ai.config import AppConfig
+        from dao_ai.evaluation import build_scorers
+
+        config = AppConfig.from_file(
+            "config/examples/15_complete_applications/hardware_store_lakebase.yaml"
+        )
+
+        scorers = build_scorers(config.evaluation)
+        assert len(scorers) == 5
+
+        def mock_predict_fn(messages: list) -> dict:
+            return {"response": "We have many products available."}
+
+        eval_data = pd.DataFrame(
+            [
+                {
+                    "inputs": {
+                        "messages": [
+                            {"role": "user", "content": "What products do you have?"}
+                        ]
+                    },
+                },
+            ]
+        )
+
+        mock_result = MagicMock()
+        mock_result.metrics = {
+            "safety/mean": 1.0,
+            "completeness/mean": 1.0,
+            "relevance_to_query/mean": 1.0,
+            "tool_call_efficiency/mean": 1.0,
+            "my_relevance_guideline/mean": 0.5,
+        }
+
+        with patch("mlflow.genai.evaluate", return_value=mock_result) as mock_eval:
+            mock_eval(
+                data=eval_data,
+                predict_fn=mock_predict_fn,
+                scorers=scorers,
+            )
+
+            mock_eval.assert_called_once()
+            call_kwargs = mock_eval.call_args[1]
+            assert len(call_kwargs["scorers"]) == 5
+            assert call_kwargs["predict_fn"] is mock_predict_fn
+
+    @pytest.mark.unit
+    def test_predict_fn_timeout_returns_error(self) -> None:
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FuturesTimeout
+
+        def slow_predict(messages: list, custom_inputs: dict | None) -> str:
+            time.sleep(10)
+            return "should not reach here"
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(slow_predict, [], None)
+                future.result(timeout=1)
+            assert False, "Should have raised TimeoutError"
+        except FuturesTimeout:
+            pass
 
 
 # -----------------------------------------------------------------------------

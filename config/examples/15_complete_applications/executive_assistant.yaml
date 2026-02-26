@@ -128,7 +128,7 @@ app:
   registered_model:                                
     schema: *executive_assistant_schema
     name: executive_assistant_dao                        
-  endpoint_name: executive_assistant_agent    
+  endpoint_name: executive_assistant_agent_dao    
   environment_vars: 
     TAVILY_API_KEY: "{{secrets/retail_consumer_goods/TAVILY_API_KEY}}" 
   tags:                                            

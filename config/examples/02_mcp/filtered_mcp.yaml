@@ -300,7 +300,7 @@ app:
   log_level: INFO                         # Logging level (DEBUG, INFO, WARNING, ERROR)
   registered_model:                       # MLflow registered model configuration
     schema: *retail_schema                # Schema where model will be registered
-    name: filtered_mcp_example            # Model name in MLflow registry
+    name: filtered_mcp_example_dao        # Model name in MLflow registry
   agents:                                 # List of agents included in the system
     - *safe_sql_agent                     # Safe SQL agent (read-only)
     - *analyst_agent                      # Data analyst agent

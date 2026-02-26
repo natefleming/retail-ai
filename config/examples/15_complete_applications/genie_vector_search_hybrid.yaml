@@ -121,7 +121,7 @@ app:
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: genie_vector_search_hybrid_dao
-  endpoint_name: genie_and_vector_search_agent      # Model serving endpoint name
+  endpoint_name: genie_and_vector_search_agent_dao  # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities

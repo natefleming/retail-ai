@@ -52,8 +52,8 @@ app:
   log_level: INFO                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *default_schema                         # Schema where model will be registered
-    name: slack_notification_agent                  # Model name in MLflow registry
-  endpoint_name: slack_notification_agent           # Model serving endpoint name
+    name: slack_notification_agent_dao              # Model name in MLflow registry
+  endpoint_name: slack_notification_agent_dao       # Model serving endpoint name
   tags:                                             # Tags for resource organization
     integration: slack                              # Integration type
     notification: true                              # Indicates notification capabilities

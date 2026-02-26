@@ -107,6 +107,6 @@ app:
   log_level: INFO
   registered_model:
     schema: *retail_schema
-    name: agent_bricks_integration
+    name: agent_bricks_integration_dao
   agents:
     - *orchestrator_agent

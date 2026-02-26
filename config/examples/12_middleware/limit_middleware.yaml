@@ -242,7 +242,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: limit_middleware_dao
-  endpoint_name: limit_middleware_demo
+  endpoint_name: limit_middleware_demo_dao
   agents:
     - *research_agent
     - *budget_agent

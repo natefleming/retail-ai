@@ -696,7 +696,7 @@ app:
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: hardware_store_dao
-  endpoint_name: hardware_store_supervisor                    # Model serving endpoint name
+  endpoint_name: hardware_store_supervisor_dao                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities

@@ -176,6 +176,6 @@ app:
     schema:
       catalog_name: main
       schema_name: default
-    name: parallel_tool_test
+    name: parallel_tool_test_dao
   agents:
     - *parallel_test_agent

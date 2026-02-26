@@ -217,7 +217,7 @@ app:
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema                          # Schema where model will be registered
     name: prompt_optimization_dao
-  endpoint_name: prompt_optimization_agent                    # Model serving endpoint name
+  endpoint_name: prompt_optimization_agent_dao                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities

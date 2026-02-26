@@ -41,12 +41,6 @@ print(config_path)
 
 # COMMAND ----------
 
-from dotenv import find_dotenv, load_dotenv
-
-_ = load_dotenv(find_dotenv())
-
-# COMMAND ----------
-
 import sys
 
 sys.path.insert(0, "../src")
@@ -59,6 +53,7 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
+# DBTITLE 1,Resolve Inference Table from Serving Endpoint
 from rich import print as pprint
 
 from databricks.sdk import WorkspaceClient
@@ -80,15 +75,15 @@ pprint(payload_table)
 
 # COMMAND ----------
 
+# DBTITLE 1,Load Model and Define Prediction Function
 from typing import Any
+import time
 
 import mlflow
 from mlflow import MlflowClient
 from mlflow.entities.model_registry.model_version import ModelVersion
 from dao_ai.models import get_latest_model_version
 
-# Enable autologging with trace support - IMPORTANT: log_traces=True is required
-# for trace-based scorers to receive trace objects
 mlflow.langchain.autolog(log_traces=True)
 
 mlflow.set_registry_uri("databricks-uc")
@@ -101,147 +96,93 @@ model_version: ModelVersion = mlflow_client.get_model_version(registered_model_n
 
 loaded_agent = mlflow.pyfunc.load_model(model_uri)
 
+PREDICT_DELAY_SECONDS = 1.0
+_predict_counter = {"current": 0, "total": 0}
 
-# Use @mlflow.trace decorator to ensure traces are created and linked to evaluation
-# This is CRITICAL for trace-based scorers like tool_call_efficiency to work
-@mlflow.trace(name="predict", span_type="CHAIN")
-def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    """
-    Prediction function wrapped with MLflow tracing.
-    
-    Args:
-        messages: Chat messages in format [{"role": "user", "content": "..."}]
-    
-    Returns dict output format for MLflow 3.8+ scorer compatibility:
-    {"response": "..."} instead of a plain string
-    """
-    # Keep the full messages payload visible in MLflow traces
-    print(f"messages={messages}")
-    input_data = {"messages": messages}
+
+def _run_prediction(messages: list[dict[str, Any]]) -> str:
+    input_data: dict[str, Any] = {"messages": messages}
     response: dict[str, Any] = loaded_agent.predict(input_data)
-    content: str = response["choices"][0]["message"]["content"]
-    
-    print(f"response_content={content}")
-    
-    # Return dict format for compatibility with scorers
-    return {"response": content}
+    return response["choices"][0]["message"]["content"]
+
+
+@mlflow.trace(name="predict", span_type="CHAIN")
+def predict_fn(messages: list[dict[str, Any]]) -> str:
+    _predict_counter["current"] += 1
+    row_num = _predict_counter["current"]
+    total = _predict_counter["total"]
+    print(f"[{row_num}/{total}] Predicting...")
+
+    if row_num > 1:
+        time.sleep(PREDICT_DELAY_SECONDS)
+
+    try:
+        content = _run_prediction(messages)
+    except Exception as e:
+        print(f"[{row_num}/{total}] ERROR: {e}")
+        content = f"[ERROR] {e}"
+
+    print(f"[{row_num}/{total}] Done ({len(content)} chars)")
+    return content
 
 # COMMAND ----------
 
-# Import reusable scorers from dao_ai.evaluation module
-# These scorers are designed to work with MLflow 3.8+ patterns
-from dao_ai.evaluation import (
-    response_completeness,
-    tool_call_efficiency,
-    create_response_clarity_scorer,
-    create_agent_routing_scorer,
-    create_guidelines_scorers,
-)
-from mlflow.genai.scorers import Safety, Guidelines
-from mlflow.entities import Feedback, Trace
-
-# COMMAND ----------
-
+# DBTITLE 1,Load and Prepare Inference Data for Evaluation
 from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
-
 import pandas as pd
 
+from dao_ai.evaluation import (
+    prepare_eval_dataframe,
+    build_scorers,
+    create_or_get_eval_dataset,
+    prepare_eval_results_for_display,
+)
 
 df: DataFrame = spark.read.table(payload_table)
-
 df = df.select("databricks_request_id", "request", "response")
 df = df.withColumns({
     "inputs": F.struct(F.col("request").alias("request")),
     "expectations": F.struct(F.col("response").alias("expected_response"))
 })
 
-eval_df: pd.DataFrame = df.select("databricks_request_id", "inputs", "expectations").toPandas()
+eval_df: pd.DataFrame = prepare_eval_dataframe(
+    spark_df=df.select("databricks_request_id", "inputs", "expectations"),
+    num_evals=config.evaluation.num_evals,
+)
+
 display(eval_df)
-
-# Normalize evaluation inputs for Guidelines scorers: it expects a list of message dicts
-def normalize_eval_inputs_to_input_dict(raw_inputs: Any) -> dict[str, Any]:
-    """
-    MLflow requires the 'inputs' column to be a dict of field names -> values.
-    Guidelines scorers expect those inputs to contain chat messages. We standardize to:
-        {"messages": [{"role": "user", "content": "..."}]}
-    """
-    # If already dict-shaped, keep ONLY the keys that match predict_fn params.
-    # Our predict_fn takes only `messages`, so we must not pass extra keys.
-    if isinstance(raw_inputs, dict) and "messages" in raw_inputs:
-        messages_val = raw_inputs.get("messages")
-        if isinstance(messages_val, list):
-            return {"messages": messages_val}
-        return {"messages": [{"role": "user", "content": str(messages_val)}]}
-
-    if isinstance(raw_inputs, list) and (not raw_inputs or isinstance(raw_inputs[0], dict)):
-        return {"messages": raw_inputs}
-
-    if isinstance(raw_inputs, dict) and "request" in raw_inputs:
-        return {"messages": [{"role": "user", "content": str(raw_inputs["request"])}]}
-
-    try:
-        request_val = raw_inputs["request"]  # type: ignore[index]
-        return {"messages": [{"role": "user", "content": str(request_val)}]}
-    except Exception:
-        return {"messages": [{"role": "user", "content": str(raw_inputs)}]}
-
-
-if "inputs" in eval_df.columns:
-    eval_df["inputs"] = eval_df["inputs"].apply(normalize_eval_inputs_to_input_dict)
 
 # COMMAND ----------
 
-import mlflow
-from mlflow.models.model import ModelInfo
-from mlflow.entities.model_registry.model_version import ModelVersion
+# DBTITLE 1,Run Evaluation
 from mlflow.models.evaluation import EvaluationResult
-import pandas as pd
-
-
-model_info: mlflow.models.model.ModelInfo
-evaluation_result: EvaluationResult
-
-registered_model_name: str = config.app.registered_model.full_name
 
 if not config.evaluation:
-  dbutils.notebook.exit("Missing evaluation configuration")
+    dbutils.notebook.exit("Missing evaluation configuration")
 
-evaluation_table_name: str = config.evaluation.table.full_name
+scorers = build_scorers(config.evaluation)
+print(f"Scorers: {[getattr(s, 'name', type(s).__name__) for s in scorers]}")
 
-# Build scorer list with Safety and custom scorers from dao_ai.evaluation
-judge_model = config.evaluation.judge_model_endpoint
-print(f"Using judge model: {judge_model}")
-
-scorers_list = [
-    Safety(model=judge_model),
-    response_completeness,
-    tool_call_efficiency,
-    # TODO: Re-enable when Databricks endpoints support response_schema
-    # create_response_clarity_scorer(judge_model=judge_model),
-    # create_agent_routing_scorer(judge_model=judge_model),
-]
-
-# Add Guidelines scorers from config with proper judge model
-if config.evaluation.guidelines:
-    custom_scorers = create_guidelines_scorers(
-        guidelines_config=config.evaluation.guidelines,
-        judge_model=judge_model,
-    )
-    scorers_list += custom_scorers
-    print(f"Added {len(custom_scorers)} Guidelines scorers")
-
-# Get the experiment ID from the model's run and set it as the current experiment
 model_run = mlflow_client.get_run(model_version.run_id)
 mlflow.set_experiment(experiment_id=model_run.info.experiment_id)
 
+eval_dataset = create_or_get_eval_dataset(
+    name=f"{payload_table}_dataset",
+    experiment_id=model_run.info.experiment_id,
+    source_df=eval_df,
+)
+
+_predict_counter["total"] = len(eval_df)
+print(f"Starting evaluation: {len(eval_df)} rows, {len(scorers)} scorers")
+
 with mlflow.start_run(run_id=model_version.run_id):
-  eval_results = mlflow.genai.evaluate(
-      data=eval_df,
-      predict_fn=predict_fn,
-      model_id=model_version.model_id,
-      scorers=scorers_list,
-  )
+    eval_results = mlflow.genai.evaluate(
+        data=eval_dataset,
+        predict_fn=predict_fn,
+        model_id=model_version.model_id,
+        scorers=scorers,
+    )
 
 # COMMAND ----------
 
@@ -250,26 +191,6 @@ print("Evaluation Metrics:")
 for metric_name, metric_value in eval_results.metrics.items():
     print(f"  {metric_name}: {metric_value}")
 
-# Display the evaluation results table
-# Note: The 'assessments' column contains complex objects that can't be
-# directly displayed in Databricks. We convert it to string representation.
-eval_results_df = eval_results.tables["eval_results"].copy()
-
-# Convert complex columns to string for display compatibility
-if "assessments" in eval_results_df.columns:
-    eval_results_df["assessments"] = eval_results_df["assessments"].astype(str)
-
-# Convert any other object columns that might cause Arrow conversion issues
-for col in eval_results_df.columns:
-    if eval_results_df[col].dtype == "object":
-        try:
-            # Try to keep as-is first, only convert if it fails
-            eval_results_df[col].to_list()
-        except Exception:
-            eval_results_df[col] = eval_results_df[col].astype(str)
-
-# Display limited rows to avoid performance issues with large result sets
+eval_results_df = prepare_eval_results_for_display(eval_results)
 print(f"Total evaluation results: {len(eval_results_df)} rows")
 display(eval_results_df.head(100))
-
-

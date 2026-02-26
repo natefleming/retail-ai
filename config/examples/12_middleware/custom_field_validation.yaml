@@ -200,7 +200,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: field_validation_middleware_dao
-  endpoint_name: field_validation_middleware_demo
+  endpoint_name: field_validation_middleware_demo_dao
   agents:
     - *store_agent
     - *api_agent

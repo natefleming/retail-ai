@@ -165,7 +165,7 @@ app:
   log_level: INFO
   registered_model:
     schema: *demo_schema
-    name: obo_retail_assistant
+    name: obo_retail_assistant_dao
   agents:
     - *retail_assistant
 

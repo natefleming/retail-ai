@@ -145,7 +145,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: combined_middleware_dao
-  endpoint_name: combined_middleware_demo
+  endpoint_name: combined_middleware_demo_dao
   agents:
     - *production_agent
     - *dev_agent

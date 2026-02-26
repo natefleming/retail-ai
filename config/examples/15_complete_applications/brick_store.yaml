@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../schemas/model_config_schema.json
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
 schemas:
 
@@ -1295,8 +1295,8 @@ app:
   log_level: INFO
   registered_model:
     schema: *dais_schema
-    name: dais_rct_multi_agent
-  endpoint_name: dais_rct_multi_agent
+    name: dais_rct_multi_agent_dao
+  endpoint_name: dais_rct_multi_agent_dao
   tags:
     business: dais
     streaming: true

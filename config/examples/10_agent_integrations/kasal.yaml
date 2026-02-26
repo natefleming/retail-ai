@@ -154,6 +154,6 @@ app:
   log_level: INFO
   registered_model:
     schema: *enterprise_schema
-    name: kasal_integration
+    name: kasal_integration_dao
   agents:
     - *enterprise_coordinator

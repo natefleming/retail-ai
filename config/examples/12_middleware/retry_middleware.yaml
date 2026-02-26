@@ -235,7 +235,7 @@ app:
   registered_model:
     schema: *retail_schema
     name: retry_middleware_dao
-  endpoint_name: retry_middleware_demo
+  endpoint_name: retry_middleware_demo_dao
   agents:
     - *resilient_agent
     - *high_availability_agent

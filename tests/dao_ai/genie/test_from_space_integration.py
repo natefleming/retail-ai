@@ -110,6 +110,11 @@ def cache_service(
         workspace_client=workspace_client,
     )
 
+    try:
+        service.initialize()
+    except ConnectionError as e:
+        pytest.skip(f"Lakebase instance unavailable: {e}")
+
     yield service
 
     # Cleanup after test - drop tables to avoid accumulating test artifacts

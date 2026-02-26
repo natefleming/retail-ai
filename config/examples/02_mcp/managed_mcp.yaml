@@ -111,7 +111,7 @@ app:
   log_level: TRACE                               # Logging level for the application
   registered_model:                              # MLflow registered model configuration
     schema: *retail_schema                       # Schema where model will be registered
-    name: mcp_agent                              # Model name in MLflow registry
+    name: mcp_agent_dao                          # Model name in MLflow registry
   environment_vars:
     RETAIL_AI_DATABRICKS_CLIENT_ID: *client_id
     RETAIL_AI_DATABRICKS_CLIENT_SECRET: *client_secret
