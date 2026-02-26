@@ -3709,6 +3709,36 @@ class GuidelineModel(BaseModel):
     guidelines: list[str]
 
 
+class MonitoringModel(BaseModel):
+    """
+    Configuration for production monitoring of GenAI scorers.
+
+    Controls how evaluation scorers are registered and scheduled against
+    production traces via the MLflow 3 scorer lifecycle API.
+
+    Attributes:
+        sample_rate: Sampling rate for built-in scorers (Safety, Completeness,
+            RelevanceToQuery, ToolCallEfficiency). Defaults to 1.0 (100%).
+        guidelines_sample_rate: Sampling rate for Guidelines scorers, which
+            invoke an LLM judge per trace and are more expensive. Defaults
+            to 0.5 (50%).
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Sampling rate for built-in scorers (0.0–1.0)",
+    )
+    guidelines_sample_rate: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Sampling rate for Guidelines scorers (0.0–1.0)",
+    )
+
+
 class EvaluationModel(BaseModel):
     """
     Configuration for MLflow GenAI evaluation.
@@ -3722,6 +3752,8 @@ class EvaluationModel(BaseModel):
         question_guidelines: Guidelines for generating evaluation questions.
         custom_inputs: Custom inputs to pass to the agent during evaluation.
         guidelines: List of guideline configurations for Guidelines scorers.
+        monitoring: Optional production monitoring configuration. When present,
+            scorers are registered for continuous evaluation of production traces.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -3734,6 +3766,7 @@ class EvaluationModel(BaseModel):
     question_guidelines: Optional[str] = None
     custom_inputs: dict[str, Any] = Field(default_factory=dict)
     guidelines: list[GuidelineModel] = Field(default_factory=list)
+    monitoring: Optional[MonitoringModel] = None
 
     @property
     def judge_model_endpoint(self) -> str:

@@ -2,22 +2,35 @@
 DAO AI Evaluation Module
 
 Provides reusable utilities for MLflow GenAI evaluation using built-in
-MLflow 3.10+ judges and scorers.
+MLflow 3.10+ judges and scorers, and production monitoring registration
+via the MLflow 3 scorer lifecycle API.
 """
 
+from __future__ import annotations
+
 import json
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from loguru import logger
 from mlflow.genai.datasets import create_dataset, get_dataset
+from mlflow.genai.datasets.evaluation_dataset import EvaluationDataset
 from mlflow.genai.scorers import (
     Completeness,
     Guidelines,
     RelevanceToQuery,
     Safety,
+    Scorer,
+    ScorerSamplingConfig,
     ToolCallEfficiency,
+    delete_scorer,
+    list_scorers,
 )
+
+from mlflow.models.evaluation.base import EvaluationResult
+
+if TYPE_CHECKING:
+    from dao_ai.config import EvaluationModel, GuidelineModel
 
 
 def normalize_eval_inputs(raw_inputs: Any) -> dict[str, Any]:
@@ -110,8 +123,8 @@ def prepare_eval_dataframe(
 
 
 def create_guidelines_scorers(
-    guidelines_config: list[Any],
-    judge_model: Optional[str] = None,
+    guidelines_config: list[GuidelineModel],
+    judge_model: str | None = None,
 ) -> list[Guidelines]:
     """
     Create Guidelines scorers from configuration.
@@ -139,7 +152,7 @@ def create_guidelines_scorers(
     return scorers
 
 
-def build_scorers(evaluation_config: Any) -> list[Any]:
+def build_scorers(evaluation_config: EvaluationModel) -> list[Scorer]:
     """
     Build the complete scorer list from evaluation configuration.
 
@@ -153,7 +166,7 @@ def build_scorers(evaluation_config: Any) -> list[Any]:
     Returns:
         List of scorer instances ready for ``mlflow.genai.evaluate()``.
     """
-    scorers: list[Any] = [
+    scorers: list[Scorer] = [
         Safety(),
         Completeness(),
         RelevanceToQuery(),
@@ -161,7 +174,9 @@ def build_scorers(evaluation_config: Any) -> list[Any]:
     ]
 
     if evaluation_config.guidelines:
-        guideline_scorers = create_guidelines_scorers(evaluation_config.guidelines)
+        guideline_scorers: list[Guidelines] = create_guidelines_scorers(
+            evaluation_config.guidelines
+        )
         scorers.extend(guideline_scorers)
         logger.info(f"Added {len(guideline_scorers)} Guidelines scorers")
 
@@ -172,8 +187,8 @@ def create_or_get_eval_dataset(
     name: str,
     experiment_id: str,
     source_df: pd.DataFrame,
-    tags: Optional[dict[str, str]] = None,
-) -> Any:
+    tags: dict[str, str] | None = None,
+) -> EvaluationDataset:
     """
     Create or load a versioned MLflow evaluation dataset and populate it.
 
@@ -192,9 +207,10 @@ def create_or_get_eval_dataset(
         tags: Optional key-value tags for organising and filtering datasets.
 
     Returns:
-        An ``mlflow.entities.EvaluationDataset`` that can be passed directly
+        An ``EvaluationDataset`` that can be passed directly
         to ``mlflow.genai.evaluate(data=...)``.
     """
+    dataset: EvaluationDataset
     try:
         dataset = get_dataset(name=name)
         logger.info(f"Loaded existing evaluation dataset: {name}")
@@ -213,7 +229,9 @@ def create_or_get_eval_dataset(
     return dataset
 
 
-def prepare_eval_results_for_display(eval_results: Any) -> pd.DataFrame:
+def prepare_eval_results_for_display(
+    eval_results: EvaluationResult,
+) -> pd.DataFrame:
     """
     Prepare evaluation results DataFrame for display in Databricks.
 
@@ -239,3 +257,144 @@ def prepare_eval_results_for_display(eval_results: Any) -> pd.DataFrame:
                 results_df[col] = results_df[col].astype(str)
 
     return results_df
+
+
+_BUILTIN_SCORER_CLASSES: list[type[Scorer]] = [
+    Safety,
+    Completeness,
+    RelevanceToQuery,
+    ToolCallEfficiency,
+]
+
+
+def register_monitoring_scorers(
+    evaluation_config: EvaluationModel,
+    experiment_id: str,
+) -> list[Scorer]:
+    """
+    Register and start evaluation scorers for production monitoring.
+
+    Builds the same scorer set used for offline evaluation (built-in judges
+    plus any configured Guidelines scorers) and registers each one against
+    the given MLflow experiment so they continuously evaluate production
+    traces.
+
+    Scorers that are already registered (by name) are skipped to avoid
+    duplicate registration errors.
+
+    Args:
+        evaluation_config: ``EvaluationModel`` configuration.  Must have a
+            ``monitoring`` attribute with ``sample_rate`` and
+            ``guidelines_sample_rate`` fields.
+        experiment_id: MLflow experiment ID where production traces are
+            logged.
+
+    Returns:
+        List of registered (and started) scorer instances.
+    """
+    import mlflow
+
+    monitoring = evaluation_config.monitoring
+    if monitoring is None:
+        logger.warning("No monitoring configuration found; skipping scorer registration")
+        return []
+
+    mlflow.set_experiment(experiment_id=experiment_id)
+
+    existing_names: set[str] = {s.name for s in list_scorers()}
+
+    registered: list[Scorer] = []
+
+    for scorer_cls in _BUILTIN_SCORER_CLASSES:
+        name: str = scorer_cls.__name__
+        if name in existing_names:
+            logger.info(f"Scorer already registered, skipping: {name}")
+            continue
+
+        scorer: Scorer = scorer_cls().register(name=name)
+        scorer = scorer.start(
+            sampling_config=ScorerSamplingConfig(
+                sample_rate=monitoring.sample_rate,
+            ),
+        )
+        registered.append(scorer)
+        logger.info(
+            f"Registered and started scorer: {name} "
+            f"(sample_rate={monitoring.sample_rate})"
+        )
+
+    if evaluation_config.guidelines:
+        guideline_scorers: list[Guidelines] = create_guidelines_scorers(
+            evaluation_config.guidelines
+        )
+        for gs in guideline_scorers:
+            name = gs.name
+            if name in existing_names:
+                logger.info(f"Guidelines scorer already registered, skipping: {name}")
+                continue
+
+            registered_gs: Scorer = gs.register(name=name)
+            registered_gs = registered_gs.start(
+                sampling_config=ScorerSamplingConfig(
+                    sample_rate=monitoring.guidelines_sample_rate,
+                ),
+            )
+            registered.append(registered_gs)
+            logger.info(
+                f"Registered and started Guidelines scorer: {name} "
+                f"(sample_rate={monitoring.guidelines_sample_rate})"
+            )
+
+    logger.info(f"Production monitoring: {len(registered)} scorers registered")
+    return registered
+
+
+def get_monitoring_scorers() -> list[Scorer]:
+    """
+    List all scorers registered for production monitoring in the active
+    experiment.
+
+    Returns:
+        List of registered scorer instances.
+    """
+    return list_scorers()
+
+
+def stop_monitoring_scorers() -> list[Scorer]:
+    """
+    Stop all active monitoring scorers in the current experiment.
+
+    Each scorer is stopped (sample_rate set to 0) but remains registered
+    so it can be restarted later.
+
+    Returns:
+        List of stopped scorer instances.
+    """
+    stopped: list[Scorer] = []
+    for scorer in list_scorers():
+        if scorer.sample_rate and scorer.sample_rate > 0:
+            stopped_scorer: Scorer = scorer.stop()
+            stopped.append(stopped_scorer)
+            logger.info(f"Stopped scorer: {stopped_scorer.name}")
+    logger.info(f"Stopped {len(stopped)} monitoring scorers")
+    return stopped
+
+
+def delete_monitoring_scorers() -> list[str]:
+    """
+    Delete all registered monitoring scorers from the current experiment.
+
+    Unlike :func:`stop_monitoring_scorers`, this permanently removes the
+    scorers.
+
+    Returns:
+        List of deleted scorer names.
+    """
+    deleted: list[str] = []
+    for scorer in list_scorers():
+        name: str = scorer.name
+        delete_scorer(name=name)
+        deleted.append(name)
+        logger.info(f"Deleted scorer: {name}")
+    logger.info(f"Deleted {len(deleted)} monitoring scorers")
+    return deleted

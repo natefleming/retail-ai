@@ -1331,6 +1331,9 @@ evaluation:
       # conversation_id is auto-generated as UUID if not provided
       user_id: my_user_id
     session: {}
+  monitoring:
+    sample_rate: 1.0
+    guidelines_sample_rate: 0.5
 
 datasets:
   # Core product and inventory tables
