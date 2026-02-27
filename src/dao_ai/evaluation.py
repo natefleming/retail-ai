@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from loguru import logger
-from mlflow.genai.datasets import create_dataset, get_dataset
+from mlflow.exceptions import MlflowException
+from mlflow.genai.datasets import create_dataset, delete_dataset, get_dataset
 from mlflow.genai.datasets.evaluation_dataset import EvaluationDataset
 from mlflow.genai.scorers import (
     Completeness,
@@ -26,7 +27,6 @@ from mlflow.genai.scorers import (
     delete_scorer,
     list_scorers,
 )
-
 from mlflow.models.evaluation.base import EvaluationResult
 
 if TYPE_CHECKING:
@@ -188,6 +188,7 @@ def create_or_get_eval_dataset(
     experiment_id: str,
     source_df: pd.DataFrame,
     tags: dict[str, str] | None = None,
+    replace: bool = False,
 ) -> EvaluationDataset:
     """
     Create or load a versioned MLflow evaluation dataset and populate it.
@@ -197,6 +198,9 @@ def create_or_get_eval_dataset(
     the rows in ``source_df`` are merged into the dataset -- MLflow
     deduplicates records by input hash automatically.
 
+    When ``replace`` is ``True``, any existing dataset with the same name
+    is deleted before a fresh one is created.
+
     Args:
         name: Human-readable dataset name.  A good convention is to derive
             it from the evaluation table (e.g.
@@ -205,16 +209,37 @@ def create_or_get_eval_dataset(
         source_df: DataFrame with ``inputs`` (and optionally
             ``expectations``) columns that will be merged into the dataset.
         tags: Optional key-value tags for organising and filtering datasets.
+        replace: If ``True``, delete the existing dataset and create a new
+            one.  Defaults to ``False``.
 
     Returns:
         An ``EvaluationDataset`` that can be passed directly
         to ``mlflow.genai.evaluate(data=...)``.
     """
     dataset: EvaluationDataset
-    try:
-        dataset = get_dataset(name=name)
-        logger.info(f"Loaded existing evaluation dataset: {name}")
-    except Exception:
+
+    if replace:
+        try:
+            existing = get_dataset(name=name)
+            delete_dataset(name=name)
+            logger.info(
+                f"Deleted existing evaluation dataset: {name} "
+                f"(dataset_id={existing.dataset_id})"
+            )
+        except MlflowException:
+            logger.debug(f"No existing dataset to replace: {name}")
+
+    if not replace:
+        try:
+            dataset = get_dataset(name=name)
+            logger.info(
+                f"Loaded existing evaluation dataset: {name} "
+                f"(dataset_id={dataset.dataset_id})"
+            )
+        except MlflowException:
+            replace = True
+
+    if replace:
         kwargs: dict[str, Any] = {
             "name": name,
             "experiment_id": [experiment_id],
@@ -222,7 +247,16 @@ def create_or_get_eval_dataset(
         if tags:
             kwargs["tags"] = tags
         dataset = create_dataset(**kwargs)
-        logger.info(f"Created new evaluation dataset: {name}")
+        logger.info(
+            f"Created new evaluation dataset: {name} "
+            f"(dataset_id={dataset.dataset_id}, experiment_id={experiment_id})"
+        )
+
+    logger.debug(
+        f"Dataset details: name={dataset.name}, "
+        f"dataset_id={dataset.dataset_id}, "
+        f"source_type={dataset.source_type}"
+    )
 
     dataset = dataset.merge_records(source_df)
     logger.info(f"Merged {len(source_df)} records into dataset {name}")
@@ -296,7 +330,9 @@ def register_monitoring_scorers(
 
     monitoring = evaluation_config.monitoring
     if monitoring is None:
-        logger.warning("No monitoring configuration found; skipping scorer registration")
+        logger.warning(
+            "No monitoring configuration found; skipping scorer registration"
+        )
         return []
 
     mlflow.set_experiment(experiment_id=experiment_id)

@@ -98,7 +98,6 @@ print(f"Custom inputs: {custom_inputs}")
 
 # DBTITLE 1,Load Model Version and Define Prediction Function
 from typing import Any
-import time
 
 import mlflow
 from mlflow import MlflowClient
@@ -114,7 +113,6 @@ latest_version: int = get_latest_model_version(registered_model_name)
 model_uri: str = f"models:/{registered_model_name}/{latest_version}"
 model_version: ModelVersion = mlflow_client.get_model_version(registered_model_name, str(latest_version))
 
-PREDICT_DELAY_SECONDS = 1.0
 _predict_counter = {"current": 0, "total": 0}
 
 
@@ -133,9 +131,6 @@ def predict_fn(messages: list[dict[str, Any]]) -> str:
     row_num = _predict_counter["current"]
     total = _predict_counter["total"]
     print(f"[{row_num}/{total}] Predicting...")
-
-    if row_num > 1:
-        time.sleep(PREDICT_DELAY_SECONDS)
 
     try:
         response_content = _run_prediction(messages, custom_inputs)
@@ -167,6 +162,7 @@ display(eval_df)
 # COMMAND ----------
 
 # DBTITLE 1,Run Evaluation
+from datetime import datetime
 from mlflow.models.evaluation import EvaluationResult
 
 scorers = build_scorers(config.evaluation)
@@ -179,12 +175,30 @@ eval_dataset = create_or_get_eval_dataset(
     name=f"{payload_table}_dataset",
     experiment_id=model_run.info.experiment_id,
     source_df=eval_df,
+    replace=evaluation.replace,
 )
+
+experiment = mlflow.get_experiment(model_run.info.experiment_id)
+print(f"Dataset name:      {eval_dataset.name}")
+print(f"Dataset ID:        {eval_dataset.dataset_id}")
+print(f"Dataset source:    {eval_dataset.source_type}")
+print(f"Dataset records:   {len(eval_dataset.to_df())} rows")
+print(f"Experiment name:   {experiment.name}")
+print(f"Experiment ID:     {model_run.info.experiment_id}")
+
+mlflow.autolog(disable=True)
+mlflow.langchain.autolog(log_traces=True)
+
+run_tags: dict[str, str] = {
+    k: str(v) for k, v in (config.app.tags or {}).items()
+}
+run_tags["run_type"] = "evaluation"
+run_name: str = f"{config.app.name}_evaluation_v{latest_version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 _predict_counter["total"] = len(eval_df)
 print(f"Starting evaluation: {len(eval_df)} rows, {len(scorers)} scorers")
 
-with mlflow.start_run(run_id=model_version.run_id):
+with mlflow.start_run(run_name=run_name, tags=run_tags):
     eval_results = mlflow.genai.evaluate(
         data=eval_dataset,
         predict_fn=predict_fn,

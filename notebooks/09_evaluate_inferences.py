@@ -171,6 +171,7 @@ eval_dataset = create_or_get_eval_dataset(
     name=f"{payload_table}_dataset",
     experiment_id=model_run.info.experiment_id,
     source_df=eval_df,
+    replace=config.evaluation.replace,
 )
 
 _predict_counter["total"] = len(eval_df)

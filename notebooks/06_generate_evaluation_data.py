@@ -84,7 +84,11 @@ evaluation: EvaluationModel = config.evaluation
 if not evaluation:
   dbutils.notebook.exit("Missing evaluation configuration")
 
-spark.sql(f"DROP TABLE IF EXISTS `{evaluation.table.full_name}`")
+if evaluation.replace:
+  spark.sql(f"DROP TABLE IF EXISTS `{evaluation.table.full_name}`")
+elif evaluation.table.exists():
+  print(f"Table already exists, skipping generation: {evaluation.table.full_name}")
+  dbutils.notebook.exit(f"Table already exists: {evaluation.table.full_name}")
 
 for _, vector_store in config.resources.vector_stores.items():
   vector_store: VectorStoreModel    

@@ -798,6 +798,7 @@ evaluation:
     schema: *retail_schema
     name: evaluation
   num_evals: 25
+  replace: false
   custom_inputs:
     configurable:
       # conversation_id is auto-generated as UUID if not provided

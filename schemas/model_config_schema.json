@@ -1938,7 +1938,7 @@
     },
     "EvaluationModel": {
       "additionalProperties": false,
-      "description": "Configuration for MLflow GenAI evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.",
+      "description": "Configuration for MLflow GenAI evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    replace: If True, drop and recreate the evaluation table and dataset.\n        If False, reuse existing resources. Defaults to False.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.\n    monitoring: Optional production monitoring configuration. When present,\n        scorers are registered for continuous evaluation of production traces.",
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel",
@@ -1950,6 +1950,12 @@
         "num_evals": {
           "title": "Num Evals",
           "type": "integer"
+        },
+        "replace": {
+          "default": false,
+          "description": "If True, drop and recreate the evaluation table and dataset. If False, reuse existing resources.",
+          "title": "Replace",
+          "type": "boolean"
         },
         "agent_description": {
           "anyOf": [
@@ -1986,6 +1992,17 @@
           },
           "title": "Guidelines",
           "type": "array"
+        },
+        "monitoring": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MonitoringModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -3797,6 +3814,30 @@
         "name"
       ],
       "title": "MiddlewareModel",
+      "type": "object"
+    },
+    "MonitoringModel": {
+      "additionalProperties": false,
+      "description": "Configuration for production monitoring of GenAI scorers.\n\nControls how evaluation scorers are registered and scheduled against\nproduction traces via the MLflow 3 scorer lifecycle API.\n\nAttributes:\n    sample_rate: Sampling rate for built-in scorers (Safety, Completeness,\n        RelevanceToQuery, ToolCallEfficiency). Defaults to 1.0 (100%).\n    guidelines_sample_rate: Sampling rate for Guidelines scorers, which\n        invoke an LLM judge per trace and are more expensive. Defaults\n        to 0.5 (50%).",
+      "properties": {
+        "sample_rate": {
+          "default": 1.0,
+          "description": "Sampling rate for built-in scorers (0.0\u20131.0)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Sample Rate",
+          "type": "number"
+        },
+        "guidelines_sample_rate": {
+          "default": 0.5,
+          "description": "Sampling rate for Guidelines scorers (0.0\u20131.0)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Guidelines Sample Rate",
+          "type": "number"
+        }
+      },
+      "title": "MonitoringModel",
       "type": "object"
     },
     "OptimizationsModel": {

@@ -3748,6 +3748,8 @@ class EvaluationModel(BaseModel):
                This model evaluates agent responses during evaluation.
         table: Table to store evaluation results.
         num_evals: Number of evaluation samples to generate.
+        replace: If True, drop and recreate the evaluation table and dataset.
+            If False, reuse existing resources. Defaults to False.
         agent_description: Description of the agent for evaluation data generation.
         question_guidelines: Guidelines for generating evaluation questions.
         custom_inputs: Custom inputs to pass to the agent during evaluation.
@@ -3762,6 +3764,11 @@ class EvaluationModel(BaseModel):
     )
     table: TableModel
     num_evals: int
+    replace: bool = Field(
+        default=False,
+        description="If True, drop and recreate the evaluation table and dataset. "
+        "If False, reuse existing resources.",
+    )
     agent_description: Optional[str] = None
     question_guidelines: Optional[str] = None
     custom_inputs: dict[str, Any] = Field(default_factory=dict)
