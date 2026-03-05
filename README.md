@@ -272,7 +272,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | **Advanced Caching** | Two-tier (LRU + Semantic) caching for cost optimization |
 | **Vector Search Reranking** | Improve RAG quality with FlashRank |
 | **Human-in-the-Loop** | Approval workflows for sensitive operations |
-| **Memory & Persistence** | PostgreSQL, Lakebase, or in-memory state |
+| **Memory & Persistence** | Long-term memory with structured schemas, background extraction, auto-injection; PostgreSQL, Lakebase, or in-memory backends |
 | **Prompt Registry** | Version and manage prompts in MLflow |
 | **Prompt Optimization** | Automated tuning with GEPA (Generative Evolution of Prompts and Agents) |
 | **Guardrails** | Content filters, safety checks, validation |

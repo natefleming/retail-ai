@@ -21,6 +21,7 @@ dao-ai/
 │   │   ├── assertions.py  # Assert, Suggest, Refine middleware
 │   │   ├── summarization.py # Conversation summarization
 │   │   ├── guardrails.py  # MLflow judge-based guardrails, content filtering, and safety
+│   │   ├── memory_context.py # Auto-injection of long-term memories into prompts
 │   │   └── ...
 │   ├── orchestration/     # Multi-agent orchestration
 │   │   ├── supervisor.py  # Supervisor pattern
@@ -28,7 +29,7 @@ dao-ai/
 │   │   └── ...
 │   ├── genie/
 │   │   └── cache/         # LRU and Context-Aware cache
-│   ├── memory/            # Checkpointer and store
+│   ├── memory/            # Checkpointer, store, schemas, and extraction
 │   └── hooks/             # Lifecycle hooks
 ├── config/
 │   ├── examples/          # Example configurations

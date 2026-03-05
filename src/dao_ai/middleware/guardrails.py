@@ -27,34 +27,18 @@ from dao_ai.config import PromptModel
 from dao_ai.messages import last_ai_message, last_human_message
 from dao_ai.middleware._prompt_utils import resolve_prompt
 from dao_ai.middleware.base import AgentMiddleware
+from dao_ai.models import _extract_text_content as _extract_raw_content
 from dao_ai.state import AgentState, Context
 
 
 def _extract_text_content(message: BaseMessage) -> str:
+    """Extract text content from a message, handling both string and list formats.
+
+    Delegates to ``dao_ai.models._extract_text_content`` which handles
+    JSON-stringified content blocks from ``ChatDatabricks`` and all
+    provider-specific reasoning/thinking block formats.
     """
-    Extract text content from a message, handling both string and list formats.
-
-    Args:
-        message: The message to extract text from
-
-    Returns:
-        The extracted text content as a string
-    """
-    content = message.content
-
-    if isinstance(content, str):
-        return content
-    elif isinstance(content, list):
-        # Extract text from content blocks (e.g., Claude's structured content)
-        text_parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text_parts.append(block.get("text", ""))
-            elif isinstance(block, str):
-                text_parts.append(block)
-        return " ".join(text_parts)
-    else:
-        return str(content)
+    return _extract_raw_content(message.content)
 
 
 def _extract_tool_context(messages: list[BaseMessage], max_length: int = 8000) -> str:

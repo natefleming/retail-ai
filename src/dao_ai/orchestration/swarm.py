@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Callable, Sequence
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
+from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph
@@ -330,6 +331,10 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     deterministic_targets: dict[str, str] = {}
     memory: MemoryModel | None = orchestration.memory
 
+    # Set up memory store early so we can pass it to agents for auto-injection
+    store: BaseStore | None = create_store(orchestration)
+    checkpointer: BaseCheckpointSaver | None = create_checkpointer(orchestration)
+
     # Get swarm-level middleware to apply to all agents
     swarm_middleware: list = swarm.middleware if swarm.middleware else []
     if swarm_middleware:
@@ -338,6 +343,49 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             middleware_count=len(swarm_middleware),
             middleware_names=[mw.name for mw in swarm_middleware],
         )
+
+    # Set up shared extraction manager and background reflection executor
+    # before creating agents so the manager can be shared across all nodes.
+    extraction_manager = None
+    reflection_executor = None
+    needs_extraction = (
+        memory
+        and memory.store
+        and memory.extraction
+        and store
+        and (memory.extraction.background_extraction or memory.extraction.auto_inject)
+    )
+    if needs_extraction:
+        from dao_ai.memory.extraction import (
+            create_extraction_manager,
+            create_reflection_executor,
+        )
+        from dao_ai.nodes import _build_memory_namespace
+
+        extraction_ns = _build_memory_namespace(memory)
+        extraction_model: LanguageModelLike = (
+            memory.extraction.extraction_model.as_chat_model()
+            if memory.extraction.extraction_model
+            else config.app.agents[0].model.as_chat_model()
+        )
+        query_model: LanguageModelLike | None = (
+            memory.extraction.query_model.as_chat_model()
+            if memory.extraction.query_model
+            else None
+        )
+
+        extraction_manager = create_extraction_manager(
+            model=extraction_model,
+            store=store,
+            namespace=extraction_ns,
+            schemas=memory.extraction.schemas,
+            instructions=memory.extraction.instructions,
+            query_model=query_model,
+        )
+
+        if memory.extraction.background_extraction:
+            reflection_executor = create_reflection_executor(extraction_manager, store)
+            logger.info("Background memory extraction enabled for swarm graph")
 
     for registered_agent in config.app.agents:
         # Resolve handoff configuration for this agent
@@ -378,8 +426,10 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         agent_subgraph: CompiledStateGraph = create_agent_node(
             agent=agent_with_middleware,
             memory=memory,
+            store=store,
             chat_history=config.app.chat_history,
             additional_tools=handoff_result.tools,
+            extraction_manager=extraction_manager,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
         logger.debug(
@@ -388,10 +438,6 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             handoffs_count=len(handoff_result.tools),
             deterministic_target=handoff_result.deterministic_target,
         )
-
-    # Set up memory store and checkpointer
-    store: BaseStore | None = create_store(orchestration)
-    checkpointer: BaseCheckpointSaver | None = create_checkpointer(orchestration)
 
     # Get list of agent names for the router
     agent_names: list[str] = list(agent_subgraphs.keys())
@@ -412,6 +458,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             agent_name=agent_name,
             agent=agent_subgraph,
             output_mode="last_message",
+            reflection_executor=reflection_executor,
         )
 
         # Wrap the handler for deterministic routing:

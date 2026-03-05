@@ -52,15 +52,17 @@ resources:
 
 
     fast_llm: &fast_llm
-      name: databricks-meta-llama-3-1-8b-instruct  # Databricks serving endpoint name
+      name: databricks-gpt-oss-120b                 # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-sonnet-4-5
+      name: databricks-claude-sonnet-4-6
       temperature: 0.1
       max_tokens: 8192
+      fallbacks:
+        - databricks-claude-sonnet-4-5
 
 
 
@@ -249,6 +251,23 @@ memory: &memory
     name: default_store                             # Store identifier
     database: *retail_database                      # Database for persistence (type inferred from presence)
     namespace: "{user_id}"
+
+  # Memory extraction and injection
+  extraction:
+    schemas:                                        # Structured memory types
+      - user_profile                                # Singleton profile per user (name, preferences, etc.)
+      - preference                                  # Collection of user preferences
+      - episode                                     # Notable interaction patterns
+    instructions: |
+      Extract the user's name, role, shopping preferences, product interests,
+      and any notable interaction patterns. Update the user profile with new
+      information. Track preferred product categories, brands, budget ranges,
+      and past project types as preferences.
+    auto_inject: true                               # Inject relevant memories into prompts
+    auto_inject_limit: 5                            # Max memories to inject per turn
+    background_extraction: true                     # Extract memories in background thread
+    extraction_model: *tool_calling_llm             # Use tool-calling LLM for extraction
+    query_model: *fast_llm                          # Use fast LLM for search query optimization
 
 # =============================================================================
 # AGENTS CONFIGURATION

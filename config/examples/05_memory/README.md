@@ -1,203 +1,185 @@
 # 05. Memory
 
-**Conversation persistence across sessions**
+**Conversation persistence and long-term memory across sessions**
 
-Store and retrieve conversation history to maintain context across user sessions.
+Store and retrieve conversation history, build user profiles, and extract structured memories for personalized responses.
 
 ## Architecture Overview
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0'}}}%%
 flowchart TB
-    subgraph Session1["💬 Session 1"]
-        U1["👤 User: My name is Alice"]
-        A1["🤖 Agent: Nice to meet you, Alice!"]
+    subgraph session1 [Session 1]
+        U1["User: My name is Alice"]
+        A1["Agent: Nice to meet you, Alice!"]
     end
 
-    subgraph Memory["🧠 Memory System"]
-        subgraph Backends["Storage Backend"]
+    subgraph memSystem [Memory System]
+        subgraph convState [Conversation State]
+            Checkpointer["Checkpointer<br/>Messages, thread state"]
+            Store["Store<br/>Key-value storage"]
+        end
+
+        subgraph longTerm [Long-Term Memory]
+            Extraction["Background Extraction<br/>Schemas, profiles, preferences"]
+            Injection["Auto-Injection<br/>Relevant memories into prompts"]
+        end
+
+        subgraph backends [Storage Backends]
             direction LR
-            PG["🐘 PostgreSQL<br/><i>Production</i>"]
-            SQLite["📁 SQLite<br/><i>Development</i>"]
-            InMem["💾 In-Memory<br/><i>Testing</i>"]
-        end
-        
-        subgraph Data["Stored Data"]
-            Thread["<b>thread_id:</b> user_123<br/><b>messages:</b> [...]<br/><b>summary:</b> User is Alice..."]
+            PG["PostgreSQL"]
+            LB["Lakebase"]
+            InMem["In-Memory"]
         end
     end
 
-    subgraph Session2["💬 Session 2 (Later)"]
-        U2["👤 User: What's my name?"]
-        A2["🤖 Agent: Your name is Alice!"]
+    subgraph session2 [Session 2]
+        U2["User: What's my name?"]
+        A2["Agent: Your name is Alice!"]
     end
 
-    Session1 -->|"Store"| Memory
-    Memory -->|"Retrieve"| Session2
-
-    style Session1 fill:#e3f2fd,stroke:#1565c0
-    style Memory fill:#e8f5e9,stroke:#2e7d32
-    style Session2 fill:#e3f2fd,stroke:#1565c0
+    session1 -->|"Store"| memSystem
+    memSystem -->|"Retrieve"| session2
+    convState --> backends
+    longTerm --> backends
 ```
 
 ## Examples
 
 | File | Backend | Description |
 |------|---------|-------------|
-| [`memory_sqlite.yaml`](./memory_sqlite.yaml) | 📁 SQLite | Local file-based persistence |
-| [`memory_postgres.yaml`](./memory_postgres.yaml) | 🐘 PostgreSQL | Production-ready persistence |
+| [`in_memory_basic.yaml`](./in_memory_basic.yaml) | In-Memory | No persistence, good for testing |
+| [`postgres_persistence.yaml`](./postgres_persistence.yaml) | PostgreSQL | Production-ready persistence |
+| [`lakebase_persistence.yaml`](./lakebase_persistence.yaml) | Lakebase | Databricks-native persistence with Unity Catalog |
+| [`conversation_summarization.yaml`](./conversation_summarization.yaml) | Lakebase | Long conversation summarization with store |
 
 ## Memory Components
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart TB
-    subgraph Memory["🧠 Memory Configuration"]
-        subgraph Checkpoint["📍 Checkpointer"]
-            direction TB
-            CP["<b>checkpointer:</b><br/>━━━━━━━━━━━━━━━━<br/>type: postgres | sqlite<br/>connection_string: ...<br/><br/><i>Stores conversation messages</i>"]
-        end
-        
-        subgraph Store["📦 Store (Optional)"]
-            direction TB
-            ST["<b>store:</b><br/>━━━━━━━━━━━━━━━━<br/>type: postgres | sqlite<br/>connection_string: ...<br/><br/><i>Stores metadata & summaries</i>"]
-        end
-        
-        subgraph Summarizer["📝 Summarizer (Optional)"]
-            direction TB
-            SU["<b>summarizer:</b><br/>━━━━━━━━━━━━━━━━<br/>model: *default_llm<br/>max_messages: 100<br/><br/><i>Summarizes long conversations</i>"]
-        end
-    end
+DAO memory has two layers:
 
-    Checkpoint --> Store
-    Store --> Summarizer
+### Conversation State (Checkpointer + Store)
 
-    style Checkpoint fill:#e3f2fd,stroke:#1565c0
-    style Store fill:#e8f5e9,stroke:#2e7d32
-    style Summarizer fill:#fff3e0,stroke:#e65100
+Maintains message history and thread state within a conversation. The **checkpointer** saves conversation messages; the **store** provides key-value storage for metadata and summaries.
+
+```yaml
+memory:
+  checkpointer:
+    name: conversation_checkpointer
+    type: lakebase               # or postgres, memory
+    schema: *my_schema
+    table_name: agent_checkpoints
+
+  store:
+    name: memory_store
+    type: lakebase
+    schema: *my_schema
+    table_name: agent_store
+    embedding_model: *embedding_model
+```
+
+### Long-Term Memory (Extraction)
+
+Automatically extracts and consolidates memories from conversations using structured schemas. Memories persist across sessions and enable personalized responses.
+
+**Structured schemas** define what to remember:
+
+| Schema | Type | Description |
+|--------|------|-------------|
+| `user_profile` | Profile (single doc per user) | Name, role, expertise, communication style, goals |
+| `preference` | Collection (multiple per user) | Individual preferences with category and context |
+| `episode` | Collection (multiple per user) | Interaction patterns with situation, approach, outcome |
+
+**Background extraction** runs after each conversation turn in a separate thread, adding zero latency to responses.
+
+**Auto-injection** searches for relevant memories before each model call and injects them into the system prompt, so the agent always has personalized context.
+
+```yaml
+memory:
+  store:
+    name: memory_store
+    type: lakebase
+    schema: *my_schema
+    table_name: agent_store
+    embedding_model: *embedding_model
+
+  extraction:
+    schemas:
+      - user_profile
+      - preference
+      - episode
+    instructions: |
+      Extract the user's name, role, preferences, and any notable
+      interaction patterns. Update the user profile with new information.
+    auto_inject: true             # Inject relevant memories into prompts
+    auto_inject_limit: 5          # Max memories to inject per turn
+    background_extraction: true   # Extract in background thread
 ```
 
 ## Backend Comparison
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-graph TB
-    subgraph Backends["📊 Backend Comparison"]
-        subgraph SQLite["📁 SQLite"]
-            S1["✅ Zero setup"]
-            S2["✅ Local development"]
-            S3["⚠️ Single process"]
-            S4["⚠️ Not for production"]
-        end
-        
-        subgraph Postgres["🐘 PostgreSQL"]
-            P1["✅ Production-ready"]
-            P2["✅ Multi-process safe"]
-            P3["✅ Scalable"]
-            P4["⚠️ Requires setup"]
-        end
-        
-        subgraph InMemory["💾 In-Memory"]
-            I1["✅ Fastest"]
-            I2["✅ Testing only"]
-            I3["⚠️ Lost on restart"]
-        end
-    end
+| Backend | Persistence | Best For | Requirements |
+|---------|-------------|----------|--------------|
+| In-Memory | None (lost on restart) | Testing, development | None |
+| PostgreSQL | Durable | Production with existing PostgreSQL | PostgreSQL server, connection string |
+| Lakebase | Durable | Production on Databricks | Unity Catalog schema |
 
-    style SQLite fill:#e3f2fd,stroke:#1565c0
-    style Postgres fill:#e8f5e9,stroke:#2e7d32
-    style InMemory fill:#fff3e0,stroke:#e65100
-```
-
-## SQLite Configuration
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart LR
-    subgraph Config["📄 memory_sqlite.yaml"]
-        YAML["orchestration:<br/>  memory:<br/>    checkpointer:<br/>      type: sqlite<br/>      connection_string:<br/>        sqlite:///memory.db"]
-    end
-
-    subgraph File["📁 Local File"]
-        DB["memory.db<br/>━━━━━━━━━━━━━━━━<br/>📊 messages table<br/>📊 checkpoints table"]
-    end
-
-    Config --> File
-
-    style Config fill:#e3f2fd,stroke:#1565c0
-    style File fill:#e8f5e9,stroke:#2e7d32
-```
+## In-Memory Configuration
 
 ```yaml
-app:
-  orchestration:
-    swarm: true
-    memory:
-      checkpointer:
-        type: sqlite
-        connection_string: "sqlite:///memory.db"
-      store:
-        type: sqlite
-        connection_string: "sqlite:///store.db"
+memory:
+  checkpointer:
+    name: conversation_checkpointer
+    type: memory
 ```
 
 ## PostgreSQL Configuration
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart LR
-    subgraph Config["📄 memory_postgres.yaml"]
-        YAML["orchestration:<br/>  memory:<br/>    checkpointer:<br/>      type: postgres<br/>      connection_string:<br/>        postgresql://..."]
-    end
-
-    subgraph UC["🔐 Unity Catalog Secret"]
-        Secret["postgres_conn_string<br/>━━━━━━━━━━━━━━━━<br/>postgresql://user:pass@host/db"]
-    end
-
-    subgraph DB["🐘 PostgreSQL"]
-        Tables["📊 Tables<br/>━━━━━━━━━━━━━━━━<br/>checkpoints<br/>messages<br/>metadata"]
-    end
-
-    Config --> UC
-    UC --> DB
-
-    style Config fill:#e3f2fd,stroke:#1565c0
-    style UC fill:#fff3e0,stroke:#e65100
-    style DB fill:#e8f5e9,stroke:#2e7d32
+```yaml
+memory:
+  checkpointer:
+    name: conversation_checkpointer
+    type: postgres
+    database: *postgres_db
+  store:
+    name: memory_store
+    type: postgres
+    database: *postgres_db
+    embedding_model: *embedding_model
 ```
 
+## Lakebase Configuration
+
 ```yaml
-app:
-  orchestration:
-    swarm: true
-    memory:
-      checkpointer:
-        type: postgres
-        connection_string: "{{secrets/scope/postgres_conn_string}}"
-      store:
-        type: postgres
-        connection_string: "{{secrets/scope/postgres_conn_string}}"
-      summarizer:
-        model: *default_llm
-        max_messages: 100
+memory:
+  checkpointer:
+    name: conversation_checkpointer
+    type: lakebase
+    schema: *my_schema
+    table_name: agent_checkpoints
+  store:
+    name: memory_store
+    type: lakebase
+    schema: *my_schema
+    table_name: agent_store
+    embedding_model: *embedding_model
 ```
 
 ## Conversation Summarization
 
+When conversations grow long, the summarizer compresses older messages into a summary to keep context within model limits.
+
 ```mermaid
-%%{init: {'theme': 'base'}}%%
 sequenceDiagram
     autonumber
-    participant 💬 as Conversation
-    participant 🧠 as Memory
-    participant 📝 as Summarizer LLM
+    participant Conv as Conversation
+    participant Mem as Memory
+    participant LLM as Summarizer LLM
 
-    💬->>🧠: Message 1...100
-    🧠->>🧠: max_messages reached!
-    🧠->>📝: Summarize first 50 messages
-    📝-->>🧠: "User Alice discussed power tools..."
-    🧠->>🧠: Store summary, keep recent 50
-    Note over 🧠: Context preserved, size reduced
+    Conv->>Mem: Message 1...100
+    Mem->>Mem: max_messages reached
+    Mem->>LLM: Summarize first 50 messages
+    LLM-->>Mem: User Alice discussed power tools...
+    Mem->>Mem: Store summary, keep recent 50
+    Note over Mem: Context preserved, size reduced
 ```
 
 ```yaml
@@ -207,57 +189,71 @@ memory:
     max_messages: 100       # Trigger summarization at 100 messages
 ```
 
+## Memory Tools
+
+When a `store` is configured, agents automatically receive memory tools:
+
+| Tool | Description |
+|------|-------------|
+| `manage_memory` | Agent-driven CRUD on memory items (create, update, delete) |
+| `search_memory` | Semantic search over stored memories |
+| `search_user_profile` | Direct lookup of the user's consolidated profile (when `user_profile` schema is configured) |
+
 ## Quick Start
 
 ```bash
-# SQLite (development)
-dao-ai chat -c config/examples/05_memory/memory_sqlite.yaml \
+# In-memory (testing)
+dao-ai chat -c config/examples/05_memory/in_memory_basic.yaml \
   --thread-id my_session
 
 # PostgreSQL (production)
-dao-ai chat -c config/examples/05_memory/memory_postgres.yaml \
+dao-ai chat -c config/examples/05_memory/postgres_persistence.yaml \
+  --thread-id user_123
+
+# Lakebase (Databricks-native)
+dao-ai chat -c config/examples/05_memory/lakebase_persistence.yaml \
   --thread-id user_123
 ```
 
-**Test memory:**
+**Test conversation memory:**
 ```
 > My name is Alice
 Nice to meet you, Alice!
 
-> [quit and restart]
+> [quit and restart with same thread-id]
 
 > What's my name?
 Your name is Alice!
 ```
 
-## Thread ID Usage
+**Test long-term memory (with extraction configured):**
+```
+> I prefer detailed technical explanations
+Noted! I'll provide thorough technical details in my responses.
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-graph TB
-    subgraph ThreadIDs["🔑 Thread ID Patterns"]
-        TID1["<b>user_123</b><br/><i>Per-user history</i>"]
-        TID2["<b>session_abc</b><br/><i>Per-session history</i>"]
-        TID3["<b>project_xyz</b><br/><i>Per-project history</i>"]
-    end
+> [new session, different thread-id, same user-id]
 
-    style ThreadIDs fill:#e3f2fd,stroke:#1565c0
+> How does memory work?
+[Agent responds with detailed technical explanation, remembering the preference]
 ```
 
-## Prerequisites
+## Thread ID Usage
 
-| Backend | Requirements |
-|---------|--------------|
-| 📁 SQLite | None (creates file) |
-| 🐘 PostgreSQL | PostgreSQL server, connection string |
+| Pattern | Use Case |
+|---------|----------|
+| `user_123` | Per-user conversation history |
+| `session_abc` | Per-session history |
+| `project_xyz` | Per-project history |
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| Memory not persisting | Check connection_string, file permissions |
+| Memory not persisting | Check database config, verify connection |
 | PostgreSQL connection failed | Verify host, port, credentials |
-| Context lost | Ensure same thread_id across sessions |
+| Context lost between sessions | Ensure same `thread_id` across sessions |
+| Long-term memories not appearing | Verify `extraction` config and that `store` has an `embedding_model` |
+| Background extraction not running | Set `background_extraction: true` in `extraction` config |
 
 ## Next Steps
 
@@ -267,5 +263,6 @@ graph TB
 
 ## Related Documentation
 
-- [Memory Configuration](../../../docs/key-capabilities.md#memory)
+- [Key Capabilities: Memory & State Persistence](../../../docs/key-capabilities.md#7-memory--state-persistence)
+- [Configuration Reference: Memory](../../../docs/configuration-reference.md)
 - [Orchestration](../13_orchestration/README.md)

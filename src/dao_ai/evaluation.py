@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from loguru import logger
-from mlflow.exceptions import MlflowException
 from mlflow.genai.datasets import create_dataset, delete_dataset, get_dataset
 from mlflow.genai.datasets.evaluation_dataset import EvaluationDataset
 from mlflow.genai.scorers import (
@@ -226,7 +225,7 @@ def create_or_get_eval_dataset(
                 f"Deleted existing evaluation dataset: {name} "
                 f"(dataset_id={existing.dataset_id})"
             )
-        except MlflowException:
+        except Exception:
             logger.debug(f"No existing dataset to replace: {name}")
 
     if not replace:
@@ -236,7 +235,7 @@ def create_or_get_eval_dataset(
                 f"Loaded existing evaluation dataset: {name} "
                 f"(dataset_id={dataset.dataset_id})"
             )
-        except MlflowException:
+        except Exception:
             replace = True
 
     if replace:

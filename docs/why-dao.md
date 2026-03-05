@@ -57,7 +57,7 @@ Databricks offers **three complementary approaches** to building AI agents. Each
 | **Agent Philosophy** | State-driven workflows with graph execution | Automated optimization and template-based | Role-based agents with defined tasks and goals |
 | **Tool Support** | Python, Factory, UC Functions, MCP, Agent Endpoints, Genie | UC Functions, MCP, Genie, Agent Endpoints | Genie, Custom APIs, UC Functions, Data connectors |
 | **Advanced Caching** | LRU + Semantic caching (Genie SQL caching) | Standard platform caching | Standard platform caching |
-| **Memory/State** | PostgreSQL, Lakebase, In-Memory, Custom backends | Built-in ephemeral state per conversation | Built-in conversation state (entity memory with limitations) |
+| **Memory/State** | PostgreSQL, Lakebase, In-Memory; long-term memory with structured schemas and background extraction | Built-in ephemeral state per conversation | Built-in conversation state (entity memory with limitations) |
 | **Middleware/Hooks** | Assert/Suggest/Refine, Custom lifecycle hooks, Guardrails | None (optimization via automated tuning) | None (workflow-level control via UI) |
 | **Deployment** | Databricks Asset Bundles, MLflow, CI/CD pipelines | One-click deployment to Model Serving | Databricks Marketplace or deploy from source |
 | **Version Control** | Full Git integration, code review, branches | Workspace-based (not Git-native) | Source-based (Git available if deployed from source) |

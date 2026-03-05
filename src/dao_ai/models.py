@@ -1,3 +1,4 @@
+import json
 import uuid
 from os import PathLike
 from pathlib import Path
@@ -69,6 +70,83 @@ from dao_ai.messages import (
     last_human_message,
 )
 from dao_ai.state import Context
+
+
+def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
+    """Extract reasoning or thinking text from a single content block.
+
+    Handles all known reasoning block formats across providers:
+
+    - **Databricks/OpenAI**: ``{"type": "reasoning", "summary": [{"type": "summary_text", "text": "..."}]}``
+    - **LangChain standard**: ``{"type": "reasoning", "reasoning": "..."}``
+    - **Anthropic native**: ``{"type": "thinking", "thinking": "..."}``
+
+    Returns ``None`` when the block is not a reasoning/thinking block.
+    """
+    block_type: str = block.get("type", "")
+    if block_type == "reasoning":
+        if summary := block.get("summary"):
+            if isinstance(summary, list):
+                parts: list[str] = [
+                    s.get("text", "")
+                    for s in summary
+                    if isinstance(s, dict) and s.get("type") == "summary_text"
+                ]
+                joined: str = " ".join(parts)
+                return joined if joined.strip() else None
+        if reasoning := block.get("reasoning"):
+            return str(reasoning)
+    elif block_type == "thinking":
+        if thinking := block.get("thinking"):
+            return str(thinking)
+    return None
+
+
+def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
+    """Extract text from message content, handling provider content-block formats.
+
+    Handles two delivery forms:
+
+    1. **JSON string** -- ``ChatDatabricks`` Chat Completions API calls
+       ``json.dumps()`` on non-string content, producing strings like
+       ``'[{"type": "reasoning", ...}, {"type": "text", ...}]'``.
+    2. **Python list** -- ``ChatDatabricks`` Responses API or native
+       ``ChatAnthropic`` returns ``list[dict]`` directly.
+
+    Reasoning / thinking blocks are formatted as a markdown blockquote in
+    italics so they are visually separated from the main response text.
+    """
+    if isinstance(content, str):
+        stripped: str = content.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                parsed: Any = json.loads(stripped)
+                if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+                    return _extract_text_content(parsed)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return content
+
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+                elif (reasoning := _extract_reasoning_text(block)) is not None:
+                    reasoning_parts.append(reasoning)
+            elif isinstance(block, str):
+                text_parts.append(block)
+
+        result_parts: list[str] = []
+        if reasoning_parts:
+            reasoning_text: str = " ".join(reasoning_parts)
+            result_parts.append(f"\n\n> *{reasoning_text}*\n\n")
+        result_parts.extend(text_parts)
+        return "".join(result_parts)
+
+    return str(content)
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -381,7 +459,9 @@ class LanggraphChatModel(ChatModel):
 
         last_message: BaseMessage = response["messages"][-1]
 
-        response_message = ChatMessage(role="assistant", content=last_message.content)
+        response_message = ChatMessage(
+            role="assistant", content=_extract_text_content(last_message.content)
+        )
         return ChatCompletionResponse(choices=[ChatChoice(message=response_message)])
 
     def _convert_to_context(
@@ -470,7 +550,11 @@ class LanggraphChatModel(ChatModel):
                         and message.content
                         and "summarization" not in nodes
                     ):
-                        content = message.content
+                        logger.trace(
+                            "ChatModel stream content",
+                            content_type=type(message.content).__name__,
+                        )
+                        content = _extract_text_content(message.content)
                         yield self._create_chat_completion_chunk(content)
 
         # Convert async generator to sync generator
@@ -1048,7 +1132,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
             logger.trace("Structured response placed in message content")
         else:
             output_item = self.create_text_output_item(
-                text=last_message.content, id=f"msg_{uuid.uuid4().hex[:8]}"
+                text=_extract_text_content(last_message.content),
+                id=f"msg_{uuid.uuid4().hex[:8]}",
             )
 
         # Include interrupt structure if HITL occurred
@@ -1241,7 +1326,14 @@ class LanggraphResponsesAgent(ResponsesAgent):
                             and message.content
                             and "summarization" not in nodes
                         ):
-                            content: str = message.content
+                            logger.trace(
+                                "Stream message content",
+                                content_type=type(message.content).__name__,
+                                content_len=len(message.content)
+                                if isinstance(message.content, (str, list))
+                                else None,
+                            )
+                            content: str = _extract_text_content(message.content)
                             accumulated_content += content
 
                             yield ResponsesAgentStreamEvent(
@@ -1402,17 +1494,19 @@ class LanggraphResponsesAgent(ResponsesAgent):
         Process a ResponsesAgentRequest and yield ResponsesAgentStreamEvent objects.
         For async contexts (e.g., Databricks Apps), use apredict_stream() directly.
 
-        Note: This method converts the async generator to a sync generator using
-        event loop manipulation. For contexts where an event loop is already running
-        (e.g., uvloop), use apredict_stream() instead.
+        Event loop acquisition mirrors nest_asyncio's patched asyncio.run():
+        get the current loop (patched for reentrance when nest_asyncio is active),
+        falling back to a new loop on Python 3.10+ when no loop exists.
         """
         import asyncio
 
         logger.debug("ResponsesAgent predict_stream called (sync wrapper)")
 
-        # Convert async generator to sync generator
         try:
-            loop = asyncio.get_event_loop()
+            loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -1837,6 +1931,11 @@ def _process_langchain_messages_stream(
                     and message.content
                     and "summarization" not in nodes
                 ):
+                    logger.trace(
+                        "LangChain stream content",
+                        content_type=type(message.content).__name__,
+                    )
+                    message.content = _extract_text_content(message.content)
                     yield message
 
     # Convert async generator to sync generator

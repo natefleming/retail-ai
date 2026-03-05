@@ -3738,6 +3738,85 @@
       "title": "McpFunctionModel",
       "type": "object"
     },
+    "MemoryExtractionModel": {
+      "additionalProperties": false,
+      "description": "Configuration for automatic memory extraction and injection.\n\nControls how the system automatically extracts memories from\nconversations and injects relevant context into prompts.",
+      "properties": {
+        "schemas": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Schema names for structured extraction (e.g. ['user_profile', 'preference', 'episode']). When None, uses unstructured string memories.",
+          "title": "Schemas"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom extraction instructions guiding what to remember. When None, uses langmem's default instructions.",
+          "title": "Instructions"
+        },
+        "auto_inject": {
+          "default": true,
+          "description": "Automatically search and inject relevant memories into the system prompt before each model call.",
+          "title": "Auto Inject",
+          "type": "boolean"
+        },
+        "auto_inject_limit": {
+          "default": 5,
+          "description": "Maximum number of memories to inject into the prompt.",
+          "title": "Auto Inject Limit",
+          "type": "integer"
+        },
+        "background_extraction": {
+          "default": false,
+          "description": "Extract memories in a background thread after each conversation turn (no latency impact on responses).",
+          "title": "Background Extraction",
+          "type": "boolean"
+        },
+        "extraction_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Separate LLM for memory extraction. Can be a smaller, cheaper model. When None, uses the agent's primary model."
+        },
+        "query_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Separate LLM for optimizing memory search queries. When None, embeds the raw user message directly."
+        }
+      },
+      "title": "MemoryExtractionModel",
+      "type": "object"
+    },
     "MemoryModel": {
       "additionalProperties": false,
       "properties": {
@@ -3756,6 +3835,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/StoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "extraction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryExtractionModel"
             },
             {
               "type": "null"

@@ -55,7 +55,12 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from loguru import logger
-from mlflow.genai.datasets import EvaluationDataset, create_dataset, get_dataset
+from mlflow.genai.datasets import (
+    EvaluationDataset,
+    create_dataset,
+    delete_dataset,
+    get_dataset,
+)
 from mlflow.genai.prompts import PromptVersion, load_prompt
 from mlflow.models import ModelConfig
 from mlflow.models.resources import (
@@ -3095,10 +3100,69 @@ class StoreModel(BaseModel):
         return store
 
 
+class MemoryExtractionModel(BaseModel):
+    """Configuration for automatic memory extraction and injection.
+
+    Controls how the system automatically extracts memories from
+    conversations and injects relevant context into prompts.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    schemas: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Schema names for structured extraction "
+            "(e.g. ['user_profile', 'preference', 'episode']). "
+            "When None, uses unstructured string memories."
+        ),
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description=(
+            "Custom extraction instructions guiding what to remember. "
+            "When None, uses langmem's default instructions."
+        ),
+    )
+    auto_inject: bool = Field(
+        default=True,
+        description=(
+            "Automatically search and inject relevant memories into "
+            "the system prompt before each model call."
+        ),
+    )
+    auto_inject_limit: int = Field(
+        default=5,
+        description="Maximum number of memories to inject into the prompt.",
+    )
+    background_extraction: bool = Field(
+        default=False,
+        description=(
+            "Extract memories in a background thread after each "
+            "conversation turn (no latency impact on responses)."
+        ),
+    )
+    extraction_model: Optional[LLMModel] = Field(
+        default=None,
+        description=(
+            "Separate LLM for memory extraction. Can be a smaller, "
+            "cheaper model. When None, uses the agent's primary model."
+        ),
+    )
+    query_model: Optional[LLMModel] = Field(
+        default=None,
+        description=(
+            "Separate LLM for optimizing memory search queries. "
+            "When None, embeds the raw user message directly."
+        ),
+    )
+
+
 class MemoryModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     checkpointer: Optional[CheckpointerModel] = None
     store: Optional[StoreModel] = None
+    extraction: Optional[MemoryExtractionModel] = None
 
 
 FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
@@ -3831,7 +3895,7 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
     data: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
     overwrite: Optional[bool] = False
 
-    def as_dataset(self, w: WorkspaceClient | None = None) -> EvaluationDataset:
+    def as_dataset(self) -> EvaluationDataset:
         evaluation_dataset: EvaluationDataset
         needs_creation: bool = False
 
@@ -3839,9 +3903,7 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
             evaluation_dataset = get_dataset(name=self.full_name)
             if self.overwrite:
                 logger.warning(f"Overwriting dataset {self.full_name}")
-                workspace_client: WorkspaceClient = w if w else WorkspaceClient()
-                logger.debug(f"Dropping table: {self.full_name}")
-                workspace_client.tables.delete(full_name=self.full_name)
+                delete_dataset(name=self.full_name)
                 needs_creation = True
         except Exception:
             logger.warning(
@@ -3849,14 +3911,12 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
             )
             needs_creation = True
 
-        # Create dataset if needed (either new or after overwrite)
         if needs_creation:
             evaluation_dataset = create_dataset(name=self.full_name)
             if self.data:
                 logger.debug(
                     f"Merging {len(self.data)} entries into dataset {self.full_name}"
                 )
-                # Use to_mlflow_format() to flatten expectations for MLflow compatibility
                 evaluation_dataset.merge_records(
                     [e.to_mlflow_format() for e in self.data]
                 )

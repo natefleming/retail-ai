@@ -103,6 +103,10 @@ from dao_ai.middleware.todo import (
     TodoListMiddleware,
     create_todo_list_middleware,
 )
+from dao_ai.middleware.tool_call_id_sanitizer import (
+    ToolCallIdSanitizerMiddleware,
+    create_tool_call_id_sanitizer_middleware,
+)
 from dao_ai.middleware.tool_call_limit import create_tool_call_limit_middleware
 from dao_ai.middleware.tool_call_observability import (
     ToolCallObservabilityMiddleware,
@@ -198,6 +202,9 @@ __all__ = [
     "create_clear_tool_uses_edit",
     # PII middleware factory functions
     "create_pii_middleware",
+    # Tool call ID sanitizer middleware
+    "ToolCallIdSanitizerMiddleware",
+    "create_tool_call_id_sanitizer_middleware",
     # Tool call observability middleware
     "ToolCallObservabilityMiddleware",
     "create_tool_call_observability_middleware",

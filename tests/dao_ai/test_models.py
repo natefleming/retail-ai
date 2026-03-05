@@ -2,7 +2,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dao_ai.models import get_latest_model_version
+from dao_ai.models import (
+    _extract_text_content,
+    get_latest_model_version,
+)
 
 
 @pytest.mark.unit
@@ -76,3 +79,50 @@ def test_get_latest_model_version_string_versions() -> None:
 
         # Should correctly identify 21 as the highest
         assert result == 21
+
+
+class TestExtractTextContent:
+    """Tests for _extract_text_content which normalizes Claude content blocks."""
+
+    @pytest.mark.unit
+    def test_string_passthrough(self) -> None:
+        assert _extract_text_content("hello world") == "hello world"
+
+    @pytest.mark.unit
+    def test_single_text_block(self) -> None:
+        content = [{"type": "text", "text": "hello"}]
+        assert _extract_text_content(content) == "hello"
+
+    @pytest.mark.unit
+    def test_reasoning_block_formatted_as_markdown(self) -> None:
+        content = [
+            {
+                "type": "reasoning",
+                "summary": [{"type": "summary_text", "text": "thinking..."}],
+            },
+            {"type": "text", "text": "Got it!"},
+        ]
+        result = _extract_text_content(content)
+        assert "Got it!" in result
+        assert "> *thinking...*" in result
+
+    @pytest.mark.unit
+    def test_multiple_text_blocks_concatenated(self) -> None:
+        content = [
+            {"type": "text", "text": "Hello "},
+            {"type": "text", "text": "world!"},
+        ]
+        assert _extract_text_content(content) == "Hello world!"
+
+    @pytest.mark.unit
+    def test_empty_list(self) -> None:
+        assert _extract_text_content([]) == ""
+
+    @pytest.mark.unit
+    def test_mixed_string_and_dict_blocks(self) -> None:
+        content = ["raw string", {"type": "text", "text": " and dict"}]
+        assert _extract_text_content(content) == "raw string and dict"
+
+    @pytest.mark.unit
+    def test_non_list_non_string_fallback(self) -> None:
+        assert _extract_text_content(42) == "42"

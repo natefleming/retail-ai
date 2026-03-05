@@ -20,7 +20,6 @@ from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.types import Command
-from langmem import create_manage_memory_tool
 from loguru import logger
 
 from dao_ai.config import (
@@ -43,7 +42,7 @@ from dao_ai.orchestration import (
 from dao_ai.prompts import make_prompt
 from dao_ai.state import AgentState, Context
 from dao_ai.tools import create_tools
-from dao_ai.tools.memory import create_search_memory_tool
+from dao_ai.tools.memory import create_manage_memory_tool, create_search_memory_tool
 
 
 def _create_handoff_back_to_supervisor_tool() -> BaseTool:
@@ -112,6 +111,7 @@ def _create_supervisor_agent(
     tools: list[BaseTool],
     handoff_tools: list[BaseTool],
     middlewares: list[AgentMiddleware],
+    has_memory_tools: bool = False,
 ) -> CompiledStateGraph:
     """
     Create a supervisor agent with handoff tools for each worker agent.
@@ -125,6 +125,7 @@ def _create_supervisor_agent(
         tools: Additional tools for the supervisor (e.g., memory tools)
         handoff_tools: Handoff tools to route to worker agents
         middlewares: Middleware to apply to the supervisor
+        has_memory_tools: Whether memory tools are included in tools
 
     Returns:
         Compiled supervisor agent
@@ -136,8 +137,16 @@ def _create_supervisor_agent(
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
 
+    # Append memory tool instructions to the prompt when memory tools are present
+    effective_prompt: str | None = supervisor.prompt
+    if has_memory_tools and effective_prompt is not None:
+        from dao_ai.nodes import MEMORY_TOOL_INSTRUCTIONS
+
+        effective_prompt = effective_prompt + MEMORY_TOOL_INSTRUCTIONS
+        logger.debug("Memory tool instructions appended to supervisor prompt")
+
     # Get the prompt as middleware (always returns AgentMiddleware or None)
-    prompt_middleware: LangchainAgentMiddleware | None = make_prompt(supervisor.prompt)
+    prompt_middleware: LangchainAgentMiddleware | None = make_prompt(effective_prompt)
 
     # Add prompt middleware at the beginning for priority
     if prompt_middleware is not None:
@@ -223,11 +232,17 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             middleware=middleware_config.name,
         )
 
+    # Always apply tool-call-id sanitizer so models that omit IDs don't crash
+    from dao_ai.middleware.tool_call_id_sanitizer import ToolCallIdSanitizerMiddleware
+
+    middlewares.append(ToolCallIdSanitizerMiddleware())
+
     # Set up memory store and checkpointer
     store: BaseStore | None = create_store(orchestration)
     checkpointer: BaseCheckpointSaver | None = create_checkpointer(orchestration)
 
     # Add memory tools if store is configured with namespace
+    has_memory_tools: bool = False
     if (
         orchestration.memory
         and orchestration.memory.store
@@ -235,11 +250,69 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     ):
         namespace: tuple[str, ...] = ("memory", orchestration.memory.store.namespace)
         logger.debug("Memory store namespace configured", namespace=namespace)
-        # Use Databricks-compatible search_memory tool (omits problematic filter field)
         supervisor_tools += [
-            create_manage_memory_tool(namespace=namespace),
-            create_search_memory_tool(namespace=namespace),
+            create_manage_memory_tool(namespace=namespace, store=store),
+            create_search_memory_tool(namespace=namespace, store=store),
         ]
+        has_memory_tools = True
+
+    # Set up shared extraction manager and background reflection executor.
+    # A single extraction manager is shared across the supervisor and all
+    # worker agents to avoid creating redundant model instances.
+    extraction_manager = None
+    reflection_executor = None
+    memory: MemoryModel | None = orchestration.memory
+    needs_extraction = (
+        memory
+        and memory.store
+        and memory.extraction
+        and store
+        and (memory.extraction.background_extraction or memory.extraction.auto_inject)
+    )
+    if needs_extraction:
+        from dao_ai.memory.extraction import (
+            create_extraction_manager,
+            create_reflection_executor,
+        )
+        from dao_ai.nodes import _build_memory_namespace
+
+        extraction_ns = _build_memory_namespace(memory)
+        extraction_model: LanguageModelLike = (
+            memory.extraction.extraction_model.as_chat_model()
+            if memory.extraction.extraction_model
+            else supervisor_config.model.as_chat_model()
+        )
+        query_model: LanguageModelLike | None = (
+            memory.extraction.query_model.as_chat_model()
+            if memory.extraction.query_model
+            else None
+        )
+
+        extraction_manager = create_extraction_manager(
+            model=extraction_model,
+            store=store,
+            namespace=extraction_ns,
+            schemas=memory.extraction.schemas,
+            instructions=memory.extraction.instructions,
+            query_model=query_model,
+        )
+
+        if memory.extraction.background_extraction:
+            reflection_executor = create_reflection_executor(extraction_manager, store)
+            logger.info("Background memory extraction enabled for supervisor graph")
+
+    if needs_extraction and extraction_manager and memory.extraction.auto_inject:
+        from dao_ai.middleware.memory_context import MemoryContextMiddleware
+
+        memory_middleware = MemoryContextMiddleware(
+            manager=extraction_manager,
+            limit=memory.extraction.auto_inject_limit,
+        )
+        middlewares.append(memory_middleware)
+        logger.info(
+            "Memory context injection enabled for supervisor",
+            auto_inject_limit=memory.extraction.auto_inject_limit,
+        )
 
     # Create the supervisor agent
     supervisor_agent: CompiledStateGraph = _create_supervisor_agent(
@@ -247,12 +320,12 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         tools=supervisor_tools,
         handoff_tools=handoff_tools,
         middlewares=middlewares,
+        has_memory_tools=has_memory_tools,
     )
 
     # Create worker agent subgraphs
     # Each worker gets a handoff_to_supervisor tool to return control
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
-    memory: MemoryModel | None = orchestration.memory
     for registered_agent in config.app.agents:
         # Create handoff back to supervisor tool
         supervisor_handoff: BaseTool = _create_handoff_back_to_supervisor_tool()
@@ -261,8 +334,10 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         agent_subgraph: CompiledStateGraph = create_agent_node(
             agent=registered_agent,
             memory=memory,
+            store=store,
             chat_history=config.app.chat_history,
             additional_tools=[supervisor_handoff],
+            extraction_manager=extraction_manager,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
         logger.debug("Created worker agent subgraph", agent=registered_agent.name)
@@ -284,11 +359,21 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         handler = create_agent_node_handler(
             agent_name=agent_name,
             agent=agent_subgraph,
-            output_mode="last_message",  # Only return final response to avoid issues
+            output_mode="last_message",
+            reflection_executor=reflection_executor,
         )
         workflow.add_node(agent_name, handler)
 
     # Supervisor is the entry point
     workflow.set_entry_point(SUPERVISOR_NODE)
 
-    return workflow.compile(checkpointer=checkpointer, store=store)
+    compiled: CompiledStateGraph = workflow.compile(
+        checkpointer=checkpointer, store=store
+    )
+    logger.info(
+        "Supervisor graph compiled successfully",
+        nodes=list(agent_subgraphs.keys()),
+        has_checkpointer=checkpointer is not None,
+        has_store=store is not None,
+    )
+    return compiled

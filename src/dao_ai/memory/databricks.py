@@ -10,6 +10,7 @@ See:
 """
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Iterable, Sequence
 from functools import partial
 from typing import Any, Literal
@@ -296,22 +297,28 @@ class DatabricksCheckpointerManager(CheckpointManagerBase):
                 )
 
             instance_name = database.instance_name
-            workspace_client = database.workspace_client
 
-            logger.debug(
-                "Creating Databricks checkpointer", instance_name=instance_name
+            t0 = time.monotonic()
+            workspace_client = database.workspace_client
+            logger.info(
+                "Workspace client created for checkpointer",
+                instance_name=instance_name,
+                elapsed_ms=round((time.monotonic() - t0) * 1000),
             )
 
+            t1 = time.monotonic()
             checkpointer = AsyncDatabricksCheckpointSaver(
                 instance_name=instance_name,
                 workspace_client=workspace_client,
             )
 
-            # Setup the checkpointer (creates necessary tables if needed)
             logger.debug("Setting up checkpoint tables", instance_name=instance_name)
             checkpointer.setup()
-            logger.success(
-                "Databricks checkpointer initialized", instance_name=instance_name
+            logger.info(
+                "Databricks checkpointer initialized",
+                instance_name=instance_name,
+                setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
+                total_elapsed_ms=round((time.monotonic() - t0) * 1000),
             )
 
             self._checkpointer = checkpointer
@@ -351,9 +358,15 @@ class DatabricksStoreManager(StoreManagerBase):
                 )
 
             instance_name = database.instance_name
-            workspace_client = database.workspace_client
 
-            # Build embeddings configuration if embedding_model is provided
+            t0 = time.monotonic()
+            workspace_client = database.workspace_client
+            logger.info(
+                "Workspace client created for store",
+                instance_name=instance_name,
+                elapsed_ms=round((time.monotonic() - t0) * 1000),
+            )
+
             embeddings: DatabricksEmbeddings | None = None
             embedding_dims: int | None = None
 
@@ -369,12 +382,7 @@ class DatabricksStoreManager(StoreManagerBase):
 
                 embeddings = DatabricksEmbeddings(endpoint=embedding_endpoint)
 
-            logger.debug(
-                "Creating Databricks store",
-                instance_name=instance_name,
-                embeddings_enabled=embeddings is not None,
-            )
-
+            t1 = time.monotonic()
             store = AsyncDatabricksStore(
                 instance_name=instance_name,
                 workspace_client=workspace_client,
@@ -382,12 +390,13 @@ class DatabricksStoreManager(StoreManagerBase):
                 embedding_dims=embedding_dims,
             )
 
-            # Setup the store (creates necessary tables if needed)
             store.setup()
-            logger.success(
+            logger.info(
                 "Databricks store initialized",
                 instance_name=instance_name,
                 embeddings_enabled=embeddings is not None,
+                setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
+                total_elapsed_ms=round((time.monotonic() - t0) * 1000),
             )
             self._store = store
 

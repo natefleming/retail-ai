@@ -140,6 +140,7 @@ def create_agent_node_handler(
     agent_name: str,
     agent: CompiledStateGraph,
     output_mode: OutputMode = "last_message",
+    reflection_executor: Any | None = None,
 ) -> Callable[[AgentState, Runtime[Context]], Awaitable[AgentState]]:
     """
     Create a handler that wraps an agent subgraph with message filtering.
@@ -156,6 +157,8 @@ def create_agent_node_handler(
         agent_name: Name of the agent (for logging)
         agent: The compiled agent subgraph
         output_mode: How to extract response ("last_message" or "full_history")
+        reflection_executor: Optional background reflection executor for
+            automatic memory extraction after each agent turn.
 
     Returns:
         An async handler function for the workflow node
@@ -201,6 +204,24 @@ def create_agent_node_handler(
             total_messages=len(result_messages),
             output_mode=output_mode,
         )
+
+        # Schedule background memory extraction if configured
+        if reflection_executor is not None and result_messages:
+            try:
+                reflection_executor.submit(
+                    {"messages": result_messages},
+                    config=config or None,
+                    after_seconds=0,
+                )
+                logger.trace(
+                    "Background memory extraction scheduled",
+                    agent=agent_name,
+                )
+            except Exception:
+                logger.opt(exception=True).warning(
+                    "Failed to schedule background memory extraction",
+                    agent=agent_name,
+                )
 
         # Return state update with extracted response
         return {

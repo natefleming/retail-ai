@@ -128,15 +128,20 @@ Improve performance and reduce costs through intelligent caching.
 
 ---
 
-### 04. Memory [📖 README](../config/examples/05_memory/README.md)
+### 05. Memory [📖 README](../config/examples/05_memory/README.md)
 
-Persistent state management for multi-turn conversations.
+Persistent state management and long-term memory for multi-turn conversations.
 
 | Example | Description |
 |---------|-------------|
-| `conversation_summarization.yaml` | Long conversation summarization with PostgreSQL |
+| `in_memory_basic.yaml` | In-memory conversation state (no persistence, good for testing) |
+| `postgres_persistence.yaml` | PostgreSQL-backed conversation persistence |
+| `lakebase_persistence.yaml` | Lakebase (Databricks-native) conversation persistence |
+| `conversation_summarization.yaml` | Long conversation summarization with Lakebase store |
 
-**Prerequisites:** PostgreSQL or Lakebase database  
+All examples support the optional `extraction` config block for long-term memory with structured schemas, background extraction, and automatic memory injection.
+
+**Prerequisites:** PostgreSQL or Lakebase database (except `in_memory_basic.yaml`)  
 **Next:** User-level access control in `06_on_behalf_of_user/`
 
 ---

@@ -493,6 +493,8 @@ def handle_chat_command(options: Namespace) -> None:
         # Import streaming function and interrupt handling
         from langchain_core.messages import AIMessage, HumanMessage
 
+        from dao_ai.models import _extract_text_content
+
         # Conversation history
         messages = []
 
@@ -709,8 +711,10 @@ def handle_chat_command(options: Namespace) -> None:
                         # Find the last AI message
                         for msg in reversed(latest_messages):
                             if isinstance(msg, AIMessage):
-                                if hasattr(msg, "content") and msg.content:
-                                    response_content = msg.content
+                                if msg.content:
+                                    response_content = _extract_text_content(
+                                        msg.content
+                                    )
                                     print(response_content, end="", flush=True)
                                     break
 

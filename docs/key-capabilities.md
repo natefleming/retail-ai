@@ -697,6 +697,63 @@ memory:
 - **PostgreSQL**: When you need external database features or already have PostgreSQL infrastructure
 - **Lakebase**: When you want Databricks-native persistence with Unity Catalog governance
 
+### Long-Term Memory
+
+Beyond conversation history, DAO supports **long-term memory** that persists user profiles, preferences, and interaction patterns across sessions. This enables personalized responses without the user repeating themselves.
+
+Long-term memory has three components:
+
+1. **Structured Schemas** -- Define what to remember using typed schemas:
+   - `user_profile` -- A consolidated profile (name, role, expertise, communication style, goals) that merges new information over time
+   - `preference` -- Individual preference records (category, preference, context) searchable independently
+   - `episode` -- Records of notable interactions (situation, approach, outcome, lesson) for experience-based learning
+
+2. **Background Extraction** -- Automatically extracts memories from conversations in a background thread after each turn, adding zero latency to responses. Uses langmem's `ReflectionExecutor` with debouncing.
+
+3. **Automatic Memory Injection** -- Before each model call, relevant memories are automatically searched and injected into the system prompt via `MemoryContextMiddleware`. The agent receives personalized context without needing to call `search_memory` explicitly.
+
+Configure long-term memory with the `extraction` block:
+
+```yaml
+memory:
+  checkpointer:
+    name: conversation_checkpointer
+    type: lakebase
+    schema: *my_schema
+    table_name: agent_checkpoints
+
+  store:
+    name: memory_store
+    type: lakebase
+    schema: *my_schema
+    table_name: agent_store
+    embedding_model: *embedding_model
+
+  extraction:
+    schemas:
+      - user_profile
+      - preference
+      - episode
+    instructions: |
+      Extract the user's name, role, preferences, and any notable
+      interaction patterns. Update the user profile with new information.
+    auto_inject: true           # Inject relevant memories into prompts
+    auto_inject_limit: 5        # Max memories to inject per turn
+    background_extraction: true # Extract memories in background thread
+    extraction_model: *small_llm   # Optional: cheaper model for extraction
+    query_model: *small_llm        # Optional: cheaper model for search queries
+```
+
+**Memory tools available to agents:**
+
+| Tool | Description |
+|------|-------------|
+| `manage_memory` | Agent-driven CRUD on memory items (create, update, delete) |
+| `search_memory` | Semantic search over stored memories |
+| `search_user_profile` | Direct lookup of the user's consolidated profile |
+
+The `manage_memory` and `search_memory` tools are automatically added when a `store` is configured. The `search_user_profile` tool is added when the `user_profile` schema is included in the extraction config.
+
 ## 8. MLflow Prompt Registry Integration
 
 **The problem:** Prompts (instructions you give to AI models) need constant refinement. Hardcoding them in YAML means every change requires redeployment.

@@ -5,7 +5,11 @@ from dao_ai.tools.core import create_tools, say_hello_tool
 from dao_ai.tools.email import create_send_email_tool
 from dao_ai.tools.genie import create_genie_tool
 from dao_ai.tools.mcp import MCPToolInfo, create_mcp_tools, list_mcp_tools
-from dao_ai.tools.memory import create_search_memory_tool
+from dao_ai.tools.memory import (
+    create_manage_memory_tool,
+    create_search_memory_tool,
+    create_search_user_profile_tool,
+)
 from dao_ai.tools.python import create_factory_tool, create_python_tool
 from dao_ai.tools.search import create_search_tool
 from dao_ai.tools.slack import create_send_slack_message_tool
@@ -33,7 +37,9 @@ __all__ = [
     "list_mcp_tools",
     "MCPToolInfo",
     "create_python_tool",
+    "create_manage_memory_tool",
     "create_search_memory_tool",
+    "create_search_user_profile_tool",
     "create_search_tool",
     "create_send_email_tool",
     "create_send_slack_message_tool",

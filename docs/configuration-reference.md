@@ -144,6 +144,14 @@ memory: &memory
     schema: *my_schema            # For lakebase
     table_name: string            # For lakebase
     embedding_model: *embedding_model
+  extraction:                              # Long-term memory extraction
+    schemas: [string]                      # Schema names: user_profile, preference, episode
+    instructions: string | null            # Custom extraction instructions
+    auto_inject: bool                      # Inject memories into prompts (default: true)
+    auto_inject_limit: int                 # Max memories to inject (default: 5)
+    background_extraction: bool            # Extract in background thread (default: false)
+    extraction_model: *llm_model | null    # Separate LLM for extraction
+    query_model: *llm_model | null         # Separate LLM for search queries
 
 # Application configuration
 app:
