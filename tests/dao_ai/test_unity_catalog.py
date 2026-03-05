@@ -446,6 +446,21 @@ class TestBooleanDefaultsIntegration:
       - The function ``main.dao_ai_test.bool_default_test`` to exist (see SQL above).
     """
 
+    @pytest.fixture(scope="class", autouse=True)
+    def _require_bool_test_function(self) -> None:
+        """Skip all tests if the test UC function doesn't exist."""
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.errors.platform import NotFound
+
+        w = WorkspaceClient()
+        try:
+            w.functions.get(name=_BOOL_TEST_FUNCTION)
+        except NotFound:
+            pytest.skip(
+                f"UC function '{_BOOL_TEST_FUNCTION}' not found "
+                "- skipping integration tests"
+            )
+
     def test_upstream_schema_has_string_defaults(self) -> None:
         """Confirm that the upstream library produces string defaults (the bug we're working around)."""
         from databricks.sdk import WorkspaceClient

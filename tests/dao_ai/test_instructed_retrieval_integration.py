@@ -67,6 +67,18 @@ class TestInstructedRetrievalIntegration:
         """Load the instruction_aware_reranking.yaml config."""
         return AppConfig.from_file(CONFIG_PATH)
 
+    @pytest.fixture(scope="class", autouse=True)
+    def _require_vector_index(self, config: AppConfig) -> None:
+        """Skip all tests if the vector search index doesn't exist."""
+        retriever = config.retrievers["instruction_aware_retriever"]
+        index = retriever.vector_store.index
+        if index is None or not index.exists():
+            index_name = index.full_name if index else "unknown"
+            pytest.skip(
+                f"Vector search index '{index_name}' not found "
+                "- skipping integration tests"
+            )
+
     @pytest.fixture(scope="class")
     def tool(self, config: AppConfig):
         """Create the instructed retrieval vector search tool from config."""
