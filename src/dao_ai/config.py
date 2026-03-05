@@ -3100,6 +3100,9 @@ class StoreModel(BaseModel):
         return store
 
 
+MemorySchemaName: TypeAlias = Literal["user_profile", "preference", "episode"]
+
+
 class MemoryExtractionModel(BaseModel):
     """Configuration for automatic memory extraction and injection.
 
@@ -3109,7 +3112,7 @@ class MemoryExtractionModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    schemas: Optional[list[str]] = Field(
+    schemas: Optional[list[MemorySchemaName]] = Field(
         default=None,
         description=(
             "Schema names for structured extraction "
