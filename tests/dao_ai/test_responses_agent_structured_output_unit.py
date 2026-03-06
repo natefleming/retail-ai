@@ -286,6 +286,7 @@ def test_responses_agent_streaming_extracts_structured_response(mock_graph):
 
     # Second call: final state with structured_response
     final_state = Mock()
+    final_state.interrupts = ()
     final_state.values = {
         "messages": [AIMessage(content="Chunk 1 Chunk 2")],
         "structured_response": test_response,

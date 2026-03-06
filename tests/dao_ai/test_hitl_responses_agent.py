@@ -626,9 +626,7 @@ def test_predict_stream_with_graph_interrupt_exception(responses_agent, mock_gra
 
     mock_snapshot = MagicMock()
     mock_snapshot.values = {
-        "messages": [
-            MagicMock(content="Processing your request...", type="ai")
-        ],
+        "messages": [MagicMock(content="Processing your request...", type="ai")],
         "structured_response": None,
     }
     mock_snapshot.interrupts = (mock_interrupt,)
@@ -666,9 +664,7 @@ def test_predict_stream_with_graph_interrupt_exception(responses_agent, mock_gra
     ]
 
 
-def test_predict_stream_interrupt_via_aget_state_fallback(
-    responses_agent, mock_graph
-):
+def test_predict_stream_interrupt_via_aget_state_fallback(responses_agent, mock_graph):
     """Test that when astream() yields messages but no __interrupt__ update event,
     the post-stream aget_state() check detects and surfaces the interrupt."""
     mock_interrupt = _make_interrupt(
@@ -773,9 +769,7 @@ def _build_hitl_agent():
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
             idx = min(self.call_count, len(self.responses) - 1)
             self.call_count += 1
-            return ChatResult(
-                generations=[ChatGeneration(message=self.responses[idx])]
-            )
+            return ChatResult(generations=[ChatGeneration(message=self.responses[idx])])
 
         def bind_tools(self, tools, **kwargs):
             return self
@@ -846,21 +840,19 @@ def test_integration_ainvoke_returns_interrupt():
 
 
 def test_integration_ainvoke_resume_with_approve():
-    """Integration test: resume an interrupted graph with approve decision."""
+    """Integration test: approve resumes graph and the tool executes."""
     from langgraph.types import Command
 
     graph, _ = _build_hitl_agent()
 
-    config = {"configurable": {"thread_id": "integ-resume-1"}}
+    config = {"configurable": {"thread_id": "integ-resume-approve"}}
 
-    # Step 1: invoke until interrupt
     r1 = graph.invoke(
         {"messages": [{"role": "user", "content": "Send email"}]},
         config=config,
     )
     assert "__interrupt__" in r1
 
-    # Step 2: resume with approval
     r2 = graph.invoke(
         Command(resume={"decisions": [{"type": "approve"}]}),
         config=config,
@@ -868,6 +860,76 @@ def test_integration_ainvoke_resume_with_approve():
 
     assert "__interrupt__" not in r2
     assert r2["messages"][-1].content == "Email sent successfully!"
+
+
+def test_integration_ainvoke_resume_with_reject():
+    """Integration test: reject prevents tool execution and feeds back to agent."""
+    from langgraph.types import Command
+
+    graph, _ = _build_hitl_agent()
+
+    config = {"configurable": {"thread_id": "integ-resume-reject"}}
+
+    r1 = graph.invoke(
+        {"messages": [{"role": "user", "content": "Send email"}]},
+        config=config,
+    )
+    assert "__interrupt__" in r1
+
+    r2 = graph.invoke(
+        Command(
+            resume={
+                "decisions": [{"type": "reject", "message": "Do not send this email"}]
+            }
+        ),
+        config=config,
+    )
+
+    assert "__interrupt__" not in r2
+    last_content = r2["messages"][-1].content
+    assert isinstance(last_content, str) and len(last_content) > 0
+
+
+def test_integration_ainvoke_resume_with_edit():
+    """Integration test: edit modifies tool args before execution."""
+    from langgraph.types import Command
+
+    graph, _ = _build_hitl_agent()
+
+    config = {"configurable": {"thread_id": "integ-resume-edit"}}
+
+    r1 = graph.invoke(
+        {"messages": [{"role": "user", "content": "Send email"}]},
+        config=config,
+    )
+    assert "__interrupt__" in r1
+
+    r2 = graph.invoke(
+        Command(
+            resume={
+                "decisions": [
+                    {
+                        "type": "edit",
+                        "edited_action": {
+                            "name": "send_email",
+                            "args": {
+                                "to": "edited@example.com",
+                                "subject": "Edited Subject",
+                                "body": "Edited body",
+                            },
+                        },
+                    }
+                ]
+            }
+        ),
+        config=config,
+    )
+
+    assert "__interrupt__" not in r2
+    # The tool should have executed with the edited args
+    tool_msg = [m for m in r2["messages"] if m.type == "tool"]
+    assert len(tool_msg) > 0, "Expected a tool message after edit+execute"
+    assert "edited@example.com" in tool_msg[-1].content
 
 
 def test_integration_responses_agent_surfaces_interrupt():
@@ -903,3 +965,375 @@ def test_integration_responses_agent_surfaces_interrupt():
 
     output_text = response.output[0].content[0]["text"]
     assert "send_email" in output_text
+
+
+def test_integration_output_text_shows_user_options():
+    """Integration test: the user-facing output text communicates available decisions."""
+    graph, _ = _build_hitl_agent()
+    agent = LanggraphResponsesAgent(graph)
+
+    request = ResponsesAgentRequest(
+        input=[Message(role="user", content="Send email")],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-output-options",
+                "user_id": "test_user",
+            }
+        },
+    )
+
+    response = agent.predict(request)
+
+    output_text = response.output[0].content[0]["text"]
+
+    assert "Action Approval Required" in output_text, (
+        "Missing 'Action Approval Required' header in output"
+    )
+    assert "send_email" in output_text, "Missing tool name in output"
+    assert "approve" in output_text, "Missing 'approve' option in output"
+    assert "edit" in output_text, "Missing 'edit' option in output"
+    assert "reject" in output_text, "Missing 'reject' option in output"
+    assert "natural language" in output_text.lower(), (
+        "Missing natural language instructions in output"
+    )
+    assert "decisions" in output_text, (
+        "Missing structured decisions instructions in output"
+    )
+
+
+def test_integration_responses_agent_approve_continuation():
+    """Integration test: approve via ResponsesAgent resumes and completes."""
+    graph, _ = _build_hitl_agent()
+    agent = LanggraphResponsesAgent(graph)
+
+    # Step 1: trigger interrupt
+    request = ResponsesAgentRequest(
+        input=[Message(role="user", content="Send email")],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-ra-approve",
+                "user_id": "test_user",
+            }
+        },
+    )
+    r1 = agent.predict(request)
+    assert "interrupts" in r1.custom_outputs
+
+    # Step 2: resume with approve
+    resume_request = ResponsesAgentRequest(
+        input=[],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-ra-approve",
+                "user_id": "test_user",
+            },
+            "decisions": [{"type": "approve"}],
+        },
+    )
+    r2 = agent.predict(resume_request)
+    assert "interrupts" not in r2.custom_outputs
+    assert "Email sent successfully!" in r2.output[0].content[0]["text"]
+
+
+def test_integration_responses_agent_reject_continuation():
+    """Integration test: reject via ResponsesAgent feeds back without executing tool."""
+    graph, _ = _build_hitl_agent()
+    agent = LanggraphResponsesAgent(graph)
+
+    # Step 1: trigger interrupt
+    request = ResponsesAgentRequest(
+        input=[Message(role="user", content="Send email")],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-ra-reject",
+                "user_id": "test_user",
+            }
+        },
+    )
+    r1 = agent.predict(request)
+    assert "interrupts" in r1.custom_outputs
+
+    # Step 2: resume with reject
+    resume_request = ResponsesAgentRequest(
+        input=[],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-ra-reject",
+                "user_id": "test_user",
+            },
+            "decisions": [{"type": "reject", "message": "Not now, thanks"}],
+        },
+    )
+    r2 = agent.predict(resume_request)
+    assert "interrupts" not in r2.custom_outputs
+    output_text = r2.output[0].content[0]["text"]
+    assert len(output_text) > 0, "Expected non-empty response after reject"
+
+
+def test_integration_responses_agent_edit_continuation():
+    """Integration test: edit via ResponsesAgent modifies args and executes."""
+    graph, _ = _build_hitl_agent()
+    agent = LanggraphResponsesAgent(graph)
+
+    # Step 1: trigger interrupt
+    request = ResponsesAgentRequest(
+        input=[Message(role="user", content="Send email")],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-ra-edit",
+                "user_id": "test_user",
+            }
+        },
+    )
+    r1 = agent.predict(request)
+    assert "interrupts" in r1.custom_outputs
+
+    # Step 2: resume with edit
+    resume_request = ResponsesAgentRequest(
+        input=[],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-ra-edit",
+                "user_id": "test_user",
+            },
+            "decisions": [
+                {
+                    "type": "edit",
+                    "edited_action": {
+                        "name": "send_email",
+                        "args": {
+                            "to": "new-recipient@example.com",
+                            "subject": "Updated Subject",
+                            "body": "Updated body",
+                        },
+                    },
+                }
+            ],
+        },
+    )
+    r2 = agent.predict(resume_request)
+    assert "interrupts" not in r2.custom_outputs
+    output_text = r2.output[0].content[0]["text"]
+    assert len(output_text) > 0, "Expected non-empty response after edit"
+
+
+# ---------------------------------------------------------------------------
+# Async integration tests (Apps deployment path)
+#
+# These call apredict() / apredict_stream() directly, matching how the
+# Databricks Apps AgentServer invokes the agent. Uses asyncio.run() as
+# a test harness since the project does not have pytest-asyncio configured.
+# ---------------------------------------------------------------------------
+
+
+def _run_async(coro):
+    """Run an async coroutine in a new event loop (test helper)."""
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def test_async_apredict_surfaces_interrupt():
+    """Apps path: apredict() surfaces interrupt with user options in output."""
+
+    async def _test():
+        graph, _ = _build_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email to test@example.com")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-integ-interrupt",
+                    "user_id": "test_user",
+                }
+            },
+        )
+
+        response = await agent.apredict(request)
+
+        assert response.custom_outputs is not None
+        assert "interrupts" in response.custom_outputs, (
+            f"No interrupts in custom_outputs. Keys: {list(response.custom_outputs.keys())}"
+        )
+        assert len(response.custom_outputs["interrupts"]) == 1
+
+        interrupt = response.custom_outputs["interrupts"][0]
+        assert interrupt["action_requests"][0]["name"] == "send_email"
+        assert interrupt["review_configs"][0]["allowed_decisions"] == [
+            "approve",
+            "edit",
+            "reject",
+        ]
+
+        output_text = response.output[0].content[0]["text"]
+        assert "Action Approval Required" in output_text
+        assert "approve" in output_text
+        assert "edit" in output_text
+        assert "reject" in output_text
+
+    _run_async(_test())
+
+
+def test_async_apredict_approve_continuation():
+    """Apps path: approve via apredict() resumes and completes."""
+
+    async def _test():
+        graph, _ = _build_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-integ-approve",
+                    "user_id": "test_user",
+                }
+            },
+        )
+        r1 = await agent.apredict(request)
+        assert "interrupts" in r1.custom_outputs
+
+        resume_request = ResponsesAgentRequest(
+            input=[],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-integ-approve",
+                    "user_id": "test_user",
+                },
+                "decisions": [{"type": "approve"}],
+            },
+        )
+        r2 = await agent.apredict(resume_request)
+        assert "interrupts" not in r2.custom_outputs
+        assert "Email sent successfully!" in r2.output[0].content[0]["text"]
+
+    _run_async(_test())
+
+
+def test_async_apredict_reject_continuation():
+    """Apps path: reject via apredict() feeds back without executing tool."""
+
+    async def _test():
+        graph, _ = _build_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-integ-reject",
+                    "user_id": "test_user",
+                }
+            },
+        )
+        r1 = await agent.apredict(request)
+        assert "interrupts" in r1.custom_outputs
+
+        resume_request = ResponsesAgentRequest(
+            input=[],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-integ-reject",
+                    "user_id": "test_user",
+                },
+                "decisions": [{"type": "reject", "message": "Do not send"}],
+            },
+        )
+        r2 = await agent.apredict(resume_request)
+        assert "interrupts" not in r2.custom_outputs
+        assert len(r2.output[0].content[0]["text"]) > 0
+
+    _run_async(_test())
+
+
+def test_async_apredict_edit_continuation():
+    """Apps path: edit via apredict() modifies args and executes."""
+
+    async def _test():
+        graph, _ = _build_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-integ-edit",
+                    "user_id": "test_user",
+                }
+            },
+        )
+        r1 = await agent.apredict(request)
+        assert "interrupts" in r1.custom_outputs
+
+        resume_request = ResponsesAgentRequest(
+            input=[],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-integ-edit",
+                    "user_id": "test_user",
+                },
+                "decisions": [
+                    {
+                        "type": "edit",
+                        "edited_action": {
+                            "name": "send_email",
+                            "args": {
+                                "to": "async-edited@example.com",
+                                "subject": "Async Edit",
+                                "body": "Async body",
+                            },
+                        },
+                    }
+                ],
+            },
+        )
+        r2 = await agent.apredict(resume_request)
+        assert "interrupts" not in r2.custom_outputs
+        assert len(r2.output[0].content[0]["text"]) > 0
+
+    _run_async(_test())
+
+
+def test_async_apredict_stream_surfaces_interrupt():
+    """Apps path: apredict_stream() surfaces interrupt in final event."""
+
+    async def _test():
+        graph, _ = _build_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "async-stream-integ",
+                    "user_id": "test_user",
+                }
+            },
+        )
+
+        events = []
+        async for event in agent.apredict_stream(request):
+            events.append(event)
+
+        final_events = [e for e in events if e.type == "response.output_item.done"]
+        assert len(final_events) == 1, (
+            f"Expected 1 final event, got {len(final_events)}"
+        )
+
+        final_event = final_events[0]
+        assert "interrupts" in final_event.custom_outputs, (
+            f"No interrupts in streaming custom_outputs. "
+            f"Keys: {list(final_event.custom_outputs.keys())}"
+        )
+        assert len(final_event.custom_outputs["interrupts"]) == 1
+
+        interrupt = final_event.custom_outputs["interrupts"][0]
+        assert interrupt["action_requests"][0]["name"] == "send_email"
+        assert interrupt["review_configs"][0]["allowed_decisions"] == [
+            "approve",
+            "edit",
+            "reject",
+        ]
+
+    _run_async(_test())
