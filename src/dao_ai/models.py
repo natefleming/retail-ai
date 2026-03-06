@@ -37,6 +37,7 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
 )
+from langgraph.errors import GraphInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Interrupt, StateSnapshot
 from loguru import logger
@@ -1085,9 +1086,30 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 response = await self.graph.ainvoke(
                     graph_input, context=context, config=custom_inputs
                 )
+        except GraphInterrupt:
+            logger.info("HITL: GraphInterrupt raised during invocation")
+            if self.graph.checkpointer:
+                post_snapshot: StateSnapshot = await self.graph.aget_state(
+                    config=custom_inputs
+                )
+                response = dict(post_snapshot.values)
+                if post_snapshot.interrupts:
+                    response["__interrupt__"] = list(post_snapshot.interrupts)
+            else:
+                raise
         except Exception as e:
             logger.error("Error in graph invocation", error=str(e))
             raise
+
+        # Check for interrupts via aget_state when ainvoke() returned without __interrupt__
+        if self.graph.checkpointer and "__interrupt__" not in response:
+            post_snapshot = await self.graph.aget_state(config=custom_inputs)
+            if post_snapshot.interrupts:
+                response["__interrupt__"] = list(post_snapshot.interrupts)
+                logger.info(
+                    "HITL: Interrupts found via aget_state after ainvoke",
+                    interrupts_count=len(post_snapshot.interrupts),
+                )
 
         # Convert response to ResponsesAgent format
         last_message: BaseMessage = response["messages"][-1]
@@ -1308,66 +1330,69 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 stream_input = graph_input
 
             # Stream the graph execution
-            async for nodes, stream_mode, data in self.graph.astream(
-                stream_input,
-                context=context,
-                config=custom_inputs,
-                stream_mode=["messages", "updates"],
-                subgraphs=True,
-            ):
-                nodes: tuple[str, ...]
-                stream_mode: str
+            try:
+                async for nodes, stream_mode, data in self.graph.astream(
+                    stream_input,
+                    context=context,
+                    config=custom_inputs,
+                    stream_mode=["messages", "updates"],
+                    subgraphs=True,
+                ):
+                    nodes: tuple[str, ...]
+                    stream_mode: str
 
-                if stream_mode == "messages":
-                    messages_batch: Sequence[BaseMessage] = data
-                    for message in messages_batch:
-                        if (
-                            isinstance(message, (AIMessageChunk, AIMessage))
-                            and message.content
-                            and "summarization" not in nodes
-                        ):
-                            logger.trace(
-                                "Stream message content",
-                                content_type=type(message.content).__name__,
-                                content_len=len(message.content)
-                                if isinstance(message.content, (str, list))
-                                else None,
-                            )
-                            content: str = _extract_text_content(message.content)
-                            accumulated_content += content
+                    if stream_mode == "messages":
+                        messages_batch: Sequence[BaseMessage] = data
+                        for message in messages_batch:
+                            if (
+                                isinstance(message, (AIMessageChunk, AIMessage))
+                                and message.content
+                                and "summarization" not in nodes
+                            ):
+                                logger.trace(
+                                    "Stream message content",
+                                    content_type=type(message.content).__name__,
+                                    content_len=len(message.content)
+                                    if isinstance(message.content, (str, list))
+                                    else None,
+                                )
+                                content: str = _extract_text_content(message.content)
+                                accumulated_content += content
 
-                            yield ResponsesAgentStreamEvent(
-                                **self.create_text_delta(delta=content, item_id=item_id)
-                            )
+                                yield ResponsesAgentStreamEvent(
+                                    **self.create_text_delta(delta=content, item_id=item_id)
+                                )
 
-                elif stream_mode == "updates":
-                    updates: dict[str, Any] = data
-                    for source, update in updates.items():
-                        if source == "__interrupt__":
-                            interrupts: list[Interrupt] = update
-                            logger.info(
-                                "HITL: Interrupts detected during streaming",
-                                interrupts_count=len(interrupts),
-                            )
+                    elif stream_mode == "updates":
+                        updates: dict[str, Any] = data
+                        for source, update in updates.items():
+                            if source == "__interrupt__":
+                                interrupts: list[Interrupt] = update
+                                logger.info(
+                                    "HITL: Interrupts detected during streaming",
+                                    interrupts_count=len(interrupts),
+                                )
 
-                            for interrupt in interrupts:
-                                if interrupt.id not in seen_interrupt_ids:
-                                    seen_interrupt_ids.add(interrupt.id)
-                                    interrupt_data.append(
-                                        _extract_interrupt_value(interrupt)
-                                    )
-                                    logger.trace(
-                                        "HITL: Added interrupt to response",
-                                        interrupt_id=interrupt.id,
-                                    )
-                        elif (
-                            isinstance(update, dict) and "structured_response" in update
-                        ):
-                            structured_response = update["structured_response"]
-                            logger.trace(
-                                "Captured structured response from stream",
-                                response_type=type(structured_response).__name__,
-                            )
+                                for interrupt in interrupts:
+                                    if interrupt.id not in seen_interrupt_ids:
+                                        seen_interrupt_ids.add(interrupt.id)
+                                        interrupt_data.append(
+                                            _extract_interrupt_value(interrupt)
+                                        )
+                                        logger.trace(
+                                            "HITL: Added interrupt to response",
+                                            interrupt_id=interrupt.id,
+                                        )
+                            elif (
+                                isinstance(update, dict) and "structured_response" in update
+                            ):
+                                structured_response = update["structured_response"]
+                                logger.trace(
+                                    "Captured structured response from stream",
+                                    response_type=type(structured_response).__name__,
+                                )
+            except GraphInterrupt:
+                logger.info("HITL: GraphInterrupt raised during streaming")
 
             # Get final state if checkpointer available
             if self.graph.checkpointer:
@@ -1379,6 +1404,18 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     and not structured_response
                 ):
                     structured_response = final_state.values["structured_response"]
+                if not interrupt_data and final_state.interrupts:
+                    for interrupt in final_state.interrupts:
+                        if interrupt.id not in seen_interrupt_ids:
+                            seen_interrupt_ids.add(interrupt.id)
+                            interrupt_data.append(
+                                _extract_interrupt_value(interrupt)
+                            )
+                    if interrupt_data:
+                        logger.info(
+                            "HITL: Interrupts found via aget_state after streaming",
+                            interrupts_count=len(interrupt_data),
+                        )
 
             # Build custom_outputs
             custom_outputs = await self._build_custom_outputs_async(

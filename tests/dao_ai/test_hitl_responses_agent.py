@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from langgraph.errors import GraphInterrupt
+from langgraph.types import Interrupt
 from mlflow.types.responses import ResponsesAgentRequest
 from mlflow.types.responses_helpers import Message
 
@@ -462,3 +464,266 @@ def test_predict_stream_with_interrupt(responses_agent, mock_graph):
     interrupt = final_event.custom_outputs["interrupts"][0]
     assert "action_requests" in interrupt
     assert interrupt["action_requests"][0]["name"] == "send_email"
+
+
+def _make_interrupt(
+    action_name: str = "send_email",
+    args: dict | None = None,
+    description: str = "Tool execution pending approval",
+    allowed_decisions: list[str] | None = None,
+    interrupt_id: str = "test-interrupt-id",
+) -> Interrupt:
+    """Create a real LangGraph Interrupt with HITL request payload."""
+    if args is None:
+        args = {"to": "test@example.com", "subject": "Test", "body": "Test body"}
+    if allowed_decisions is None:
+        allowed_decisions = ["approve", "edit", "reject"]
+    return Interrupt(
+        value={
+            "action_requests": [
+                {"name": action_name, "args": args, "description": description}
+            ],
+            "review_configs": [
+                {
+                    "action_name": action_name,
+                    "allowed_decisions": allowed_decisions,
+                }
+            ],
+        },
+        id=interrupt_id,
+    )
+
+
+def test_predict_with_graph_interrupt_exception(responses_agent, mock_graph):
+    """Test that GraphInterrupt raised by ainvoke() is caught and interrupt data
+    is recovered from the checkpointer via aget_state()."""
+    mock_interrupt = _make_interrupt(interrupt_id="gi-interrupt-1")
+
+    mock_graph.ainvoke.side_effect = GraphInterrupt(interrupts=(mock_interrupt,))
+
+    mock_snapshot = MagicMock()
+    mock_snapshot.values = {
+        "messages": [
+            MagicMock(
+                content="I can help you send that email. Approval required.",
+                type="ai",
+            )
+        ]
+    }
+    mock_snapshot.interrupts = (mock_interrupt,)
+    mock_graph.aget_state = AsyncMock(return_value=mock_snapshot)
+
+    request = ResponsesAgentRequest(
+        input=[
+            Message(role="user", content="Send email to test@example.com"),
+        ],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "test_gi_exception",
+                "user_id": "test_user",
+            }
+        },
+    )
+
+    with patch(
+        "dao_ai.models.get_state_snapshot_async", new_callable=AsyncMock
+    ) as mock_state:
+        mock_state.return_value = None
+        response = responses_agent.predict(request)
+
+    assert "interrupts" in response.custom_outputs
+    assert len(response.custom_outputs["interrupts"]) == 1
+
+    interrupt_data = response.custom_outputs["interrupts"][0]
+    assert interrupt_data["action_requests"][0]["name"] == "send_email"
+    assert interrupt_data["review_configs"][0]["allowed_decisions"] == [
+        "approve",
+        "edit",
+        "reject",
+    ]
+
+    output_text = response.output[0].content[0]["text"]
+    assert "send_email" in output_text
+    assert "natural language" in output_text
+
+
+def test_predict_interrupt_via_aget_state_fallback(responses_agent, mock_graph):
+    """Test that when ainvoke() returns without __interrupt__ in the dict,
+    the post-invocation aget_state() check detects and surfaces the interrupt."""
+    mock_interrupt = _make_interrupt(
+        action_name="create_ticket",
+        args={"title": "Missing dataset", "priority": "high"},
+        description="JIRA ticket pending approval",
+        interrupt_id="fallback-interrupt-1",
+    )
+
+    mock_graph.ainvoke.return_value = {
+        "messages": [
+            MagicMock(
+                content="No matching tables found. Filing a request.",
+                type="ai",
+            )
+        ]
+    }
+
+    # First aget_state call (pre-invocation check) returns no interrupts;
+    # second call (post-invocation fallback) returns the interrupt.
+    pre_snapshot = MagicMock()
+    pre_snapshot.interrupts = ()
+    post_snapshot = MagicMock()
+    post_snapshot.interrupts = (mock_interrupt,)
+    mock_graph.aget_state = AsyncMock(side_effect=[pre_snapshot, post_snapshot])
+
+    request = ResponsesAgentRequest(
+        input=[
+            Message(role="user", content="Find bird species tables"),
+        ],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "test_fallback",
+                "user_id": "test_user",
+            }
+        },
+    )
+
+    with patch(
+        "dao_ai.models.get_state_snapshot_async", new_callable=AsyncMock
+    ) as mock_state:
+        mock_state.return_value = None
+        response = responses_agent.predict(request)
+
+    assert "interrupts" in response.custom_outputs
+    assert len(response.custom_outputs["interrupts"]) == 1
+
+    interrupt_data = response.custom_outputs["interrupts"][0]
+    assert interrupt_data["action_requests"][0]["name"] == "create_ticket"
+    assert interrupt_data["review_configs"][0]["allowed_decisions"] == [
+        "approve",
+        "edit",
+        "reject",
+    ]
+
+    output_text = response.output[0].content[0]["text"]
+    assert "create_ticket" in output_text
+
+
+def test_predict_stream_with_graph_interrupt_exception(responses_agent, mock_graph):
+    """Test that GraphInterrupt raised by astream() is caught and interrupt data
+    is recovered from aget_state() in the streaming path."""
+    mock_interrupt = _make_interrupt(interrupt_id="stream-gi-interrupt-1")
+
+    async def mock_astream_raises(*args, **kwargs):
+        yield (
+            ("agent",),
+            "messages",
+            [MagicMock(content="Processing your request...", type="ai")],
+        )
+        raise GraphInterrupt(interrupts=(mock_interrupt,))
+
+    mock_graph.astream = MagicMock(
+        side_effect=lambda *args, **kwargs: mock_astream_raises()
+    )
+
+    mock_snapshot = MagicMock()
+    mock_snapshot.values = {
+        "messages": [
+            MagicMock(content="Processing your request...", type="ai")
+        ],
+        "structured_response": None,
+    }
+    mock_snapshot.interrupts = (mock_interrupt,)
+    mock_graph.aget_state = AsyncMock(return_value=mock_snapshot)
+
+    request = ResponsesAgentRequest(
+        input=[
+            Message(role="user", content="Send email"),
+        ],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "test_stream_gi",
+                "user_id": "test_user",
+            }
+        },
+    )
+
+    with patch(
+        "dao_ai.models.get_state_snapshot_async", new_callable=AsyncMock
+    ) as mock_state:
+        mock_state.return_value = None
+        events = list(responses_agent.predict_stream(request))
+
+    final_event = [e for e in events if e.type == "response.output_item.done"][0]
+
+    assert "interrupts" in final_event.custom_outputs
+    assert len(final_event.custom_outputs["interrupts"]) == 1
+
+    interrupt_data = final_event.custom_outputs["interrupts"][0]
+    assert interrupt_data["action_requests"][0]["name"] == "send_email"
+    assert interrupt_data["review_configs"][0]["allowed_decisions"] == [
+        "approve",
+        "edit",
+        "reject",
+    ]
+
+
+def test_predict_stream_interrupt_via_aget_state_fallback(
+    responses_agent, mock_graph
+):
+    """Test that when astream() yields messages but no __interrupt__ update event,
+    the post-stream aget_state() check detects and surfaces the interrupt."""
+    mock_interrupt = _make_interrupt(
+        action_name="create_ticket",
+        args={"title": "Missing dataset"},
+        interrupt_id="stream-fallback-interrupt-1",
+    )
+
+    async def mock_astream_no_interrupt(*args, **kwargs):
+        yield (
+            ("agent",),
+            "messages",
+            [MagicMock(content="Searching catalog...", type="ai")],
+        )
+        yield (
+            ("agent",),
+            "updates",
+            {"agent": {"messages": [MagicMock(content="Done.", type="ai")]}},
+        )
+
+    mock_graph.astream = MagicMock(
+        side_effect=lambda *args, **kwargs: mock_astream_no_interrupt()
+    )
+
+    # First aget_state call (pre-invocation check) returns no interrupts;
+    # second call (post-stream fallback) returns the interrupt.
+    pre_snapshot = MagicMock()
+    pre_snapshot.interrupts = ()
+    post_snapshot = MagicMock()
+    post_snapshot.values = {"structured_response": None}
+    post_snapshot.interrupts = (mock_interrupt,)
+    mock_graph.aget_state = AsyncMock(side_effect=[pre_snapshot, post_snapshot])
+
+    request = ResponsesAgentRequest(
+        input=[
+            Message(role="user", content="Find bird species tables"),
+        ],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "test_stream_fallback",
+                "user_id": "test_user",
+            }
+        },
+    )
+
+    with patch(
+        "dao_ai.models.get_state_snapshot_async", new_callable=AsyncMock
+    ) as mock_state:
+        mock_state.return_value = None
+        events = list(responses_agent.predict_stream(request))
+
+    final_event = [e for e in events if e.type == "response.output_item.done"][0]
+
+    assert "interrupts" in final_event.custom_outputs
+    assert len(final_event.custom_outputs["interrupts"]) == 1
+
+    interrupt_data = final_event.custom_outputs["interrupts"][0]
+    assert interrupt_data["action_requests"][0]["name"] == "create_ticket"
