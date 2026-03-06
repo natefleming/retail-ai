@@ -7,12 +7,14 @@ that implement agent logic using LangChain v1's create_agent pattern.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddleware
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from loguru import logger
@@ -406,17 +408,24 @@ def create_agent_node(
             )
             raise
 
-    # Use LangChain v1's create_agent with middleware
-    # AgentState extends MessagesState with additional DAO AI fields
-    # System prompt is provided via middleware (dynamic_prompt)
-    # NOTE: checkpointer=False because these agents are used as subgraphs
-    # within the parent orchestration graph (swarm/supervisor) which handles
-    # checkpointing at the root level. Subgraphs cannot have checkpointer=True.
+    # HITL agents need their own InMemorySaver so that interrupt()/resume
+    # works within the subgraph.  Non-HITL agents keep checkpointer=False
+    # because they are simple subgraphs within the parent orchestration
+    # graph which handles checkpointing at the root level.
+    has_hitl: bool = any(
+        isinstance(mw, HumanInTheLoopMiddleware) for mw in middleware_list
+    )
+    subgraph_checkpointer: InMemorySaver | Literal[False] = (
+        InMemorySaver() if has_hitl else False
+    )
+
     logger.info(
         "Creating LangChain agent",
         agent=agent.name,
         tools_count=len(tools),
         middleware_count=len(middleware_list),
+        has_hitl=has_hitl,
+        subgraph_checkpointer=type(subgraph_checkpointer).__name__,
     )
 
     compiled_agent: CompiledStateGraph = create_agent(
@@ -424,7 +433,7 @@ def create_agent_node(
         model=llm,
         tools=tools,
         middleware=middleware_list,
-        checkpointer=False,
+        checkpointer=subgraph_checkpointer,
         state_schema=AgentState,
         context_schema=Context,
         response_format=response_format,

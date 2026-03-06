@@ -558,15 +558,23 @@ def handle_chat_command(options: Namespace) -> None:
 
                 import asyncio
 
+                from langgraph.errors import GraphInterrupt
                 from langgraph.types import Command
 
                 async def _invoke_with_hitl():
                     """Invoke graph and handle HITL interrupts in single async context."""
-                    result = await app.ainvoke(
-                        {"messages": messages},
-                        config=config,
-                        context=context,  # Pass context as separate parameter
-                    )
+                    try:
+                        result = await app.ainvoke(
+                            {"messages": messages},
+                            config=config,
+                            context=context,
+                        )
+                    except GraphInterrupt:
+                        logger.info("HITL: GraphInterrupt raised, recovering state from checkpointer")
+                        snapshot = await app.aget_state(config)
+                        result = dict(snapshot.values)
+                        if snapshot.interrupts:
+                            result["__interrupt__"] = list(snapshot.interrupts)
 
                     # Check for interrupts (Human-in-the-Loop) using __interrupt__
                     # This is the modern LangChain pattern
@@ -587,7 +595,7 @@ def handle_chat_command(options: Namespace) -> None:
                                 print(f"{'=' * 60}")
 
                                 tool_name = action_request.get("name", "unknown")
-                                tool_args = action_request.get("arguments", {})
+                                tool_args = action_request.get("args", {})
                                 description = action_request.get("description", "")
 
                                 print(f"Tool: {tool_name}")

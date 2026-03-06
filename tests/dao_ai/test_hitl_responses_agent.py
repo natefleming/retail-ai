@@ -1337,3 +1337,345 @@ def test_async_apredict_stream_surfaces_interrupt():
         ]
 
     _run_async(_test())
+
+
+# ---------------------------------------------------------------------------
+# Swarm-architecture integration tests
+#
+# These simulate the deployed architecture where agent subgraphs are wrapped
+# in create_agent_node_handler inside a parent orchestration graph, verifying
+# that HITL interrupts propagate through the handler correctly.
+# ---------------------------------------------------------------------------
+
+
+def _build_swarm_hitl_agent():
+    """Build a parent graph wrapping an agent subgraph via
+    create_agent_node_handler, mirroring the swarm/supervisor deployment.
+
+    Returns (parent_graph, agent_subgraph).
+    """
+    from langchain.agents import create_agent
+    from langchain.agents.middleware import HumanInTheLoopMiddleware
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langchain_core.tools import tool
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import END, START, StateGraph
+
+    from dao_ai.orchestration.core import create_agent_node_handler
+    from dao_ai.state import AgentState, Context
+
+    @tool
+    def send_email(to: str, subject: str, body: str) -> str:
+        """Send an email to someone."""
+        return f"Email sent to {to}"
+
+    class FakeToolChatModel(BaseChatModel):
+        """Stateless chat model: returns a tool call when no tool result is
+        present in the conversation; returns a final text response otherwise.
+        Each call generates a fresh AIMessage with a unique ID to avoid
+        add_messages deduplication across multi-turn conversations."""
+        tool_call_response: AIMessage
+        final_response: AIMessage
+
+        @property
+        def _llm_type(self) -> str:
+            return "fake-swarm-chat"
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            import uuid
+
+            from langchain_core.messages import ToolMessage
+
+            has_tool_result = any(isinstance(m, ToolMessage) for m in messages)
+            template = self.final_response if has_tool_result else self.tool_call_response
+            msg = AIMessage(
+                content=template.content,
+                tool_calls=list(template.tool_calls) if template.tool_calls else [],
+                id=str(uuid.uuid4()),
+            )
+            return ChatResult(generations=[ChatGeneration(message=msg)])
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    model = FakeToolChatModel(
+        tool_call_response=AIMessage(
+            content="Sending the email now.",
+            tool_calls=[
+                {
+                    "name": "send_email",
+                    "args": {
+                        "to": "test@example.com",
+                        "subject": "Test",
+                        "body": "Hello",
+                    },
+                    "id": "call_1",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        final_response=AIMessage(content="Email sent successfully!"),
+    )
+
+    agent_subgraph = create_agent(
+        name="test_agent",
+        model=model,
+        tools=[send_email],
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on={
+                    "send_email": {
+                        "allowed_decisions": ["approve", "edit", "reject"],
+                        "description": "Review email before sending",
+                    }
+                },
+            ),
+        ],
+        checkpointer=InMemorySaver(),
+        state_schema=AgentState,
+        context_schema=Context,
+    )
+
+    handler = create_agent_node_handler(
+        agent_name="test_agent",
+        agent=agent_subgraph,
+        output_mode="last_message",
+    )
+
+    workflow = StateGraph(
+        AgentState,
+        input=AgentState,
+        output=AgentState,
+        context_schema=Context,
+    )
+    workflow.add_node("test_agent", handler)
+    workflow.add_edge(START, "test_agent")
+    workflow.add_edge("test_agent", END)
+
+    parent_graph = workflow.compile(checkpointer=InMemorySaver())
+
+    return parent_graph, agent_subgraph
+
+
+def test_swarm_ainvoke_returns_interrupt():
+    """Swarm arch: parent graph ainvoke returns __interrupt__ when subgraph
+    HITL middleware fires."""
+
+    async def _test():
+        graph, _ = _build_swarm_hitl_agent()
+
+        from dao_ai.state import Context
+
+        config = {"configurable": {"thread_id": "swarm-integ-1", "user_id": "test"}}
+        context = Context(thread_id="swarm-integ-1", user_id="test")
+
+        result = await graph.ainvoke(
+            {"messages": [{"role": "user", "content": "Send email to test"}]},
+            config=config,
+            context=context,
+        )
+
+        assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+        assert "__interrupt__" in result, (
+            f"Expected __interrupt__ in result. Keys: {list(result.keys())}"
+        )
+        assert len(result["__interrupt__"]) == 1
+
+        interrupt = result["__interrupt__"][0]
+        assert interrupt.value["action_requests"][0]["name"] == "send_email"
+
+    _run_async(_test())
+
+
+def test_swarm_approve_continuation():
+    """Swarm arch: approve via Command(resume=...) resumes and completes."""
+
+    async def _test():
+        from langgraph.types import Command
+
+        from dao_ai.state import Context
+
+        graph, _ = _build_swarm_hitl_agent()
+
+        config = {"configurable": {"thread_id": "swarm-integ-approve", "user_id": "test"}}
+        context = Context(thread_id="swarm-integ-approve", user_id="test")
+
+        r1 = await graph.ainvoke(
+            {"messages": [{"role": "user", "content": "Send email"}]},
+            config=config,
+            context=context,
+        )
+        assert "__interrupt__" in r1
+
+        r2 = await graph.ainvoke(
+            Command(resume={"decisions": [{"type": "approve"}]}),
+            config=config,
+            context=context,
+        )
+
+        assert "__interrupt__" not in r2
+        assert r2["messages"][-1].content == "Email sent successfully!"
+
+    _run_async(_test())
+
+
+def test_swarm_second_invocation_triggers_interrupt():
+    """Regression test: HITL must trigger on BOTH the first AND second query
+    when using the same thread_id. The subgraph's InMemorySaver must not
+    accumulate state across separate parent-graph invocations."""
+
+    async def _test():
+        from langgraph.types import Command
+
+        from dao_ai.state import Context
+
+        graph, _ = _build_swarm_hitl_agent()
+
+        config = {"configurable": {"thread_id": "swarm-integ-second", "user_id": "test"}}
+        context = Context(thread_id="swarm-integ-second", user_id="test")
+
+        # --- First query: interrupt + approve ---
+        r1 = await graph.ainvoke(
+            {"messages": [{"role": "user", "content": "Send email to alice"}]},
+            config=config,
+            context=context,
+        )
+        assert "__interrupt__" in r1, "First invocation must trigger interrupt"
+
+        r2 = await graph.ainvoke(
+            Command(resume={"decisions": [{"type": "approve"}]}),
+            config=config,
+            context=context,
+        )
+        assert "__interrupt__" not in r2, "Resume should complete without interrupt"
+        assert "Email sent" in r2["messages"][-1].content
+
+        # --- Second query (same thread): must ALSO interrupt ---
+        r3 = await graph.ainvoke(
+            {"messages": [{"role": "user", "content": "Send email to bob"}]},
+            config=config,
+            context=context,
+        )
+        assert "__interrupt__" in r3, (
+            "Second invocation must also trigger interrupt. "
+            f"Keys: {list(r3.keys())}"
+        )
+
+        # Approve the second interrupt
+        r4 = await graph.ainvoke(
+            Command(resume={"decisions": [{"type": "approve"}]}),
+            config=config,
+            context=context,
+        )
+        assert "__interrupt__" not in r4, "Second resume should complete without interrupt"
+        assert "Email sent" in r4["messages"][-1].content
+
+    _run_async(_test())
+
+
+def test_swarm_responses_agent_surfaces_interrupt():
+    """Swarm arch: LanggraphResponsesAgent surfaces interrupt from a
+    handler-wrapped subgraph in custom_outputs."""
+    graph, _ = _build_swarm_hitl_agent()
+    agent = LanggraphResponsesAgent(graph)
+
+    request = ResponsesAgentRequest(
+        input=[Message(role="user", content="Send email to test@example.com")],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "swarm-ra-integ-1",
+                "user_id": "test_user",
+            }
+        },
+    )
+
+    response = agent.predict(request)
+
+    assert response.custom_outputs is not None
+    assert "interrupts" in response.custom_outputs, (
+        f"No interrupts in custom_outputs. Keys: {list(response.custom_outputs.keys())}"
+    )
+    assert len(response.custom_outputs["interrupts"]) == 1
+
+    interrupt = response.custom_outputs["interrupts"][0]
+    assert interrupt["action_requests"][0]["name"] == "send_email"
+
+
+def test_swarm_async_apredict_surfaces_interrupt():
+    """Swarm arch: apredict() surfaces interrupt with user options in output."""
+
+    async def _test():
+        graph, _ = _build_swarm_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email to test@example.com")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "swarm-async-integ-1",
+                    "user_id": "test_user",
+                }
+            },
+        )
+
+        response = await agent.apredict(request)
+
+        assert response.custom_outputs is not None
+        assert "interrupts" in response.custom_outputs, (
+            f"No interrupts in custom_outputs. Keys: {list(response.custom_outputs.keys())}"
+        )
+        assert len(response.custom_outputs["interrupts"]) == 1
+
+        interrupt = response.custom_outputs["interrupts"][0]
+        assert interrupt["action_requests"][0]["name"] == "send_email"
+        assert interrupt["review_configs"][0]["allowed_decisions"] == [
+            "approve",
+            "edit",
+            "reject",
+        ]
+
+        output_text = response.output[0].content[0]["text"]
+        assert "Action Approval Required" in output_text
+
+    _run_async(_test())
+
+
+def test_swarm_async_apredict_stream_surfaces_interrupt():
+    """Swarm arch: apredict_stream() surfaces interrupt in final event."""
+
+    async def _test():
+        graph, _ = _build_swarm_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "swarm-async-stream-integ",
+                    "user_id": "test_user",
+                }
+            },
+        )
+
+        events = []
+        async for event in agent.apredict_stream(request):
+            events.append(event)
+
+        final_events = [e for e in events if e.type == "response.output_item.done"]
+        assert len(final_events) == 1, (
+            f"Expected 1 final event, got {len(final_events)}"
+        )
+
+        final_event = final_events[0]
+        assert "interrupts" in final_event.custom_outputs, (
+            f"No interrupts in streaming custom_outputs. "
+            f"Keys: {list(final_event.custom_outputs.keys())}"
+        )
+        assert len(final_event.custom_outputs["interrupts"]) == 1
+
+        interrupt = final_event.custom_outputs["interrupts"][0]
+        assert interrupt["action_requests"][0]["name"] == "send_email"
+
+    _run_async(_test())

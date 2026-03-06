@@ -15,10 +15,12 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.config import get_config
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from langgraph.store.base import BaseStore
-from langgraph.types import Command
+from langgraph.types import Command, Interrupt
+from langgraph.types import interrupt as langgraph_interrupt
 from loguru import logger
 
 from dao_ai.config import AgentModel, AppConfig, OrchestrationModel
@@ -188,10 +190,91 @@ def create_agent_node_handler(
         if runtime.context:
             config = {"configurable": runtime.context.model_dump()}
 
-        # Invoke the agent with both context and config
-        result: AgentState = await agent.ainvoke(
-            agent_state, context=runtime.context, config=config
-        )
+        # --- HITL interrupt propagation & state-scoped sub-thread_id ---
+        #
+        # When the subgraph has its own checkpointer (HITL agents), we must:
+        #   1. Use a per-task sub-thread_id so the subgraph starts fresh on
+        #      each parent-graph step, preventing stale message accumulation.
+        #   2. Detect __interrupt__ in the subgraph result and propagate it
+        #      to the parent via langgraph_interrupt().
+        #   3. On resume (same parent task), the handler re-enters with the
+        #      same task_id.  We detect the interrupted subgraph state via
+        #      aget_state and propagate using langgraph_interrupt(), which
+        #      returns the user's decisions.  We then forward them to the
+        #      subgraph via Command(resume=...).
+        #
+        # IMPORTANT: We must NOT call ainvoke(agent_state) on an already-
+        # interrupted subgraph, because LangGraph appends the input messages
+        # to the existing checkpoint and corrupts the state.
+        if agent.checkpointer:
+            parent_conf = get_config().get("configurable", {})
+            task_id: str = parent_conf.get(
+                "__pregel_task_id", "default"
+            )
+            thread_id: str = config.get("configurable", {}).get(
+                "thread_id", "default"
+            )
+            sub_thread_id: str = f"{thread_id}__sub_{task_id}"
+            sub_config: dict[str, Any] = {
+                "configurable": {
+                    **config.get("configurable", {}),
+                    "thread_id": sub_thread_id,
+                }
+            }
+
+            logger.debug(
+                "HITL: Invoking subgraph with scoped thread",
+                agent=agent_name,
+                sub_thread_id=sub_thread_id,
+            )
+
+            # Check if the subgraph is already interrupted (resume path)
+            sub_state = await agent.aget_state(config=sub_config)
+            is_interrupted: bool = bool(
+                sub_state and sub_state.next
+            )
+
+            if is_interrupted:
+                # Resume path: propagate the existing interrupt to the
+                # parent.  langgraph_interrupt() returns the user's
+                # decisions (because the parent is being resumed).
+                interrupts = list(sub_state.interrupts)
+                logger.info(
+                    "HITL: Subgraph is interrupted, propagating to parent",
+                    agent=agent_name,
+                    interrupts_count=len(interrupts),
+                )
+                resume_value: Any = None
+                for intr in interrupts:
+                    resume_value = langgraph_interrupt(intr.value)
+
+                logger.info(
+                    "HITL: Resume value received, forwarding to subgraph",
+                    agent=agent_name,
+                )
+                result: dict[str, Any] = await agent.ainvoke(
+                    Command(resume=resume_value),
+                    context=runtime.context,
+                    config=sub_config,
+                )
+            else:
+                # Fresh invocation
+                result = await agent.ainvoke(
+                    agent_state, context=runtime.context, config=sub_config
+                )
+                if "__interrupt__" in result:
+                    interrupts_list: list[Interrupt] = result["__interrupt__"]
+                    logger.info(
+                        "HITL: Subgraph returned interrupt, propagating",
+                        agent=agent_name,
+                        interrupts_count=len(interrupts_list),
+                    )
+                    for intr in interrupts_list:
+                        langgraph_interrupt(intr.value)
+        else:
+            result = await agent.ainvoke(
+                agent_state, context=runtime.context, config=config
+            )
 
         # Extract agent response based on output mode
         result_messages = result.get("messages", [])
