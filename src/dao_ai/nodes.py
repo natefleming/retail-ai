@@ -15,6 +15,7 @@ from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddlewa
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
@@ -244,6 +245,7 @@ def create_agent_node(
     chat_history: Optional[ChatHistoryModel] = None,
     additional_tools: Optional[Sequence[BaseTool]] = None,
     extraction_manager: Optional[MemoryStoreManager] = None,
+    checkpointer: Optional[BaseCheckpointSaver] = None,
 ) -> CompiledStateGraph:
     """
     Factory function that creates a LangGraph node for a specialized agent.
@@ -261,6 +263,9 @@ def create_agent_node(
         extraction_manager: Optional shared MemoryStoreManager for memory
             context injection. When provided, this instance is reused instead
             of creating a new one per agent.
+        checkpointer: Optional persistent checkpointer for HITL subgraph state.
+            Required for Model Serving where multiple workers need shared state.
+            Falls back to InMemorySaver if not provided.
 
     Returns:
         A compiled agent node that processes state and returns responses
@@ -460,16 +465,20 @@ def create_agent_node(
             )
             raise
 
-    # HITL agents need their own InMemorySaver so that interrupt()/resume
-    # works within the subgraph.  The handler in orchestration/core.py
-    # calls agent.ainvoke() directly (not via add_node), so the subgraph
+    # HITL agents need a checkpointer so that interrupt()/resume works
+    # within the subgraph.  The handler in orchestration/core.py calls
+    # agent.ainvoke() directly (not via add_node), so the subgraph
     # cannot inherit the parent's checkpointer -- it needs its own.
+    # In Model Serving with multiple workers, InMemorySaver state is lost
+    # across requests; a persistent checkpointer (e.g. Lakebase-backed)
+    # must be used.  The sub_thread_id scoping in the handler prevents
+    # conflicts between the parent and subgraph checkpointer tables.
     # Non-HITL agents keep checkpointer=False to disable checkpointing.
     has_hitl: bool = any(
         isinstance(mw, HumanInTheLoopMiddleware) for mw in middleware_list
     )
-    subgraph_checkpointer: InMemorySaver | Literal[False] = (
-        InMemorySaver() if has_hitl else False
+    subgraph_checkpointer: BaseCheckpointSaver | Literal[False] = (
+        (checkpointer or InMemorySaver()) if has_hitl else False
     )
 
     logger.info(

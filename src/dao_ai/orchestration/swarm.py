@@ -430,6 +430,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             chat_history=config.app.chat_history,
             additional_tools=handoff_result.tools,
             extraction_manager=extraction_manager,
+            checkpointer=checkpointer,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
         logger.debug(

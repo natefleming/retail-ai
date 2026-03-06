@@ -338,6 +338,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             chat_history=config.app.chat_history,
             additional_tools=[supervisor_handoff],
             extraction_manager=extraction_manager,
+            checkpointer=checkpointer,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
         logger.debug("Created worker agent subgraph", agent=registered_agent.name)
