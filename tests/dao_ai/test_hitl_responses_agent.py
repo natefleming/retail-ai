@@ -727,3 +727,179 @@ def test_predict_stream_interrupt_via_aget_state_fallback(
 
     interrupt_data = final_event.custom_outputs["interrupts"][0]
     assert interrupt_data["action_requests"][0]["name"] == "create_ticket"
+
+
+# ---------------------------------------------------------------------------
+# Integration tests with real LangGraph graph + InMemorySaver
+# ---------------------------------------------------------------------------
+
+
+class _FakeToolChatModel:
+    """Minimal chat model that supports bind_tools and returns predetermined messages.
+
+    Implemented as a wrapper around BaseChatModel to satisfy create_agent's
+    requirement for tool-binding support.
+    """
+
+    pass  # Defined below to avoid import at module top level
+
+
+def _build_hitl_agent():
+    """Build a real LangGraph agent with HITL middleware and InMemorySaver.
+
+    Returns (agent, send_email_tool) for use in integration tests.
+    """
+    from langchain.agents import create_agent
+    from langchain.agents.middleware import HumanInTheLoopMiddleware
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langchain_core.tools import tool
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    @tool
+    def send_email(to: str, subject: str, body: str) -> str:
+        """Send an email to someone."""
+        return f"Email sent to {to}"
+
+    class FakeToolChatModel(BaseChatModel):
+        responses: list[AIMessage]
+        call_count: int = 0
+
+        @property
+        def _llm_type(self) -> str:
+            return "fake-tool-chat"
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            idx = min(self.call_count, len(self.responses) - 1)
+            self.call_count += 1
+            return ChatResult(
+                generations=[ChatGeneration(message=self.responses[idx])]
+            )
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    model = FakeToolChatModel(
+        responses=[
+            AIMessage(
+                content="Sending the email now.",
+                tool_calls=[
+                    {
+                        "name": "send_email",
+                        "args": {
+                            "to": "test@example.com",
+                            "subject": "Test",
+                            "body": "Hello",
+                        },
+                        "id": "call_1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(content="Email sent successfully!"),
+        ],
+    )
+
+    graph = create_agent(
+        model=model,
+        tools=[send_email],
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on={
+                    "send_email": {
+                        "allowed_decisions": ["approve", "edit", "reject"],
+                        "description": "Review email before sending",
+                    }
+                },
+            ),
+        ],
+        checkpointer=InMemorySaver(),
+    )
+
+    return graph, send_email
+
+
+def test_integration_ainvoke_returns_interrupt():
+    """Integration test: ainvoke() on a real graph returns __interrupt__ in the dict."""
+    graph, _ = _build_hitl_agent()
+
+    config = {"configurable": {"thread_id": "integ-ainvoke-1"}}
+    result = graph.invoke(
+        {"messages": [{"role": "user", "content": "Send email to test"}]},
+        config=config,
+    )
+
+    assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+    assert "__interrupt__" in result, (
+        f"Expected __interrupt__ in result. Keys: {list(result.keys())}"
+    )
+    assert len(result["__interrupt__"]) == 1
+
+    interrupt = result["__interrupt__"][0]
+    assert interrupt.value["action_requests"][0]["name"] == "send_email"
+    assert interrupt.value["review_configs"][0]["allowed_decisions"] == [
+        "approve",
+        "edit",
+        "reject",
+    ]
+
+
+def test_integration_ainvoke_resume_with_approve():
+    """Integration test: resume an interrupted graph with approve decision."""
+    from langgraph.types import Command
+
+    graph, _ = _build_hitl_agent()
+
+    config = {"configurable": {"thread_id": "integ-resume-1"}}
+
+    # Step 1: invoke until interrupt
+    r1 = graph.invoke(
+        {"messages": [{"role": "user", "content": "Send email"}]},
+        config=config,
+    )
+    assert "__interrupt__" in r1
+
+    # Step 2: resume with approval
+    r2 = graph.invoke(
+        Command(resume={"decisions": [{"type": "approve"}]}),
+        config=config,
+    )
+
+    assert "__interrupt__" not in r2
+    assert r2["messages"][-1].content == "Email sent successfully!"
+
+
+def test_integration_responses_agent_surfaces_interrupt():
+    """Integration test: LanggraphResponsesAgent surfaces interrupt in custom_outputs."""
+    graph, _ = _build_hitl_agent()
+    agent = LanggraphResponsesAgent(graph)
+
+    request = ResponsesAgentRequest(
+        input=[Message(role="user", content="Send email to test@example.com")],
+        custom_inputs={
+            "configurable": {
+                "thread_id": "integ-responses-1",
+                "user_id": "test_user",
+            }
+        },
+    )
+
+    response = agent.predict(request)
+
+    assert response.custom_outputs is not None
+    assert "interrupts" in response.custom_outputs, (
+        f"No interrupts in custom_outputs. Keys: {list(response.custom_outputs.keys())}"
+    )
+    assert len(response.custom_outputs["interrupts"]) == 1
+
+    interrupt = response.custom_outputs["interrupts"][0]
+    assert interrupt["action_requests"][0]["name"] == "send_email"
+    assert interrupt["review_configs"][0]["allowed_decisions"] == [
+        "approve",
+        "edit",
+        "reject",
+    ]
+
+    output_text = response.output[0].content[0]["text"]
+    assert "send_email" in output_text

@@ -983,6 +983,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
             conversation_id=conversation_id_for_log
             if conversation_id_for_log
             else "new",
+            has_checkpointer=self.graph.checkpointer is not None,
+            checkpointer_type=type(self.graph.checkpointer).__name__ if self.graph.checkpointer else None,
         )
 
         # Convert ResponsesAgent input to LangChain messages
@@ -1012,6 +1014,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     Command(resume={"decisions": decisions}),
                     context=context,
                     config=custom_inputs,
+                )
+                logger.debug(
+                    "HITL: ainvoke resume response received",
+                    response_keys=list(response.keys()) if isinstance(response, dict) else type(response).__name__,
+                    has_interrupt="__interrupt__" in response if isinstance(response, dict) else False,
                 )
             elif self.graph.checkpointer:
                 # Check if graph is currently interrupted
@@ -1064,6 +1071,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                             context=context,
                             config=custom_inputs,
                         )
+                        logger.debug(
+                            "HITL: ainvoke LLM-parsed resume response received",
+                            response_keys=list(response.keys()) if isinstance(response, dict) else type(response).__name__,
+                            has_interrupt="__interrupt__" in response if isinstance(response, dict) else False,
+                        )
                 else:
                     # Normal invocation
                     graph_input: dict[str, Any] = {"messages": messages}
@@ -1075,6 +1087,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     response = await self.graph.ainvoke(
                         graph_input, context=context, config=custom_inputs
                     )
+                    logger.debug(
+                        "HITL: ainvoke response received",
+                        response_keys=list(response.keys()) if isinstance(response, dict) else type(response).__name__,
+                        has_interrupt="__interrupt__" in response if isinstance(response, dict) else False,
+                    )
             else:
                 # No checkpointer, use normal invocation
                 graph_input = {"messages": messages}
@@ -1085,6 +1102,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
                 response = await self.graph.ainvoke(
                     graph_input, context=context, config=custom_inputs
+                )
+                logger.debug(
+                    "HITL: ainvoke response received (no checkpointer)",
+                    response_keys=list(response.keys()) if isinstance(response, dict) else type(response).__name__,
+                    has_interrupt="__interrupt__" in response if isinstance(response, dict) else False,
                 )
         except GraphInterrupt:
             logger.info("HITL: GraphInterrupt raised during invocation")
@@ -1102,7 +1124,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
             raise
 
         # Check for interrupts via aget_state when ainvoke() returned without __interrupt__
-        if self.graph.checkpointer and "__interrupt__" not in response:
+        if self.graph.checkpointer and isinstance(response, dict) and "__interrupt__" not in response:
             post_snapshot = await self.graph.aget_state(config=custom_inputs)
             if post_snapshot.interrupts:
                 response["__interrupt__"] = list(post_snapshot.interrupts)
@@ -1159,7 +1181,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
             )
 
         # Include interrupt structure if HITL occurred
-        if "__interrupt__" in response:
+        if isinstance(response, dict) and "__interrupt__" in response:
             interrupts: list[Interrupt] = response["__interrupt__"]
             logger.info("HITL: Interrupts detected", interrupts_count=len(interrupts))
 
@@ -1228,6 +1250,8 @@ class LanggraphResponsesAgent(ResponsesAgent):
             conversation_id=conversation_id_for_log
             if conversation_id_for_log
             else "new",
+            has_checkpointer=self.graph.checkpointer is not None,
+            checkpointer_type=type(self.graph.checkpointer).__name__ if self.graph.checkpointer else None,
         )
 
         # Convert ResponsesAgent input to LangChain messages
