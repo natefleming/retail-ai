@@ -192,7 +192,9 @@ def create_agent_node_handler(
 
         # --- HITL interrupt propagation & state-scoped sub-thread_id ---
         #
-        # When the subgraph has its own checkpointer (HITL agents), we must:
+        # The handler invokes the subgraph via ainvoke() (not add_node),
+        # so the subgraph cannot inherit the parent's checkpointer and
+        # needs its own InMemorySaver.  We must:
         #   1. Use a per-task sub-thread_id so the subgraph starts fresh on
         #      each parent-graph step, preventing stale message accumulation.
         #   2. Detect __interrupt__ in the subgraph result and propagate it
@@ -202,10 +204,6 @@ def create_agent_node_handler(
         #      aget_state and propagate using langgraph_interrupt(), which
         #      returns the user's decisions.  We then forward them to the
         #      subgraph via Command(resume=...).
-        #
-        # IMPORTANT: We must NOT call ainvoke(agent_state) on an already-
-        # interrupted subgraph, because LangGraph appends the input messages
-        # to the existing checkpoint and corrupts the state.
         if agent.checkpointer:
             parent_conf = get_config().get("configurable", {})
             task_id: str = parent_conf.get(
@@ -228,16 +226,12 @@ def create_agent_node_handler(
                 sub_thread_id=sub_thread_id,
             )
 
-            # Check if the subgraph is already interrupted (resume path)
             sub_state = await agent.aget_state(config=sub_config)
             is_interrupted: bool = bool(
                 sub_state and sub_state.next
             )
 
             if is_interrupted:
-                # Resume path: propagate the existing interrupt to the
-                # parent.  langgraph_interrupt() returns the user's
-                # decisions (because the parent is being resumed).
                 interrupts = list(sub_state.interrupts)
                 logger.info(
                     "HITL: Subgraph is interrupted, propagating to parent",
@@ -258,7 +252,6 @@ def create_agent_node_handler(
                     config=sub_config,
                 )
             else:
-                # Fresh invocation
                 result = await agent.ainvoke(
                     agent_state, context=runtime.context, config=sub_config
                 )

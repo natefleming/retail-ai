@@ -427,7 +427,7 @@ def test_predict_stream_with_interrupt(responses_agent, mock_graph):
             ],
         )
         yield (
-            ("agent",),
+            (),
             "updates",
             {"__interrupt__": [interrupt]},
         )
@@ -1677,5 +1677,116 @@ def test_swarm_async_apredict_stream_surfaces_interrupt():
 
         interrupt = final_event.custom_outputs["interrupts"][0]
         assert interrupt["action_requests"][0]["name"] == "send_email"
+
+    _run_async(_test())
+
+
+def test_swarm_no_duplicate_interrupts_in_ainvoke():
+    """Regression test: ainvoke must return exactly 1 interrupt even though
+    the handler re-propagates the subgraph interrupt to the parent (creating
+    a second Interrupt with a new ID but identical content).
+
+    Content-based dedup in LanggraphResponsesAgent.apredict must collapse
+    them into a single user-facing interrupt."""
+
+    async def _test():
+        graph, _ = _build_swarm_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email to test@example.com")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "swarm-dedup-ainvoke",
+                    "user_id": "test_user",
+                }
+            },
+        )
+
+        response = await agent.apredict(request)
+
+        assert response.custom_outputs is not None
+        assert "interrupts" in response.custom_outputs
+        assert len(response.custom_outputs["interrupts"]) == 1, (
+            f"Expected exactly 1 interrupt (deduped), got "
+            f"{len(response.custom_outputs['interrupts'])}"
+        )
+
+        interrupt = response.custom_outputs["interrupts"][0]
+        assert interrupt["action_requests"][0]["name"] == "send_email"
+
+    _run_async(_test())
+
+
+def test_swarm_no_duplicate_interrupts_in_stream():
+    """Regression test: apredict_stream must yield exactly 1 interrupt even
+    though streaming with subgraphs=True produces events at both the subgraph
+    level and the parent level.
+
+    The nodes-tuple depth filter plus content-based dedup must collapse
+    duplicates into a single user-facing interrupt."""
+
+    async def _test():
+        graph, _ = _build_swarm_hitl_agent()
+        agent = LanggraphResponsesAgent(graph)
+
+        request = ResponsesAgentRequest(
+            input=[Message(role="user", content="Send email to test@example.com")],
+            custom_inputs={
+                "configurable": {
+                    "thread_id": "swarm-dedup-stream",
+                    "user_id": "test_user",
+                }
+            },
+        )
+
+        events = []
+        async for event in agent.apredict_stream(request):
+            events.append(event)
+
+        final_events = [e for e in events if e.type == "response.output_item.done"]
+        assert len(final_events) == 1
+
+        final_event = final_events[0]
+        assert "interrupts" in final_event.custom_outputs
+        assert len(final_event.custom_outputs["interrupts"]) == 1, (
+            f"Expected exactly 1 interrupt (deduped), got "
+            f"{len(final_event.custom_outputs['interrupts'])}"
+        )
+
+        interrupt = final_event.custom_outputs["interrupts"][0]
+        assert interrupt["action_requests"][0]["name"] == "send_email"
+
+    _run_async(_test())
+
+
+def test_swarm_reject_continuation():
+    """Swarm arch: reject via Command(resume=...) resumes and completes
+    without executing the tool."""
+
+    async def _test():
+        from langgraph.types import Command
+
+        from dao_ai.state import Context
+
+        graph, _ = _build_swarm_hitl_agent()
+
+        config = {"configurable": {"thread_id": "swarm-integ-reject", "user_id": "test"}}
+        context = Context(thread_id="swarm-integ-reject", user_id="test")
+
+        r1 = await graph.ainvoke(
+            {"messages": [{"role": "user", "content": "Send email"}]},
+            config=config,
+            context=context,
+        )
+        assert "__interrupt__" in r1
+
+        r2 = await graph.ainvoke(
+            Command(resume={"decisions": [{"type": "reject", "message": "Not allowed"}]}),
+            config=config,
+            context=context,
+        )
+
+        assert "__interrupt__" not in r2
 
     _run_async(_test())

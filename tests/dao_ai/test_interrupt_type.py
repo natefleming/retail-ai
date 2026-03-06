@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from langgraph.types import Interrupt, StateSnapshot
 
-from dao_ai.models import is_interrupted
+from dao_ai.models import _interrupt_content_key, is_interrupted
 
 
 class TestInterruptType:
@@ -161,3 +161,53 @@ class TestIsInterrupted:
             ),
         )
         assert is_interrupted(interrupted) is True
+
+
+class TestInterruptContentKey:
+    """Test the _interrupt_content_key dedup helper."""
+
+    def test_same_value_same_key(self):
+        """Two interrupts with identical .value produce the same key."""
+        value = {
+            "action_requests": [{"name": "send_email", "args": {"to": "a@b.com"}}],
+            "review_configs": [{"action_name": "send_email", "allowed_decisions": ["approve"]}],
+        }
+        i1 = Interrupt(value=value, id="id-aaa")
+        i2 = Interrupt(value=value, id="id-bbb")
+
+        assert _interrupt_content_key(i1) == _interrupt_content_key(i2)
+
+    def test_different_value_different_key(self):
+        """Two interrupts with different .value produce different keys."""
+        i1 = Interrupt(
+            value={"action_requests": [{"name": "tool_a"}]}, id="id-1"
+        )
+        i2 = Interrupt(
+            value={"action_requests": [{"name": "tool_b"}]}, id="id-2"
+        )
+
+        assert _interrupt_content_key(i1) != _interrupt_content_key(i2)
+
+    def test_different_id_same_value(self):
+        """Handler re-propagation creates a new ID but keeps the value.
+        Content key must still match."""
+        value = {"action_requests": [{"name": "request_dataset_access", "args": {"desc": "x"}}]}
+        original = Interrupt(value=value, id="subgraph-interrupt-abc")
+        propagated = Interrupt(value=value, id="parent-interrupt-xyz")
+
+        assert _interrupt_content_key(original) == _interrupt_content_key(propagated)
+
+    def test_non_dict_value(self):
+        """Fallback: non-dict values still produce a stable key."""
+        i1 = Interrupt(value="plain string", id="id-1")
+        i2 = Interrupt(value="plain string", id="id-2")
+
+        assert _interrupt_content_key(i1) == _interrupt_content_key(i2)
+
+    def test_key_is_deterministic(self):
+        """Same interrupt object always produces the same key."""
+        i = Interrupt(
+            value={"action_requests": [{"name": "t", "args": {"a": 1, "b": 2}}]},
+            id="test",
+        )
+        assert _interrupt_content_key(i) == _interrupt_content_key(i)

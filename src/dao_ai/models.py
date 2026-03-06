@@ -311,6 +311,28 @@ def get_genie_conversation_ids_from_state(
         return {}
 
 
+def _interrupt_content_key(interrupt: Interrupt) -> str:
+    """Return a deterministic key derived from the interrupt's *content*.
+
+    The handler in ``orchestration/core.py`` re-propagates subgraph
+    interrupts to the parent via ``langgraph_interrupt(intr.value)``,
+    which creates a **new** ``Interrupt`` with a fresh ``.id`` but the
+    same ``.value``.  Streaming with ``subgraphs=True`` then yields
+    both the subgraph-level and the parent-level interrupts.
+
+    Deduplicating by ``.id`` alone is therefore insufficient; we also
+    need a content-based key so that duplicate values are collapsed.
+    """
+    import hashlib
+    import json
+
+    try:
+        canonical = json.dumps(interrupt.value, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        canonical = repr(interrupt.value)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def _extract_interrupt_value(interrupt: Interrupt) -> HITLRequest:
     """
     Extract the HITL request from a LangGraph Interrupt object.
@@ -1207,11 +1229,12 @@ class LanggraphResponsesAgent(ResponsesAgent):
             interrupts: list[Interrupt] = response["__interrupt__"]
             logger.info("HITL: Interrupts detected", interrupts_count=len(interrupts))
 
-            seen_interrupt_ids: set[str] = set()
+            seen_content_keys: set[str] = set()
             interrupt_data: list[HITLRequest] = []
             for interrupt in interrupts:
-                if interrupt.id not in seen_interrupt_ids:
-                    seen_interrupt_ids.add(interrupt.id)
+                content_key = _interrupt_content_key(interrupt)
+                if content_key not in seen_content_keys:
+                    seen_content_keys.add(content_key)
                     interrupt_data.append(_extract_interrupt_value(interrupt))
                     logger.trace(
                         "HITL: Added interrupt to response", interrupt_id=interrupt.id
@@ -1293,7 +1316,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
         item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
         accumulated_content: str = ""
         interrupt_data: list[HITLRequest] = []
-        seen_interrupt_ids: set[str] = set()
+        seen_interrupt_keys: set[str] = set()
         structured_response: Any = None
 
         try:
@@ -1417,6 +1440,12 @@ class LanggraphResponsesAgent(ResponsesAgent):
                         updates: dict[str, Any] = data
                         for source, update in updates.items():
                             if source == "__interrupt__":
+                                if len(nodes) > 0:
+                                    logger.trace(
+                                        "HITL: Skipping subgraph-level interrupt",
+                                        nodes=nodes,
+                                    )
+                                    continue
                                 interrupts: list[Interrupt] = update
                                 logger.info(
                                     "HITL: Interrupts detected during streaming",
@@ -1424,8 +1453,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 )
 
                                 for interrupt in interrupts:
-                                    if interrupt.id not in seen_interrupt_ids:
-                                        seen_interrupt_ids.add(interrupt.id)
+                                    content_key = _interrupt_content_key(interrupt)
+                                    if content_key not in seen_interrupt_keys:
+                                        seen_interrupt_keys.add(content_key)
                                         interrupt_data.append(
                                             _extract_interrupt_value(interrupt)
                                         )
@@ -1457,8 +1487,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     structured_response = final_state.values["structured_response"]
                 if not interrupt_data and final_state.interrupts:
                     for interrupt in final_state.interrupts:
-                        if interrupt.id not in seen_interrupt_ids:
-                            seen_interrupt_ids.add(interrupt.id)
+                        content_key = _interrupt_content_key(interrupt)
+                        if content_key not in seen_interrupt_keys:
+                            seen_interrupt_keys.add(content_key)
                             interrupt_data.append(_extract_interrupt_value(interrupt))
                     if interrupt_data:
                         logger.info(

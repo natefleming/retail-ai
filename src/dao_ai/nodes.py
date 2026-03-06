@@ -14,6 +14,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddleware
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
+
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
@@ -409,9 +410,10 @@ def create_agent_node(
             raise
 
     # HITL agents need their own InMemorySaver so that interrupt()/resume
-    # works within the subgraph.  Non-HITL agents keep checkpointer=False
-    # because they are simple subgraphs within the parent orchestration
-    # graph which handles checkpointing at the root level.
+    # works within the subgraph.  The handler in orchestration/core.py
+    # calls agent.ainvoke() directly (not via add_node), so the subgraph
+    # cannot inherit the parent's checkpointer -- it needs its own.
+    # Non-HITL agents keep checkpointer=False to disable checkpointing.
     has_hitl: bool = any(
         isinstance(mw, HumanInTheLoopMiddleware) for mw in middleware_list
     )
