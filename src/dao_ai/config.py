@@ -2393,6 +2393,49 @@ class FunctionType(str, Enum):
     INLINE = "inline"
 
 
+_DEFAULT_APPROVE_GUIDANCE: str = (
+    "The tool was executed successfully. Summarize the result to the user. "
+    "Do NOT re-invoke the same tool — the action has already been performed."
+)
+_DEFAULT_REJECT_GUIDANCE: str = (
+    "The tool call was REJECTED by the user. The action was NOT performed. "
+    "Clearly state that no action was taken and ask the user what they "
+    "would like to do instead. Do NOT claim the action was performed."
+)
+_DEFAULT_EDIT_GUIDANCE: str = (
+    "The tool was executed with modified arguments. Summarize the result "
+    "and confirm the changes that were applied."
+)
+
+
+class DecisionGuidance(BaseModel):
+    """Per-decision system guidance injected into the agent prompt.
+
+    After a HITL decision is made, these instructions tell the LLM how
+    to respond for each decision type.  They are appended to the agent's
+    system prompt at creation time so the LLM always has them available.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    approve: str = Field(
+        default=_DEFAULT_APPROVE_GUIDANCE,
+        description="Guidance for the LLM after the user approves a tool call",
+    )
+    reject: str = Field(
+        default=_DEFAULT_REJECT_GUIDANCE,
+        description="Guidance for the LLM after the user rejects a tool call",
+    )
+    edit: str = Field(
+        default=_DEFAULT_EDIT_GUIDANCE,
+        description="Guidance for the LLM after the user edits and approves a tool call",
+    )
+
+    def guidance_for(self, decision_type: Literal["approve", "edit", "reject"]) -> str:
+        """Return the guidance string for the given decision type."""
+        return getattr(self, decision_type)
+
+
 class HumanInTheLoopModel(BaseModel):
     """
     Configuration for Human-in-the-Loop tool approval.
@@ -2418,6 +2461,14 @@ class HumanInTheLoopModel(BaseModel):
         description="List of allowed decision types for this tool",
     )
 
+    decision_guidance: DecisionGuidance = Field(
+        default_factory=DecisionGuidance,
+        description=(
+            "Per-decision guidance injected into the agent prompt to instruct "
+            "the LLM how to respond after each decision type"
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_and_normalize_decisions(self) -> Self:
         """Validate and normalize allowed decisions."""
@@ -2425,8 +2476,8 @@ class HumanInTheLoopModel(BaseModel):
             raise ValueError("At least one decision type must be allowed")
 
         # Remove duplicates while preserving order
-        seen = set()
-        unique_decisions = []
+        seen: set[str] = set()
+        unique_decisions: list[Literal["approve", "edit", "reject"]] = []
         for decision in self.allowed_decisions:
             if decision not in seen:
                 seen.add(decision)

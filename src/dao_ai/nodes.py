@@ -23,6 +23,7 @@ from loguru import logger
 from dao_ai.config import (
     AgentModel,
     ChatHistoryModel,
+    DecisionGuidance,
     MemoryModel,
     PromptModel,
     ToolModel,
@@ -56,6 +57,40 @@ MEMORY_TOOL_INSTRUCTIONS = (
     "- Never display function call syntax, tool names, or JSON to the user\n"
     "- Present memory-related information naturally in conversation"
 )
+
+
+def _build_hitl_prompt_guidance(tool_models: Sequence[ToolModel]) -> str | None:
+    """Build HITL decision-guidance text from tool configs.
+
+    Scans all tool models for HITL configurations and builds a prompt
+    section that instructs the LLM how to respond after each decision
+    type (approve / reject / edit).
+
+    Returns:
+        A formatted prompt section string, or ``None`` if no tools have HITL.
+    """
+    sections: list[str] = []
+
+    for tool_model in tool_models:
+        hitl = tool_model.function.human_in_the_loop
+        if hitl is None:
+            continue
+
+        guidance: DecisionGuidance = hitl.decision_guidance
+        lines: list[str] = [f"### {tool_model.name}"]
+        for decision in hitl.allowed_decisions:
+            lines.append(f"- If **{decision}**: {guidance.guidance_for(decision)}")
+        sections.append("\n".join(lines))
+
+    if not sections:
+        return None
+
+    header: str = (
+        "\n\n## Human-in-the-Loop Decision Guidance\n"
+        "After a tool call that requires human approval has been decided, "
+        "follow the instructions below for each tool and decision type.\n\n"
+    )
+    return header + "\n\n".join(sections)
 
 
 def _create_middleware_list(
@@ -381,6 +416,22 @@ def create_agent_node(
         else:
             effective_prompt = effective_prompt + MEMORY_TOOL_INSTRUCTIONS
         logger.debug("Memory tool instructions appended to prompt", agent=agent.name)
+
+    # Append HITL decision guidance to the prompt when tools have HITL config
+    hitl_guidance: str | None = _build_hitl_prompt_guidance(tool_models)
+    if hitl_guidance is not None:
+        if effective_prompt is None:
+            effective_prompt = hitl_guidance.lstrip("\n")
+        elif isinstance(effective_prompt, PromptModel):
+            effective_prompt = PromptModel(
+                **{
+                    **effective_prompt.model_dump(),
+                    "template": effective_prompt.template + hitl_guidance,
+                }
+            )
+        else:
+            effective_prompt = effective_prompt + hitl_guidance
+        logger.debug("HITL decision guidance appended to prompt", agent=agent.name)
 
     # Get the prompt as middleware (always returns AgentMiddleware or None)
     prompt_middleware: AgentMiddleware | None = make_prompt(effective_prompt)

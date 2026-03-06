@@ -1725,6 +1725,32 @@
       "title": "DatasetModel",
       "type": "object"
     },
+    "DecisionGuidance": {
+      "additionalProperties": false,
+      "description": "Per-decision system guidance injected into the agent prompt.\n\nAfter a HITL decision is made, these instructions tell the LLM how\nto respond for each decision type.  They are appended to the agent's\nsystem prompt at creation time so the LLM always has them available.",
+      "properties": {
+        "approve": {
+          "default": "The tool was executed successfully. Summarize the result to the user. Do NOT re-invoke the same tool \u2014 the action has already been performed.",
+          "description": "Guidance for the LLM after the user approves a tool call",
+          "title": "Approve",
+          "type": "string"
+        },
+        "reject": {
+          "default": "The tool call was REJECTED by the user. The action was NOT performed. Clearly state that no action was taken and ask the user what they would like to do instead. Do NOT claim the action was performed.",
+          "description": "Guidance for the LLM after the user rejects a tool call",
+          "title": "Reject",
+          "type": "string"
+        },
+        "edit": {
+          "default": "The tool was executed with modified arguments. Summarize the result and confirm the changes that were applied.",
+          "description": "Guidance for the LLM after the user edits and approves a tool call",
+          "title": "Edit",
+          "type": "string"
+        }
+      },
+      "title": "DecisionGuidance",
+      "type": "object"
+    },
     "DecompositionModel": {
       "additionalProperties": false,
       "description": "Query decomposition settings for instructed retrieval.\n\nDecomposes complex user queries into multiple focused subqueries with\nmetadata filters, executed in parallel and merged using Reciprocal Rank Fusion (RRF).\n\nExample:\n    ```yaml\n    instructed:\n      decomposition:\n        model: *fast_llm\n        max_subqueries: 3\n        rrf_k: 60\n        normalize_filter_case: uppercase\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
@@ -2773,6 +2799,10 @@
           },
           "title": "Allowed Decisions",
           "type": "array"
+        },
+        "decision_guidance": {
+          "$ref": "#/$defs/DecisionGuidance",
+          "description": "Per-decision guidance injected into the agent prompt to instruct the LLM how to respond after each decision type"
         }
       },
       "title": "HumanInTheLoopModel",
@@ -3746,6 +3776,11 @@
           "anyOf": [
             {
               "items": {
+                "enum": [
+                  "user_profile",
+                  "preference",
+                  "episode"
+                ],
                 "type": "string"
               },
               "type": "array"
@@ -3784,7 +3819,7 @@
           "type": "integer"
         },
         "background_extraction": {
-          "default": false,
+          "default": true,
           "description": "Extract memories in a background thread after each conversation turn (no latency impact on responses).",
           "title": "Background Extraction",
           "type": "boolean"
