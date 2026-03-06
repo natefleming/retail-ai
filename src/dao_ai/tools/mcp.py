@@ -19,11 +19,19 @@ import fnmatch
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+import httpx
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import tool as create_tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
 from mcp.types import CallToolResult, TextContent, Tool
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 
 from dao_ai.config import (
     IsDatabricksResource,
@@ -278,12 +286,34 @@ def _extract_text_content(result: CallToolResult) -> str:
     return "\n".join(text_parts)
 
 
+_TRANSIENT_HTTP_STATUS_CODES = {429, 502, 503, 504}
+
+
+def _is_transient_http_error(exc: BaseException) -> bool:
+    """Return True for httpx.HTTPStatusError with a retryable status code."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in _TRANSIENT_HTTP_STATUS_CODES
+    if isinstance(exc, ExceptionGroup):
+        return any(_is_transient_http_error(e) for e in exc.exceptions)
+    return False
+
+
+@retry(
+    retry=retry_if_exception(_is_transient_http_error),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(4),
+    before_sleep=before_sleep_log(logger, "WARNING"),  # type: ignore[arg-type]
+    reraise=True,
+)
 async def _afetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
     """
     Async version: Fetch raw MCP tools from the server.
 
     This is the primary async implementation that handles the actual MCP connection
     and tool listing. It's used by both alist_mcp_tools() and acreate_mcp_tools().
+
+    Retries automatically on transient HTTP errors (429, 502, 503, 504) with
+    exponential backoff (1s -> 2s -> 4s, up to 4 attempts total).
 
     Args:
         function: The MCP function model configuration.
@@ -292,7 +322,7 @@ async def _afetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
         List of raw MCP Tool objects from the server.
 
     Raises:
-        RuntimeError: If connection to MCP server fails.
+        RuntimeError: If connection to MCP server fails after all retries.
     """
     connection_config = _build_connection_config(function)
     client = MultiServerMCPClient({"mcp_function": connection_config})
@@ -316,12 +346,12 @@ async def _afetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
             logger.error(
                 "Failed to get tools from MCP server",
                 transport=function.transport,
-                url=function.url,
+                url=function.mcp_url,
                 error=str(e),
             )
             raise RuntimeError(
                 f"Failed to list MCP tools with transport '{function.transport}' "
-                f"and URL '{function.url}': {e}"
+                f"and URL '{function.mcp_url}': {e}"
             ) from e
 
 

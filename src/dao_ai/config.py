@@ -3139,7 +3139,7 @@ class MemoryExtractionModel(BaseModel):
         description="Maximum number of memories to inject into the prompt.",
     )
     background_extraction: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Extract memories in a background thread after each "
             "conversation turn (no latency impact on responses)."
