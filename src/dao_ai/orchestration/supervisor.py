@@ -27,7 +27,6 @@ from dao_ai.config import (
     MemoryModel,
     OrchestrationModel,
     SupervisorModel,
-    ToolModel,
 )
 from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.middleware.core import create_factory_middleware
@@ -327,7 +326,6 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     # Create worker agent subgraphs
     # Each worker gets a handoff_to_supervisor tool to return control
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
-    agent_tool_models: dict[str, list[ToolModel]] = {}
     for registered_agent in config.app.agents:
         # Create handoff back to supervisor tool
         supervisor_handoff: BaseTool = _create_handoff_back_to_supervisor_tool()
@@ -343,7 +341,6 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             checkpointer=checkpointer,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
-        agent_tool_models[registered_agent.name] = registered_agent.tools
         logger.debug("Created worker agent subgraph", agent=registered_agent.name)
 
     # Build the workflow graph
@@ -365,7 +362,6 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             agent=agent_subgraph,
             output_mode="last_message",
             reflection_executor=reflection_executor,
-            tool_models=agent_tool_models.get(agent_name),
         )
         workflow.add_node(agent_name, handler)
 

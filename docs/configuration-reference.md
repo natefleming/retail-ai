@@ -88,12 +88,6 @@ tools:
       human_in_the_loop:        # Optional approval gate
         review_prompt: string
         allowed_decisions: [approve, edit, reject]
-        decision_response:    # Per-decision response mode (optional)
-          approve:            # One of guidance or template per decision
-            guidance: string  #   LLM generates response (rich)
-            template: string  #   Format string returned directly (fast)
-          reject: { ... }     # Same structure as approve
-          edit: { ... }       # Same structure as approve
 
 # Agent definitions
 agents:

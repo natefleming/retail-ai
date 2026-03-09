@@ -190,53 +190,6 @@ flowchart TB
     style Reject fill:#ffebee,stroke:#c62828
 ```
 
-## Decision Response
-
-After a human makes a decision, the agent needs to respond. The `decision_response` field controls whether that response is **LLM-generated** (guidance) or a **pre-formatted string** (template).
-
-| Mode | Description | LLM Call? |
-|------|-------------|-----------|
-| `template` | Python format string returned directly to the user | No |
-| `guidance` | Prompt instruction injected into the LLM system prompt | Yes |
-| *(omitted)* | Built-in default template used automatically | No |
-
-```mermaid
-flowchart TD
-    UserDecision["User Decision"]
-    CheckMode{"decision_response mode?"}
-    GuidancePath["Inject guidance into system prompt"]
-    LLMCall["LLM generates response"]
-    TemplatePath["Render template string"]
-    DirectReturn["Return to user directly"]
-    Response["Final response to user"]
-
-    UserDecision --> CheckMode
-    CheckMode -->|guidance| GuidancePath --> LLMCall --> Response
-    CheckMode -->|template| TemplatePath --> DirectReturn --> Response
-```
-
-**Template variables** (all optional): `{tool_name}`, `{decision_type}`, `{tool_args}`, `{result}`
-
-```yaml
-tools:
-  file_ticket: &file_ticket
-    name: file_ticket
-    function:
-      type: python
-      name: my_package.file_ticket
-      human_in_the_loop:
-        review_prompt: "Review this ticket before filing."
-        allowed_decisions: [approve, reject]
-        decision_response:
-          approve:
-            template: "Your ticket has been filed successfully."
-          reject:
-            guidance: "Explain why the ticket was not filed and suggest alternatives."
-          # edit: omitted — uses default template
-```
-
-When all decisions use templates, zero additional tokens are added to the system prompt, reducing cost and latency.
-
 ## Integration with Memory
 
 ```mermaid

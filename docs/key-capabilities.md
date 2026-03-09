@@ -645,18 +645,6 @@ tools:
         review_prompt: "This operation will modify production data. Approve?"
 ```
 
-**Decision response modes:** After the human decides, control how the agent responds with `decision_response`. Use `template` for a fast, deterministic reply (no LLM call) or `guidance` to let the LLM generate a contextual response:
-
-```yaml
-      human_in_the_loop:
-        review_prompt: "Approve this data modification?"
-        decision_response:
-          approve:
-            template: "Done — the operation has been executed."
-          reject:
-            guidance: "Explain why the operation was cancelled and suggest alternatives."
-```
-
 ## 7. Memory & State Persistence
 
 **What is memory?** Your agent needs to remember past conversations. When a user asks "What about size XL?" the agent should remember they were talking about shirts.

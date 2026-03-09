@@ -90,24 +90,18 @@ tools:
       type: python
       name: dao_ai.tools.say_hello_tool
       human_in_the_loop:
+        # Optional: Custom review prompt shown to the reviewer
         review_prompt: |
           Please review this greeting request.
-          This demonstrates HITL with decision_response configuration.
+          This demonstrates HITL configuration.
+        # LangChain supports 3 decision types:
+        # - "approve": Execute with original arguments
+        # - "edit": Modify arguments before execution  
+        # - "reject": Skip execution with optional feedback
         allowed_decisions:
           - approve
           - edit
           - reject
-        # decision_response controls what the agent says after a decision.
-        # Each decision type can use either:
-        #   - template: A format string returned directly (no LLM call)
-        #   - guidance: A prompt instruction for the LLM to generate a response
-        # If omitted, a conversational default template is used.
-        decision_response:
-          approve:
-            template: "Done — {tool_name} was approved and executed."
-          reject:
-            guidance: "Explain why the greeting was not sent and suggest alternatives."
-          # edit: omitted — uses default template
 
 # =============================================================================
 # AGENTS WITH HITL-ENABLED TOOLS
@@ -222,41 +216,16 @@ app:
 #      allowed_decisions: [approve, reject]        # Review-only (no edits)
 #      allowed_decisions: [approve]                # Auto-approve only
 #
-# 4. Decision Response (decision_response):
-#    Control how the agent replies after each decision type.
-#    Two modes are available per decision:
-#
-#    | Mode     | Description                                      | LLM Call? |
-#    |----------|--------------------------------------------------|-----------|
-#    | template | Format string returned directly to the user       | No        |
-#    | guidance | Prompt instruction — LLM generates the response   | Yes       |
-#
-#    Template variables (all optional):
-#      {tool_name}      — name of the tool
-#      {decision_type}  — "approve", "reject", or "edit"
-#      {tool_args}      — JSON-serialized tool arguments
-#      {result}         — tool execution result (approve/edit only)
-#
-#    When neither guidance nor template is set, a built-in default
-#    template is used (no LLM call). Example:
-#
-#      decision_response:
-#        approve:
-#          template: "Your request has been submitted."
-#        reject:
-#          guidance: "Explain why the action was not taken."
-#        # edit: omitted — uses default template
-#
-# 5. Best Practices:
+# 4. Best Practices:
 #    - Use HITL for: destructive operations, external APIs, costly operations
 #    - Skip HITL for: read-only operations, simple utilities, time-sensitive tasks
 #    - Write clear review_prompts explaining what needs review
 #
-# 6. Testing HITL:
+# 5. Testing HITL:
 #    When testing, the agent will pause at HITL-enabled tools.
 #    Use LangGraph's interrupt handling to simulate human decisions.
 #
-# 7. Production Deployment:
+# 6. Production Deployment:
 #    HITL works in Model Serving with proper UI integration.
 #    The review_prompt and options are returned to the client.
 #    Client UI collects human decision and continues the graph.

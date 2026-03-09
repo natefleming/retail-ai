@@ -23,7 +23,6 @@ from loguru import logger
 from dao_ai.config import (
     AgentModel,
     ChatHistoryModel,
-    DecisionResponse,
     MemoryModel,
     PromptModel,
     ToolModel,
@@ -62,43 +61,14 @@ MEMORY_TOOL_INSTRUCTIONS = (
 def _build_hitl_prompt_guidance(tool_models: Sequence[ToolModel]) -> str | None:
     """Build HITL decision-guidance text from tool configs.
 
-    Scans all tool models for HITL configurations and builds a prompt
-    section that instructs the LLM how to respond after each decision
-    type.  Only decisions configured with ``mode == "guidance"`` are
-    included; template-mode decisions are handled at resume time and
-    require no prompt injection.
+    Currently returns ``None`` -- no prompt injection is performed for
+    HITL decisions.  The LLM already has full context (tool name, args,
+    result, decision type) and generates appropriate post-decision
+    responses without additional prompting.
 
-    Returns:
-        A formatted prompt section string, or ``None`` when no tools
-        have guidance-mode decisions.
+    Retained as a hook for future per-tool prompt customisation.
     """
-    sections: list[str] = []
-
-    for tool_model in tool_models:
-        hitl = tool_model.function.human_in_the_loop
-        if hitl is None:
-            continue
-
-        lines: list[str] = [f"### {tool_model.name}"]
-        has_guidance = False
-        for decision in hitl.allowed_decisions:
-            resp: DecisionResponse = hitl.decision_response.response_for(decision)
-            if resp.mode == "guidance":
-                lines.append(f"- If **{decision}**: {resp.guidance}")
-                has_guidance = True
-
-        if has_guidance:
-            sections.append("\n".join(lines))
-
-    if not sections:
-        return None
-
-    header: str = (
-        "\n\n## Human-in-the-Loop Decision Guidance\n"
-        "After a tool call that requires human approval has been decided, "
-        "follow the instructions below for each tool and decision type.\n\n"
-    )
-    return header + "\n\n".join(sections)
+    return None
 
 
 def _create_middleware_list(

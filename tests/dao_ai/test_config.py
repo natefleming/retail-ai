@@ -7,12 +7,9 @@ from conftest import has_retail_ai_env
 from mlflow.models import ModelConfig
 
 from dao_ai.config import (
-    _DEFAULT_APPROVE_TEMPLATE,
     AppConfig,
     AppModel,
     CompositeVariableModel,
-    DecisionResponse,
-    DecisionResponseConfig,
     EnvironmentVariableModel,
     HumanInTheLoopModel,
     McpFunctionModel,
@@ -547,169 +544,6 @@ def test_app_config_initialize_with_empty_code_paths(config: AppConfig) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DecisionResponse + DecisionResponseConfig + HumanInTheLoopModel.decision_response
-# ---------------------------------------------------------------------------
-
-
-class TestDecisionResponse:
-    """Tests for the DecisionResponse model."""
-
-    @pytest.mark.unit
-    def test_defaults_to_template_mode(self) -> None:
-        resp = DecisionResponse()
-        assert resp.guidance is None
-        assert resp.template is None
-        assert resp.mode == "template"
-
-    @pytest.mark.unit
-    def test_guidance_mode(self) -> None:
-        resp = DecisionResponse(guidance="Summarize the result.")
-        assert resp.mode == "guidance"
-        assert resp.guidance == "Summarize the result."
-
-    @pytest.mark.unit
-    def test_template_mode_explicit(self) -> None:
-        resp = DecisionResponse(template="Done — {tool_name} executed.")
-        assert resp.mode == "template"
-        assert resp.template == "Done — {tool_name} executed."
-
-    @pytest.mark.unit
-    def test_mutual_exclusivity(self) -> None:
-        with pytest.raises(ValueError, match="Only one"):
-            DecisionResponse(guidance="G", template="T")
-
-    @pytest.mark.unit
-    def test_extra_fields_forbidden(self) -> None:
-        with pytest.raises(Exception):
-            DecisionResponse(guidance="ok", unknown_field="bad")
-
-    @pytest.mark.unit
-    def test_render_default_approve(self) -> None:
-        resp = DecisionResponse()
-        rendered = resp.render("approve", tool_name="file_ticket")
-        assert "file_ticket" in rendered
-        assert rendered == _DEFAULT_APPROVE_TEMPLATE.format(tool_name="file_ticket")
-
-    @pytest.mark.unit
-    def test_render_default_reject(self) -> None:
-        resp = DecisionResponse()
-        rendered = resp.render("reject", tool_name="send_email")
-        assert "send_email" in rendered
-
-    @pytest.mark.unit
-    def test_render_custom_template(self) -> None:
-        resp = DecisionResponse(template="Ticket {tool_name} created: {result}")
-        rendered = resp.render("approve", tool_name="jira", result="PROJ-123")
-        assert rendered == "Ticket jira created: PROJ-123"
-
-    @pytest.mark.unit
-    def test_render_missing_vars_resolve_empty(self) -> None:
-        resp = DecisionResponse(template="Tool {tool_name} done. Result: {result}")
-        rendered = resp.render("approve", tool_name="my_tool")
-        assert rendered == "Tool my_tool done. Result: "
-
-    @pytest.mark.unit
-    def test_render_includes_decision_type(self) -> None:
-        resp = DecisionResponse(template="Decision: {decision_type}")
-        rendered = resp.render("reject")
-        assert rendered == "Decision: reject"
-
-
-class TestDecisionResponseConfig:
-    """Tests for the DecisionResponseConfig container model."""
-
-    @pytest.mark.unit
-    def test_defaults(self) -> None:
-        cfg = DecisionResponseConfig()
-        assert isinstance(cfg.approve, DecisionResponse)
-        assert isinstance(cfg.reject, DecisionResponse)
-        assert isinstance(cfg.edit, DecisionResponse)
-        assert cfg.approve.mode == "template"
-
-    @pytest.mark.unit
-    def test_response_for_accessor(self) -> None:
-        cfg = DecisionResponseConfig(
-            approve=DecisionResponse(guidance="LLM approve"),
-        )
-        assert cfg.response_for("approve").mode == "guidance"
-        assert cfg.response_for("reject").mode == "template"
-        assert cfg.response_for("edit").mode == "template"
-
-    @pytest.mark.unit
-    def test_mixed_modes(self) -> None:
-        cfg = DecisionResponseConfig(
-            approve=DecisionResponse(template="Approved!"),
-            reject=DecisionResponse(guidance="Explain rejection."),
-        )
-        assert cfg.approve.mode == "template"
-        assert cfg.reject.mode == "guidance"
-        assert cfg.edit.mode == "template"
-
-    @pytest.mark.unit
-    def test_extra_fields_forbidden(self) -> None:
-        with pytest.raises(Exception):
-            DecisionResponseConfig(approve=DecisionResponse(), bad="x")
-
-    @pytest.mark.unit
-    def test_from_dict(self) -> None:
-        """Config can be provided as a plain dict (e.g. from YAML)."""
-        cfg = DecisionResponseConfig(
-            **{
-                "approve": {"template": "OK!"},
-                "reject": {"guidance": "Nope."},
-            }
-        )
-        assert cfg.approve.template == "OK!"
-        assert cfg.reject.guidance == "Nope."
-        assert cfg.edit.mode == "template"
-
-
-class TestHumanInTheLoopModelDecisionResponse:
-    """Tests for HumanInTheLoopModel.decision_response integration."""
-
-    @pytest.mark.unit
-    def test_hitl_model_has_default_decision_response(self) -> None:
-        hitl = HumanInTheLoopModel()
-        assert isinstance(hitl.decision_response, DecisionResponseConfig)
-        assert hitl.decision_response.approve.mode == "template"
-
-    @pytest.mark.unit
-    def test_hitl_model_custom_response(self) -> None:
-        hitl = HumanInTheLoopModel(
-            decision_response=DecisionResponseConfig(
-                reject=DecisionResponse(guidance="Explain alternatives.")
-            )
-        )
-        assert hitl.decision_response.reject.mode == "guidance"
-        assert hitl.decision_response.approve.mode == "template"
-
-    @pytest.mark.unit
-    def test_hitl_model_response_from_dict(self) -> None:
-        hitl = HumanInTheLoopModel(
-            decision_response={
-                "approve": {"template": "Done!"},
-                "reject": {"guidance": "Nope."},
-            }
-        )
-        assert hitl.decision_response.approve.template == "Done!"
-        assert hitl.decision_response.reject.guidance == "Nope."
-        assert hitl.decision_response.edit.mode == "template"
-
-    @pytest.mark.unit
-    def test_hitl_model_serialization_roundtrip(self) -> None:
-        hitl = HumanInTheLoopModel(
-            review_prompt="Check this",
-            decision_response=DecisionResponseConfig(
-                approve=DecisionResponse(template="Approved."),
-            ),
-        )
-        data = hitl.model_dump()
-        restored = HumanInTheLoopModel.model_validate(data)
-        assert restored.decision_response.approve.template == "Approved."
-        assert restored.review_prompt == "Check this"
-
-
-# ---------------------------------------------------------------------------
 # _build_hitl_prompt_guidance
 # ---------------------------------------------------------------------------
 
@@ -734,98 +568,17 @@ class TestBuildHitlPromptGuidance:
         assert _build_hitl_prompt_guidance(tools) is None
 
     @pytest.mark.unit
-    def test_all_template_mode_returns_none(self) -> None:
-        """Default config uses template mode -- no prompt injection needed."""
+    def test_hitl_tools_returns_none(self) -> None:
+        """No prompt injection is performed for HITL decisions."""
         hitl = HumanInTheLoopModel()
         tools = [self._make_tool_model("file_ticket", hitl)]
         assert _build_hitl_prompt_guidance(tools) is None
 
     @pytest.mark.unit
-    def test_guidance_mode_produces_prompt(self) -> None:
-        hitl = HumanInTheLoopModel(
-            decision_response=DecisionResponseConfig(
-                approve=DecisionResponse(guidance="Summarize the result."),
-                reject=DecisionResponse(guidance="Explain rejection."),
-                edit=DecisionResponse(guidance="Confirm edits."),
-            )
-        )
-        tools = [self._make_tool_model("file_ticket", hitl)]
-        result = _build_hitl_prompt_guidance(tools)
-        assert result is not None
-        assert "file_ticket" in result
-        assert "Summarize the result." in result
-        assert "Explain rejection." in result
-        assert "Confirm edits." in result
-
-    @pytest.mark.unit
-    def test_mixed_guidance_and_template(self) -> None:
-        """Only guidance-mode decisions are injected into the prompt."""
-        hitl = HumanInTheLoopModel(
-            decision_response=DecisionResponseConfig(
-                approve=DecisionResponse(template="Approved!"),
-                reject=DecisionResponse(guidance="JIRA ticket was NOT filed."),
-            )
-        )
-        tools = [self._make_tool_model("request_data", hitl)]
-        result = _build_hitl_prompt_guidance(tools)
-        assert result is not None
-        assert "JIRA ticket was NOT filed." in result
-        assert "Approved!" not in result
-
-    @pytest.mark.unit
-    def test_only_allowed_decisions_appear(self) -> None:
-        hitl = HumanInTheLoopModel(
-            allowed_decisions=["approve", "reject"],
-            decision_response=DecisionResponseConfig(
-                approve=DecisionResponse(guidance="OK"),
-                reject=DecisionResponse(guidance="Not OK"),
-                edit=DecisionResponse(guidance="Should not appear"),
-            ),
-        )
-        tools = [self._make_tool_model("action", hitl)]
-        result = _build_hitl_prompt_guidance(tools)
-        assert result is not None
-        assert "**approve**" in result
-        assert "**reject**" in result
-        assert "**edit**" not in result
-
-    @pytest.mark.unit
-    def test_mixed_hitl_and_non_hitl_tools(self) -> None:
-        hitl = HumanInTheLoopModel(
-            decision_response=DecisionResponseConfig(
-                approve=DecisionResponse(guidance="Done."),
-            )
-        )
+    def test_mixed_hitl_and_non_hitl_returns_none(self) -> None:
+        hitl = HumanInTheLoopModel(review_prompt="Approve this action?")
         tools = [
             self._make_tool_model("search"),
             self._make_tool_model("file_ticket", hitl),
-            self._make_tool_model("calculate"),
         ]
-        result = _build_hitl_prompt_guidance(tools)
-        assert result is not None
-        assert "file_ticket" in result
-        assert "search" not in result
-        assert "calculate" not in result
-
-    @pytest.mark.unit
-    def test_multiple_hitl_tools(self) -> None:
-        hitl_a = HumanInTheLoopModel(
-            decision_response=DecisionResponseConfig(
-                approve=DecisionResponse(guidance="Email sent."),
-            )
-        )
-        hitl_b = HumanInTheLoopModel(
-            decision_response=DecisionResponseConfig(
-                approve=DecisionResponse(guidance="Order placed."),
-            )
-        )
-        tools = [
-            self._make_tool_model("send_email", hitl_a),
-            self._make_tool_model("place_order", hitl_b),
-        ]
-        result = _build_hitl_prompt_guidance(tools)
-        assert result is not None
-        assert "send_email" in result
-        assert "place_order" in result
-        assert "Email sent." in result
-        assert "Order placed." in result
+        assert _build_hitl_prompt_guidance(tools) is None
