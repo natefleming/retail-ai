@@ -570,7 +570,9 @@ def handle_chat_command(options: Namespace) -> None:
                             context=context,
                         )
                     except GraphInterrupt:
-                        logger.info("HITL: GraphInterrupt raised, recovering state from checkpointer")
+                        logger.info(
+                            "HITL: GraphInterrupt raised, recovering state from checkpointer"
+                        )
                         snapshot = await app.aget_state(config)
                         result = dict(snapshot.values)
                         if snapshot.interrupts:

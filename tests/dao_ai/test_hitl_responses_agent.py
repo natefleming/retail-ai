@@ -1376,6 +1376,7 @@ def _build_swarm_hitl_agent():
         present in the conversation; returns a final text response otherwise.
         Each call generates a fresh AIMessage with a unique ID to avoid
         add_messages deduplication across multi-turn conversations."""
+
         tool_call_response: AIMessage
         final_response: AIMessage
 
@@ -1389,7 +1390,9 @@ def _build_swarm_hitl_agent():
             from langchain_core.messages import ToolMessage
 
             has_tool_result = any(isinstance(m, ToolMessage) for m in messages)
-            template = self.final_response if has_tool_result else self.tool_call_response
+            template = (
+                self.final_response if has_tool_result else self.tool_call_response
+            )
             msg = AIMessage(
                 content=template.content,
                 tool_calls=list(template.tool_calls) if template.tool_calls else [],
@@ -1499,7 +1502,9 @@ def test_swarm_approve_continuation():
 
         graph, _ = _build_swarm_hitl_agent()
 
-        config = {"configurable": {"thread_id": "swarm-integ-approve", "user_id": "test"}}
+        config = {
+            "configurable": {"thread_id": "swarm-integ-approve", "user_id": "test"}
+        }
         context = Context(thread_id="swarm-integ-approve", user_id="test")
 
         r1 = await graph.ainvoke(
@@ -1533,7 +1538,9 @@ def test_swarm_second_invocation_triggers_interrupt():
 
         graph, _ = _build_swarm_hitl_agent()
 
-        config = {"configurable": {"thread_id": "swarm-integ-second", "user_id": "test"}}
+        config = {
+            "configurable": {"thread_id": "swarm-integ-second", "user_id": "test"}
+        }
         context = Context(thread_id="swarm-integ-second", user_id="test")
 
         # --- First query: interrupt + approve ---
@@ -1559,8 +1566,7 @@ def test_swarm_second_invocation_triggers_interrupt():
             context=context,
         )
         assert "__interrupt__" in r3, (
-            "Second invocation must also trigger interrupt. "
-            f"Keys: {list(r3.keys())}"
+            f"Second invocation must also trigger interrupt. Keys: {list(r3.keys())}"
         )
 
         # Approve the second interrupt
@@ -1569,7 +1575,9 @@ def test_swarm_second_invocation_triggers_interrupt():
             config=config,
             context=context,
         )
-        assert "__interrupt__" not in r4, "Second resume should complete without interrupt"
+        assert "__interrupt__" not in r4, (
+            "Second resume should complete without interrupt"
+        )
         assert "Email sent" in r4["messages"][-1].content
 
     _run_async(_test())
@@ -1771,7 +1779,9 @@ def test_swarm_reject_continuation():
 
         graph, _ = _build_swarm_hitl_agent()
 
-        config = {"configurable": {"thread_id": "swarm-integ-reject", "user_id": "test"}}
+        config = {
+            "configurable": {"thread_id": "swarm-integ-reject", "user_id": "test"}
+        }
         context = Context(thread_id="swarm-integ-reject", user_id="test")
 
         r1 = await graph.ainvoke(
@@ -1782,7 +1792,9 @@ def test_swarm_reject_continuation():
         assert "__interrupt__" in r1
 
         r2 = await graph.ainvoke(
-            Command(resume={"decisions": [{"type": "reject", "message": "Not allowed"}]}),
+            Command(
+                resume={"decisions": [{"type": "reject", "message": "Not allowed"}]}
+            ),
             config=config,
             context=context,
         )

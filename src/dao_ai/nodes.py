@@ -14,7 +14,6 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddleware
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
-
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
@@ -24,7 +23,7 @@ from loguru import logger
 from dao_ai.config import (
     AgentModel,
     ChatHistoryModel,
-    DecisionGuidance,
+    DecisionResponse,
     MemoryModel,
     PromptModel,
     ToolModel,
@@ -65,10 +64,13 @@ def _build_hitl_prompt_guidance(tool_models: Sequence[ToolModel]) -> str | None:
 
     Scans all tool models for HITL configurations and builds a prompt
     section that instructs the LLM how to respond after each decision
-    type (approve / reject / edit).
+    type.  Only decisions configured with ``mode == "guidance"`` are
+    included; template-mode decisions are handled at resume time and
+    require no prompt injection.
 
     Returns:
-        A formatted prompt section string, or ``None`` if no tools have HITL.
+        A formatted prompt section string, or ``None`` when no tools
+        have guidance-mode decisions.
     """
     sections: list[str] = []
 
@@ -77,11 +79,16 @@ def _build_hitl_prompt_guidance(tool_models: Sequence[ToolModel]) -> str | None:
         if hitl is None:
             continue
 
-        guidance: DecisionGuidance = hitl.decision_guidance
         lines: list[str] = [f"### {tool_model.name}"]
+        has_guidance = False
         for decision in hitl.allowed_decisions:
-            lines.append(f"- If **{decision}**: {guidance.guidance_for(decision)}")
-        sections.append("\n".join(lines))
+            resp: DecisionResponse = hitl.decision_response.response_for(decision)
+            if resp.mode == "guidance":
+                lines.append(f"- If **{decision}**: {resp.guidance}")
+                has_guidance = True
+
+        if has_guidance:
+            sections.append("\n".join(lines))
 
     if not sections:
         return None

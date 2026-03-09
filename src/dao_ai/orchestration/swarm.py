@@ -38,6 +38,7 @@ from dao_ai.config import (
     MemoryModel,
     OrchestrationModel,
     SwarmModel,
+    ToolModel,
 )
 from dao_ai.nodes import create_agent_node
 from dao_ai.orchestration import (
@@ -328,6 +329,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # Create agent subgraphs with their specific handoff tools
     # Each agent gets handoff tools only for agents they're allowed to hand off to
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
+    agent_tool_models: dict[str, list[ToolModel]] = {}
     deterministic_targets: dict[str, str] = {}
     memory: MemoryModel | None = orchestration.memory
 
@@ -433,6 +435,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             checkpointer=checkpointer,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
+        agent_tool_models[registered_agent.name] = registered_agent.tools
         logger.debug(
             "Created swarm agent subgraph",
             agent=registered_agent.name,
@@ -460,6 +463,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             agent=agent_subgraph,
             output_mode="last_message",
             reflection_executor=reflection_executor,
+            tool_models=agent_tool_models.get(agent_name),
         )
 
         # Wrap the handler for deterministic routing:

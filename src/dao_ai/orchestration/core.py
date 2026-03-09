@@ -9,7 +9,8 @@ This module provides the foundational utilities for multi-agent orchestration:
 - Main orchestration graph factory
 """
 
-from typing import Any, Awaitable, Callable, Literal
+import json
+from typing import Any, Awaitable, Callable, Literal, Sequence
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -23,7 +24,14 @@ from langgraph.types import Command, Interrupt
 from langgraph.types import interrupt as langgraph_interrupt
 from loguru import logger
 
-from dao_ai.config import AgentModel, AppConfig, OrchestrationModel
+from dao_ai.config import (
+    AgentModel,
+    AppConfig,
+    BaseFunctionModel,
+    HumanInTheLoopModel,
+    OrchestrationModel,
+    ToolModel,
+)
 from dao_ai.messages import last_ai_message
 from dao_ai.state import AgentState, Context
 
@@ -138,11 +146,105 @@ def extract_agent_response(
     return []
 
 
+def _build_hitl_config_lookup(
+    tool_models: Sequence[ToolModel],
+) -> dict[str, HumanInTheLoopModel]:
+    """Build a ``{tool_name: HumanInTheLoopModel}`` lookup from tool models."""
+    lookup: dict[str, HumanInTheLoopModel] = {}
+    for tm in tool_models:
+        func = tm.function
+        if not isinstance(func, BaseFunctionModel):
+            continue
+        if func.human_in_the_loop is not None:
+            lookup[tm.name] = func.human_in_the_loop
+    return lookup
+
+
+def _maybe_apply_template_response(
+    result: dict[str, Any],
+    interrupt_value: Any,
+    resume_value: Any,
+    hitl_configs: dict[str, HumanInTheLoopModel],
+) -> dict[str, Any]:
+    """Replace the last AI message with a rendered template when applicable.
+
+    After a HITL resume, this inspects the interrupt/resume payloads to
+    determine the tool name and decision type.  If the corresponding
+    :class:`DecisionResponse` uses ``mode == "template"``, the last
+    ``AIMessage`` in *result* is replaced with the rendered template,
+    giving the user a deterministic response without relying on LLM output.
+    """
+    if not hitl_configs:
+        return result
+
+    if not isinstance(interrupt_value, dict):
+        return result
+
+    action_requests: list[dict[str, Any]] = interrupt_value.get("action_requests", [])
+    if not action_requests:
+        return result
+
+    tool_name: str = action_requests[0].get("name", "")
+    tool_args: dict[str, Any] = action_requests[0].get("args", {})
+
+    decision_type: str | None = None
+    if isinstance(resume_value, dict):
+        decisions: list[dict[str, Any]] = resume_value.get("decisions", [])
+        if decisions:
+            decision_type = decisions[0].get("type")
+
+    if not tool_name or decision_type not in ("approve", "reject", "edit"):
+        return result
+
+    hitl_config: HumanInTheLoopModel | None = hitl_configs.get(tool_name)
+    if hitl_config is None:
+        return result
+
+    resp = hitl_config.decision_response.response_for(decision_type)  # type: ignore[arg-type]
+    if resp.mode != "template":
+        return result
+
+    messages: list[BaseMessage] = list(result.get("messages", []))
+
+    tool_result_text = ""
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage):
+            tool_result_text = str(msg.content)
+            break
+
+    rendered: str = resp.render(
+        decision_type=decision_type,  # type: ignore[arg-type]
+        tool_name=tool_name,
+        tool_args=json.dumps(tool_args, default=str),
+        result=tool_result_text,
+    )
+
+    new_messages: list[BaseMessage] = []
+    replaced = False
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and not replaced:
+            new_messages.insert(0, AIMessage(content=rendered, id=msg.id))
+            replaced = True
+        else:
+            new_messages.insert(0, msg)
+
+    if not replaced:
+        new_messages.append(AIMessage(content=rendered))
+
+    logger.debug(
+        "HITL template response applied",
+        tool_name=tool_name,
+        decision_type=decision_type,
+    )
+    return {**result, "messages": new_messages}
+
+
 def create_agent_node_handler(
     agent_name: str,
     agent: CompiledStateGraph,
     output_mode: OutputMode = "last_message",
     reflection_executor: Any | None = None,
+    tool_models: Sequence[ToolModel] | None = None,
 ) -> Callable[[AgentState, Runtime[Context]], Awaitable[AgentState]]:
     """
     Create a handler that wraps an agent subgraph with message filtering.
@@ -161,10 +263,17 @@ def create_agent_node_handler(
         output_mode: How to extract response ("last_message" or "full_history")
         reflection_executor: Optional background reflection executor for
             automatic memory extraction after each agent turn.
+        tool_models: Optional tool model configs.  When provided, the handler
+            checks HITL decisions for template-mode responses and replaces
+            the LLM-generated AI message with a rendered template.
 
     Returns:
         An async handler function for the workflow node
     """
+
+    hitl_configs: dict[str, HumanInTheLoopModel] = (
+        _build_hitl_config_lookup(tool_models) if tool_models else {}
+    )
 
     async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
         # Filter messages to avoid tool_use/tool_result pairing errors
@@ -206,12 +315,8 @@ def create_agent_node_handler(
         #      subgraph via Command(resume=...).
         if agent.checkpointer:
             parent_conf = get_config().get("configurable", {})
-            task_id: str = parent_conf.get(
-                "__pregel_task_id", "default"
-            )
-            thread_id: str = config.get("configurable", {}).get(
-                "thread_id", "default"
-            )
+            task_id: str = parent_conf.get("__pregel_task_id", "default")
+            thread_id: str = config.get("configurable", {}).get("thread_id", "default")
             sub_thread_id: str = f"{thread_id}__sub_{task_id}"
             sub_config: dict[str, Any] = {
                 "configurable": {
@@ -227,9 +332,7 @@ def create_agent_node_handler(
             )
 
             sub_state = await agent.aget_state(config=sub_config)
-            is_interrupted: bool = bool(
-                sub_state and sub_state.next
-            )
+            is_interrupted: bool = bool(sub_state and sub_state.next)
 
             if is_interrupted:
                 interrupts = list(sub_state.interrupts)
@@ -238,8 +341,10 @@ def create_agent_node_handler(
                     agent=agent_name,
                     interrupts_count=len(interrupts),
                 )
+                last_interrupt_value: Any = None
                 resume_value: Any = None
                 for intr in interrupts:
+                    last_interrupt_value = intr.value
                     resume_value = langgraph_interrupt(intr.value)
 
                 logger.info(
@@ -251,6 +356,14 @@ def create_agent_node_handler(
                     context=runtime.context,
                     config=sub_config,
                 )
+
+                if hitl_configs and last_interrupt_value is not None:
+                    result = _maybe_apply_template_response(
+                        result,
+                        last_interrupt_value,
+                        resume_value,
+                        hitl_configs,
+                    )
             else:
                 result = await agent.ainvoke(
                     agent_state, context=runtime.context, config=sub_config

@@ -2393,46 +2393,126 @@ class FunctionType(str, Enum):
     INLINE = "inline"
 
 
-_DEFAULT_APPROVE_GUIDANCE: str = (
-    "The tool was executed successfully. Summarize the result to the user. "
-    "Do NOT re-invoke the same tool — the action has already been performed."
+_DEFAULT_APPROVE_TEMPLATE: str = (
+    "Done \u2014 {tool_name} has been approved and executed successfully."
 )
-_DEFAULT_REJECT_GUIDANCE: str = (
-    "The tool call was REJECTED by the user. The action was NOT performed. "
-    "Clearly state that no action was taken and ask the user what they "
-    "would like to do instead. Do NOT claim the action was performed."
+_DEFAULT_REJECT_TEMPLATE: str = (
+    "Understood \u2014 {tool_name} was not executed. "
+    "Let me know what you'd like to do instead."
 )
-_DEFAULT_EDIT_GUIDANCE: str = (
-    "The tool was executed with modified arguments. Summarize the result "
-    "and confirm the changes that were applied."
+_DEFAULT_EDIT_TEMPLATE: str = (
+    "Done \u2014 {tool_name} was executed with your modifications applied."
 )
 
+_DEFAULT_TEMPLATES: dict[str, str] = {
+    "approve": _DEFAULT_APPROVE_TEMPLATE,
+    "reject": _DEFAULT_REJECT_TEMPLATE,
+    "edit": _DEFAULT_EDIT_TEMPLATE,
+}
 
-class DecisionGuidance(BaseModel):
-    """Per-decision system guidance injected into the agent prompt.
 
-    After a HITL decision is made, these instructions tell the LLM how
-    to respond for each decision type.  They are appended to the agent's
-    system prompt at creation time so the LLM always has them available.
+class DecisionResponse(BaseModel):
+    """Response configuration for a single HITL decision type.
+
+    Exactly one of ``guidance`` or ``template`` may be set:
+
+    * **guidance** -- LLM prompt instruction.  The string is injected into the
+      agent's system prompt and the LLM generates a contextual response.
+    * **template** -- Python format string returned directly to the user with
+      no LLM call.  Uses :py:meth:`str.format_map` so missing variables
+      resolve to an empty string.
+
+    When both are ``None`` the built-in default template for the decision
+    type is used (no LLM call).
+
+    **Template variables** (all optional):
+
+    * ``{tool_name}``      -- name of the tool
+    * ``{decision_type}``  -- ``"approve"``, ``"reject"``, or ``"edit"``
+    * ``{tool_args}``      -- JSON-serialized dict of the tool arguments
+    * ``{result}``         -- tool execution result (approve/edit only)
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    approve: str = Field(
-        default=_DEFAULT_APPROVE_GUIDANCE,
-        description="Guidance for the LLM after the user approves a tool call",
+    guidance: Optional[str] = Field(
+        default=None,
+        description=(
+            "LLM prompt instruction. When set, injected into the system "
+            "prompt so the LLM generates a contextual response."
+        ),
     )
-    reject: str = Field(
-        default=_DEFAULT_REJECT_GUIDANCE,
-        description="Guidance for the LLM after the user rejects a tool call",
-    )
-    edit: str = Field(
-        default=_DEFAULT_EDIT_GUIDANCE,
-        description="Guidance for the LLM after the user edits and approves a tool call",
+    template: Optional[str] = Field(
+        default=None,
+        description=(
+            "Python format string returned directly to the user without "
+            "an LLM call. Supports {tool_name}, {decision_type}, "
+            "{tool_args}, and {result} placeholders."
+        ),
     )
 
-    def guidance_for(self, decision_type: Literal["approve", "edit", "reject"]) -> str:
-        """Return the guidance string for the given decision type."""
+    @model_validator(mode="after")
+    def _validate_mutually_exclusive(self) -> Self:
+        if self.guidance is not None and self.template is not None:
+            raise ValueError(
+                "Only one of 'guidance' or 'template' may be set, not both"
+            )
+        return self
+
+    @property
+    def mode(self) -> Literal["guidance", "template"]:
+        """Return ``'guidance'`` when an LLM call is needed, else ``'template'``."""
+        return "guidance" if self.guidance is not None else "template"
+
+    def render(
+        self, decision_type: Literal["approve", "edit", "reject"], **kwargs: Any
+    ) -> str:
+        """Render the template with the given variables.
+
+        Only meaningful when :pyattr:`mode` is ``'template'``.  Uses a
+        :class:`collections.defaultdict` so any variable not supplied
+        resolves to an empty string.
+        """
+        from collections import defaultdict
+
+        raw = (
+            self.template
+            if self.template is not None
+            else _DEFAULT_TEMPLATES[decision_type]
+        )
+        safe_vars: dict[str, Any] = defaultdict(
+            str, decision_type=decision_type, **kwargs
+        )
+        return raw.format_map(safe_vars)
+
+
+class DecisionResponseConfig(BaseModel):
+    """Per-decision response configuration for all HITL decision types.
+
+    Each decision type holds a :class:`DecisionResponse` that controls
+    whether the post-decision reply is generated by the LLM (guidance) or
+    returned as a pre-formatted string (template).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    approve: DecisionResponse = Field(
+        default_factory=DecisionResponse,
+        description="Response config for approved tool calls",
+    )
+    reject: DecisionResponse = Field(
+        default_factory=DecisionResponse,
+        description="Response config for rejected tool calls",
+    )
+    edit: DecisionResponse = Field(
+        default_factory=DecisionResponse,
+        description="Response config for edited tool calls",
+    )
+
+    def response_for(
+        self, decision_type: Literal["approve", "edit", "reject"]
+    ) -> DecisionResponse:
+        """Return the :class:`DecisionResponse` for *decision_type*."""
         return getattr(self, decision_type)
 
 
@@ -2461,11 +2541,12 @@ class HumanInTheLoopModel(BaseModel):
         description="List of allowed decision types for this tool",
     )
 
-    decision_guidance: DecisionGuidance = Field(
-        default_factory=DecisionGuidance,
+    decision_response: DecisionResponseConfig = Field(
+        default_factory=DecisionResponseConfig,
         description=(
-            "Per-decision guidance injected into the agent prompt to instruct "
-            "the LLM how to respond after each decision type"
+            "Per-decision response configuration controlling whether the "
+            "post-decision reply is LLM-generated (guidance) or a "
+            "pre-formatted template string"
         ),
     )
 

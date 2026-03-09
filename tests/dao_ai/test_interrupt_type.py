@@ -170,7 +170,9 @@ class TestInterruptContentKey:
         """Two interrupts with identical .value produce the same key."""
         value = {
             "action_requests": [{"name": "send_email", "args": {"to": "a@b.com"}}],
-            "review_configs": [{"action_name": "send_email", "allowed_decisions": ["approve"]}],
+            "review_configs": [
+                {"action_name": "send_email", "allowed_decisions": ["approve"]}
+            ],
         }
         i1 = Interrupt(value=value, id="id-aaa")
         i2 = Interrupt(value=value, id="id-bbb")
@@ -179,19 +181,19 @@ class TestInterruptContentKey:
 
     def test_different_value_different_key(self):
         """Two interrupts with different .value produce different keys."""
-        i1 = Interrupt(
-            value={"action_requests": [{"name": "tool_a"}]}, id="id-1"
-        )
-        i2 = Interrupt(
-            value={"action_requests": [{"name": "tool_b"}]}, id="id-2"
-        )
+        i1 = Interrupt(value={"action_requests": [{"name": "tool_a"}]}, id="id-1")
+        i2 = Interrupt(value={"action_requests": [{"name": "tool_b"}]}, id="id-2")
 
         assert _interrupt_content_key(i1) != _interrupt_content_key(i2)
 
     def test_different_id_same_value(self):
         """Handler re-propagation creates a new ID but keeps the value.
         Content key must still match."""
-        value = {"action_requests": [{"name": "request_dataset_access", "args": {"desc": "x"}}]}
+        value = {
+            "action_requests": [
+                {"name": "request_dataset_access", "args": {"desc": "x"}}
+            ]
+        }
         original = Interrupt(value=value, id="subgraph-interrupt-abc")
         propagated = Interrupt(value=value, id="parent-interrupt-xyz")
 
