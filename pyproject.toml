@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dao-ai"
-version = "0.1.36"
+version = "0.1.37"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 license = { text = "MIT" }
@@ -46,7 +46,7 @@ dependencies = [
     "databricks-agents>=1.9.0",
     "databricks-langchain[memory]>=0.14.0",
     "databricks-mcp>=0.5.0",
-    "databricks-sdk[openai]>=0.85.0",
+    "databricks-sdk[openai]>=0.97.0",
     "ddgs>=9.10.0",
     "dspy>=2.6.27",
     "flashrank>=0.2.10",
