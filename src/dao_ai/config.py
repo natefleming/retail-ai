@@ -120,6 +120,12 @@ class EnvironmentVariableModel(BaseModel, HasValue):
     def as_value(self) -> Any:
         logger.debug(f"Fetching environment variable: {self.env}")
         value: Any = os.environ.get(self.env, self.default_value)
+        if isinstance(value, str) and value.startswith("{{") and value.endswith("}}"):
+            logger.warning(
+                f"Environment variable {self.env} contains an unresolved template "
+                f"reference: {value}. Treating as unresolved."
+            )
+            return self.default_value
         return value
 
     def __str__(self) -> str:

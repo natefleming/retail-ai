@@ -892,6 +892,12 @@ def _extract_env_vars_from_config(config: AppConfig) -> list[dict[str, str]]:
         if resolved_type is None:
             # Plain value - use as-is
             if isinstance(var_value, str):
+                if "{{secrets/" in var_value:
+                    logger.info(
+                        f"Skipping environment variable {var_name} - contains Model "
+                        f"Serving secret reference that is not supported in Databricks Apps"
+                    )
+                    continue
                 env_entry["value"] = var_value
             else:
                 env_entry["value"] = str(var_value)
