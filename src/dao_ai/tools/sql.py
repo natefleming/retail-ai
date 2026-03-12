@@ -15,7 +15,7 @@ from dao_ai.state import Context
 
 
 def create_execute_statement_tool(
-    warehouse: WarehouseModel,
+    warehouse: WarehouseModel | dict,
     statement: str,
     name: str = "execute_sql_tool",
     description: str | None = None,
@@ -29,7 +29,8 @@ def create_execute_statement_tool(
     providing agents with specific, pre-defined queries.
 
     Args:
-        warehouse: WarehouseModel containing warehouse configuration and credentials
+        warehouse: WarehouseModel or dict containing warehouse configuration and credentials.
+            Dicts are automatically coerced to WarehouseModel (e.g. from YAML anchor resolution).
         sql: The SQL statement to execute (configured at tool creation time)
         name: Optional custom name for the tool. Defaults to "execute_sql_tool"
         description: Optional custom description for the tool. If None, uses default description
@@ -60,6 +61,9 @@ def create_execute_statement_tool(
         result = customer_count_tool.invoke({})
         ```
     """
+    if isinstance(warehouse, dict):
+        warehouse = WarehouseModel.model_validate(warehouse)
+
     if description is None:
         description = f"Execute a pre-configured SQL query against the {warehouse.name} warehouse and return the results."
 

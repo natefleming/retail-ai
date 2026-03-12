@@ -25,6 +25,7 @@ from dao_ai.tools.time import (
 )
 from dao_ai.tools.unity_catalog import create_uc_tools
 from dao_ai.tools.vector_search import create_vector_search_tool
+from dao_ai.tools.visualization import create_visualization_tool
 
 __all__ = [
     "add_time_tool",
@@ -46,6 +47,7 @@ __all__ = [
     "create_tools",
     "create_uc_tools",
     "create_vector_search_tool",
+    "create_visualization_tool",
     "current_time_tool",
     "format_time_tool",
     "is_business_hours_tool",

@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Example configuration demonstrating the Vega-Lite visualization tool
+# This tool generates portable Vega-Lite JSON specs from structured data.
+# Specs are delivered to clients via custom_outputs.visualizations.
+
+schemas:
+  hardware_store_schema: &hardware_store_schema
+    catalog_name: retail_consumer_goods                    # Unity Catalog name
+    schema_name: hardware_store                            # Schema within the catalog
+
+resources:
+  # Define the LLM for the agent
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+
+  # Define the warehouse to execute SQL against
+  warehouses:
+    analytics_warehouse: &analytics_warehouse
+      name: analytics_warehouse
+      warehouse_id:
+        env: DATABRICKS_WAREHOUSE_ID
+        default_value: "148ccb90800933a1"
+      on_behalf_of_user: true                        # Execute SQL as the calling user
+
+  tables:
+    products: 
+      schema: *hardware_store_schema
+      name: products
+    inventory: 
+      schema: *hardware_store_schema
+      name: inventory
+
+# Define tools
+tools:
+  # Visualization tool with sensible defaults
+  chart_tool: &chart_tool
+    name: chart_tool
+    function:
+      type: factory
+      name: dao_ai.tools.visualization.create_visualization_tool
+      args:
+        name: create_chart
+        description: >
+          Generate a Vega-Lite chart from data. Pass data as a JSON array string
+          and specify x/y fields. Supports bar, line, scatter, area, arc (pie),
+          and heatmap chart types.
+        default_chart_type: bar
+        width: container
+        height: 400
+        color_scheme: tableau10
+
+  # SQL tool for fetching data that feeds into the visualization tool
+  get_department_sales: &get_department_sales
+    name: get_department_sales
+    function:
+      type: factory
+      name: dao_ai.tools.sql.create_execute_statement_tool
+      args:
+        warehouse: *analytics_warehouse
+        statement: |
+          SELECT
+            i.department,
+            COUNT(DISTINCT p.product_id) as product_count,
+            ROUND(SUM(i.retail_amount), 2) as total_revenue
+          FROM retail_consumer_goods.hardware_store.products p
+          INNER JOIN retail_consumer_goods.hardware_store.inventory i
+            ON p.product_id = i.product_id
+          GROUP BY i.department
+          ORDER BY total_revenue DESC
+        description: "Get sales revenue and product counts by department"
+
+agents:
+  analyst_with_charts: &analyst_with_charts
+    name: analyst_with_charts
+    model: *default_llm
+    tools:
+      - *chart_tool
+      - *get_department_sales
+    prompt: |
+      You are a data analyst assistant that can query data and create
+      visualizations. When the user asks for a chart or plot:
+      1. Fetch the relevant data using your SQL tools.
+      2. Pass the data to the create_chart tool as a JSON array string.
+      3. Summarize key insights from the data.
+
+      Always pick the chart type that best represents the data:
+      - bar: categorical comparisons
+      - line: trends over time
+      - scatter: correlations between two measures
+      - area: volume over time
+      - arc: proportional breakdowns
+      - heatmap: density or matrix data
+
+app:
+  name: viz_dept_sales_dao
+  log_level: DEBUG
+  registered_model:
+    schema: *hardware_store_schema
+    name: viz_dept_sales_dao
+  agents:
+    - *analyst_with_charts
