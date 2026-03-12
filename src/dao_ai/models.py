@@ -36,6 +36,7 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langgraph.errors import GraphInterrupt
 from langgraph.graph.state import CompiledStateGraph
@@ -148,6 +149,37 @@ def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
         return "".join(result_parts)
 
     return str(content)
+
+
+VEGA_LITE_SCHEMA_PREFIX: str = "https://vega.github.io/schema/vega-lite/"
+
+
+def _extract_visualizations_from_messages(
+    messages: list[BaseMessage],
+    message_id: str,
+) -> list[dict[str, Any]]:
+    """Extract Vega-Lite specs from ToolMessage content in the current turn.
+
+    Scans tool messages for JSON content containing a ``$schema`` field
+    that starts with the Vega-Lite schema URL. Each found spec is tagged
+    with the given ``message_id`` so clients can associate it with the
+    correct response.
+    """
+    visualizations: list[dict[str, Any]] = []
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        content: str = msg.content if isinstance(msg.content, str) else ""
+        if not content.strip().startswith("{"):
+            continue
+        try:
+            parsed: dict[str, Any] = json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        schema: str = parsed.get("$schema", "")
+        if isinstance(schema, str) and schema.startswith(VEGA_LITE_SCHEMA_PREFIX):
+            visualizations.append({"spec": parsed, "message_id": message_id})
+    return visualizations
 
 
 def get_latest_model_version(model_name: str) -> int:
@@ -1178,13 +1210,27 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 )
 
         # Convert response to ResponsesAgent format
-        last_message: BaseMessage = response["messages"][-1]
+        all_messages: list[BaseMessage] = response["messages"]
+        last_message: BaseMessage = all_messages[-1]
+        item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
 
         # Build custom_outputs
         custom_outputs: dict[str, Any] = await self._build_custom_outputs_async(
             context=context,
             thread_id=context.thread_id,
         )
+
+        # Extract visualization specs from tool messages in this turn
+        visualizations: list[dict[str, Any]] = _extract_visualizations_from_messages(
+            all_messages, item_id
+        )
+        if visualizations:
+            custom_outputs["visualizations"] = visualizations
+            logger.info(
+                "Extracted visualization specs from tool messages",
+                count=len(visualizations),
+                message_id=item_id,
+            )
 
         # Handle structured_response if present
         if "structured_response" in response:
@@ -1214,14 +1260,12 @@ class LanggraphResponsesAgent(ResponsesAgent):
             import json
 
             structured_text: str = json.dumps(serialized, indent=2)
-            output_item = self.create_text_output_item(
-                text=structured_text, id=f"msg_{uuid.uuid4().hex[:8]}"
-            )
+            output_item = self.create_text_output_item(text=structured_text, id=item_id)
             logger.trace("Structured response placed in message content")
         else:
             output_item = self.create_text_output_item(
                 text=_extract_text_content(last_message.content),
-                id=f"msg_{uuid.uuid4().hex[:8]}",
+                id=item_id,
             )
 
         # Include interrupt structure if HITL occurred
@@ -1315,6 +1359,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
         item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
         accumulated_content: str = ""
+        tool_messages: list[ToolMessage] = []
         interrupt_data: list[HITLRequest] = []
         seen_interrupt_keys: set[str] = set()
         structured_response: Any = None
@@ -1415,7 +1460,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     if stream_mode == "messages":
                         messages_batch: Sequence[BaseMessage] = data
                         for message in messages_batch:
-                            if (
+                            if isinstance(message, ToolMessage):
+                                tool_messages.append(message)
+                            elif (
                                 isinstance(message, (AIMessageChunk, AIMessage))
                                 and message.content
                                 and "summarization" not in nodes
@@ -1502,6 +1549,18 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 context=context,
                 thread_id=context.thread_id,
             )
+
+            # Extract visualization specs from tool messages collected during streaming
+            visualizations: list[dict[str, Any]] = (
+                _extract_visualizations_from_messages(tool_messages, item_id)
+            )
+            if visualizations:
+                custom_outputs["visualizations"] = visualizations
+                logger.info(
+                    "Extracted visualization specs from streamed tool messages",
+                    count=len(visualizations),
+                    message_id=item_id,
+                )
 
             # Handle structured_response in streaming
             output_text: str = accumulated_content

@@ -1796,6 +1796,68 @@ middleware:
 
 ---
 
+## 17. Visualization (Vega-Lite)
+
+Generate portable Vega-Lite chart specifications from structured data. The
+visualization tool is a factory tool that returns specs via tool output;
+the response pipeline automatically extracts them into
+`custom_outputs.visualizations` tagged with the current `message_id`.
+
+### How It Works
+
+```
+LLM calls visualization tool with data + chart params
+    → tool returns Vega-Lite JSON spec
+    → apredict / apredict_stream detects $schema in ToolMessage
+    → spec placed in custom_outputs.visualizations[{spec, message_id}]
+    → client renders with vega-embed, matching message_id
+```
+
+### Configuration
+
+```yaml
+tools:
+  chart:
+    name: chart
+    function:
+      type: factory
+      name: dao_ai.tools.visualization.create_visualization_tool
+      args:
+        default_chart_type: bar   # bar | line | scatter | area | arc | heatmap
+        width: container          # "container" for responsive, or int
+        height: 400
+        color_scheme: tableau10   # any Vega-Lite named scheme
+```
+
+### Supported Chart Types
+
+| Type      | Best For                          |
+|-----------|-----------------------------------|
+| `bar`     | Categorical comparisons           |
+| `line`    | Trends over time                  |
+| `scatter` | Correlations between two measures |
+| `area`    | Volume over time                  |
+| `arc`     | Proportional breakdowns (pie)     |
+| `heatmap` | Density or matrix data            |
+
+### Client Integration
+
+Each visualization in `custom_outputs.visualizations` has this shape:
+
+```json
+{
+  "spec": { "$schema": "...", "mark": "bar", ... },
+  "message_id": "msg_abc12345"
+}
+```
+
+The client matches `message_id` to the response output item `id` and renders
+the spec using [vega-embed](https://github.com/vega/vega-embed).
+
+**Example configuration:** See [`config/examples/18_visualization/`](../config/examples/18_visualization/)
+
+---
+
 ## Navigation
 
 - [← Previous: Architecture](architecture.md)

@@ -622,6 +622,7 @@ class DatabricksProvider(ServiceProvider):
                 original=raw_name,
                 normalized=app_name,
             )
+
         logger.info("Deploying agent to Databricks Apps", app_name=app_name)
 
         # Use convention-based workspace path: /Workspace/Users/{user}/apps/{app_name}

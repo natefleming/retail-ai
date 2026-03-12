@@ -10,7 +10,8 @@ The examples follow a natural progression:
 01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
     → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output
     → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
-    → 14_basic_tools → 15_complete_applications
+    → 14_basic_tools → 15_complete_applications → 16_instructed_retriever
+    → 17_parallel_tools → 18_visualization
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -47,6 +48,10 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 ### 🛡️ Need Validation & Monitoring?
 **Middleware patterns:**
 - [`12_middleware/`](../config/examples/12_middleware/) - Input validation, logging, performance monitoring
+
+### 📊 Visualizations?
+**Charts and graphs:**
+- [`18_visualization/`](../config/examples/18_visualization/) - Vega-Lite chart generation via `custom_outputs`
 
 ### 🏗️ Complete Solutions?
 **Full applications:**
@@ -417,6 +422,19 @@ Full-featured, production-ready agent applications.
 
 **Prerequisites:** All concepts from previous categories  
 **Use:** As reference implementations or starting points
+
+---
+
+### 18. Visualization [📖 README](../config/examples/18_visualization/README.md)
+
+Generate Vega-Lite chart specs from structured data, delivered to clients via `custom_outputs.visualizations`.
+
+| Example | Description |
+|---------|-------------|
+| `vega_lite_visualization.yaml` | Bar/line/scatter/area/arc/heatmap charts with SQL data source |
+
+**Prerequisites:** Factory tool pattern (`14_basic_tools`)  
+**Use:** Pair with SQL or Genie tools to turn query results into interactive charts
 
 ---
 
