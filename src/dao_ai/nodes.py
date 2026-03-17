@@ -389,12 +389,7 @@ def create_agent_node(
     effective_prompt: str | PromptModel | None = agent.prompt
     if has_memory_tools and effective_prompt is not None:
         if isinstance(effective_prompt, PromptModel):
-            effective_prompt = PromptModel(
-                **{
-                    **effective_prompt.model_dump(),
-                    "template": effective_prompt.template + MEMORY_TOOL_INSTRUCTIONS,
-                }
-            )
+            effective_prompt = effective_prompt.template + MEMORY_TOOL_INSTRUCTIONS
         else:
             effective_prompt = effective_prompt + MEMORY_TOOL_INSTRUCTIONS
         logger.debug("Memory tool instructions appended to prompt", agent=agent.name)
@@ -405,12 +400,7 @@ def create_agent_node(
         if effective_prompt is None:
             effective_prompt = hitl_guidance.lstrip("\n")
         elif isinstance(effective_prompt, PromptModel):
-            effective_prompt = PromptModel(
-                **{
-                    **effective_prompt.model_dump(),
-                    "template": effective_prompt.template + hitl_guidance,
-                }
-            )
+            effective_prompt = effective_prompt.template + hitl_guidance
         else:
             effective_prompt = effective_prompt + hitl_guidance
         logger.debug("HITL decision guidance appended to prompt", agent=agent.name)
