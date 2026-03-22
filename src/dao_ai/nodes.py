@@ -122,20 +122,27 @@ def _create_middleware_list(
             guardrail_names=guardrail_names,
         )
     for guardrail in agent.guardrails:
-        # Use the LLMModel's URI as the MLflow judge model endpoint
-        model_endpoint: str = guardrail.model.uri
+        num_retries: int = guardrail.num_retries or 3
+        fail_on_error: bool = (
+            guardrail.fail_on_error if guardrail.fail_on_error is not None else False
+        )
+        max_context_length: int = guardrail.max_context_length or 8000
+        apply_to = guardrail.apply_to
 
-        # GuardrailMiddleware handles PromptModel resolution internally
+        scorer = guardrail.as_scorer()
         guardrail_middleware: GuardrailMiddleware = GuardrailMiddleware(
             name=guardrail.name,
-            model=model_endpoint,
-            prompt=guardrail.prompt,
-            num_retries=guardrail.num_retries or 3,
-            fail_open=guardrail.fail_open if guardrail.fail_open is not None else True,
-            max_context_length=guardrail.max_context_length or 8000,
+            scorer=scorer,
+            num_retries=num_retries,
+            fail_on_error=fail_on_error,
+            max_context_length=max_context_length,
+            apply_to=apply_to,
         )
         logger.trace(
-            "Created guardrail middleware", guardrail=guardrail.name, agent=agent.name
+            "Created guardrail middleware",
+            guardrail=guardrail.name,
+            agent=agent.name,
+            apply_to=apply_to,
         )
         middleware_list.append(guardrail_middleware)
 

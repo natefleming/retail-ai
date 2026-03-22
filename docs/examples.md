@@ -184,6 +184,7 @@ Automated safety and validation using MLflow judges (`mlflow.genai.judges.make_j
 | Example | Description |
 |---------|-------------|
 | `guardrails_basic.yaml` | Tone, completeness, and veracity guardrails with MLflow judges |
+| `guardrails_scorers.yaml` | MLflow Scorer-based guardrails (ToxicLanguage, GibberishText) alongside custom judges |
 
 **Prerequisites:** MLflow with Databricks model endpoints  
 **Next:** Enforce schemas in `09_structured_output/`

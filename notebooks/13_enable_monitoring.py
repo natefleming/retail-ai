@@ -49,20 +49,24 @@ sys.path.insert(0, "../src")
 # COMMAND ----------
 
 # DBTITLE 1,Load Configuration
-from dao_ai.config import AppConfig, EvaluationModel
+from dao_ai.config import AppConfig, MonitoringModel
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
-evaluation: EvaluationModel = config.evaluation
+if not config.app or not config.app.trace_location:
+    dbutils.notebook.exit("Missing app.trace_location configuration")
 
-if not evaluation:
-    dbutils.notebook.exit("Missing evaluation configuration")
+if not config.app.trace_location.monitoring:
+    dbutils.notebook.exit("Missing app.trace_location.monitoring configuration")
 
-if not evaluation.monitoring:
-    dbutils.notebook.exit("Missing evaluation.monitoring configuration")
+monitoring: MonitoringModel = config.app.trace_location.monitoring
 
-print(f"Built-in scorer sample rate: {evaluation.monitoring.sample_rate}")
-print(f"Guidelines scorer sample rate: {evaluation.monitoring.guidelines_sample_rate}")
+print(f"Built-in scorer sample rate: {monitoring.sample_rate}")
+print(f"Guidelines scorer sample rate: {monitoring.guidelines_sample_rate}")
+if monitoring.scorers:
+    print(f"Configured scorers: {monitoring.scorers}")
+else:
+    print("Using all built-in scorers (default)")
 
 # COMMAND ----------
 
@@ -91,8 +95,9 @@ print(f"Experiment ID: {experiment_id}")
 from dao_ai.evaluation import register_monitoring_scorers
 
 registered = register_monitoring_scorers(
-    evaluation_config=config.evaluation,
+    monitoring_config=monitoring,
     experiment_id=experiment_id,
+    sql_warehouse_id=config.app.trace_location.warehouse_id,
 )
 
 print(f"\nRegistered {len(registered)} scorers for production monitoring")

@@ -1,0 +1,1046 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Sporting Goods Store - Merchandiser 360
+# =============================================================================
+# Multi-agent system for sporting goods merchandising lifecycle management.
+# Covers the full merchandiser workflow: assortment planning, demand forecasting,
+# purchase orders, pricing strategy, sales analytics, and inventory management.
+#
+# Architecture: Supervisor pattern with Lakebase persistent memory
+# Agents: 7 specialized merchandising agents
+# Tools: Genie rooms (2), Unity Catalog functions (6), vector search
+# Memory: Lakebase checkpointer + store + memory extraction
+
+# =============================================================================
+# VARIABLES
+# =============================================================================
+variables:
+  client_id: &client_id
+    options:
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  sporting_goods_schema: &sporting_goods_schema
+    catalog_name: retail_consumer_goods
+    schema_name: sporting_goods_store
+    permissions:
+      - principals: [users]
+        privileges:
+          - USE_CATALOG
+          - USE_SCHEMA
+          - SELECT
+          - EXECUTE
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS
+  # ---------------------------------------------------------------------------
+  llms:
+    fast_llm: &fast_llm
+      name: databricks-gpt-oss-120b
+      temperature: 0.1
+      max_tokens: 8192
+
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-sonnet-4-6
+      temperature: 0.1
+      max_tokens: 8192
+      fallbacks:
+        - databricks-claude-sonnet-4-5
+
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.5
+      max_tokens: 8192
+
+    decomposition_llm: &decomposition_llm
+      name: databricks-gpt-oss-120b
+      temperature: 0.0
+      max_tokens: 1024
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+      on_behalf_of_user: false
+
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES
+  # ---------------------------------------------------------------------------
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *sporting_goods_schema
+        name: products_description_index
+      source_table:
+        schema: *sporting_goods_schema
+        name: products
+      primary_key: product_id
+      doc_uri: ~
+      embedding_source_column: long_description
+      columns:
+        - product_id
+        - sku
+        - upc
+        - brand_name
+        - product_name
+        - merchandise_class
+        - department_name
+        - sport_category
+        - base_price
+        - long_description
+      on_behalf_of_user: false
+
+  # ---------------------------------------------------------------------------
+  # WAREHOUSES
+  # ---------------------------------------------------------------------------
+  warehouses:
+    shared_warehouse: &shared_warehouse
+      name: "Shared Endpoint Warehouse"
+      warehouse_id: "e9b34f7a2e4b0561"
+      on_behalf_of_user: false
+
+  # ---------------------------------------------------------------------------
+  # GENIE ROOMS
+  # ---------------------------------------------------------------------------
+  genie_rooms:
+    merchandising_analytics_room: &merchandising_analytics_room
+      name: "Merchandising Analytics"
+      description: "Genie room for merchandising analytics including assortment planning, demand forecasting, purchase order tracking, category performance, and seasonal trend analysis"
+      space_id: 01f124c2646f1ed4846cae3f8b36df02
+
+    sales_pricing_room: &sales_pricing_room
+      name: "Sales and Pricing Analytics"
+      description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
+      space_id: 01f124c2690f1dcb93a15057c2a74339
+
+  # ---------------------------------------------------------------------------
+  # FUNCTIONS
+  # ---------------------------------------------------------------------------
+  functions:
+    find_product_by_sku: &find_product_by_sku
+      schema: *sporting_goods_schema
+      name: find_product_by_sku
+    find_product_by_upc: &find_product_by_upc
+      schema: *sporting_goods_schema
+      name: find_product_by_upc
+    find_inventory_by_sku: &find_inventory_by_sku
+      schema: *sporting_goods_schema
+      name: find_inventory_by_sku
+    find_inventory_by_upc: &find_inventory_by_upc
+      schema: *sporting_goods_schema
+      name: find_inventory_by_upc
+    find_store_inventory_by_sku: &find_store_inventory_by_sku
+      schema: *sporting_goods_schema
+      name: find_store_inventory_by_sku
+    find_store_inventory_by_upc: &find_store_inventory_by_upc
+      schema: *sporting_goods_schema
+      name: find_store_inventory_by_upc
+
+  # ---------------------------------------------------------------------------
+  # DATABASES (Lakebase) - temporarily disabled due to workspace quota
+  # ---------------------------------------------------------------------------
+  databases:
+    retail_database: &retail_database
+      name: "rcg-sporting-goods"
+      instance_name: "rcg-sporting-goods"
+      description: "Databricks Lakebase for agent memory and checkpoints"
+      client_id: *client_id
+      client_secret: *client_secret
+      on_behalf_of_user: false
+
+# =============================================================================
+# RETRIEVERS
+# =============================================================================
+retrievers:
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store
+    columns:
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - department_name
+      - sport_category
+      - base_price
+      - long_description
+    search_parameters:
+      num_results: 50
+      filters: {}
+      query_type: HYBRID
+    instructed:
+      columns:
+        - name: product_id
+          type: number
+          description: "Unique product identifier"
+        - name: sku
+          type: string
+          description: "Stock keeping unit - internal product code (e.g., NKE-RUN-001)"
+        - name: upc
+          type: string
+          description: "Universal Product Code - barcode number"
+        - name: brand_name
+          type: string
+          description: "Brand/manufacturer (Nike, Adidas, Under Armour, New Balance, Patagonia, The North Face, Columbia, Wilson, Spalding, Coleman, YETI, Osprey, Trek, Giro, Oakley, Garmin, Hydro Flask, Callaway, Lululemon, Bowflex, Rogue Fitness)"
+        - name: product_name
+          type: string
+          description: "Product display name"
+        - name: merchandise_class
+          type: string
+          description: "Product category (Footwear, Apparel, Equipment, Accessories, etc.)"
+        - name: department_name
+          type: string
+          description: "Department (Athletic Footwear, Athletic Apparel, Team Sports, Fitness Equipment, Outdoor & Camping, Cycling, Accessories, Golf)"
+        - name: sport_category
+          type: string
+          description: "Sport or activity (Running, Basketball, Football, Soccer, Golf, Training, Outdoor, Camping, Hiking, Cycling, Yoga, Fitness, Lifestyle, General)"
+        - name: base_price
+          type: number
+          description: "Base retail price in USD"
+        - name: long_description
+          type: string
+          description: "Detailed product description with features and specifications"
+      constraints:
+        - "Use brand_name for brand filtering"
+        - "Use sport_category for sport-based queries"
+        - "Use merchandise_class for product type filtering"
+        - "Use department_name for department-level queries"
+        - "Only use columns listed above"
+      decomposition:
+        model: *decomposition_llm
+        max_subqueries: 3
+        rrf_k: 60
+        normalize_filter_case: uppercase
+        examples:
+          - query: "Nike running shoes"
+            filters: {"brand_name": "NIKE", "sport_category": "RUNNING", "merchandise_class": "FOOTWEAR"}
+          - query: "Patagonia or North Face outdoor jackets"
+            filters: {"brand_name": ["PATAGONIA", "THE NORTH FACE"], "merchandise_class": "APPAREL", "sport_category": "OUTDOOR"}
+          - query: "basketball equipment excluding Spalding"
+            filters: {"sport_category": "BASKETBALL", "merchandise_class": "EQUIPMENT", "brand_name NOT": "SPALDING"}
+          - query: "Under Armour training apparel"
+            filters: {"brand_name": "UNDER ARMOUR", "merchandise_class": "APPAREL", "sport_category": "TRAINING"}
+          - query: "golf clubs and equipment"
+            filters: {"sport_category": "GOLF", "merchandise_class": "EQUIPMENT"}
+      rerank:
+        model: *decomposition_llm
+        instructions: |
+          Prioritize results based on user constraints:
+          - Brand preferences: boost specified brands, demote excluded brands
+          - Sport/activity: prefer exact sport_category matches
+          - Product type: match specific merchandise_class mentioned
+          - Price sensitivity: if price is mentioned, prioritize relevant price ranges
+        top_n: 10
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2
+      top_n: 20
+      columns:
+        - brand_name
+        - product_name
+        - sport_category
+        - merchandise_class
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  # Vector search tool
+  find_product_details_by_description_tool: &find_product_details_by_description_tool
+    name: product_vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever
+        name: product_vector_search_tool
+        description: "Search for sporting goods products by description, brand, sport, or category"
+
+  # Unity Catalog tools
+  find_product_by_sku_tool: &find_product_by_sku_tool
+    name: find_product_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_product_by_sku
+
+  find_product_by_upc_tool: &find_product_by_upc_tool
+    name: find_product_by_upc_uc
+    function:
+      type: unity_catalog
+      resource: *find_product_by_upc
+
+  find_inventory_by_sku_tool: &find_inventory_by_sku_tool
+    name: find_inventory_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_inventory_by_sku
+
+  find_inventory_by_upc_tool: &find_inventory_by_upc_tool
+    name: find_inventory_by_upc_uc
+    function:
+      type: unity_catalog
+      resource: *find_inventory_by_upc
+
+  find_store_inventory_by_sku_tool: &find_store_inventory_by_sku_tool
+    name: find_store_inventory_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_store_inventory_by_sku
+
+  find_store_inventory_by_upc_tool: &find_store_inventory_by_upc_tool
+    name: find_store_inventory_by_upc_uc
+    function:
+      type: unity_catalog
+      resource: *find_store_inventory_by_upc
+
+  # Genie tools
+  merchandising_analytics_tool: &merchandising_analytics_tool
+    name: merchandising_analytics
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: query_merchandising_analytics
+        description: "Query merchandising analytics for assortment planning, demand forecasting, purchase order status, category performance, seasonal trends, and vendor analysis"
+        genie_room: *merchandising_analytics_room
+        lru_cache_parameters:
+          warehouse: *shared_warehouse
+          capacity: 100
+          time_to_live_seconds: 3600
+        context_aware_cache_parameters:
+          database: *retail_database
+          warehouse: *shared_warehouse
+          embedding_model: *embedding_model
+          similarity_threshold: 0.85
+          time_to_live_seconds: 86400
+        persist_conversation: true
+
+  sales_pricing_analytics_tool: &sales_pricing_analytics_tool
+    name: sales_pricing_analytics
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: query_sales_pricing
+        description: "Query sales performance, pricing analytics, margin analysis, promotional effectiveness, revenue by store/channel, and competitive pricing intelligence"
+        genie_room: *sales_pricing_room
+        lru_cache_parameters:
+          warehouse: *shared_warehouse
+          capacity: 100
+          time_to_live_seconds: 3600
+        context_aware_cache_parameters:
+          database: *retail_database
+          warehouse: *shared_warehouse
+          embedding_model: *embedding_model
+          similarity_threshold: 0.85
+          time_to_live_seconds: 86400
+        persist_conversation: true
+
+  # Utility tools
+  current_time_tool: &current_time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+# =============================================================================
+# PROMPTS (MLflow Prompt Registry)
+# =============================================================================
+prompts:
+  assortment_planning_prompt: &assortment_planning_prompt
+    schema: *sporting_goods_schema
+    name: assortment_planning_prompt
+    description: "Assortment planning agent prompt for merchandiser 360 sporting goods store"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a senior assortment planning specialist for a sporting goods retailer. You manage the assortment strategy across all product categories including athletic footwear, apparel, team sports equipment, fitness equipment, outdoor and camping gear, cycling, and accessories.
+
+      ## Your Responsibilities
+
+      **Assortment Strategy:**
+      - Develop and refine category assortment plans for each season
+      - Analyze category performance and identify gaps or over-assortment
+      - Recommend new products, brands, or categories to add to the assortment
+      - Identify underperforming SKUs for potential discontinuation
+
+      **Planogram Planning:**
+      - Recommend product placement and display strategies
+      - Analyze space-to-sales ratios by category and department
+      - Suggest endcap and feature wall merchandising opportunities
+
+      **Seasonal Planning:**
+      - Plan seasonal transitions (e.g., winter to spring outdoor gear)
+      - Manage seasonal product introductions and exits
+      - Coordinate with buying team on seasonal forward buys
+
+      ## Tool Usage
+      - Use `query_merchandising_analytics` to analyze category performance, seasonal trends, and assortment metrics
+      - Use `product_vector_search` to research products in specific categories or by description
+      - Base all recommendations on data from your tools
+
+      ## Response Style
+      - Provide data-driven recommendations with specific SKUs and metrics
+      - Frame recommendations in terms of business impact (margin, sell-through, turns)
+      - Consider regional and store-level differences in assortment needs
+    tags:
+      environment: production
+      agent_name: assortment_planning
+      domain: merchandising
+    auto_register: true
+
+  forecasting_prompt: &forecasting_prompt
+    schema: *sporting_goods_schema
+    name: forecasting_prompt
+    description: "Demand forecasting agent prompt for merchandiser 360 sporting goods store"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a demand forecasting analyst for a sporting goods retailer. You specialize in predicting demand across seasonal sporting goods categories to optimize inventory investment and prevent stockouts.
+
+      ## Your Responsibilities
+
+      **Demand Forecasting:**
+      - Analyze historical sales patterns and seasonal trends
+      - Predict demand for upcoming seasons and promotional events
+      - Identify products with changing demand trajectories (increasing, decreasing, stable)
+      - Factor in external events (major sporting events, weather patterns, back-to-school)
+
+      **Trend Analysis:**
+      - Monitor sell-through rates and velocity by category
+      - Identify emerging product trends and declining categories
+      - Analyze year-over-year performance comparisons
+      - Track regional demand variations
+
+      **Risk Assessment:**
+      - Identify stockout risk products with critical inventory levels
+      - Flag products with excess inventory requiring markdown action
+      - Assess demand volatility and forecast confidence levels
+
+      ## Tool Usage
+      - Use `query_merchandising_analytics` to pull historical sales data, trend analysis, and demand signals
+      - Use `current_time` to understand current date context for seasonal forecasting
+      - Base all forecasts on actual data and clearly state confidence levels
+
+      ## Response Style
+      - Present forecasts with specific quantities and confidence ranges
+      - Highlight key assumptions and risk factors
+      - Recommend actionable next steps (reorder, markdown, feature)
+    tags:
+      environment: production
+      agent_name: forecasting
+      domain: merchandising
+    auto_register: true
+
+  purchase_order_prompt: &purchase_order_prompt
+    schema: *sporting_goods_schema
+    name: purchase_order_prompt
+    description: "Purchase order management agent prompt for merchandiser 360 sporting goods store"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a purchase order and buying specialist for a sporting goods retailer. You manage the buying process from vendor selection through PO creation, tracking, and receiving.
+
+      ## Your Responsibilities
+
+      **Purchase Order Management:**
+      - Track open purchase orders and their delivery status
+      - Monitor POs in transit, confirmed, and pending approval
+      - Identify overdue deliveries and coordinate with vendors
+      - Manage PO quantity adjustments and cancellations
+
+      **Buying Decisions:**
+      - Recommend reorder quantities based on demand forecasts and safety stock
+      - Evaluate vendor lead times and reliability
+      - Coordinate seasonal forward buys with planning team
+      - Optimize order quantities for cost efficiency (economic order quantity)
+
+      **Vendor Management:**
+      - Track vendor performance (on-time delivery, fill rates, quality)
+      - Identify alternative suppliers for critical products
+      - Manage vendor relationships and negotiate terms
+
+      **Receiving and Allocation:**
+      - Coordinate receiving of incoming inventory
+      - Plan store allocation for received merchandise
+      - Track quantity discrepancies between ordered and received
+
+      ## Tool Usage
+      - Use `query_merchandising_analytics` to review PO status, vendor performance, and reorder recommendations
+      - Use `find_inventory_by_sku_uc` to check current stock levels when evaluating reorder needs
+      - Base all buying recommendations on demand data and inventory position
+
+      ## Response Style
+      - Reference specific PO numbers, vendor names, and SKUs
+      - Quantify financial impact of buying decisions (cost, projected margin)
+      - Flag urgent items requiring immediate action
+    tags:
+      environment: production
+      agent_name: purchase_order
+      domain: merchandising
+    auto_register: true
+
+  pricing_prompt: &pricing_prompt
+    schema: *sporting_goods_schema
+    name: pricing_prompt
+    description: "Pricing strategy agent prompt for merchandiser 360 sporting goods store"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a pricing strategy specialist for a sporting goods retailer. You manage pricing decisions across the merchandising lifecycle including initial pricing, promotional pricing, markdowns, competitive pricing, and clearance.
+
+      ## Your Responsibilities
+
+      **Pricing Strategy:**
+      - Set and maintain optimal pricing for maximum margin and sell-through
+      - Analyze price elasticity and customer price sensitivity by category
+      - Manage brand pricing constraints (e.g., Lululemon MSRP requirements)
+      - Recommend pricing positions relative to competitors
+
+      **Markdown Management:**
+      - Plan and execute seasonal markdown cadences
+      - Identify products requiring markdown based on sell-through velocity
+      - Optimize markdown depth to balance margin preservation with inventory clearance
+      - Track markdown effectiveness and adjust strategy
+
+      **Promotional Pricing:**
+      - Plan promotional pricing events (Spring Running Event, Summer Kickoff, etc.)
+      - Analyze promotional lift and ROI from past promotions
+      - Coordinate promotional pricing with marketing campaigns
+      - Manage outlet and clearance pricing strategies
+
+      **Competitive Pricing:**
+      - Monitor competitive pricing and recommend price matches when warranted
+      - Analyze impact of competitive pricing moves on sales
+      - Manage price rollbacks when increases prove unsuccessful
+
+      ## Tool Usage
+      - Use `query_sales_pricing` to analyze pricing effectiveness, margin trends, and competitive positioning
+      - Use `find_product_by_sku_uc` to look up current product and pricing details
+      - Base pricing decisions on margin analysis, sell-through data, and competitive intelligence
+
+      ## Response Style
+      - Present pricing recommendations with margin impact analysis
+      - Show before/after pricing scenarios with projected outcomes
+      - Reference pricing history and lessons learned from past actions
+    tags:
+      environment: production
+      agent_name: pricing
+      domain: merchandising
+    auto_register: true
+
+  sales_prompt: &sales_prompt
+    schema: *sporting_goods_schema
+    name: sales_prompt
+    description: "Sales analytics agent prompt for merchandiser 360 sporting goods store"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a sales analytics specialist for a sporting goods retailer. You provide insights on sales performance across stores, channels, departments, and product categories to drive merchandising decisions.
+
+      ## Your Responsibilities
+
+      **Sales Performance Analysis:**
+      - Track daily, weekly, and monthly sales performance by store, department, and category
+      - Analyze sales trends and year-over-year comparisons
+      - Identify top-performing and underperforming products and categories
+      - Monitor sales by channel (in-store, online, mobile app)
+
+      **Store-Level Analytics:**
+      - Compare store performance across the chain
+      - Identify regional sales patterns and opportunities
+      - Analyze store-level margin and sell-through rates
+      - Track sales associate performance and attach rates
+
+      **Revenue Tracking:**
+      - Monitor revenue against plan and forecast
+      - Analyze revenue mix by department and sport category
+      - Track average transaction value and units per transaction
+      - Identify revenue growth opportunities
+
+      **Return Analysis:**
+      - Monitor return rates by product, store, and category
+      - Identify products with high return rates and root causes
+      - Quantify the impact of returns on revenue and margin
+
+      ## Tool Usage
+      - Use `query_sales_pricing` to pull sales data, performance metrics, and trend analysis
+      - Use `find_inventory_by_sku_uc` to correlate sales performance with current stock levels
+      - Use `product_vector_search` to research products mentioned in sales queries
+
+      ## Response Style
+      - Present data in clear, actionable formats with specific numbers
+      - Compare metrics against relevant benchmarks (plan, LY, chain average)
+      - Highlight actionable insights and recommended next steps
+    tags:
+      environment: production
+      agent_name: sales
+      domain: merchandising
+    auto_register: true
+
+  inventory_prompt: &inventory_prompt
+    schema: *sporting_goods_schema
+    name: inventory_prompt
+    description: "Inventory management agent prompt for merchandiser 360 sporting goods store"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an inventory management specialist for a sporting goods retailer. You manage stock levels, replenishment, allocation, and inventory health across the store network.
+
+      ## Your Responsibilities
+
+      **Stock Management:**
+      - Monitor current inventory levels across all stores and warehouses
+      - Identify out-of-stock and low-stock situations requiring immediate action
+      - Track inventory turn rates and days of supply by category
+      - Manage safety stock levels and reorder points
+
+      **Replenishment:**
+      - Coordinate store replenishment from warehouse stock
+      - Prioritize replenishment based on stockout risk and sales velocity
+      - Manage allocation of incoming inventory across stores
+      - Handle inter-store transfers for inventory balancing
+
+      **Inventory Health:**
+      - Monitor aging inventory and recommend markdown or transfer actions
+      - Track shrinkage and loss rates by store and department
+      - Analyze inventory accuracy from cycle counts
+      - Identify seasonal inventory build requirements
+
+      **Product Availability:**
+      - Check real-time product availability at specific stores
+      - Locate products across the store network for customer requests
+      - Manage backorder and pre-order situations
+
+      ## Tool Usage
+      - Use `find_inventory_by_sku_uc` or `find_inventory_by_upc_uc` to check stock across all stores
+      - Use `find_store_inventory_by_sku_uc` or `find_store_inventory_by_upc_uc` for store-specific lookups
+      - Use `product_vector_search` to find products by description when SKU/UPC is not known
+      - Always use tools before answering inventory questions
+
+      ## Response Style
+      - Provide specific quantities, locations, and aisle information
+      - Flag critical stockout risks with recommended actions
+      - Suggest alternatives when requested products are unavailable
+    tags:
+      environment: production
+      agent_name: inventory
+      domain: merchandising
+    auto_register: true
+
+  general_prompt: &general_prompt
+    schema: *sporting_goods_schema
+    name: general_prompt
+    description: "General merchandising assistant prompt for sporting goods store"
+    default_template: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a general merchandising assistant for a sporting goods retailer. You help with general store inquiries, product information, and questions that don't fall under the specialized merchandising functions.
+
+      ## Your Capabilities
+
+      **Product Information:**
+      - Search for products by description, brand, sport, or category
+      - Provide product specifications, features, and pricing
+      - Help identify products for specific sports or activities
+
+      **General Store Support:**
+      - Answer questions about store policies, hours, and services
+      - Provide information about departments and product categories
+      - Help navigate the merchandising workflow and direct to specialists
+
+      **Product Discovery:**
+      - Recommend products for specific sports or activities
+      - Compare products across brands and price points
+      - Identify seasonal products and new arrivals
+
+      ## Tool Usage
+      - Use `product_vector_search` to find products by description or characteristics
+      - Always search before answering product questions
+      - Direct specialized merchandising questions to the appropriate agent
+
+      ## Response Style
+      - Be friendly, knowledgeable, and helpful
+      - Provide accurate product information based on search results
+      - Clearly indicate when a question should be handled by a specialist
+    tags:
+      environment: production
+      agent_name: general
+      domain: merchandising
+    auto_register: true
+
+# =============================================================================
+# MEMORY (Lakebase) - temporarily disabled due to workspace quota
+# =============================================================================
+memory: &memory
+  checkpointer:
+    name: default_checkpointer
+    database: *retail_database
+
+  store:
+    name: default_store
+    database: *retail_database
+    namespace: "{user_id}"
+    embedding_model: *embedding_model
+
+  extraction:
+    schemas:
+      - user_profile
+      - preference
+      - episode
+    instructions: |
+      Extract the user's name, role, and merchandising focus areas. Track their
+      preferred product categories, brands of interest, stores they manage, and
+      typical workflow patterns. Update the user profile with new information.
+      Record notable interactions such as pricing decisions, buying patterns,
+      assortment changes, and seasonal planning preferences.
+    auto_inject: true
+    auto_inject_limit: 5
+    background_extraction: true
+    extraction_model: *tool_calling_llm
+    query_model: *fast_llm
+
+# =============================================================================
+# MIDDLEWARE
+# =============================================================================
+middleware:
+  store_validation: &store_validation
+    name: dao_ai.middleware.create_custom_field_validation_middleware
+    args:
+      fields:
+        - name: store_num
+          description: "Your store number for inventory and sales lookups"
+          example_value: "DEN-FLAG"
+        - name: user_id
+          description: "Your unique user identifier"
+          required: false
+          example_value: "merchandiser_01"
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  assortment_planning: &assortment_planning
+    name: assortment_planning
+    description: "Assortment planning specialist managing category mix, planogram strategy, seasonal transitions, and product lifecycle for sporting goods"
+    model: *tool_calling_llm
+    tools:
+      - *merchandising_analytics_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: *assortment_planning_prompt
+    handoff_prompt: |
+      Questions about assortment strategy, category mix, planogram planning, product assortment, seasonal transitions, new product introductions, or SKU rationalization.
+      Example: "What categories are over-assorted?" or "Plan the spring outdoor assortment" or "Which SKUs should we discontinue?"
+
+  forecasting: &forecasting
+    name: forecasting
+    description: "Demand forecasting analyst providing predictions, trend analysis, seasonal projections, and stockout risk assessment for sporting goods"
+    model: *tool_calling_llm
+    tools:
+      - *merchandising_analytics_tool
+      - *current_time_tool
+    guardrails: []
+    prompt: *forecasting_prompt
+    handoff_prompt: |
+      Questions about demand forecasting, sales predictions, trend analysis, seasonal demand patterns, or stockout risk assessment.
+      Example: "What's the demand forecast for camping gear this spring?" or "Which products are trending up?" or "What's the stockout risk for running shoes?"
+
+  purchase_order: &purchase_order
+    name: purchase_order
+    description: "Purchase order and buying specialist managing PO lifecycle, vendor relationships, buying decisions, and receiving for sporting goods"
+    model: *tool_calling_llm
+    tools:
+      - *merchandising_analytics_tool
+      - *find_inventory_by_sku_tool
+    guardrails: []
+    prompt: *purchase_order_prompt
+    handoff_prompt: |
+      Questions about purchase orders, buying decisions, vendor management, reorder quantities, PO tracking, receiving, or supplier performance.
+      Example: "What POs are in transit?" or "Should we reorder Nike Pegasus?" or "How is vendor delivery performance?"
+
+  pricing: &pricing
+    name: pricing
+    description: "Pricing strategy specialist managing initial pricing, markdowns, promotions, competitive pricing, and clearance for sporting goods"
+    model: *tool_calling_llm
+    tools:
+      - *sales_pricing_analytics_tool
+      - *find_product_by_sku_tool
+      - *find_product_by_upc_tool
+    guardrails: []
+    prompt: *pricing_prompt
+    handoff_prompt: |
+      Questions about pricing strategy, markdowns, promotional pricing, competitive pricing, price changes, margin analysis, or clearance pricing.
+      Example: "What products need markdowns?" or "How effective was the Spring Running promotion?" or "What's the margin impact of matching competitor prices?"
+
+  sales: &sales
+    name: sales
+    description: "Sales analytics specialist providing performance analysis, revenue tracking, store comparisons, and return analysis for sporting goods"
+    model: *tool_calling_llm
+    tools:
+      - *sales_pricing_analytics_tool
+      - *find_inventory_by_sku_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: *sales_prompt
+    handoff_prompt: |
+      Questions about sales performance, revenue tracking, store comparisons, department sales, top sellers, return rates, or sales trends.
+      Example: "What were total sales this week?" or "Which store is performing best?" or "What are the top sellers in footwear?"
+
+  inventory: &inventory
+    name: inventory
+    description: "Inventory management specialist providing stock levels, replenishment, allocation, and product availability for sporting goods"
+    model: *tool_calling_llm
+    tools:
+      - *find_inventory_by_sku_tool
+      - *find_inventory_by_upc_tool
+      - *find_store_inventory_by_sku_tool
+      - *find_store_inventory_by_upc_tool
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: *inventory_prompt
+    handoff_prompt: |
+      Questions about stock levels, product availability, inventory replenishment, store transfers, warehouse stock, or out-of-stock situations.
+      Example: "Do we have Nike Pegasus in stock at Denver?" or "What products are at critical stock levels?" or "How much warehouse inventory do we have for camping tents?"
+
+  general: &general
+    name: general
+    description: "General merchandising assistant for product information, store inquiries, and questions not handled by specialist agents"
+    model: *tool_calling_llm
+    tools:
+      - *find_product_details_by_description_tool
+    guardrails: []
+    prompt: *general_prompt
+    handoff_prompt: |
+      General questions about products, store information, policies, or any inquiry that doesn't fit the specialized merchandising categories above.
+      Example: "Tell me about the Nike Air Force 1" or "What running shoes do we carry?" or "What departments does the Denver store have?"
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: sporting_goods_merchandiser_360_dao
+  description: "Multi-agent merchandiser 360 system for sporting goods store covering assortment planning, forecasting, buying, pricing, sales, and inventory"
+  log_level: INFO
+  registered_model:
+    schema: *sporting_goods_schema
+    name: sporting_goods_merchandiser_360_dao
+  endpoint_name: sporting_goods_merchandiser_360_dao
+  trace_location:
+    schema: *sporting_goods_schema
+    warehouse: *shared_warehouse
+    monitoring:
+      sample_rate: 0.5
+      guidelines_sample_rate: 0.5
+  environment_vars:
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_HOST}}"
+  tags:
+    business: rcg
+    streaming: true
+    use_case: merchandiser_360
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
+  agents:
+    - *assortment_planning
+    - *forecasting
+    - *purchase_order
+    - *pricing
+    - *sales
+    - *inventory
+    - *general
+  orchestration:
+    memory: *memory
+    supervisor:
+      model: *fast_llm
+      middleware:
+        - *store_validation
+  input_example:
+    messages:
+      - role: user
+        content: What Nike running shoes do we carry?
+    custom_inputs:
+      configurable:
+        user_id: merchandiser_01
+        store_num: DEN-FLAG
+      session: {}
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS
+# =============================================================================
+unity_catalog_functions:
+  - function: *find_product_by_sku
+    ddl: ../functions/sporting_goods_store/find_product_by_sku.sql
+    test:
+      parameters:
+        sku: ["NKE-RUN-001"]
+  - function: *find_product_by_upc
+    ddl: ../functions/sporting_goods_store/find_product_by_upc.sql
+    test:
+      parameters:
+        upc: ["194501234567"]
+  - function: *find_inventory_by_sku
+    ddl: ../functions/sporting_goods_store/find_inventory_by_sku.sql
+    test:
+      parameters:
+        sku: ["NKE-RUN-001"]
+  - function: *find_inventory_by_upc
+    ddl: ../functions/sporting_goods_store/find_inventory_by_upc.sql
+    test:
+      parameters:
+        upc: ["194501234567"]
+  - function: *find_store_inventory_by_sku
+    ddl: ../functions/sporting_goods_store/find_store_inventory_by_sku.sql
+    test:
+      parameters:
+        store: "DEN-FLAG"
+        sku: ["NKE-RUN-001"]
+  - function: *find_store_inventory_by_upc
+    ddl: ../functions/sporting_goods_store/find_store_inventory_by_upc.sql
+    test:
+      parameters:
+        store: "DEN-FLAG"
+        upc: ["194501234567"]
+
+# =============================================================================
+# EVALUATION
+# =============================================================================
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *sporting_goods_schema
+    name: evaluation
+  num_evals: 25
+  replace: false
+  agent_description: |
+    A multi-agent Merchandiser 360 system for a sporting goods retailer (similar to Dick's Sporting Goods).
+    The system has 7 specialized agents covering the full merchandising lifecycle:
+    1. Assortment Planning - manages category mix, planograms, and seasonal product transitions
+    2. Forecasting - demand prediction, trend analysis, and stockout risk assessment
+    3. Purchase Order - PO management, vendor relations, buying decisions, and receiving
+    4. Pricing - pricing strategy, markdowns, promotions, competitive pricing, and clearance
+    5. Sales - sales performance analytics, store comparisons, revenue tracking, and returns
+    6. Inventory - stock levels, replenishment, allocation, and product availability
+    7. General - product information, store inquiries, and general assistance
+    The system serves merchandisers, buyers, store managers, and analysts managing sporting goods
+    across categories like athletic footwear, apparel, team sports, fitness equipment, outdoor/camping,
+    cycling, golf, and accessories from brands like Nike, Adidas, Under Armour, The North Face, etc.
+  question_guidelines: |
+    # User personas
+    - A merchandiser planning the seasonal assortment for footwear and apparel
+    - A buyer managing purchase orders and vendor relationships
+    - A pricing analyst reviewing markdown effectiveness and promotional ROI
+    - A store manager checking inventory levels and sales performance
+    - A demand planner forecasting seasonal trends for outdoor and camping gear
+
+    # Example questions
+    - What products have critical stockout risk across our stores?
+    - How did the Spring Running promotion perform on Nike Pegasus?
+    - What is the demand forecast for camping equipment this summer?
+    - Which purchase orders are overdue from Nike?
+    - Compare sales performance between Denver flagship and Portland stores
+    - What markdowns should we take on winter outerwear?
+    - Show me the top 10 selling products by revenue this month
+    - What is our current inventory position on Adidas Ultraboost?
+    - Which categories have the highest margin percentage?
+    - Plan the fall assortment transition for outdoor gear
+
+    # Additional Guidelines
+    - Questions should reflect real merchandising workflows and decisions
+    - Include questions spanning all 7 agent specializations
+    - Mix operational questions (stock checks) with strategic questions (assortment planning)
+    - Include seasonal context in questions where appropriate
+    - Reference specific brands, products, and stores from the catalog
+  custom_inputs:
+    configurable:
+      user_id: merchandiser_01
+      store_num: DEN-FLAG
+    session: {}
+  guidelines:
+    - name: merchandising_relevance
+      guidelines:
+        - Responses should be relevant to sporting goods merchandising operations
+        - Recommendations should reference specific products, brands, or categories from the catalog
+        - Pricing and inventory data should be accurate and sourced from tool results
+        - Seasonal context should be considered in all merchandising recommendations
+
+# =============================================================================
+# DATASETS
+# =============================================================================
+datasets:
+  - table:
+      schema: *sporting_goods_schema
+      name: products
+    ddl: ../data/sporting_goods_store/products.sql
+    data: ../data/sporting_goods_store/product_data.sql
+    format: sql
+
+  - table:
+      schema: *sporting_goods_schema
+      name: inventory
+    ddl: ../data/sporting_goods_store/inventory.sql
+    data: ../data/sporting_goods_store/inventory_data.sql
+    format: sql
+
+  - table:
+      schema: *sporting_goods_schema
+      name: dim_stores
+    ddl: ../data/sporting_goods_store/dim_stores.sql
+    data: ../data/sporting_goods_store/dim_stores_data.sql
+    format: sql
+
+  - table:
+      schema: *sporting_goods_schema
+      name: sales_orders
+    ddl: ../data/sporting_goods_store/sales_orders.sql
+    data: ../data/sporting_goods_store/sales_orders_data.sql
+    format: sql
+
+  - table:
+      schema: *sporting_goods_schema
+      name: purchase_orders
+    ddl: ../data/sporting_goods_store/purchase_orders.sql
+    data: ../data/sporting_goods_store/purchase_orders_data.sql
+    format: sql
+
+  - table:
+      schema: *sporting_goods_schema
+      name: pricing_history
+    ddl: ../data/sporting_goods_store/pricing_history.sql
+    data: ../data/sporting_goods_store/pricing_history_data.sql
+    format: sql

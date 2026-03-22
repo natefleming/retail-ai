@@ -21,6 +21,28 @@ from mlflow.types.responses_helpers import Message
 from dao_ai.config import AppConfig
 from dao_ai.models import ResponsesAgent
 
+
+def has_guardrails_hub() -> bool:
+    """Return True if guardrails-ai hub validators are installed or can be auto-installed.
+
+    Checks two conditions (either is sufficient):
+    1. Validators are already installed (ToxicLanguage can be instantiated)
+    2. GUARDRAILSAI_API_KEY env var is set (auto-install will happen at startup)
+    """
+    import os
+
+    if os.environ.get("GUARDRAILSAI_API_KEY"):
+        return True
+
+    try:
+        from mlflow.genai.scorers.guardrails import ToxicLanguage
+
+        ToxicLanguage()
+        return True
+    except Exception:
+        return False
+
+
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -236,6 +258,139 @@ def test_tool_context_extraction_with_search(
         assert "python" in content.lower(), (
             "Response should mention Python when asked about Python releases"
         )
+
+    except Exception as e:
+        print(f"Inference failed with error: {e}", file=sys.stderr)
+        pytest.skip(f"Inference test skipped due to error: {e}")
+
+
+# =============================================================================
+# Scorer-based Guardrails Integration Tests
+# =============================================================================
+
+
+@pytest.fixture
+def scorers_config_path() -> Path:
+    """Fixture that returns path to the guardrails_scorers.yaml configuration."""
+    return (
+        Path(__file__).parents[2]
+        / "config"
+        / "examples"
+        / "08_guardrails"
+        / "guardrails_scorers.yaml"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
+@pytest.mark.skipif(
+    not has_guardrails_hub(),
+    reason="Set GUARDRAILSAI_API_KEY env var or run: guardrails hub install hub://guardrails/toxic_language",
+)
+def test_scorer_guardrail_config_loads(scorers_config_path: Path) -> None:
+    """
+    Test 5: Scorer-based guardrails config loads successfully.
+
+    Validates that the YAML with scorer-based guardrails parses without
+    errors and the GuardrailModel correctly populates scorer and hub fields.
+    """
+    if not scorers_config_path.exists():
+        pytest.skip(f"Scorer example config not found: {scorers_config_path}")
+
+    config: AppConfig = AppConfig.from_file(scorers_config_path)
+    assert config is not None
+    assert config.app is not None
+
+    # Verify agents are configured
+    assert len(config.agents) > 0
+    first_agent = list(config.agents.values())[0]
+
+    # Should have at least one guardrail with a scorer
+    scorer_guardrails = [g for g in first_agent.guardrails if g.scorer]
+    print(
+        f"Scorer-based guardrails: {len(scorer_guardrails)}",
+        file=sys.stderr,
+    )
+    assert len(scorer_guardrails) >= 1, (
+        f"Expected at least 1 scorer-based guardrail, got {len(scorer_guardrails)}"
+    )
+
+    # Verify scorer and hub fields are populated
+    hub_guardrails = [g for g in scorer_guardrails if g.hub]
+    print(
+        f"Scorer guardrails with hub URI: {len(hub_guardrails)}",
+        file=sys.stderr,
+    )
+    assert len(hub_guardrails) >= 1, (
+        "Expected at least 1 scorer guardrail with a hub URI"
+    )
+
+    for g in scorer_guardrails:
+        assert g.scorer is not None
+        assert "." in g.scorer, "Scorer should be a fully qualified class name"
+        print(
+            f"  - {g.name}: scorer={g.scorer} hub={g.hub}",
+            file=sys.stderr,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
+@pytest.mark.skipif(
+    not has_guardrails_hub(),
+    reason="Set GUARDRAILSAI_API_KEY env var or run: guardrails hub install hub://guardrails/toxic_language",
+)
+def test_scorer_guardrail_creates_agent(scorers_config_path: Path) -> None:
+    """
+    Test 6: Agent creation with scorer guardrails produces a valid agent.
+
+    Validates that the scorer class can be loaded and the agent pipeline
+    is constructed successfully.
+    """
+    if not scorers_config_path.exists():
+        pytest.skip(f"Scorer example config not found: {scorers_config_path}")
+
+    config: AppConfig = AppConfig.from_file(scorers_config_path)
+    responses_agent: ResponsesAgent = config.as_responses_agent()
+    assert responses_agent is not None
+    assert hasattr(responses_agent, "predict")
+    print(
+        "Successfully created ResponsesAgent with scorer guardrails",
+        file=sys.stderr,
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
+@pytest.mark.skipif(
+    not has_guardrails_hub(),
+    reason="Set GUARDRAILSAI_API_KEY env var or run: guardrails hub install hub://guardrails/toxic_language",
+)
+def test_scorer_and_custom_guardrails_together(
+    scorers_config_path: Path,
+) -> None:
+    """
+    Test 7: Agent with both scorer-based and custom guardrails works.
+
+    End-to-end test that sends a query through an agent configured with
+    both MLflow Scorer guardrails and custom LLM-judge guardrails.
+    """
+    if not scorers_config_path.exists():
+        pytest.skip(f"Scorer example config not found: {scorers_config_path}")
+
+    config: AppConfig = AppConfig.from_file(scorers_config_path)
+    agent: ResponsesAgent = config.as_responses_agent()
+
+    question = "What is Python programming language?"
+    print(f"Testing question: {question}", file=sys.stderr)
+
+    try:
+        request = _make_request(question)
+        response = agent.predict(request)
+        content = _extract_response_content(response)
+
+        print(f"Response: {content[:200]}...", file=sys.stderr)
+        assert len(content) > 20, "Response should be substantive"
 
     except Exception as e:
         print(f"Inference failed with error: {e}", file=sys.stderr)

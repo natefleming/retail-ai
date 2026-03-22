@@ -2,13 +2,21 @@
 Guardrail middleware for DAO AI agents.
 
 This module provides middleware implementations for applying guardrails
-to agent responses, including LLM-based judging and content validation.
+to agent responses, including LLM-based judging, content validation,
+and MLflow Scorer-based evaluation.
 
-Guardrails use MLflow judges (``mlflow.genai.judges.make_judge``) for
-LLM-based evaluation. The prompt determines what gets evaluated -- tone,
-completeness, veracity/groundedness, or any custom criteria. Tool context
-from the conversation history is automatically extracted and included in
-the ``inputs`` dict so that veracity prompts can reference it.
+Guardrails can be powered by:
+
+1. **MLflow judges** (``JudgeScorer``) -- LLM-based evaluation using
+   ``mlflow.genai.judges.make_judge``.  The prompt determines what gets
+   evaluated (tone, completeness, veracity, or any custom criteria).
+2. **MLflow Scorer instances** -- any ``mlflow.genai.scorers.base.Scorer``
+   subclass, including built-in ``GuardrailsScorer`` validators from
+   ``mlflow.genai.scorers.guardrails`` (e.g. ``ToxicLanguage``,
+   ``DetectPII``).
+
+All scorers are wrapped in ``GuardrailMiddleware`` which handles the
+agent lifecycle (retry logic, message extraction, feedback interpretation).
 
 Factory functions are provided for consistent configuration via the
 DAO AI middleware factory pattern.
@@ -21,7 +29,10 @@ from langchain.agents.middleware import hook_config
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 from loguru import logger
+from mlflow.entities.assessment import Feedback
 from mlflow.genai.judges import make_judge
+from mlflow.genai.scorers.base import Scorer
+from pydantic import PrivateAttr
 
 from dao_ai.config import PromptModel
 from dao_ai.messages import last_ai_message, last_human_message
@@ -84,7 +95,69 @@ def _get_thread_id(runtime: Runtime[Context]) -> str:
     return "__default__"
 
 
+class JudgeScorer(Scorer):
+    """MLflow Scorer that wraps ``mlflow.genai.judges.make_judge``.
+
+    Bridges the existing LLM-judge guardrail pattern with the MLflow
+    ``Scorer`` interface so that custom prompt-based guardrails and
+    built-in ``GuardrailsScorer`` validators share the same middleware.
+
+    Args:
+        name: Name identifying this scorer / guardrail.
+        instructions: Jinja2 evaluation prompt with ``{{ inputs }}`` and
+            ``{{ outputs }}`` template variables.
+        model: MLflow model URI for the judge
+            (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
+    """
+
+    _evaluator: Any = PrivateAttr()
+
+    def __init__(self, name: str, instructions: str, model: str):
+        super().__init__(name=name)
+        self._evaluator = make_judge(
+            name=name,
+            instructions=instructions,
+            feedback_value_type=bool,
+            model=model,
+        )
+
+    def __call__(
+        self,
+        *,
+        inputs: Any = None,
+        outputs: Any = None,
+        expectations: dict[str, Any] | None = None,
+        trace: Any = None,
+        **kwargs: Any,
+    ) -> Feedback:
+        return self._evaluator(inputs=inputs, outputs=outputs)
+
+
+def _interpret_feedback(
+    result: Feedback | bool | str | int | float,
+) -> tuple[bool, str]:
+    """Map a Scorer return value to ``(passed, comment)``.
+
+    Handles ``Feedback`` objects (with ``CategoricalRating.YES/NO`` or
+    ``bool`` values), raw booleans, strings, and numeric types.
+    """
+    if isinstance(result, Feedback):
+        value = result.value
+        comment = result.rationale or ""
+    else:
+        value, comment = result, ""
+
+    if isinstance(value, bool):
+        return value, comment
+
+    if isinstance(value, (int, float)):
+        return bool(value), comment
+
+    return str(value).lower() in ("yes", "true", "pass", "safe"), comment
+
+
 __all__ = [
+    "JudgeScorer",
     "GuardrailMiddleware",
     "ContentFilterMiddleware",
     "SafetyGuardrailMiddleware",
@@ -93,6 +166,7 @@ __all__ = [
     "ToneGuardrailMiddleware",
     "ConcisenessGuardrailMiddleware",
     "create_guardrail_middleware",
+    "create_scorer_guardrail_middleware",
     "create_content_filter_middleware",
     "create_safety_guardrail_middleware",
     "create_veracity_guardrail_middleware",
@@ -104,52 +178,91 @@ __all__ = [
 
 class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
     """
-    Middleware that applies LLM-based guardrails to agent responses.
+    Middleware that applies guardrails to agent responses using an MLflow
+    ``Scorer``.
 
-    Uses an MLflow judge (``make_judge``) to evaluate responses against a
-    prompt/criteria and can request improvements if the response doesn't
-    meet the criteria.
+    The scorer can be:
 
-    The prompt determines the type of evaluation. Tool context from
-    ``ToolMessage`` objects in the conversation history is automatically
-    extracted and included in the ``inputs`` dict, so veracity/groundedness
-    prompts can reference it via ``{{ inputs }}``.
+    * A ``JudgeScorer`` wrapping ``mlflow.genai.judges.make_judge`` for
+      custom prompt-based evaluation (created automatically when *model*
+      and *prompt* are supplied).
+    * Any ``mlflow.genai.scorers.base.Scorer`` subclass, including
+      built-in ``GuardrailsScorer`` validators such as ``ToxicLanguage``
+      or ``DetectPII``.
+
+    Tool context from ``ToolMessage`` objects in the conversation history
+    is automatically extracted and included in the ``inputs`` dict, so
+    veracity/groundedness prompts can reference it via ``{{ inputs }}``.
 
     Args:
-        name: Name identifying this guardrail
-        model: MLflow model string for the judge (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
-        prompt: The evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}`` template variables.
-            Accepts a plain string or a ``PromptModel`` from the prompt registry.
-        num_retries: Maximum number of retry attempts (default: 3)
-        fail_open: If True, let responses through when the judge call fails (default: True)
-        max_context_length: Maximum character length for extracted tool context (default: 8000)
+        name: Name identifying this guardrail.
+        scorer: An MLflow ``Scorer`` instance to use for evaluation.
+            Mutually exclusive with *model*/*prompt*.
+        model: MLflow model string for the judge
+            (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
+            Creates a ``JudgeScorer`` internally.  Requires *prompt*.
+        prompt: Evaluation instructions using ``{{ inputs }}`` and
+            ``{{ outputs }}`` template variables.  Accepts a plain string
+            or a ``PromptModel``.  Requires *model*.
+        num_retries: Maximum number of retry attempts (default: 3).
+        fail_on_error: If True, block responses when the scorer call
+            itself errors (e.g. exception, network timeout).  If False
+            (default), let responses through on evaluation errors.
+        max_context_length: Maximum character length for extracted tool
+            context (default: 8000).
+        apply_to: When to run this guardrail -- ``"input"`` runs before
+            the model (on user messages), ``"output"`` runs after the
+            model (on agent responses), ``"both"`` runs in both places
+            (default: ``"both"``).
+
+    Raises:
+        ValueError: If neither *scorer* nor *model*/*prompt* are provided,
+            or if both are provided simultaneously.
     """
 
     def __init__(
         self,
         name: str,
-        model: str,
-        prompt: str | PromptModel,
+        scorer: Scorer | None = None,
+        model: str | None = None,
+        prompt: str | PromptModel | None = None,
         num_retries: int = 3,
-        fail_open: bool = True,
+        fail_on_error: bool = False,
         max_context_length: int = 8000,
+        apply_to: Literal["input", "output", "both"] = "both",
     ):
         super().__init__()
         self.guardrail_name = name
-        self.model_endpoint = model
-        self.prompt = resolve_prompt(prompt, jinja=True)
         self.num_retries = num_retries
-        self.fail_open = fail_open
+        self.fail_on_error = fail_on_error
         self.max_context_length = max_context_length
-        # Thread-safe retry tracking keyed by thread_id
+        self._apply_to: Literal["input", "output", "both"] = apply_to
         self._retry_counts: dict[str, int] = {}
-        # Create the evaluator once for reuse
-        self._evaluator = make_judge(
-            name=self.guardrail_name,
-            instructions=self.prompt,
-            feedback_value_type=bool,
-            model=self.model_endpoint,
-        )
+
+        if scorer is not None:
+            if model is not None or prompt is not None:
+                raise ValueError(
+                    "Cannot specify both 'scorer' and 'model'/'prompt'. "
+                    "Provide either a Scorer instance or model+prompt for "
+                    "a JudgeScorer."
+                )
+            self._scorer: Scorer = scorer
+            self.model_endpoint: str | None = None
+            self.prompt: str | None = None
+        elif model is not None and prompt is not None:
+            resolved_prompt: str = resolve_prompt(prompt, jinja=True)
+            self._scorer = JudgeScorer(
+                name=name,
+                instructions=resolved_prompt,
+                model=model,
+            )
+            self.model_endpoint = model
+            self.prompt = resolved_prompt
+        else:
+            raise ValueError(
+                "Either 'scorer' or both 'model' and 'prompt' must be "
+                "provided to GuardrailMiddleware."
+            )
 
     @property
     def name(self) -> str:
@@ -170,6 +283,91 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         """Reset retry count for a thread."""
         self._retry_counts.pop(thread_id, None)
 
+    @hook_config(can_jump_to=["end"])
+    def before_model(
+        self, state: AgentState, runtime: Runtime[Context]
+    ) -> dict[str, Any] | None:
+        """Evaluate the user's input before the model runs.
+
+        Only active when ``apply_to`` is ``"input"`` or ``"both"``.
+        On failure the conversation is immediately ended with a block
+        message (no retries).
+        """
+        if self._apply_to == "output":
+            return None
+
+        messages: list[BaseMessage] = state.get("messages", [])
+        if not messages:
+            return None
+
+        human_message: HumanMessage | None = last_human_message(messages)
+        if not human_message:
+            return None
+
+        human_content: str = _extract_text_content(human_message)
+        if not human_content:
+            return None
+
+        logger.debug(
+            "Evaluating input with guardrail",
+            guardrail_name=self.guardrail_name,
+            input_length=len(human_content),
+            apply_to=self._apply_to,
+        )
+
+        try:
+            result = self._scorer(
+                inputs={"query": human_content},
+                outputs={"response": human_content},
+            )
+            passed, comment = _interpret_feedback(result)
+        except Exception as e:
+            logger.error(
+                "Guardrail input check failed",
+                guardrail_name=self.guardrail_name,
+                error=str(e),
+            )
+            if self.fail_on_error:
+                block_message = (
+                    f"⚠️ **Input Check Error**\n\n"
+                    f"The '{self.guardrail_name}' input check encountered an error "
+                    f"and could not validate the request.\n\n"
+                    f"**Error:** {e}"
+                )
+                return {
+                    "messages": [AIMessage(content=block_message)],
+                    "jump_to": "end",
+                }
+            logger.warning(
+                "Guardrail input evaluation error - letting request through",
+                guardrail_name=self.guardrail_name,
+            )
+            return None
+
+        if passed:
+            logger.debug(
+                "Input approved by guardrail",
+                guardrail_name=self.guardrail_name,
+                comment=comment,
+            )
+            return None
+
+        logger.warning(
+            "Guardrail blocked input",
+            guardrail_name=self.guardrail_name,
+            comment=comment,
+        )
+        block_message = (
+            f"⚠️ **Input Blocked**\n\n"
+            f"Your message did not pass the '{self.guardrail_name}' safety check.\n\n"
+            f"**Reason:** {comment}\n\n"
+            f"Please rephrase your request."
+        )
+        return {
+            "messages": [AIMessage(content=block_message)],
+            "jump_to": "end",
+        }
+
     def after_model(
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
@@ -182,7 +380,12 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         Tool context from ToolMessage objects in the conversation is
         automatically extracted and included in the inputs dict for the
         judge, enabling veracity/groundedness prompts.
+
+        Only active when ``apply_to`` is ``"output"`` or ``"both"``.
         """
+        if self._apply_to == "input":
+            return None
+
         messages: list[BaseMessage] = state.get("messages", [])
 
         if not messages:
@@ -230,26 +433,18 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         )
 
         try:
-            feedback = self._evaluator(
+            result = self._scorer(
                 inputs={"query": human_content, "context": tool_context},
                 outputs={"response": ai_content},
             )
-            passed: bool = feedback.value
-            comment: str = feedback.rationale or ""
+            passed, comment = _interpret_feedback(result)
         except Exception as e:
             logger.error(
                 "Guardrail judge call failed",
                 guardrail_name=self.guardrail_name,
                 error=str(e),
             )
-            if self.fail_open:
-                logger.warning(
-                    "Guardrail failing open - letting response through",
-                    guardrail_name=self.guardrail_name,
-                )
-                self._reset_retry_count(thread_id)
-                return None
-            else:
+            if self.fail_on_error:
                 self._reset_retry_count(thread_id)
                 failure_message = (
                     f"⚠️ **Quality Check Error**\n\n"
@@ -258,6 +453,13 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                     f"**Error:** {e}"
                 )
                 return {"messages": [AIMessage(content=failure_message)]}
+            else:
+                logger.warning(
+                    "Guardrail evaluation error - letting response through",
+                    guardrail_name=self.guardrail_name,
+                )
+                self._reset_retry_count(thread_id)
+                return None
 
         if passed:
             logger.debug(
@@ -396,17 +598,19 @@ class SafetyGuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         safety_model: MLflow model string for the safety judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
             Defaults to ``"openai:/gpt-4o-mini"`` if not provided.
-        fail_open: If True, let responses through when the judge call fails (default: True)
+        fail_on_error: If True, block responses when the judge call
+            itself errors.  If False (default), let responses through
+            on evaluation errors.
     """
 
     def __init__(
         self,
         safety_model: Optional[str] = None,
-        fail_open: bool = True,
+        fail_on_error: bool = False,
     ):
         super().__init__()
         self.model_endpoint: str = safety_model or "openai:/gpt-4o-mini"
-        self.fail_open = fail_open
+        self.fail_on_error = fail_on_error
         self._safety_judge = make_judge(
             name="safety_guardrail",
             instructions=(
@@ -450,12 +654,7 @@ class SafetyGuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                 "Safety guardrail judge call failed",
                 error=str(e),
             )
-            if self.fail_open:
-                logger.warning(
-                    "Safety guardrail failing open - letting response through"
-                )
-                return None
-            else:
+            if self.fail_on_error:
                 return {
                     "messages": [
                         AIMessage(
@@ -464,6 +663,11 @@ class SafetyGuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                     ],
                     "jump_to": "end",
                 }
+            else:
+                logger.warning(
+                    "Safety guardrail evaluation error - letting response through"
+                )
+                return None
 
         if is_unsafe:
             logger.warning("Safety guardrail blocked unsafe response")
@@ -650,7 +854,7 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
     Args:
         model: MLflow model string for the judge
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
         max_context_length: Max chars for extracted tool context (default: 8000)
     """
 
@@ -658,7 +862,7 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
         self,
         model: str,
         num_retries: int = 2,
-        fail_open: bool = True,
+        fail_on_error: bool = False,
         max_context_length: int = 8000,
     ):
         super().__init__(
@@ -666,7 +870,7 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
             model=model,
             prompt=VERACITY_INSTRUCTIONS,
             num_retries=num_retries,
-            fail_open=fail_open,
+            fail_on_error=fail_on_error,
             max_context_length=max_context_length,
         )
 
@@ -709,21 +913,21 @@ class RelevanceGuardrailMiddleware(GuardrailMiddleware):
     Args:
         model: MLflow model string for the judge
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
     """
 
     def __init__(
         self,
         model: str,
         num_retries: int = 2,
-        fail_open: bool = True,
+        fail_on_error: bool = False,
     ):
         super().__init__(
             name="relevance",
             model=model,
             prompt=RELEVANCE_INSTRUCTIONS,
             num_retries=num_retries,
-            fail_open=fail_open,
+            fail_on_error=fail_on_error,
         )
 
 
@@ -745,7 +949,7 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
             overrides the preset tone profile. Accepts a plain string
             or a ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
 
     Raises:
         ValueError: If ``tone`` is not a recognized profile and no
@@ -760,7 +964,7 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
         tone: str = "professional",
         custom_guidelines: str | PromptModel | None = None,
         num_retries: int = 2,
-        fail_open: bool = True,
+        fail_on_error: bool = False,
     ):
         if custom_guidelines:
             prompt: str | PromptModel = custom_guidelines
@@ -780,7 +984,7 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
             model=model,
             prompt=prompt,
             num_retries=num_retries,
-            fail_open=fail_open,
+            fail_on_error=fail_on_error,
         )
 
 
@@ -799,7 +1003,7 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
         check_verbosity: Enable LLM verbosity evaluation after length
             check passes (default: True)
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
     """
 
     def __init__(
@@ -809,14 +1013,14 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
         min_length: int = 20,
         check_verbosity: bool = True,
         num_retries: int = 2,
-        fail_open: bool = True,
+        fail_on_error: bool = False,
     ):
         super().__init__(
             name="conciseness",
             model=model,
             prompt=CONCISENESS_INSTRUCTIONS,
             num_retries=num_retries,
-            fail_open=fail_open,
+            fail_on_error=fail_on_error,
         )
         self.max_length = max_length
         self.min_length = min_length
@@ -943,7 +1147,7 @@ def create_guardrail_middleware(
     model: str,
     prompt: str | PromptModel,
     num_retries: int = 3,
-    fail_open: bool = True,
+    fail_on_error: bool = False,
     max_context_length: int = 8000,
 ) -> GuardrailMiddleware:
     """
@@ -962,7 +1166,7 @@ def create_guardrail_middleware(
         prompt: The evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}`` template variables.
             Accepts a plain string or a ``PromptModel`` from the prompt registry.
         num_retries: Maximum number of retry attempts (default: 3)
-        fail_open: If True, let responses through when the judge call fails (default: True)
+        fail_on_error: If True, block responses when the judge call errors (default: False)
         max_context_length: Maximum character length for extracted tool context (default: 8000)
 
     Returns:
@@ -982,7 +1186,7 @@ def create_guardrail_middleware(
         model=model,
         prompt=prompt,
         num_retries=num_retries,
-        fail_open=fail_open,
+        fail_on_error=fail_on_error,
         max_context_length=max_context_length,
     )
 
@@ -1021,7 +1225,7 @@ def create_content_filter_middleware(
 
 def create_safety_guardrail_middleware(
     safety_model: Optional[str] = None,
-    fail_open: bool = True,
+    fail_on_error: bool = False,
 ) -> SafetyGuardrailMiddleware:
     """
     Create a SafetyGuardrailMiddleware instance.
@@ -1034,7 +1238,7 @@ def create_safety_guardrail_middleware(
         safety_model: MLflow model string for the safety judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
             Defaults to ``"openai:/gpt-4o-mini"`` if not provided.
-        fail_open: If True, let responses through when the judge call fails (default: True)
+        fail_on_error: If True, block responses when the judge call errors (default: False)
 
     Returns:
         SafetyGuardrailMiddleware configured with the specified model
@@ -1047,14 +1251,14 @@ def create_safety_guardrail_middleware(
     logger.trace("Creating safety guardrail middleware")
     return SafetyGuardrailMiddleware(
         safety_model=safety_model,
-        fail_open=fail_open,
+        fail_on_error=fail_on_error,
     )
 
 
 def create_veracity_guardrail_middleware(
     model: str,
     num_retries: int = 2,
-    fail_open: bool = True,
+    fail_on_error: bool = False,
     max_context_length: int = 8000,
 ) -> VeracityGuardrailMiddleware:
     """
@@ -1071,7 +1275,7 @@ def create_veracity_guardrail_middleware(
         model: MLflow model string for the judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
         max_context_length: Max chars for extracted tool context (default: 8000)
 
     Returns:
@@ -1087,7 +1291,7 @@ def create_veracity_guardrail_middleware(
     return VeracityGuardrailMiddleware(
         model=model,
         num_retries=num_retries,
-        fail_open=fail_open,
+        fail_on_error=fail_on_error,
         max_context_length=max_context_length,
     )
 
@@ -1095,7 +1299,7 @@ def create_veracity_guardrail_middleware(
 def create_relevance_guardrail_middleware(
     model: str,
     num_retries: int = 2,
-    fail_open: bool = True,
+    fail_on_error: bool = False,
 ) -> RelevanceGuardrailMiddleware:
     """
     Create a RelevanceGuardrailMiddleware instance.
@@ -1108,7 +1312,7 @@ def create_relevance_guardrail_middleware(
         model: MLflow model string for the judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
 
     Returns:
         RelevanceGuardrailMiddleware configured with the specified parameters
@@ -1122,7 +1326,7 @@ def create_relevance_guardrail_middleware(
     return RelevanceGuardrailMiddleware(
         model=model,
         num_retries=num_retries,
-        fail_open=fail_open,
+        fail_on_error=fail_on_error,
     )
 
 
@@ -1131,7 +1335,7 @@ def create_tone_guardrail_middleware(
     tone: str = "professional",
     custom_guidelines: str | PromptModel | None = None,
     num_retries: int = 2,
-    fail_open: bool = True,
+    fail_on_error: bool = False,
 ) -> ToneGuardrailMiddleware:
     """
     Create a ToneGuardrailMiddleware instance.
@@ -1151,7 +1355,7 @@ def create_tone_guardrail_middleware(
             profile if provided. Accepts a plain string or a
             ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
 
     Returns:
         ToneGuardrailMiddleware configured with the specified parameters
@@ -1168,7 +1372,7 @@ def create_tone_guardrail_middleware(
         tone=tone,
         custom_guidelines=custom_guidelines,
         num_retries=num_retries,
-        fail_open=fail_open,
+        fail_on_error=fail_on_error,
     )
 
 
@@ -1178,7 +1382,7 @@ def create_conciseness_guardrail_middleware(
     min_length: int = 20,
     check_verbosity: bool = True,
     num_retries: int = 2,
-    fail_open: bool = True,
+    fail_on_error: bool = False,
 ) -> ConcisenessGuardrailMiddleware:
     """
     Create a ConcisenessGuardrailMiddleware instance.
@@ -1194,7 +1398,7 @@ def create_conciseness_guardrail_middleware(
         min_length: Minimum response character length (default: 20)
         check_verbosity: Enable LLM verbosity evaluation (default: True)
         num_retries: Maximum retry attempts (default: 2)
-        fail_open: Let responses through on judge error (default: True)
+        fail_on_error: Block responses on evaluation error (default: False)
 
     Returns:
         ConcisenessGuardrailMiddleware configured with the specified parameters
@@ -1219,5 +1423,62 @@ def create_conciseness_guardrail_middleware(
         min_length=min_length,
         check_verbosity=check_verbosity,
         num_retries=num_retries,
-        fail_open=fail_open,
+        fail_on_error=fail_on_error,
+    )
+
+
+def create_scorer_guardrail_middleware(
+    name: str,
+    scorer_name: str,
+    num_retries: int = 1,
+    fail_on_error: bool = False,
+    max_context_length: int = 8000,
+    **scorer_kwargs: Any,
+) -> GuardrailMiddleware:
+    """
+    Create a GuardrailMiddleware powered by any MLflow ``Scorer``.
+
+    Factory function for creating guardrail middleware from an MLflow
+    ``Scorer`` class, including built-in ``GuardrailsScorer`` validators
+    such as ``ToxicLanguage``, ``DetectPII``, ``DetectJailbreak``, etc.
+
+    The scorer class is loaded by fully qualified name and instantiated
+    with the provided keyword arguments.
+
+    Args:
+        name: Name identifying this guardrail.
+        scorer_name: Fully qualified name of the ``Scorer`` class
+            (e.g. ``"mlflow.genai.scorers.guardrails.ToxicLanguage"``).
+        num_retries: Maximum retry attempts (default: 1).
+        fail_on_error: Block responses on scorer error (default: False).
+        max_context_length: Max chars for extracted tool context
+            (default: 8000).
+        **scorer_kwargs: Keyword arguments forwarded to the scorer
+            constructor (e.g. ``threshold=0.7``).
+
+    Returns:
+        GuardrailMiddleware configured with the specified scorer.
+
+    Example:
+        middleware = create_scorer_guardrail_middleware(
+            name="pii_check",
+            scorer_name="mlflow.genai.scorers.guardrails.DetectPII",
+            pii_entities=["CREDIT_CARD", "SSN"],
+        )
+    """
+    from dao_ai.utils import load_function
+
+    logger.trace(
+        "Creating scorer guardrail middleware",
+        guardrail_name=name,
+        scorer_name=scorer_name,
+    )
+    scorer_cls: type[Scorer] = load_function(scorer_name)
+    scorer: Scorer = scorer_cls(**scorer_kwargs)
+    return GuardrailMiddleware(
+        name=name,
+        scorer=scorer,
+        num_retries=num_retries,
+        fail_on_error=fail_on_error,
+        max_context_length=max_context_length,
     )

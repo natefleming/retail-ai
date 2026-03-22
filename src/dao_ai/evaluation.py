@@ -29,7 +29,11 @@ from mlflow.genai.scorers import (
 from mlflow.models.evaluation.base import EvaluationResult
 
 if TYPE_CHECKING:
-    from dao_ai.config import EvaluationModel, GuidelineModel
+    from dao_ai.config import (
+        EvaluationModel,
+        GuidelineModel,
+        MonitoringModel,
+    )
 
 
 def normalize_eval_inputs(raw_inputs: Any) -> dict[str, Any]:
@@ -277,7 +281,13 @@ def prepare_eval_results_for_display(
     Returns:
         DataFrame copy with complex columns converted to strings.
     """
-    results_df: pd.DataFrame = eval_results.tables["eval_results"].copy()
+    if "eval_results" in eval_results.tables:
+        results_df: pd.DataFrame = eval_results.tables["eval_results"].copy()
+    elif eval_results.tables:
+        first_key = next(iter(eval_results.tables))
+        results_df: pd.DataFrame = eval_results.tables[first_key].copy()
+    else:
+        return pd.DataFrame()
 
     if "assessments" in results_df.columns:
         results_df["assessments"] = results_df["assessments"].astype(str)
@@ -299,48 +309,113 @@ _BUILTIN_SCORER_CLASSES: list[type[Scorer]] = [
     ToolCallEfficiency,
 ]
 
+SCORER_NAME_MAP: dict[str, type[Scorer]] = {
+    "safety": Safety,
+    "completeness": Completeness,
+    "relevance_to_query": RelevanceToQuery,
+    "tool_call_efficiency": ToolCallEfficiency,
+}
+
+
+def _resolve_scorer_patterns(patterns: list[str]) -> list[type[Scorer]]:
+    """Resolve scorer name patterns (including globs) to scorer classes.
+
+    Supports exact names (``"safety"``) and ``fnmatch``-style glob
+    patterns (``"*"``, ``"safe*"``).
+    """
+    from fnmatch import fnmatch
+
+    resolved: list[type[Scorer]] = []
+    seen: set[str] = set()
+
+    for pattern in patterns:
+        if pattern in SCORER_NAME_MAP:
+            if pattern not in seen:
+                resolved.append(SCORER_NAME_MAP[pattern])
+                seen.add(pattern)
+            continue
+
+        matched: bool = False
+        for name, cls in SCORER_NAME_MAP.items():
+            if fnmatch(name, pattern) and name not in seen:
+                resolved.append(cls)
+                seen.add(name)
+                matched = True
+
+        if not matched and pattern not in seen:
+            logger.warning(
+                f"Scorer pattern '{pattern}' did not match any built-in scorers. "
+                f"Available: {list(SCORER_NAME_MAP.keys())}"
+            )
+
+    return resolved
+
 
 def register_monitoring_scorers(
-    evaluation_config: EvaluationModel,
+    monitoring_config: MonitoringModel,
     experiment_id: str,
+    sql_warehouse_id: str | None = None,
 ) -> list[Scorer]:
     """
     Register and start evaluation scorers for production monitoring.
 
-    Builds the same scorer set used for offline evaluation (built-in judges
-    plus any configured Guidelines scorers) and registers each one against
-    the given MLflow experiment so they continuously evaluate production
-    traces.
+    Registers the configured built-in scorers, any Guidelines scorers,
+    and any ``GuardrailModel`` entries against the given MLflow experiment
+    so they continuously evaluate production traces.
 
     Scorers that are already registered (by name) are skipped to avoid
     duplicate registration errors.
 
     Args:
-        evaluation_config: ``EvaluationModel`` configuration.  Must have a
-            ``monitoring`` attribute with ``sample_rate`` and
-            ``guidelines_sample_rate`` fields.
+        monitoring_config: ``MonitoringModel`` with scorer selection,
+            sampling rates, and optional guidelines.
         experiment_id: MLflow experiment ID where production traces are
             logged.
+        sql_warehouse_id: Optional SQL warehouse ID for production monitoring
+            when traces are stored in Unity Catalog. If provided,
+            ``set_databricks_monitoring_sql_warehouse_id`` is called to
+            enable the monitoring service to query UC trace tables.
 
     Returns:
         List of registered (and started) scorer instances.
     """
     import mlflow
 
-    monitoring = evaluation_config.monitoring
-    if monitoring is None:
-        logger.warning(
-            "No monitoring configuration found; skipping scorer registration"
-        )
-        return []
+    from dao_ai.config import GuardrailModel
 
     mlflow.set_experiment(experiment_id=experiment_id)
+
+    if sql_warehouse_id:
+        from mlflow.tracing.databricks import set_databricks_monitoring_sql_warehouse_id
+
+        set_databricks_monitoring_sql_warehouse_id(
+            sql_warehouse_id=sql_warehouse_id,
+            experiment_id=experiment_id,
+        )
+        logger.info(
+            "Configured monitoring SQL warehouse for UC traces",
+            sql_warehouse_id=sql_warehouse_id,
+        )
 
     existing_names: set[str] = {s.name for s in list_scorers()}
 
     registered: list[Scorer] = []
 
-    for scorer_cls in _BUILTIN_SCORER_CLASSES:
+    guardrail_entries: list[GuardrailModel] = []
+
+    if monitoring_config.scorers is not None:
+        builtin_patterns: list[str] = []
+        for scorer_entry in monitoring_config.scorers:
+            if isinstance(scorer_entry, GuardrailModel):
+                guardrail_entries.append(scorer_entry)
+            else:
+                builtin_patterns.append(scorer_entry)
+
+        scorer_classes: list[type[Scorer]] = _resolve_scorer_patterns(builtin_patterns)
+    else:
+        scorer_classes = _BUILTIN_SCORER_CLASSES
+
+    for scorer_cls in scorer_classes:
         name: str = scorer_cls.__name__
         if name in existing_names:
             logger.info(f"Scorer already registered, skipping: {name}")
@@ -349,18 +424,18 @@ def register_monitoring_scorers(
         scorer: Scorer = scorer_cls().register(name=name)
         scorer = scorer.start(
             sampling_config=ScorerSamplingConfig(
-                sample_rate=monitoring.sample_rate,
+                sample_rate=monitoring_config.sample_rate,
             ),
         )
         registered.append(scorer)
         logger.info(
             f"Registered and started scorer: {name} "
-            f"(sample_rate={monitoring.sample_rate})"
+            f"(sample_rate={monitoring_config.sample_rate})"
         )
 
-    if evaluation_config.guidelines:
+    if monitoring_config.guidelines:
         guideline_scorers: list[Guidelines] = create_guidelines_scorers(
-            evaluation_config.guidelines
+            monitoring_config.guidelines
         )
         for gs in guideline_scorers:
             name = gs.name
@@ -371,14 +446,34 @@ def register_monitoring_scorers(
             registered_gs: Scorer = gs.register(name=name)
             registered_gs = registered_gs.start(
                 sampling_config=ScorerSamplingConfig(
-                    sample_rate=monitoring.guidelines_sample_rate,
+                    sample_rate=monitoring_config.guidelines_sample_rate,
                 ),
             )
             registered.append(registered_gs)
             logger.info(
                 f"Registered and started Guidelines scorer: {name} "
-                f"(sample_rate={monitoring.guidelines_sample_rate})"
+                f"(sample_rate={monitoring_config.guidelines_sample_rate})"
             )
+
+    for guardrail in guardrail_entries:
+        if guardrail.name in existing_names:
+            logger.info(
+                f"Guardrail scorer already registered, skipping: {guardrail.name}"
+            )
+            continue
+
+        guardrail_scorer: Scorer = guardrail.as_scorer()
+        registered_gs = guardrail_scorer.register(name=guardrail.name)
+        registered_gs = registered_gs.start(
+            sampling_config=ScorerSamplingConfig(
+                sample_rate=monitoring_config.guidelines_sample_rate,
+            ),
+        )
+        registered.append(registered_gs)
+        logger.info(
+            f"Registered guardrail as monitoring scorer: {guardrail.name} "
+            f"(sample_rate={monitoring_config.guidelines_sample_rate})"
+        )
 
     logger.info(f"Production monitoring: {len(registered)} scorers registered")
     return registered

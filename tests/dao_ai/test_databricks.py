@@ -513,6 +513,7 @@ def test_deploy_agent_sets_endpoint_tag():
     mock_app.workload_size = "Small"
     mock_app.tags = {"custom_tag": "custom_value"}
     mock_app.permissions = []
+    mock_app.trace_location = None
 
     mock_config.app = mock_app
 
@@ -656,6 +657,7 @@ def test_deploy_apps_agent_creates_new_app():
     mock_app.name = "test_app"
     mock_app.description = "Test app description"
     mock_app.environment_vars = {}
+    mock_app.trace_location = None
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
     mock_config.resources = None  # No resources (required for generate_app_resources)
@@ -724,6 +726,7 @@ def test_deploy_apps_agent_updates_existing_app():
     mock_app.name = "test_app"
     mock_app.description = "Test app description"
     mock_app.environment_vars = {}
+    mock_app.trace_location = None
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
     mock_config.resources = None  # No resources (required for generate_app_resources)

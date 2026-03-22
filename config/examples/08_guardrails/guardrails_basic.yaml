@@ -187,7 +187,7 @@ guardrails:
     model: *judge_llm
     prompt: *veracity_guardrail_prompt
     num_retries: 2
-    fail_open: true
+    fail_on_error: false
 
 
 # =============================================================================
@@ -369,7 +369,7 @@ app:
 #    - Create the prompt template with {{ inputs }} and {{ outputs }}
 #    - The prompt determines the evaluation type (tone, veracity, etc.)
 #    - Tool context is automatically included in {{ inputs }}
-#    - Optional: set fail_open (default: true) and max_context_length (default: 8000)
+#    - Optional: set fail_on_error (default: false) and max_context_length (default: 8000)
 #    - Test thoroughly before deploying
 #
 # 7. TESTING GUARDRAILS

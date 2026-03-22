@@ -75,7 +75,7 @@ memory: &memory
   store: 
     name: conversation_store
     embedding_model: *embedding_model
-    dims: 1024
+    # dims: 1024                                  # Auto-detected from embedding model if omitted
     database: *lakehouse_database                  # Type inferred from presence
     namespace: "{user_id}"                         # Namespace per user
 

@@ -388,6 +388,40 @@ Note: Schemas are displayed in a concise, readable format instead of verbose JSO
         help="Only show tools that pass include/exclude filters (hide excluded tools)",
     )
 
+    # Monitor command
+    monitor_parser: ArgumentParser = subparsers.add_parser(
+        "monitor",
+        help="Manage production monitoring scorers",
+        description="""
+Manage production monitoring scorers for the deployed agent.
+Scorers continuously evaluate production traces for quality,
+safety, and guideline compliance.
+
+Requires app.trace_location.monitoring to be configured in the YAML config.
+        """,
+        epilog="""
+Examples:
+  dao-ai monitor enable -c config/model_config.yaml     # Register and start monitoring scorers
+  dao-ai monitor status -c config/model_config.yaml     # Show active scorers and sample rates
+  dao-ai monitor disable -c config/model_config.yaml    # Stop all monitoring scorers
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    monitor_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the model configuration file",
+    )
+    monitor_parser.add_argument(
+        "action",
+        choices=["enable", "status", "disable"],
+        help="Monitoring action: enable (register/start scorers), "
+        "status (list active scorers), disable (stop all scorers)",
+    )
+
     chat_parser: ArgumentParser = subparsers.add_parser(
         "chat",
         help="Interactive chat with the DAO AI system",
@@ -833,6 +867,75 @@ def handle_deploy_command(options: Namespace) -> None:
         sys.exit(0)
     except Exception as e:
         logger.error(f"Deployment failed: {e}")
+        sys.exit(1)
+
+
+def handle_monitor_command(options: Namespace) -> None:
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    logger.debug(f"Loading configuration from {options.config}...")
+    try:
+        config: AppConfig = AppConfig.from_file(options.config)
+
+        if not config.app or not config.app.trace_location:
+            logger.error(
+                "app.trace_location must be configured in the YAML for monitoring"
+            )
+            sys.exit(1)
+
+        provider = DatabricksProvider()
+        experiment = provider.get_or_create_experiment(config)
+
+        import mlflow
+
+        mlflow.set_experiment(experiment_id=experiment.experiment_id)
+
+        match options.action:
+            case "enable":
+                if not config.app.trace_location.monitoring:
+                    logger.error(
+                        "app.trace_location.monitoring must be configured in the YAML to enable monitoring"
+                    )
+                    sys.exit(1)
+
+                from dao_ai.evaluation import register_monitoring_scorers
+
+                registered = register_monitoring_scorers(
+                    monitoring_config=config.app.trace_location.monitoring,
+                    experiment_id=experiment.experiment_id,
+                    sql_warehouse_id=config.app.trace_location.warehouse_id,
+                )
+                print(
+                    f"Enabled monitoring: {len(registered)} scorers registered and started"
+                )
+                for scorer in registered:
+                    print(f"  - {scorer.name}")
+
+            case "status":
+                from dao_ai.evaluation import get_monitoring_scorers
+
+                scorers = get_monitoring_scorers()
+                if not scorers:
+                    print("No monitoring scorers registered")
+                else:
+                    print(f"Monitoring scorers ({len(scorers)}):")
+                    for scorer in scorers:
+                        rate = getattr(scorer, "sample_rate", "N/A")
+                        print(f"  - {scorer.name} (sample_rate={rate})")
+
+            case "disable":
+                from dao_ai.evaluation import stop_monitoring_scorers
+
+                stopped = stop_monitoring_scorers()
+                print(f"Disabled monitoring: {len(stopped)} scorers stopped")
+                for scorer in stopped:
+                    print(f"  - {scorer.name}")
+
+        sys.exit(0)
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.error(f"Monitor command failed: {e}")
         sys.exit(1)
 
 
@@ -1365,6 +1468,8 @@ def main() -> None:
             handle_bundle_command(options)
         case "deploy":
             handle_deploy_command(options)
+        case "monitor":
+            handle_monitor_command(options)
         case "chat":
             handle_chat_command(options)
         case "list-mcp-tools":

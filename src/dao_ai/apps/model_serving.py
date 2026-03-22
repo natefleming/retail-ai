@@ -19,7 +19,7 @@ from dao_ai.logging import configure_logging  # noqa: E402
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_tracking_uri("databricks")
 
-mlflow.langchain.autolog()
+mlflow.langchain.autolog(run_tracer_inline=True)
 
 model_config: ModelConfig = ModelConfig()
 config: AppConfig = AppConfig(**model_config.to_dict())
@@ -27,6 +27,8 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 log_level: str = config.app.log_level
 
 configure_logging(level=log_level)
+
+config.initialize()
 
 from loguru import logger  # noqa: E402
 

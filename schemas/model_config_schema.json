@@ -407,6 +407,18 @@
           ],
           "default": null,
           "description": "Default deployment target. If not specified, defaults to MODEL_SERVING. Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'."
+        },
+        "trace_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceLocationModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. Accepts a schema reference or 'catalog.schema' string. When set, set_experiment_trace_location() is called at startup for both Model Serving and Databricks Apps deployments."
         }
       },
       "required": [
@@ -966,10 +978,10 @@
         "judge_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "type": "string"
             },
             {
-              "type": "string"
+              "$ref": "#/$defs/LLMModel"
             },
             {
               "type": "null"
@@ -1938,7 +1950,7 @@
     },
     "EvaluationModel": {
       "additionalProperties": false,
-      "description": "Configuration for MLflow GenAI evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    replace: If True, drop and recreate the evaluation table and dataset.\n        If False, reuse existing resources. Defaults to False.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.\n    monitoring: Optional production monitoring configuration. When present,\n        scorers are registered for continuous evaluation of production traces.",
+      "description": "Configuration for MLflow GenAI offline evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    replace: If True, drop and recreate the evaluation table and dataset.\n        If False, reuse existing resources. Defaults to False.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.",
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel",
@@ -1992,17 +2004,6 @@
           },
           "title": "Guidelines",
           "type": "array"
-        },
-        "monitoring": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MonitoringModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -2620,7 +2621,7 @@
     },
     "GuardrailModel": {
       "additionalProperties": false,
-      "description": "Configuration for an LLM-based guardrail.\n\nGuardrails use MLflow judges to evaluate agent responses against criteria\ndefined by the prompt. The prompt determines the evaluation type -- tone,\ncompleteness, veracity/groundedness, or any custom criteria.\n\nTool context from ToolMessage objects in the conversation is automatically\nextracted and included in the ``inputs`` dict, so veracity prompts can\nreference it via ``{{ inputs }}``.\n\nAttributes:\n    name: Name identifying this guardrail\n    model: LLM model for the judge. Accepts a string (model name) or LLMModel.\n        The model's Databricks URI is used as the MLflow judge model endpoint.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}``\n        template variables. Accepts a string or PromptModel.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3)\n    fail_open: If True, let responses through when the judge call fails (default: True)\n    max_context_length: Max character length for extracted tool context (default: 8000)",
+      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nTwo configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n\nThe two modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``LLMModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge mode.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    hub: Optional guardrails-ai hub URI for the scorer validator\n        (e.g. ``\"hub://guardrails/toxic_language\"``).  When set,\n        the validator is auto-installed at startup if the\n        ``GUARDRAILSAI_API_KEY`` environment variable is present.\n        Only valid when *scorer* is also set.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
       "properties": {
         "name": {
           "title": "Name",
@@ -2633,8 +2634,12 @@
             },
             {
               "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Model"
         },
         "prompt": {
@@ -2644,9 +2649,42 @@
             },
             {
               "$ref": "#/$defs/PromptModel"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Prompt"
+        },
+        "scorer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scorer"
+        },
+        "scorer_args": {
+          "additionalProperties": true,
+          "title": "Scorer Args",
+          "type": "object"
+        },
+        "hub": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hub"
         },
         "num_retries": {
           "anyOf": [
@@ -2660,7 +2698,7 @@
           "default": 3,
           "title": "Num Retries"
         },
-        "fail_open": {
+        "fail_on_error": {
           "anyOf": [
             {
               "type": "boolean"
@@ -2669,8 +2707,8 @@
               "type": "null"
             }
           ],
-          "default": true,
-          "title": "Fail Open"
+          "default": false,
+          "title": "Fail On Error"
         },
         "max_context_length": {
           "anyOf": [
@@ -2683,12 +2721,20 @@
           ],
           "default": 8000,
           "title": "Max Context Length"
+        },
+        "apply_to": {
+          "default": "both",
+          "enum": [
+            "input",
+            "output",
+            "both"
+          ],
+          "title": "Apply To",
+          "type": "string"
         }
       },
       "required": [
-        "name",
-        "model",
-        "prompt"
+        "name"
       ],
       "title": "GuardrailModel",
       "type": "object"
@@ -3913,7 +3959,7 @@
     },
     "MonitoringModel": {
       "additionalProperties": false,
-      "description": "Configuration for production monitoring of GenAI scorers.\n\nControls how evaluation scorers are registered and scheduled against\nproduction traces via the MLflow 3 scorer lifecycle API.\n\nAttributes:\n    sample_rate: Sampling rate for built-in scorers (Safety, Completeness,\n        RelevanceToQuery, ToolCallEfficiency). Defaults to 1.0 (100%).\n    guidelines_sample_rate: Sampling rate for Guidelines scorers, which\n        invoke an LLM judge per trace and are more expensive. Defaults\n        to 0.5 (50%).",
+      "description": "Configuration for production monitoring of GenAI scorers.\n\nControls which scorers are registered and at what sampling rates against\nproduction traces stored in Unity Catalog via the MLflow 3 scorer\nlifecycle API.\n\nAttributes:\n    sample_rate: Sampling rate for built-in scorers. Defaults to 1.0 (100%).\n    scorers: Optional list of built-in scorer names to enable. When omitted,\n        all built-in scorers are registered (safety, completeness,\n        relevance_to_query, tool_call_efficiency).\n    guidelines: Optional list of guideline configurations for Guidelines\n        scorers used in production monitoring.\n    guidelines_sample_rate: Sampling rate for Guidelines scorers, which\n        invoke an LLM judge per trace and are more expensive. Defaults\n        to 0.5 (50%).",
       "properties": {
         "sample_rate": {
           "default": 1.0,
@@ -3922,6 +3968,37 @@
           "minimum": 0.0,
           "title": "Sample Rate",
           "type": "number"
+        },
+        "scorers": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/GuardrailModel"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Built-in scorer names, glob patterns, or GuardrailModel references to enable. Built-in options: safety, completeness, relevance_to_query, tool_call_efficiency. Supports glob patterns: '*' (all built-in scorers), 'safe*', etc. GuardrailModel entries are converted to scorers via as_scorer(). Defaults to all built-in scorers when omitted.",
+          "title": "Scorers"
+        },
+        "guidelines": {
+          "description": "Guideline configurations for production monitoring Guidelines scorers.",
+          "items": {
+            "$ref": "#/$defs/GuidelineModel"
+          },
+          "title": "Guidelines",
+          "type": "array"
         },
         "guidelines_sample_rate": {
           "default": 0.5,
@@ -4211,10 +4288,10 @@
         "reflection_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "type": "string"
             },
             {
-              "type": "string"
+              "$ref": "#/$defs/LLMModel"
             },
             {
               "type": "null"
@@ -4816,7 +4893,7 @@
               "type": "null"
             }
           ],
-          "default": 1536,
+          "default": null,
           "title": "Dims"
         },
         "database": {
@@ -5175,6 +5252,45 @@
         "function"
       ],
       "title": "ToolModel",
+      "type": "object"
+    },
+    "TraceLocationModel": {
+      "additionalProperties": false,
+      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nAccepts either a SchemaModel reference (aliased to \"schema\") or a string\nin \"catalog.schema\" format. When configured on AppModel, traces are stored\nin UC Delta tables via set_experiment_trace_location().\n\nOptionally configure production monitoring to continuously evaluate traces\nwith MLflow scorers.",
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/SchemaModel"
+        },
+        "warehouse": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WarehouseModel"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "SQL warehouse for creating views and querying traces. Accepts a WarehouseModel reference or a warehouse ID string.",
+          "title": "Warehouse"
+        },
+        "monitoring": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MonitoringModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Production monitoring configuration. When present, scorers are registered to continuously evaluate production traces in the UC trace tables."
+        }
+      },
+      "required": [
+        "schema",
+        "warehouse"
+      ],
+      "title": "TraceLocationModel",
       "type": "object"
     },
     "TransportType": {

@@ -203,7 +203,7 @@ memory: &memory
   store: 
     name: default_store                             # Store identifier (type inferred as memory - no database)
     embedding_model: *embedding_model               # Model for semantic memory
-    dims: 1536                                      # Embedding dimensions
+    # dims: 1536                                    # Auto-detected from embedding model if omitted
     namespace: "{user_id}"
 
 # =============================================================================

@@ -11,6 +11,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Iterator,
     Literal,
     Optional,
@@ -3001,40 +3002,124 @@ class PromptModel(BaseModel, HasFullName):
 
 
 class GuardrailModel(BaseModel):
-    """Configuration for an LLM-based guardrail.
+    """Configuration for a guardrail.
 
-    Guardrails use MLflow judges to evaluate agent responses against criteria
-    defined by the prompt. The prompt determines the evaluation type -- tone,
-    completeness, veracity/groundedness, or any custom criteria.
+    Guardrails evaluate agent responses against quality or safety criteria.
+    Two configuration modes are supported:
 
-    Tool context from ToolMessage objects in the conversation is automatically
-    extracted and included in the ``inputs`` dict, so veracity prompts can
-    reference it via ``{{ inputs }}``.
+    1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A
+       ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.
+    2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).
+       Any ``mlflow.genai.scorers.base.Scorer`` class can be used,
+       including built-in ``GuardrailsScorer`` validators such as
+       ``ToxicLanguage`` and ``DetectPII``.
+
+    The two modes are mutually exclusive.
 
     Attributes:
-        name: Name identifying this guardrail
-        model: LLM model for the judge. Accepts a string (model name) or LLMModel.
-            The model's Databricks URI is used as the MLflow judge model endpoint.
-        prompt: Evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}``
-            template variables. Accepts a string or PromptModel.
-        num_retries: Maximum retry attempts when evaluation fails (default: 3)
-        fail_open: If True, let responses through when the judge call fails (default: True)
-        max_context_length: Max character length for extracted tool context (default: 8000)
+        name: Name identifying this guardrail.
+        model: LLM model for the judge.  Accepts a string (model name) or
+            ``LLMModel``.  Required when using the custom judge mode.
+        prompt: Evaluation instructions using ``{{ inputs }}`` and
+            ``{{ outputs }}`` template variables.  Required when using
+            the custom judge mode.
+        scorer: Fully qualified name of an MLflow ``Scorer`` class
+            (e.g. ``"mlflow.genai.scorers.guardrails.DetectPII"``).
+            Required when using the scorer-based mode.
+        scorer_args: Keyword arguments forwarded to the scorer constructor
+            (e.g. ``{"pii_entities": ["CREDIT_CARD", "SSN"]}``).
+        hub: Optional guardrails-ai hub URI for the scorer validator
+            (e.g. ``"hub://guardrails/toxic_language"``).  When set,
+            the validator is auto-installed at startup if the
+            ``GUARDRAILSAI_API_KEY`` environment variable is present.
+            Only valid when *scorer* is also set.
+        num_retries: Maximum retry attempts when evaluation fails (default: 3).
+        fail_on_error: If True, block responses when the evaluation call
+            itself errors (e.g. scorer exception, network timeout).
+            If False (default), let responses through on evaluation
+            errors.
+        max_context_length: Max character length for extracted tool context
+            (default: 8000).
+        apply_to: When to run this guardrail.  ``"input"`` runs before
+            the model (on user messages), ``"output"`` runs after the
+            model (on agent responses), ``"both"`` runs in both places
+            (default: ``"both"``).
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
-    model: str | LLMModel
-    prompt: str | PromptModel
+    model: Optional[str | LLMModel] = None
+    prompt: Optional[str | PromptModel] = None
+    scorer: Optional[str] = None
+    scorer_args: dict[str, Any] = Field(default_factory=dict)
+    hub: Optional[str] = None
     num_retries: Optional[int] = 3
-    fail_open: Optional[bool] = True
+    fail_on_error: Optional[bool] = False
     max_context_length: Optional[int] = 8000
+    apply_to: Literal["input", "output", "both"] = "both"
+
+    @model_validator(mode="after")
+    def validate_guardrail_type(self) -> Self:
+        has_scorer: bool = self.scorer is not None
+        has_judge: bool = self.model is not None or self.prompt is not None
+
+        if has_scorer and has_judge:
+            raise ValueError(
+                "Cannot specify both 'scorer' and 'model'/'prompt'. "
+                "Use either scorer-based or custom judge configuration."
+            )
+        if not has_scorer and not has_judge:
+            raise ValueError(
+                "Either 'scorer' or both 'model' and 'prompt' must be provided."
+            )
+        if not has_scorer and (self.model is None or self.prompt is None):
+            raise ValueError(
+                "Both 'model' and 'prompt' are required for custom judge guardrails."
+            )
+        if self.hub is not None and not has_scorer:
+            raise ValueError(
+                "'hub' requires 'scorer' to be set. The hub URI identifies "
+                "the guardrails-ai hub package for the scorer validator."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_llm_model(self) -> Self:
-        if isinstance(self.model, str):
+        if self.model is not None and isinstance(self.model, str):
             self.model = LLMModel(name=self.model)
         return self
+
+    def as_scorer(self) -> Any:
+        """Return an MLflow ``Scorer`` instance for this guardrail.
+
+        For scorer-based guardrails, imports and instantiates the class
+        referenced by ``self.scorer`` with ``self.scorer_args``.  When
+        ``self.hub`` is set, the hub validator is auto-installed first.
+
+        For LLM-judge guardrails, creates a ``JudgeScorer`` wrapping
+        ``mlflow.genai.judges.make_judge`` with the resolved prompt and
+        model endpoint.
+        """
+        if self.scorer:
+            if self.hub:
+                from dao_ai.guardrails_hub import ensure_single_hub_validator
+
+                ensure_single_hub_validator(self.hub)
+
+            from dao_ai.utils import load_function
+
+            scorer_cls = load_function(self.scorer)
+            return scorer_cls(**self.scorer_args)
+
+        from dao_ai.middleware._prompt_utils import resolve_prompt
+        from dao_ai.middleware.guardrails import JudgeScorer
+
+        template: str = resolve_prompt(self.prompt, jinja=True)
+        return JudgeScorer(
+            name=self.name,
+            instructions=template,
+            model=self.model.uri,
+        )
 
 
 class MiddlewareModel(BaseModel):
@@ -3090,7 +3175,7 @@ class StoreModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
     embedding_model: Optional[LLMModel] = None
-    dims: Optional[int] = 1536
+    dims: Optional[int] = None
     database: Optional[DatabaseModel] = None
     namespace: Optional[str] = None
 
@@ -3647,6 +3732,134 @@ class ChatHistoryModel(BaseModel):
     )
 
 
+class GuidelineModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str
+    guidelines: list[str]
+
+
+class MonitoringModel(BaseModel):
+    """
+    Configuration for production monitoring of GenAI scorers.
+
+    Controls which scorers are registered and at what sampling rates against
+    production traces stored in Unity Catalog via the MLflow 3 scorer
+    lifecycle API.
+
+    Attributes:
+        sample_rate: Sampling rate for built-in scorers. Defaults to 1.0 (100%).
+        scorers: Optional list of built-in scorer names to enable. When omitted,
+            all built-in scorers are registered (safety, completeness,
+            relevance_to_query, tool_call_efficiency).
+        guidelines: Optional list of guideline configurations for Guidelines
+            scorers used in production monitoring.
+        guidelines_sample_rate: Sampling rate for Guidelines scorers, which
+            invoke an LLM judge per trace and are more expensive. Defaults
+            to 0.5 (50%).
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Sampling rate for built-in scorers (0.0–1.0)",
+    )
+    scorers: Optional[list[str | GuardrailModel]] = Field(
+        default=None,
+        description="Built-in scorer names, glob patterns, or GuardrailModel references to enable. "
+        "Built-in options: safety, completeness, relevance_to_query, tool_call_efficiency. "
+        "Supports glob patterns: '*' (all built-in scorers), 'safe*', etc. "
+        "GuardrailModel entries are converted to scorers via as_scorer(). "
+        "Defaults to all built-in scorers when omitted.",
+    )
+    guidelines: list[GuidelineModel] = Field(
+        default_factory=list,
+        description="Guideline configurations for production monitoring Guidelines scorers.",
+    )
+    guidelines_sample_rate: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Sampling rate for Guidelines scorers (0.0–1.0)",
+    )
+
+
+class TraceLocationModel(BaseModel):
+    """Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.
+
+    Accepts either a SchemaModel reference (aliased to "schema") or a string
+    in "catalog.schema" format. When configured on AppModel, traces are stored
+    in UC Delta tables via set_experiment_trace_location().
+
+    Optionally configure production monitoring to continuously evaluate traces
+    with MLflow scorers.
+    """
+
+    OTEL_TABLE_SUFFIXES: ClassVar[Sequence[str]] = (
+        "mlflow_experiment_trace_otel_spans",
+        "mlflow_experiment_trace_otel_logs",
+        "mlflow_experiment_trace_otel_metrics",
+        "mlflow_experiment_trace_metadata",
+        "mlflow_experiment_trace_unified",
+    )
+
+    model_config = ConfigDict(
+        use_enum_values=True, extra="forbid", populate_by_name=True
+    )
+    schema_model: SchemaModel = Field(alias="schema")
+    warehouse: Union[WarehouseModel, str] = Field(
+        description="SQL warehouse for creating views and querying traces. "
+        "Accepts a WarehouseModel reference or a warehouse ID string.",
+    )
+    monitoring: Optional[MonitoringModel] = Field(
+        default=None,
+        description="Production monitoring configuration. When present, scorers are "
+        "registered to continuously evaluate production traces in the UC trace tables.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_string_schema(cls, data: Any) -> Any:
+        """Accept 'catalog.schema' string shorthand."""
+        if isinstance(data, str):
+            parts = data.split(".")
+            if len(parts) != 2:
+                raise ValueError(
+                    "trace_location string must be 'catalog_name.schema_name'"
+                )
+            return {"schema": {"catalog_name": parts[0], "schema_name": parts[1]}}
+        return data
+
+    @property
+    def warehouse_id(self) -> str:
+        """Resolve warehouse to a warehouse ID string."""
+        if isinstance(self.warehouse, WarehouseModel):
+            return value_of(self.warehouse.warehouse_id)
+        return self.warehouse
+
+    @property
+    def catalog_name(self) -> str:
+        return value_of(self.schema_model.catalog_name)
+
+    @property
+    def schema_name(self) -> str:
+        return value_of(self.schema_model.schema_name)
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        """Return DatabricksTable resources for the OTEL trace tables.
+
+        Model serving needs SELECT on these tables for set_experiment_trace_location()
+        to succeed at startup. Including them as system resources ensures the
+        auth policy grants the serving identity appropriate permissions.
+        """
+        schema_prefix = f"{self.catalog_name}.{self.schema_name}"
+        return [
+            DatabricksTable(table_name=f"{schema_prefix}.{suffix}")
+            for suffix in self.OTEL_TABLE_SUFFIXES
+        ]
+
+
 class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str
@@ -3686,6 +3899,13 @@ class AppModel(BaseModel):
         description="Default deployment target. If not specified, defaults to MODEL_SERVING. "
         "Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'.",
     )
+    trace_location: Optional[TraceLocationModel] = Field(
+        default=None,
+        description="Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. "
+        "Accepts a schema reference or 'catalog.schema' string. "
+        "When set, set_experiment_trace_location() is called at startup for both "
+        "Model Serving and Databricks Apps deployments.",
+    )
 
     @model_validator(mode="after")
     def set_databricks_env_vars(self) -> Self:
@@ -3720,12 +3940,33 @@ class AppModel(BaseModel):
             raise ValueError("At least one agent must be specified")
         return self
 
+    @staticmethod
+    def _find_secret_source(
+        value: Any,
+    ) -> "SecretVariableModel | None":
+        """Return the SecretVariableModel if *value* is one, or wraps one as
+        the first option of a CompositeVariableModel.
+
+        This mirrors the logic in ``_resolve_variable_type`` used by
+        Databricks Apps deployment so that Model Serving ``environment_vars``
+        consistently receive the ``{{secrets/scope/key}}`` format the
+        serving infrastructure expects.
+        """
+        if isinstance(value, SecretVariableModel):
+            return value
+        if isinstance(value, CompositeVariableModel) and value.options:
+            first = value.options[0]
+            if isinstance(first, SecretVariableModel):
+                return first
+        return None
+
     @model_validator(mode="after")
     def resolve_environment_vars(self) -> Self:
         for key, value in self.environment_vars.items():
             updated_value: str
-            if isinstance(value, SecretVariableModel):
-                updated_value = str(value)
+            secret_source = self._find_secret_source(value)
+            if secret_source is not None:
+                updated_value = str(secret_source)
             else:
                 updated_value = value_of(value)
 
@@ -3776,45 +4017,9 @@ class AppModel(BaseModel):
         return self
 
 
-class GuidelineModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    guidelines: list[str]
-
-
-class MonitoringModel(BaseModel):
-    """
-    Configuration for production monitoring of GenAI scorers.
-
-    Controls how evaluation scorers are registered and scheduled against
-    production traces via the MLflow 3 scorer lifecycle API.
-
-    Attributes:
-        sample_rate: Sampling rate for built-in scorers (Safety, Completeness,
-            RelevanceToQuery, ToolCallEfficiency). Defaults to 1.0 (100%).
-        guidelines_sample_rate: Sampling rate for Guidelines scorers, which
-            invoke an LLM judge per trace and are more expensive. Defaults
-            to 0.5 (50%).
-    """
-
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    sample_rate: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=1.0,
-        description="Sampling rate for built-in scorers (0.0–1.0)",
-    )
-    guidelines_sample_rate: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="Sampling rate for Guidelines scorers (0.0–1.0)",
-    )
-
-
 class EvaluationModel(BaseModel):
     """
-    Configuration for MLflow GenAI evaluation.
+    Configuration for MLflow GenAI offline evaluation.
 
     Attributes:
         model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).
@@ -3827,8 +4032,6 @@ class EvaluationModel(BaseModel):
         question_guidelines: Guidelines for generating evaluation questions.
         custom_inputs: Custom inputs to pass to the agent during evaluation.
         guidelines: List of guideline configurations for Guidelines scorers.
-        monitoring: Optional production monitoring configuration. When present,
-            scorers are registered for continuous evaluation of production traces.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -3846,7 +4049,6 @@ class EvaluationModel(BaseModel):
     question_guidelines: Optional[str] = None
     custom_inputs: dict[str, Any] = Field(default_factory=dict)
     guidelines: list[GuidelineModel] = Field(default_factory=list)
-    monitoring: Optional[MonitoringModel] = None
 
     @property
     def judge_model_endpoint(self) -> str:
@@ -4444,11 +4646,14 @@ class AppConfig(BaseModel):
         return self._source_config_path
 
     def initialize(self) -> None:
+        from dao_ai.guardrails_hub import ensure_guardrails_hub
         from dao_ai.hooks.core import create_hooks
         from dao_ai.logging import configure_logging
 
         if self.app and self.app.log_level:
             configure_logging(level=self.app.log_level)
+
+        ensure_guardrails_hub(self)
 
         logger.debug("Calling initialization hooks...")
         initialization_functions: Sequence[Callable[..., Any]] = create_hooks(

@@ -112,17 +112,25 @@ prompts:
     default_template: string
     tags: {}
 
-# Guardrails (MLflow judge-based evaluation)
+# Guardrails (MLflow judge-based or Scorer-based evaluation)
 guardrails:
+  # Custom judge mode (model + prompt)
   guardrail_name: &guardrail_name
     name: string                    # Guardrail identifier
     model: *judge_llm               # LLM model for the MLflow judge
     prompt: string | *prompt_ref    # Evaluation instructions with {{ inputs }} and {{ outputs }}
     num_retries: int | null         # Max retry attempts (default: 3)
-    fail_open: bool | null          # Let responses through on error (default: true)
+    fail_on_error: bool | null      # Block responses on evaluation error (default: false)
     max_context_length: int | null  # Max tool context chars (default: 8000)
-    # Note: {{ inputs }} includes user query + extracted tool context
-    # Note: {{ outputs }} includes the agent's response
+
+  # Scorer mode (scorer + scorer_args)
+  scorer_guardrail: &scorer_guardrail
+    name: string                    # Guardrail identifier
+    scorer: string                  # FQN of mlflow.genai.scorers.base.Scorer class
+    scorer_args: {}                 # Kwargs passed to scorer constructor (default: {})
+    num_retries: int | null         # Max retry attempts (default: 3)
+    fail_on_error: bool | null      # Block responses on evaluation error (default: false)
+    max_context_length: int | null  # Max tool context chars (default: 8000)
 
 # Response format (structured output)
 response_formats:
@@ -145,6 +153,7 @@ memory: &memory
     schema: *my_schema            # For lakebase
     table_name: string            # For lakebase
     embedding_model: *embedding_model
+    dims: int | null              # Auto-detected from embedding model if omitted
   extraction:                              # Long-term memory extraction
     schemas: [string]                      # Schema names: user_profile, preference, episode
     instructions: string | null            # Custom extraction instructions

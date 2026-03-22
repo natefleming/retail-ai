@@ -877,7 +877,7 @@ agents:
           Is the response in {{ outputs }} grounded in the retrieved context in {{ inputs }}?
           Rate as true if grounded, false if it fabricates information.
         num_retries: 2
-        fail_open: true
+        fail_on_error: false
 ```
 
 **Prompt template format:** Guardrail prompts use Jinja2 template variables:
@@ -916,6 +916,47 @@ middleware:
       model: "databricks:/databricks-claude-3-7-sonnet"
       max_length: 2000
       check_verbosity: true
+```
+
+**Scorer-based guardrails (MLflow Scorers):**
+
+Any `mlflow.genai.scorers.base.Scorer` can be used as a guardrail, including built-in `GuardrailsScorer` validators for toxicity, PII, jailbreak detection, and more.
+
+```yaml
+guardrails:
+  # MLflow Scorer -- detects PII in responses
+  pii_check: &pii_check
+    name: pii_detection
+    scorer: mlflow.genai.scorers.guardrails.DetectPII
+    scorer_args:
+      pii_entities: ["CREDIT_CARD", "SSN"]
+    fail_on_error: true
+
+  # MLflow Scorer -- detects toxic language
+  toxic_check: &toxic_check
+    name: toxic_language
+    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
+    scorer_args:
+      threshold: 0.7
+
+agents:
+  my_agent:
+    guardrails:
+      - *pii_check
+      - *toxic_check
+```
+
+Available built-in scorers: `ToxicLanguage`, `NSFWText`, `DetectJailbreak`, `DetectPII`, `SecretsPresent`, `GibberishText`.
+
+Scorer-based guardrails can also be configured via the middleware factory pattern:
+
+```yaml
+middleware:
+  secrets_check:
+    name: dao_ai.middleware.create_scorer_guardrail_middleware
+    args:
+      name: secrets_check
+      scorer_name: mlflow.genai.scorers.guardrails.SecretsPresent
 ```
 
 **Additional guardrail types:**

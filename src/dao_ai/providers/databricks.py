@@ -331,12 +331,22 @@ class DatabricksProvider(ServiceProvider):
         for r in resources:
             all_resources.extend(r.as_resources())
 
-        system_resources: Sequence[DatabricksResource] = [
+        system_resources: list[DatabricksResource] = [
             resource
             for r in resources
             for resource in r.as_resources()
             if not r.on_behalf_of_user
         ]
+
+        if config.app and config.app.trace_location:
+            trace_resources = config.app.trace_location.as_resources()
+            system_resources.extend(trace_resources)
+            all_resources.extend(trace_resources)
+            logger.debug(
+                "Added OTEL trace tables to system resources",
+                count=len(trace_resources),
+            )
+
         logger.trace(
             "System resources identified",
             count=len(system_resources),
@@ -396,6 +406,10 @@ class DatabricksProvider(ServiceProvider):
                 code_paths.append(directory.as_posix())
 
             pip_requirements += get_installed_packages()
+
+        from dao_ai.guardrails_hub import collect_hub_code_paths
+
+        code_paths.extend(collect_hub_code_paths(config))
 
         code_paths = list(dict.fromkeys(code_paths))
 
@@ -584,6 +598,22 @@ class DatabricksProvider(ServiceProvider):
                     permission_level=PermissionLevel[entitlement],
                 )
 
+        # Register production monitoring scorers if trace_location.monitoring is configured
+        if config.app.trace_location and config.app.trace_location.monitoring:
+            from dao_ai.evaluation import register_monitoring_scorers
+
+            experiment: Experiment = self.get_or_create_experiment(config)
+
+            registered_scorers = register_monitoring_scorers(
+                monitoring_config=config.app.trace_location.monitoring,
+                experiment_id=experiment.experiment_id,
+                sql_warehouse_id=config.app.trace_location.warehouse_id,
+            )
+            logger.info(
+                "Production monitoring scorers registered for Model Serving",
+                scorer_count=len(registered_scorers),
+            )
+
     def deploy_apps_agent(self, config: AppConfig) -> None:
         """
         Deploy agent as a Databricks App.
@@ -641,6 +671,40 @@ class DatabricksProvider(ServiceProvider):
             experiment_name=experiment.name,
             experiment_id=experiment.experiment_id,
         )
+
+        # Link experiment to UC trace location if configured
+        if config.app.trace_location:
+            from mlflow.entities import UCSchemaLocation
+            from mlflow.tracing.enablement import set_experiment_trace_location
+
+            loc = config.app.trace_location
+            set_experiment_trace_location(
+                location=UCSchemaLocation(
+                    catalog_name=loc.catalog_name,
+                    schema_name=loc.schema_name,
+                ),
+                experiment_id=experiment.experiment_id,
+                sql_warehouse_id=loc.warehouse_id,
+            )
+            logger.info(
+                "Linked experiment to UC trace location",
+                catalog=loc.catalog_name,
+                schema=loc.schema_name,
+            )
+
+        # Register production monitoring scorers if trace_location.monitoring is configured
+        if config.app.trace_location and config.app.trace_location.monitoring:
+            from dao_ai.evaluation import register_monitoring_scorers
+
+            registered_scorers = register_monitoring_scorers(
+                monitoring_config=config.app.trace_location.monitoring,
+                experiment_id=experiment.experiment_id,
+                sql_warehouse_id=config.app.trace_location.warehouse_id,
+            )
+            logger.info(
+                "Production monitoring scorers registered for app",
+                scorer_count=len(registered_scorers),
+            )
 
         # Upload the configuration file to the workspace
         source_config_path: str | None = config.source_config_path
@@ -1452,6 +1516,7 @@ class DatabricksProvider(ServiceProvider):
                 # Handle case where database was created by another process concurrently
                 if (
                     "already exists" in error_msg.lower()
+                    or "not unique" in error_msg.lower()
                     or "RESOURCE_ALREADY_EXISTS" in error_msg
                 ):
                     logger.info(
