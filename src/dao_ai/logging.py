@@ -1,12 +1,36 @@
 """Logging configuration for DAO AI."""
 
+import logging
 import sys
 from typing import Any
 
 from loguru import logger
 
 # Re-export logger for convenience
-__all__ = ["logger", "configure_logging"]
+__all__ = ["logger", "configure_logging", "suppress_autolog_context_warnings"]
+
+
+class _ContextVarWarningFilter(logging.Filter):
+    """Drops the noisy 'was created in a different Context' warnings.
+
+    MLflow's autologging emits these when it tries to reset a ContextVar
+    token across async boundaries (nest_asyncio). They are harmless but
+    extremely noisy in Model Serving logs.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "was created in a different Context" not in record.getMessage()
+
+
+def suppress_autolog_context_warnings() -> None:
+    """Suppress ``mlflow.utils.autologging_utils`` ContextVar warnings.
+
+    Call this after ``mlflow.langchain.autolog()`` in entry-point modules
+    (e.g., ``model_serving.py``, ``handlers.py``).
+    """
+    logging.getLogger("mlflow.utils.autologging_utils").addFilter(
+        _ContextVarWarningFilter()
+    )
 
 
 def format_extra(record: dict[str, Any]) -> str:

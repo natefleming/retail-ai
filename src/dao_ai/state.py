@@ -12,7 +12,7 @@ State Schema:
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, ConfigDict, Field
@@ -94,6 +94,21 @@ class SessionState(BaseModel):
     # other_tool_state: OtherToolState = Field(default_factory=OtherToolState)
 
 
+def merge_session(current: SessionState, new: SessionState) -> SessionState:
+    """Reducer that merges SessionState values from concurrent tool updates.
+
+    When multiple tools (e.g., parallel Genie calls) write to ``session``
+    in the same LangGraph step, the default ``LastValue`` channel would
+    raise ``InvalidUpdateError``. This reducer deep-merges the
+    ``genie.spaces`` dictionaries so each tool's space update is preserved.
+    """
+    merged_spaces: dict[str, GenieSpaceState] = {
+        **current.genie.spaces,
+        **new.genie.spaces,
+    }
+    return SessionState(genie=GenieState(spaces=merged_spaces))
+
+
 class AgentState(MessagesState, total=False):
     """
     Primary state schema for DAO AI agents.
@@ -122,7 +137,7 @@ class AgentState(MessagesState, total=False):
     active_agent: NotRequired[str]
     is_valid: NotRequired[bool]
     message_error: NotRequired[str]
-    session: NotRequired[SessionState]
+    session: NotRequired[Annotated[SessionState, merge_session]]
     structured_response: NotRequired[Any]
 
 

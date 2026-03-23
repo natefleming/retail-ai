@@ -16,11 +16,22 @@ from langchain.agents.middleware import (
 )
 from langchain_core.prompts import PromptTemplate
 from loguru import logger
+from mlflow.genai.prompts import PromptVersion
 
 from dao_ai.config import PromptModel
 from dao_ai.state import Context
 
 PROMPTS_DIR = Path(__file__).parent
+
+# Module-level cache of resolved PromptVersion objects.
+# Populated during graph construction (make_prompt calls) and consumed
+# post-inference by LanggraphResponsesAgent for explicit trace linking.
+_cached_prompt_versions: list[PromptVersion] = []
+
+
+def get_cached_prompt_versions() -> list[PromptVersion]:
+    """Return a snapshot of all cached PromptVersion objects."""
+    return list(_cached_prompt_versions)
 
 
 def get_prompt_path(name: str) -> Path:
@@ -30,6 +41,7 @@ def get_prompt_path(name: str) -> Path:
 
 def make_prompt(
     base_system_prompt: Optional[str | PromptModel],
+    prompt_model: Optional[PromptModel] = None,
 ) -> AgentMiddleware | None:
     """
     Create a dynamic prompt middleware from configuration.
@@ -39,8 +51,18 @@ def make_prompt(
     This provides a consistent interface regardless of whether the
     prompt template has variables or not.
 
+    When ``prompt_model`` is supplied, the resolved ``PromptVersion`` is
+    cached at init time in the module-level ``_cached_prompt_versions``
+    list.  After inference, ``LanggraphResponsesAgent`` uses
+    ``MlflowClient.link_prompt_versions_to_trace`` to batch-link all
+    cached versions to the completed trace.  This avoids the
+    ``ContextVar`` propagation issues that prevent ``load_prompt``
+    auto-linking from working in model serving's async environment.
+
     Args:
         base_system_prompt: The system prompt string or PromptModel
+        prompt_model: Optional original PromptModel reference used to
+            link the prompt version to the active MLflow trace.
 
     Returns:
         An AgentMiddleware created by @dynamic_prompt, or None if no prompt
@@ -59,6 +81,24 @@ def make_prompt(
 
     # Create prompt template (handles both static and dynamic prompts)
     prompt_template: PromptTemplate = PromptTemplate.from_template(template)
+
+    # Resolve and cache the PromptVersion for post-inference trace linking.
+    if prompt_model is not None:
+        try:
+            from dao_ai.providers.databricks import DatabricksProvider
+
+            resolved: PromptVersion = DatabricksProvider().get_prompt(prompt_model)
+            _cached_prompt_versions.append(resolved)
+            logger.trace(
+                "Cached prompt version for trace linking",
+                prompt_name=resolved.name,
+                prompt_version=resolved.version,
+            )
+        except Exception:
+            logger.trace(
+                "Could not resolve prompt version for trace linking",
+                prompt_name=prompt_model.full_name,
+            )
 
     if prompt_template.input_variables:
         logger.trace(

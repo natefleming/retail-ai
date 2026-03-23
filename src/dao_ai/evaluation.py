@@ -351,6 +351,39 @@ def _resolve_scorer_patterns(patterns: list[str]) -> list[type[Scorer]]:
     return resolved
 
 
+def _ensure_scorer_running(
+    scorer: Scorer,
+    name: str,
+    desired_rate: float,
+    existing_scorers: dict[str, Scorer],
+) -> Scorer:
+    """Register a new scorer or update an existing one to match the desired sample rate.
+
+    If the scorer already exists, its sampling config is updated to match
+    the config-declared rate so that every deploy converges to the YAML state.
+    """
+    if name in existing_scorers:
+        existing: Scorer = existing_scorers[name]
+        current_rate: float = getattr(existing, "sample_rate", -1)
+        if current_rate == desired_rate:
+            logger.info(f"Scorer already running at desired rate, no change: {name}")
+            return existing
+        updated: Scorer = existing.update(
+            sampling_config=ScorerSamplingConfig(sample_rate=desired_rate),
+        )
+        logger.info(
+            f"Updated scorer sample_rate: {name} ({current_rate} -> {desired_rate})"
+        )
+        return updated
+
+    registered: Scorer = scorer.register(name=name)
+    started: Scorer = registered.start(
+        sampling_config=ScorerSamplingConfig(sample_rate=desired_rate),
+    )
+    logger.info(f"Registered and started scorer: {name} (sample_rate={desired_rate})")
+    return started
+
+
 def register_monitoring_scorers(
     monitoring_config: MonitoringModel,
     experiment_id: str,
@@ -363,8 +396,8 @@ def register_monitoring_scorers(
     and any ``GuardrailModel`` entries against the given MLflow experiment
     so they continuously evaluate production traces.
 
-    Scorers that are already registered (by name) are skipped to avoid
-    duplicate registration errors.
+    Existing scorers are updated to match the configured sample rate so
+    that every deploy converges to the YAML-declared state.
 
     Args:
         monitoring_config: ``MonitoringModel`` with scorer selection,
@@ -377,7 +410,7 @@ def register_monitoring_scorers(
             enable the monitoring service to query UC trace tables.
 
     Returns:
-        List of registered (and started) scorer instances.
+        List of registered (and started/updated) scorer instances.
     """
     import mlflow
 
@@ -397,9 +430,9 @@ def register_monitoring_scorers(
             sql_warehouse_id=sql_warehouse_id,
         )
 
-    existing_names: set[str] = {s.name for s in list_scorers()}
+    existing_scorers: dict[str, Scorer] = {s.name: s for s in list_scorers()}
 
-    registered: list[Scorer] = []
+    result: list[Scorer] = []
 
     guardrail_entries: list[GuardrailModel] = []
 
@@ -417,66 +450,39 @@ def register_monitoring_scorers(
 
     for scorer_cls in scorer_classes:
         name: str = scorer_cls.__name__
-        if name in existing_names:
-            logger.info(f"Scorer already registered, skipping: {name}")
-            continue
-
-        scorer: Scorer = scorer_cls().register(name=name)
-        scorer = scorer.start(
-            sampling_config=ScorerSamplingConfig(
-                sample_rate=monitoring_config.sample_rate,
-            ),
+        scorer: Scorer = _ensure_scorer_running(
+            scorer=scorer_cls(),
+            name=name,
+            desired_rate=monitoring_config.sample_rate,
+            existing_scorers=existing_scorers,
         )
-        registered.append(scorer)
-        logger.info(
-            f"Registered and started scorer: {name} "
-            f"(sample_rate={monitoring_config.sample_rate})"
-        )
+        result.append(scorer)
 
     if monitoring_config.guidelines:
         guideline_scorers: list[Guidelines] = create_guidelines_scorers(
             monitoring_config.guidelines
         )
         for gs in guideline_scorers:
-            name = gs.name
-            if name in existing_names:
-                logger.info(f"Guidelines scorer already registered, skipping: {name}")
-                continue
-
-            registered_gs: Scorer = gs.register(name=name)
-            registered_gs = registered_gs.start(
-                sampling_config=ScorerSamplingConfig(
-                    sample_rate=monitoring_config.guidelines_sample_rate,
-                ),
+            scorer = _ensure_scorer_running(
+                scorer=gs,
+                name=gs.name,
+                desired_rate=monitoring_config.guidelines_sample_rate,
+                existing_scorers=existing_scorers,
             )
-            registered.append(registered_gs)
-            logger.info(
-                f"Registered and started Guidelines scorer: {name} "
-                f"(sample_rate={monitoring_config.guidelines_sample_rate})"
-            )
+            result.append(scorer)
 
     for guardrail in guardrail_entries:
-        if guardrail.name in existing_names:
-            logger.info(
-                f"Guardrail scorer already registered, skipping: {guardrail.name}"
-            )
-            continue
-
         guardrail_scorer: Scorer = guardrail.as_scorer()
-        registered_gs = guardrail_scorer.register(name=guardrail.name)
-        registered_gs = registered_gs.start(
-            sampling_config=ScorerSamplingConfig(
-                sample_rate=monitoring_config.guidelines_sample_rate,
-            ),
+        scorer = _ensure_scorer_running(
+            scorer=guardrail_scorer,
+            name=guardrail.name,
+            desired_rate=monitoring_config.guidelines_sample_rate,
+            existing_scorers=existing_scorers,
         )
-        registered.append(registered_gs)
-        logger.info(
-            f"Registered guardrail as monitoring scorer: {guardrail.name} "
-            f"(sample_rate={monitoring_config.guidelines_sample_rate})"
-        )
+        result.append(scorer)
 
-    logger.info(f"Production monitoring: {len(registered)} scorers registered")
-    return registered
+    logger.info(f"Production monitoring: {len(result)} scorers active")
+    return result
 
 
 def get_monitoring_scorers() -> list[Scorer]:

@@ -970,8 +970,10 @@ class LanggraphResponsesAgent(ResponsesAgent):
     def __init__(
         self,
         graph: CompiledStateGraph,
+        prompt_versions: list | None = None,
     ) -> None:
         self.graph = graph
+        self._prompt_versions: list = prompt_versions or []
 
     async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """
@@ -1294,6 +1296,35 @@ class LanggraphResponsesAgent(ResponsesAgent):
             if action_message:
                 output_item = self.create_text_output_item(
                     text=action_message, id=f"msg_{uuid.uuid4().hex[:8]}"
+                )
+
+        # Register cached prompt versions with the in-memory trace manager
+        # so they appear as linked prompts when autolog finalizes the trace.
+        if self._prompt_versions:
+            try:
+                import mlflow
+                from mlflow.tracing.trace_manager import InMemoryTraceManager
+
+                trace_id: str | None = mlflow.get_active_trace_id()
+                if trace_id:
+                    mgr = InMemoryTraceManager.get_instance()
+                    for pv in self._prompt_versions:
+                        mgr.register_prompt(trace_id=trace_id, prompt=pv)
+                    logger.debug(
+                        "Registered prompt versions with trace",
+                        trace_id=trace_id,
+                        prompt_count=len(self._prompt_versions),
+                    )
+                else:
+                    logger.warning(
+                        "No active trace ID for prompt registration",
+                        prompt_count=len(self._prompt_versions),
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Could not register prompt versions with trace",
+                    prompt_count=len(self._prompt_versions),
+                    error=str(e),
                 )
 
         return ResponsesAgentResponse(
@@ -1999,6 +2030,7 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
 
 def create_responses_agent(
     graph: CompiledStateGraph,
+    prompt_versions: list | None = None,
 ) -> ResponsesAgent:
     """
     Create an MLflow-compatible ResponsesAgent from a LangGraph state machine.
@@ -2008,11 +2040,12 @@ def create_responses_agent(
 
     Args:
         graph: A compiled LangGraph state machine
+        prompt_versions: Cached PromptVersion objects for post-inference trace linking
 
     Returns:
         An MLflow-compatible ResponsesAgent instance
     """
-    return LanggraphResponsesAgent(graph)
+    return LanggraphResponsesAgent(graph, prompt_versions=prompt_versions)
 
 
 def _process_langchain_messages(

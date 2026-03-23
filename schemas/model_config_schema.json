@@ -419,6 +419,18 @@
           ],
           "default": null,
           "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. Accepts a schema reference or 'catalog.schema' string. When set, set_experiment_trace_location() is called at startup for both Model Serving and Databricks Apps deployments."
+        },
+        "monitoring": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MonitoringModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Production monitoring configuration. When present, scorers are registered to continuously evaluate production traces. Works with both experiment-based traces and UC OTEL trace tables. When trace_location is also configured, the SQL warehouse from trace_location is used for monitoring."
         }
       },
       "required": [
@@ -4945,6 +4957,9 @@
               "type": "string"
             },
             {
+              "$ref": "#/$defs/PromptModel"
+            },
+            {
               "type": "null"
             }
           ],
@@ -5256,7 +5271,7 @@
     },
     "TraceLocationModel": {
       "additionalProperties": false,
-      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nAccepts either a SchemaModel reference (aliased to \"schema\") or a string\nin \"catalog.schema\" format. When configured on AppModel, traces are stored\nin UC Delta tables via set_experiment_trace_location().\n\nOptionally configure production monitoring to continuously evaluate traces\nwith MLflow scorers.",
+      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nAccepts either a SchemaModel reference (aliased to \"schema\") or a string\nin \"catalog.schema\" format. When configured on AppModel, traces are stored\nin UC Delta tables via set_experiment_trace_location().",
       "properties": {
         "schema": {
           "$ref": "#/$defs/SchemaModel"
@@ -5272,18 +5287,6 @@
           ],
           "description": "SQL warehouse for creating views and querying traces. Accepts a WarehouseModel reference or a warehouse ID string.",
           "title": "Warehouse"
-        },
-        "monitoring": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MonitoringModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Production monitoring configuration. When present, scorers are registered to continuously evaluate production traces in the UC trace tables."
         }
       },
       "required": [

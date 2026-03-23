@@ -392,6 +392,12 @@ def create_agent_node(
     else:
         logger.debug("No custom prompt configured", agent=agent.name)
 
+    # Capture the original PromptModel reference before any string conversion
+    # so it can be forwarded for MLflow trace linking.
+    prompt_model_ref: PromptModel | None = (
+        agent.prompt if isinstance(agent.prompt, PromptModel) else None
+    )
+
     # Append memory tool instructions to the prompt when memory tools are present
     effective_prompt: str | PromptModel | None = agent.prompt
     if has_memory_tools and effective_prompt is not None:
@@ -413,7 +419,9 @@ def create_agent_node(
         logger.debug("HITL decision guidance appended to prompt", agent=agent.name)
 
     # Get the prompt as middleware (always returns AgentMiddleware or None)
-    prompt_middleware: AgentMiddleware | None = make_prompt(effective_prompt)
+    prompt_middleware: AgentMiddleware | None = make_prompt(
+        effective_prompt, prompt_model=prompt_model_ref
+    )
 
     # Add prompt middleware at the beginning for priority
     if prompt_middleware is not None:

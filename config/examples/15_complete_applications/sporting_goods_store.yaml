@@ -28,6 +28,12 @@ variables:
         secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
       - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
+service_principals:
+  retail_consumer_goods_sp: &retail_consumer_goods_sp
+    name: retail_consumer_goods_sp
+    client_id: *client_id
+    client_secret: *client_secret
+
 # =============================================================================
 # SCHEMAS
 # =============================================================================
@@ -52,7 +58,7 @@ resources:
   # ---------------------------------------------------------------------------
   llms:
     fast_llm: &fast_llm
-      name: databricks-gpt-oss-120b
+      name: databricks-gpt-5-4-mini
       temperature: 0.1
       max_tokens: 8192
 
@@ -69,7 +75,7 @@ resources:
       max_tokens: 8192
 
     decomposition_llm: &decomposition_llm
-      name: databricks-gpt-oss-120b
+      name: databricks-gpt-5-4-mini
       temperature: 0.0
       max_tokens: 1024
 
@@ -159,8 +165,8 @@ resources:
   # ---------------------------------------------------------------------------
   databases:
     retail_database: &retail_database
-      name: "rcg-sporting-goods"
-      instance_name: "rcg-sporting-goods"
+      name: "retail-consumer-goods"
+      instance_name: "retail-consumer-goods"
       description: "Databricks Lakebase for agent memory and checkpoints"
       client_id: *client_id
       client_secret: *client_secret
@@ -776,7 +782,7 @@ agents:
     prompt: *forecasting_prompt
     handoff_prompt: |
       Questions about demand forecasting, sales predictions, trend analysis, seasonal demand patterns, or stockout risk assessment.
-      Example: "What's the demand forecast for camping gear this spring?" or "Which products are trending up?" or "What's the stockout risk for running shoes?"
+      Example: " " or "Which products are trending up?" or "What's the stockout risk for running shoes?"
 
   purchase_order: &purchase_order
     name: purchase_order
@@ -853,7 +859,7 @@ agents:
 app:
   name: sporting_goods_merchandiser_360_dao
   description: "Multi-agent merchandiser 360 system for sporting goods store covering assortment planning, forecasting, buying, pricing, sales, and inventory"
-  log_level: INFO
+  log_level: TRACE
   registered_model:
     schema: *sporting_goods_schema
     name: sporting_goods_merchandiser_360_dao
@@ -861,9 +867,34 @@ app:
   trace_location:
     schema: *sporting_goods_schema
     warehouse: *shared_warehouse
-    monitoring:
-      sample_rate: 0.5
-      guidelines_sample_rate: 0.5
+  monitoring:
+    sample_rate: 1.0
+    scorers:
+      - safety
+      - completeness
+      - relevance_to_query
+      - tool_call_efficiency
+    guidelines_sample_rate: 0.5
+    guidelines:
+      - name: merchandising_accuracy
+        guidelines:
+          - Inventory counts and stock levels must come from tool results, not fabricated
+          - Pricing recommendations must reference actual product data from the catalog
+          - Purchase order statuses and vendor information must be sourced from analytics tools
+          - Demand forecasts must clearly state the data sources and confidence level
+      - name: tool_usage_quality
+        guidelines:
+          - The agent must call the appropriate tool before answering product, inventory, or pricing questions
+          - Genie analytics tools should be used for trend analysis and aggregate metrics, not UC functions
+          - UC function tools should be used for specific SKU or UPC lookups, not analytics queries
+          - Vector search should be used when the user describes products by attributes rather than by SKU or UPC
+      - name: response_professionalism
+        guidelines:
+          - Responses should use merchandising terminology appropriate for retail professionals
+          - Financial figures (margin, revenue, cost) should be formatted consistently with currency symbols
+          - Recommendations should include actionable next steps with specific SKUs or categories
+          - Seasonal context and timing should be considered in all planning recommendations
+  service_principal: *retail_consumer_goods_sp
   environment_vars:
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
     RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
@@ -872,6 +903,8 @@ app:
     business: rcg
     streaming: true
     use_case: merchandiser_360
+
+
   permissions:
     - principals: [users]
       entitlements:
@@ -888,6 +921,34 @@ app:
     memory: *memory
     supervisor:
       model: *fast_llm
+      tools:
+        - name: app_info
+          function:
+            type: factory
+            name: dao_ai.tools.create_app_info_tool
+            args:
+              app_name: "Sporting Goods Store Assistant"
+              description: >
+                AI-powered merchandising and inventory management assistant
+                for retail professionals. Manages assortment planning,
+                demand forecasting, purchase orders, pricing strategy,
+                sales analytics, and inventory operations across all
+                sporting goods categories.
+              agents:
+                - *assortment_planning
+                - *forecasting
+                - *purchase_order
+                - *pricing
+                - *sales
+                - *inventory
+                - *general
+              sample_prompts:
+                - "What Nike running shoes do we carry?"
+                - "What's the demand forecast for running shoes next quarter?"
+                - "Show me open purchase orders from Nike"
+                - "What are our margin targets for footwear?"
+                - "How are trail running shoes performing this month?"
+                - "What's the stock level on SKU NKE-RUN-001?"
       middleware:
         - *store_validation
   input_example:

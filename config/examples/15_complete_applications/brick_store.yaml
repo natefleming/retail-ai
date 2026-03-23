@@ -1300,9 +1300,9 @@ app:
   trace_location:
     schema: *dais_schema
     warehouse: *dais_warehouse
-    monitoring:
-      sample_rate: 1.0
-      guidelines_sample_rate: 0.5
+  monitoring:
+    sample_rate: 1.0
+    guidelines_sample_rate: 0.5
   tags:
     business: dais
     streaming: true

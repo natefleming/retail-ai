@@ -3467,16 +3467,18 @@ class AgentModel(BaseModel):
 
     def as_responses_agent(self) -> ResponsesAgent:
         from dao_ai.models import create_responses_agent
+        from dao_ai.prompts import get_cached_prompt_versions
 
         graph: CompiledStateGraph = self.as_runnable()
-        return create_responses_agent(graph)
+        prompt_versions = get_cached_prompt_versions()
+        return create_responses_agent(graph, prompt_versions=prompt_versions)
 
 
 class SupervisorModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
-    prompt: Optional[str] = None
+    prompt: Optional[str | PromptModel] = None
     middleware: list[MiddlewareModel] = Field(
         default_factory=list,
         description="List of middleware to apply to the supervisor",
@@ -3791,9 +3793,6 @@ class TraceLocationModel(BaseModel):
     Accepts either a SchemaModel reference (aliased to "schema") or a string
     in "catalog.schema" format. When configured on AppModel, traces are stored
     in UC Delta tables via set_experiment_trace_location().
-
-    Optionally configure production monitoring to continuously evaluate traces
-    with MLflow scorers.
     """
 
     OTEL_TABLE_SUFFIXES: ClassVar[Sequence[str]] = (
@@ -3811,11 +3810,6 @@ class TraceLocationModel(BaseModel):
     warehouse: Union[WarehouseModel, str] = Field(
         description="SQL warehouse for creating views and querying traces. "
         "Accepts a WarehouseModel reference or a warehouse ID string.",
-    )
-    monitoring: Optional[MonitoringModel] = Field(
-        default=None,
-        description="Production monitoring configuration. When present, scorers are "
-        "registered to continuously evaluate production traces in the UC trace tables.",
     )
 
     @model_validator(mode="before")
@@ -3906,12 +3900,20 @@ class AppModel(BaseModel):
         "When set, set_experiment_trace_location() is called at startup for both "
         "Model Serving and Databricks Apps deployments.",
     )
+    monitoring: Optional[MonitoringModel] = Field(
+        default=None,
+        description="Production monitoring configuration. When present, scorers are "
+        "registered to continuously evaluate production traces. Works with both "
+        "experiment-based traces and UC OTEL trace tables. When trace_location is "
+        "also configured, the SQL warehouse from trace_location is used for monitoring.",
+    )
 
     @model_validator(mode="after")
     def set_databricks_env_vars(self) -> Self:
         """Set Databricks environment variables for Model Serving.
 
-        Sets DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET.
+        Sets DATABRICKS_HOST, DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET,
+        and OTEL trace destination env vars when trace_location is configured.
         Values explicitly provided in environment_vars take precedence.
         """
         from dao_ai.utils import get_default_databricks_host
@@ -3931,6 +3933,17 @@ class AppModel(BaseModel):
             if "DATABRICKS_CLIENT_SECRET" not in self.environment_vars:
                 self.environment_vars["DATABRICKS_CLIENT_SECRET"] = (
                     self.service_principal.client_secret
+                )
+
+        # Set OTEL trace destination env vars when trace_location is configured
+        if self.trace_location is not None:
+            if "MLFLOW_TRACING_DESTINATION" not in self.environment_vars:
+                self.environment_vars["MLFLOW_TRACING_DESTINATION"] = (
+                    f"{self.trace_location.catalog_name}.{self.trace_location.schema_name}"
+                )
+            if "MLFLOW_TRACING_SQL_WAREHOUSE_ID" not in self.environment_vars:
+                self.environment_vars["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] = (
+                    self.trace_location.warehouse_id
                 )
         return self
 
@@ -4849,7 +4862,11 @@ class AppConfig(BaseModel):
 
     def as_responses_agent(self) -> ResponsesAgent:
         from dao_ai.models import create_responses_agent
+        from dao_ai.prompts import get_cached_prompt_versions
 
         graph: CompiledStateGraph = self.as_graph()
-        app: ResponsesAgent = create_responses_agent(graph)
+        prompt_versions = get_cached_prompt_versions()
+        app: ResponsesAgent = create_responses_agent(
+            graph, prompt_versions=prompt_versions
+        )
         return app

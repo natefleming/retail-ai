@@ -51,6 +51,8 @@ sys.path.insert(0, "../src")
 import dao_ai.providers
 import dao_ai.providers.base
 import dao_ai.providers.databricks
+import dao_ai.memory.postgres
+import dao_ai.memory.databricks
 
 # COMMAND ----------
 
@@ -73,6 +75,16 @@ configure_logging(level=config.app.log_level)
 
 if config.app and config.app.trace_location:
     os.environ.setdefault("MLFLOW_TRACING_SQL_WAREHOUSE_ID", config.app.trace_location.warehouse_id)
+
+    from mlflow.entities import UCSchemaLocation
+
+    _loc = config.app.trace_location
+    mlflow.tracing.set_destination(
+        destination=UCSchemaLocation(
+            catalog_name=_loc.catalog_name,
+            schema_name=_loc.schema_name,
+        )
+    )
 
 app: ResponsesAgent = config.as_responses_agent()
 

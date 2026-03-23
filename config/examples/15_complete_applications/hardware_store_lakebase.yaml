@@ -727,11 +727,9 @@ app:
     schema: *retail_schema                          # Schema where model will be registered
     name: hardware_store_lakebase_dao
   endpoint_name: hardware_store_lakebase_dao           # Model serving endpoint name
-  environment_vars: 
-    PGHOST: "{{secrets/retail_ai/PGHOST}}"  # Databricks host URL
-    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
-    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
-    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_ai/RETAIL_AI_DATABRICKS_HOST}}"
+  environment_vars:
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: True                                 # Indicates streaming capabilities

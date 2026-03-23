@@ -1,6 +1,6 @@
 """Tests for MLflow Prompt Registry integration."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from conftest import has_databricks_env
@@ -438,3 +438,124 @@ class TestPromptModelConfiguration:
         prompt = PromptModel(name="untagged_prompt", default_template="Template")
 
         assert prompt.tags == {}
+
+
+class TestMakePromptTraceLinking:
+    """Tests for make_prompt prompt version caching for post-inference trace linking."""
+
+    @staticmethod
+    def _invoke_middleware(middleware, context_dict: dict) -> str:
+        """Invoke the dynamic prompt middleware and return the system prompt string.
+
+        The ``@dynamic_prompt`` decorator produces an ``AgentMiddleware``
+        subclass whose ``wrap_model_call`` internally calls the original
+        closure and then forwards the request to a handler.  We supply a
+        handler that captures the system message so we can assert on it.
+        """
+        mock_context = MagicMock()
+        mock_context.model_dump.return_value = context_dict
+        mock_request = MagicMock()
+        mock_request.runtime.context = mock_context
+
+        captured: dict[str, str] = {}
+
+        def handler(req):
+            captured["prompt"] = (
+                req.system_message.content if hasattr(req, "system_message") else ""
+            )
+            return MagicMock()
+
+        def override_fn(**kwargs):
+            mock_overridden = MagicMock()
+            mock_overridden.system_message = kwargs.get("system_message")
+            return mock_overridden
+
+        mock_request.override = override_fn
+
+        middleware.wrap_model_call(mock_request, handler)
+        return captured.get("prompt", "")
+
+    @staticmethod
+    def _mock_provider(resolved_name: str = "test_prompt", resolved_version: int = 3):
+        """Create a mock DatabricksProvider that resolves to a specific version."""
+        mock_pv = MagicMock()
+        mock_pv.name = resolved_name
+        mock_pv.version = resolved_version
+        return patch(
+            "dao_ai.providers.databricks.DatabricksProvider",
+            return_value=MagicMock(get_prompt=MagicMock(return_value=mock_pv)),
+        ), mock_pv
+
+    @pytest.mark.unit
+    def test_prompt_version_cached_when_prompt_model_provided(self):
+        """Test that resolved PromptVersion is cached at init time."""
+        from dao_ai.prompts import _cached_prompt_versions, make_prompt
+
+        prompt_model = PromptModel(
+            name="test_prompt", default_template="Hello {user_id}"
+        )
+
+        initial_count = len(_cached_prompt_versions)
+        provider_patch, mock_pv = self._mock_provider("test_prompt", 3)
+        with provider_patch:
+            middleware = make_prompt("Hello {user_id}", prompt_model=prompt_model)
+        assert middleware is not None
+        assert len(_cached_prompt_versions) == initial_count + 1
+        assert _cached_prompt_versions[-1] is mock_pv
+
+        result = self._invoke_middleware(middleware, {"user_id": "alice"})
+        assert "alice" in result
+
+    @pytest.mark.unit
+    def test_no_cache_when_prompt_model_is_none(self):
+        """Test that nothing is cached when no prompt_model is provided."""
+        from dao_ai.prompts import _cached_prompt_versions, make_prompt
+
+        initial_count = len(_cached_prompt_versions)
+        middleware = make_prompt("Static prompt")
+        assert middleware is not None
+        assert len(_cached_prompt_versions) == initial_count
+
+        result = self._invoke_middleware(middleware, {})
+        assert result == "Static prompt"
+
+    @pytest.mark.unit
+    def test_provider_failure_at_init_skips_caching(self):
+        """Test that provider resolution failure at init gracefully skips caching."""
+        from dao_ai.prompts import _cached_prompt_versions, make_prompt
+
+        prompt_model = PromptModel(
+            name="test_prompt", default_template="Hello {user_id}"
+        )
+
+        initial_count = len(_cached_prompt_versions)
+        with patch(
+            "dao_ai.providers.databricks.DatabricksProvider",
+            return_value=MagicMock(
+                get_prompt=MagicMock(side_effect=Exception("No registry"))
+            ),
+        ):
+            middleware = make_prompt("Hello {user_id}", prompt_model=prompt_model)
+        assert middleware is not None
+        assert len(_cached_prompt_versions) == initial_count
+
+        result = self._invoke_middleware(middleware, {"user_id": "charlie"})
+        assert "charlie" in result
+
+    @pytest.mark.unit
+    def test_make_prompt_returns_none_when_no_prompt(self):
+        """Test backward compatibility: None input returns None."""
+        from dao_ai.prompts import make_prompt
+
+        assert make_prompt(None) is None
+        assert make_prompt("") is None
+        assert make_prompt(None, prompt_model=None) is None
+
+    @pytest.mark.unit
+    def test_get_cached_prompt_versions_returns_snapshot(self):
+        """Test that get_cached_prompt_versions returns a copy."""
+        from dao_ai.prompts import _cached_prompt_versions, get_cached_prompt_versions
+
+        snapshot = get_cached_prompt_versions()
+        assert snapshot == _cached_prompt_versions
+        assert snapshot is not _cached_prompt_versions

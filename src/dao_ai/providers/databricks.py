@@ -598,21 +598,117 @@ class DatabricksProvider(ServiceProvider):
                     permission_level=PermissionLevel[entitlement],
                 )
 
-        # Register production monitoring scorers if trace_location.monitoring is configured
-        if config.app.trace_location and config.app.trace_location.monitoring:
-            from dao_ai.evaluation import register_monitoring_scorers
+        # Link experiment to UC trace location if configured
+        if config.app.trace_location:
+            from mlflow.entities import UCSchemaLocation
+            from mlflow.tracing.enablement import set_experiment_trace_location
 
             experiment: Experiment = self.get_or_create_experiment(config)
+            loc = config.app.trace_location
 
-            registered_scorers = register_monitoring_scorers(
-                monitoring_config=config.app.trace_location.monitoring,
+            set_experiment_trace_location(
+                location=UCSchemaLocation(
+                    catalog_name=loc.catalog_name,
+                    schema_name=loc.schema_name,
+                ),
                 experiment_id=experiment.experiment_id,
-                sql_warehouse_id=config.app.trace_location.warehouse_id,
+                sql_warehouse_id=loc.warehouse_id,
+            )
+            logger.info(
+                "Linked experiment to UC trace location for Model Serving",
+                catalog=loc.catalog_name,
+                schema=loc.schema_name,
+            )
+
+            self.grant_otel_table_permissions(config)
+
+        # Register production monitoring scorers if configured
+        if config.app.monitoring:
+            from dao_ai.evaluation import register_monitoring_scorers
+
+            if not config.app.trace_location:
+                experiment = self.get_or_create_experiment(config)
+
+            sql_warehouse_id: str | None = (
+                config.app.trace_location.warehouse_id
+                if config.app.trace_location
+                else None
+            )
+            registered_scorers = register_monitoring_scorers(
+                monitoring_config=config.app.monitoring,
+                experiment_id=experiment.experiment_id,
+                sql_warehouse_id=sql_warehouse_id,
             )
             logger.info(
                 "Production monitoring scorers registered for Model Serving",
                 scorer_count=len(registered_scorers),
             )
+
+    def grant_otel_table_permissions(self, config: AppConfig) -> None:
+        """Grant explicit MODIFY and SELECT on OTEL trace tables.
+
+        Per Databricks docs, ALL_PRIVILEGES is not sufficient for OTEL trace
+        table access. The ingestion path requires explicit MODIFY and SELECT
+        grants on each table.
+        """
+        if not config.app.trace_location:
+            return
+
+        loc = config.app.trace_location
+        schema_prefix: str = f"{loc.catalog_name}.{loc.schema_name}"
+
+        # Determine grantee: service principal application ID or current user
+        grantee: str | None = None
+        if config.app.service_principal and config.app.service_principal.client_id:
+            from dao_ai.config import value_of
+
+            grantee = value_of(config.app.service_principal.client_id)
+
+        if not grantee:
+            logger.debug("No service principal configured, skipping OTEL table grants")
+            return
+
+        from dao_ai.config import TraceLocationModel
+
+        for suffix in TraceLocationModel.OTEL_TABLE_SUFFIXES:
+            table_name: str = f"{schema_prefix}.{suffix}"
+            for privilege in ("MODIFY", "SELECT"):
+                try:
+                    self.w.grants.update(
+                        full_name=table_name,
+                        securable_type="TABLE",
+                        changes=[
+                            {
+                                "add": [{"privilege": privilege}],
+                                "principal": grantee,
+                            }
+                        ],
+                    )
+                except Exception as e:
+                    error_msg: str = str(e)
+                    if (
+                        "already has" in error_msg.lower()
+                        or "ALREADY_EXISTS" in error_msg
+                    ):
+                        logger.trace(
+                            "Grant already exists",
+                            table=table_name,
+                            privilege=privilege,
+                        )
+                    else:
+                        logger.warning(
+                            "Could not grant privilege on OTEL table",
+                            table=table_name,
+                            privilege=privilege,
+                            grantee=grantee,
+                            error=error_msg,
+                        )
+
+        logger.info(
+            "Granted MODIFY and SELECT on OTEL trace tables",
+            grantee=grantee,
+            table_count=len(TraceLocationModel.OTEL_TABLE_SUFFIXES),
+        )
 
     def deploy_apps_agent(self, config: AppConfig) -> None:
         """
@@ -692,14 +788,21 @@ class DatabricksProvider(ServiceProvider):
                 schema=loc.schema_name,
             )
 
-        # Register production monitoring scorers if trace_location.monitoring is configured
-        if config.app.trace_location and config.app.trace_location.monitoring:
+            self.grant_otel_table_permissions(config)
+
+        # Register production monitoring scorers if configured
+        if config.app.monitoring:
             from dao_ai.evaluation import register_monitoring_scorers
 
+            sql_warehouse_id: str | None = (
+                config.app.trace_location.warehouse_id
+                if config.app.trace_location
+                else None
+            )
             registered_scorers = register_monitoring_scorers(
-                monitoring_config=config.app.trace_location.monitoring,
+                monitoring_config=config.app.monitoring,
                 experiment_id=experiment.experiment_id,
-                sql_warehouse_id=config.app.trace_location.warehouse_id,
+                sql_warehouse_id=sql_warehouse_id,
             )
             logger.info(
                 "Production monitoring scorers registered for app",
@@ -926,9 +1029,6 @@ class DatabricksProvider(ServiceProvider):
         return path
 
     def create_dataset(self, dataset: DatasetModel) -> None:
-        current_dir: Path = "file:///" / Path.cwd().relative_to("/")
-
-        # Get or create Spark session
         spark: SparkSession = SparkSession.getActiveSession()
         if spark is None:
             raise RuntimeError(
@@ -991,22 +1091,43 @@ class DatabricksProvider(ServiceProvider):
             else:
                 logger.debug("Writing dataset to table", table=table)
                 if not data_path.is_absolute():
-                    data_path = current_dir / data_path
-                logger.trace("Data path resolved", path=data_path.as_posix())
-                if format == "excel":
-                    pdf = pd.read_excel(data_path.as_posix())
-                    df = spark.createDataFrame(pdf, schema=dataset.table_schema)
+                    data_path = Path.cwd() / data_path
+                data_path = data_path.resolve()
+                logger.trace("Data path resolved", path=str(data_path))
+
+                pandas_readers: dict[str, Callable[..., pd.DataFrame]] = {
+                    "parquet": lambda p, **kw: pd.read_parquet(p, **kw),
+                    "csv": lambda p, **kw: pd.read_csv(p, **kw),
+                    "json": lambda p, **kw: pd.read_json(p, **kw),
+                    "excel": lambda p, **kw: pd.read_excel(p, **kw),
+                }
+
+                reader: Callable[..., pd.DataFrame] | None = pandas_readers.get(format)
+                if reader is not None:
+                    pdf: pd.DataFrame = reader(str(data_path), **read_options)
+                    schema = dataset.table_schema
+                    if ddl:
+                        target_schema = spark.table(table).schema
+                        schema = target_schema
+                    df = spark.createDataFrame(pdf, schema=schema)
                 else:
                     df = (
                         spark.read.format(format)
                         .options(**read_options)
                         .load(
-                            data_path.as_posix(),
+                            str(data_path),
                             schema=dataset.table_schema,
                         )
                     )
 
-                df.write.mode("overwrite").saveAsTable(table)
+                if ddl:
+                    target_cols: list[str] = [
+                        f.name for f in spark.table(table).schema.fields
+                    ]
+                    df = df.select(*target_cols)
+                    df.write.insertInto(table, overwrite=True)
+                else:
+                    df.write.mode("overwrite").saveAsTable(table)
 
     def create_vector_store(self, vector_store: VectorStoreModel) -> None:
         """

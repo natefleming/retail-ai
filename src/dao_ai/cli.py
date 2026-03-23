@@ -397,7 +397,7 @@ Manage production monitoring scorers for the deployed agent.
 Scorers continuously evaluate production traces for quality,
 safety, and guideline compliance.
 
-Requires app.trace_location.monitoring to be configured in the YAML config.
+Requires app.monitoring to be configured in the YAML config.
         """,
         epilog="""
 Examples:
@@ -877,10 +877,8 @@ def handle_monitor_command(options: Namespace) -> None:
     try:
         config: AppConfig = AppConfig.from_file(options.config)
 
-        if not config.app or not config.app.trace_location:
-            logger.error(
-                "app.trace_location must be configured in the YAML for monitoring"
-            )
+        if not config.app or not config.app.monitoring:
+            logger.error("app.monitoring must be configured in the YAML for monitoring")
             sys.exit(1)
 
         provider = DatabricksProvider()
@@ -892,18 +890,17 @@ def handle_monitor_command(options: Namespace) -> None:
 
         match options.action:
             case "enable":
-                if not config.app.trace_location.monitoring:
-                    logger.error(
-                        "app.trace_location.monitoring must be configured in the YAML to enable monitoring"
-                    )
-                    sys.exit(1)
-
                 from dao_ai.evaluation import register_monitoring_scorers
 
+                sql_warehouse_id: str | None = (
+                    config.app.trace_location.warehouse_id
+                    if config.app.trace_location
+                    else None
+                )
                 registered = register_monitoring_scorers(
-                    monitoring_config=config.app.trace_location.monitoring,
+                    monitoring_config=config.app.monitoring,
                     experiment_id=experiment.experiment_id,
-                    sql_warehouse_id=config.app.trace_location.warehouse_id,
+                    sql_warehouse_id=sql_warehouse_id,
                 )
                 print(
                     f"Enabled monitoring: {len(registered)} scorers registered and started"
@@ -1306,7 +1303,7 @@ def run_databricks_command(
     app_config: AppConfig = AppConfig.from_file(config_path) if config_path else None
     normalized_name: str = normalize_name(app_config.app.name) if app_config else None
 
-    # Auto-detect cloud provider if not specified (used for node_type selection)
+    # Auto-detect cloud provider if not specified (used for target selection)
     if not cloud:
         cloud = detect_cloud_provider(profile)
         if cloud:
