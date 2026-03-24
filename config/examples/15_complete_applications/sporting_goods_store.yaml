@@ -119,8 +119,7 @@ resources:
   # ---------------------------------------------------------------------------
   warehouses:
     shared_warehouse: &shared_warehouse
-      name: "Shared Endpoint Warehouse"
-      warehouse_id: "e9b34f7a2e4b0561"
+      name: "Shared Endpoint"
       on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
@@ -128,14 +127,14 @@ resources:
   # ---------------------------------------------------------------------------
   genie_rooms:
     merchandising_analytics_room: &merchandising_analytics_room
-      name: "Merchandising Analytics"
+      name: "Merchandising Analytics - Sporting Goods"
       description: "Genie room for merchandising analytics including assortment planning, demand forecasting, purchase order tracking, category performance, and seasonal trend analysis"
-      space_id: 01f124c2646f1ed4846cae3f8b36df02
+     # space_id: 01f124c2646f1ed4846cae3f8b36df02
 
     sales_pricing_room: &sales_pricing_room
-      name: "Sales and Pricing Analytics"
+      name: "Sales and Pricing Analytics - Sporting Goods"
       description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
-      space_id: 01f124c2690f1dcb93a15057c2a74339
+    #  space_id: 01f124c2690f1dcb93a15057c2a74339
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS

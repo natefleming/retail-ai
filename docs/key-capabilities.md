@@ -147,15 +147,17 @@ resources:
       on_behalf_of_user: true      # Inherits caller's model access
   
   # Warehouses - execute SQL as the calling user
+  # Provide warehouse_id directly, or just name to resolve the ID automatically
   warehouses:
     analytics: &analytics_warehouse
-      warehouse_id: abc123def456
+      warehouse_id: abc123def456   # or omit and use name instead
       on_behalf_of_user: true      # Queries run with user's data permissions
   
   # Genie - natural language queries with user's context
+  # Provide space_id directly, or just name to resolve the ID automatically
   genie_rooms:
     sales_genie: &sales_genie
-      space_id: xyz789
+      space_id: xyz789             # or omit and use name instead
       on_behalf_of_user: true      # Genie uses caller's data access
 ```
 

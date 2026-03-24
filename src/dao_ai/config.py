@@ -36,9 +36,9 @@ from databricks.sdk.credentials_provider import (
 from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.apps import App
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
-from databricks.sdk.service.dashboards import GenieSpace
+from databricks.sdk.service.dashboards import GenieListSpacesResponse, GenieSpace
 from databricks.sdk.service.database import DatabaseInstance
-from databricks.sdk.service.sql import GetWarehouseResponse
+from databricks.sdk.service.sql import EndpointInfo, GetWarehouseResponse
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -111,12 +111,19 @@ class HasFullName(ABC):
 
 
 class EnvironmentVariableModel(BaseModel, HasValue):
+    """A variable resolved from an environment variable at runtime."""
+
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
     )
-    env: str
-    default_value: Optional[Any] = None
+    env: str = Field(
+        description="Environment variable name to read at runtime.",
+    )
+    default_value: Optional[Any] = Field(
+        default=None,
+        description="Fallback value used when the environment variable is not set.",
+    )
 
     def as_value(self) -> Any:
         logger.debug(f"Fetching environment variable: {self.env}")
@@ -134,13 +141,22 @@ class EnvironmentVariableModel(BaseModel, HasValue):
 
 
 class SecretVariableModel(BaseModel, HasValue):
+    """A variable resolved from a Databricks secret scope at runtime."""
+
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
     )
-    scope: str
-    secret: str
-    default_value: Optional[Any] = None
+    scope: str = Field(
+        description="Databricks secret scope name.",
+    )
+    secret: str = Field(
+        description="Secret key within the scope.",
+    )
+    default_value: Optional[Any] = Field(
+        default=None,
+        description="Fallback value used when the secret cannot be retrieved.",
+    )
 
     def as_value(self) -> Any:
         logger.debug(f"Fetching secret: {self.scope}/{self.secret}")
@@ -155,12 +171,16 @@ class SecretVariableModel(BaseModel, HasValue):
 
 
 class PrimitiveVariableModel(BaseModel, HasValue):
+    """A variable holding a literal primitive value (string, int, float, or bool)."""
+
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
     )
 
-    value: Union[str, int, float, bool]
+    value: Union[str, int, float, bool] = Field(
+        description="Literal value (string, integer, float, or boolean).",
+    )
 
     def as_value(self) -> Any:
         return self.value
@@ -177,11 +197,16 @@ class PrimitiveVariableModel(BaseModel, HasValue):
 
 
 class CompositeVariableModel(BaseModel, HasValue):
+    """A variable that tries multiple sources in order, returning the first non-None value."""
+
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
     )
-    default_value: Optional[Any] = None
+    default_value: Optional[Any] = Field(
+        default=None,
+        description="Fallback value used when all options resolve to None.",
+    )
     options: list[
         EnvironmentVariableModel
         | SecretVariableModel
@@ -190,7 +215,10 @@ class CompositeVariableModel(BaseModel, HasValue):
         | int
         | float
         | bool
-    ] = Field(default_factory=list)
+    ] = Field(
+        default_factory=list,
+        description="Ordered list of variable sources tried until one returns a non-None value.",
+    )
 
     def as_value(self) -> Any:
         logger.debug("Evaluating composite variable...")
@@ -215,12 +243,18 @@ AnyVariable: TypeAlias = (
 
 
 class ServicePrincipalModel(BaseModel):
+    """Databricks service principal credentials for OAuth M2M authentication."""
+
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
     )
-    client_id: AnyVariable
-    client_secret: AnyVariable
+    client_id: AnyVariable = Field(
+        description="OAuth application (client) ID for the service principal.",
+    )
+    client_secret: AnyVariable = Field(
+        description="OAuth client secret for the service principal.",
+    )
 
 
 class IsDatabricksResource(ABC, BaseModel):
@@ -260,12 +294,30 @@ class IsDatabricksResource(ABC, BaseModel):
 
     model_config = ConfigDict(use_enum_values=True)
 
-    on_behalf_of_user: Optional[bool] = False
-    service_principal: Optional[ServicePrincipalModel] = None
-    client_id: Optional[AnyVariable] = None
-    client_secret: Optional[AnyVariable] = None
-    workspace_host: Optional[AnyVariable] = None
-    pat: Optional[AnyVariable] = None
+    on_behalf_of_user: Optional[bool] = Field(
+        default=False,
+        description="Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
+    )
+    service_principal: Optional[ServicePrincipalModel] = Field(
+        default=None,
+        description="Service principal for OAuth M2M authentication. Expands to client_id and client_secret.",
+    )
+    client_id: Optional[AnyVariable] = Field(
+        default=None,
+        description="OAuth client ID for service principal authentication.",
+    )
+    client_secret: Optional[AnyVariable] = Field(
+        default=None,
+        description="OAuth client secret for service principal authentication.",
+    )
+    workspace_host: Optional[AnyVariable] = Field(
+        default=None,
+        description="Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
+    )
+    pat: Optional[AnyVariable] = Field(
+        default=None,
+        description="Personal access token for PAT-based authentication.",
+    )
 
     @abstractmethod
     def as_resources(self) -> Sequence[DatabricksResource]: ...
@@ -441,6 +493,8 @@ class DeploymentTarget(str, Enum):
 
 
 class Privilege(str, Enum):
+    """Unity Catalog privilege types for granting access to resources."""
+
     ALL_PRIVILEGES = "ALL_PRIVILEGES"
     USE_CATALOG = "USE_CATALOG"
     USE_SCHEMA = "USE_SCHEMA"
@@ -465,9 +519,16 @@ class Privilege(str, Enum):
 
 
 class PermissionModel(BaseModel):
+    """A grant of Unity Catalog privileges to one or more principals."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    principals: list[ServicePrincipalModel | str] = Field(default_factory=list)
-    privileges: list[Privilege]
+    principals: list[ServicePrincipalModel | str] = Field(
+        default_factory=list,
+        description="Users, groups, or service principals receiving the privileges.",
+    )
+    privileges: list[Privilege] = Field(
+        description="Unity Catalog privileges to grant (e.g., SELECT, EXECUTE, USE_SCHEMA).",
+    )
 
     @model_validator(mode="after")
     def resolve_principals(self) -> Self:
@@ -483,10 +544,19 @@ class PermissionModel(BaseModel):
 
 
 class SchemaModel(BaseModel, HasFullName):
+    """Unity Catalog schema reference (catalog + schema) used to qualify tables, functions, and prompts."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    catalog_name: AnyVariable
-    schema_name: AnyVariable
-    permissions: Optional[list[PermissionModel]] = Field(default_factory=list)
+    catalog_name: AnyVariable = Field(
+        description="Unity Catalog catalog name.",
+    )
+    schema_name: AnyVariable = Field(
+        description="Unity Catalog schema name within the catalog.",
+    )
+    permissions: Optional[list[PermissionModel]] = Field(
+        default_factory=list,
+        description="Permissions to grant on this schema during provisioning.",
+    )
 
     @model_validator(mode="after")
     def resolve_variables(self) -> Self:
@@ -525,8 +595,9 @@ class DatabricksAppModel(IsDatabricksResource, HasFullName):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    """The unique instance name of the Databricks App in the workspace."""
+    name: str = Field(
+        description="The unique instance name of the Databricks App in the workspace.",
+    )
 
     @property
     def url(self) -> str:
@@ -562,9 +633,18 @@ class DatabricksAppModel(IsDatabricksResource, HasFullName):
 
 
 class TableModel(IsDatabricksResource, HasFullName):
+    """Unity Catalog table reference. Provide a fully qualified name or a schema + table name."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: Optional[str] = None
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Schema reference qualifying the table. If omitted, name must be fully qualified.",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Table name (short) or fully qualified name (catalog.schema.table).",
+    )
 
     @model_validator(mode="after")
     def validate_name_or_schema_required(self) -> Self:
@@ -647,12 +727,28 @@ class TableModel(IsDatabricksResource, HasFullName):
 
 
 class LLMModel(IsDatabricksResource):
+    """Configuration for an LLM served via a Databricks Model Serving endpoint."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    description: Optional[str] = None
-    temperature: Optional[float] = 0.1
-    max_tokens: Optional[int] = 8192
-    fallbacks: Optional[list[Union[str, "LLMModel"]]] = Field(default_factory=list)
+    name: str = Field(
+        description="Serving endpoint name (e.g., 'databricks-meta-llama-3-3-70b-instruct').",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description of this model configuration.",
+    )
+    temperature: Optional[float] = Field(
+        default=0.1,
+        description="Sampling temperature controlling output randomness (0.0 = deterministic, 1.0 = creative).",
+    )
+    max_tokens: Optional[int] = Field(
+        default=8192,
+        description="Maximum number of tokens in the model response.",
+    )
+    fallbacks: Optional[list[Union[str, "LLMModel"]]] = Field(
+        default_factory=list,
+        description="Ordered list of fallback model names or LLMModel configs tried on primary model failure.",
+    )
     use_responses_api: Optional[bool] = Field(
         default=False,
         description="Use Responses API for ResponsesAgent endpoints",
@@ -718,14 +814,23 @@ class LLMModel(IsDatabricksResource):
 
 
 class VectorSearchEndpointType(str, Enum):
+    """Vector search endpoint compute profile."""
+
     STANDARD = "STANDARD"
     OPTIMIZED_STORAGE = "OPTIMIZED_STORAGE"
 
 
 class VectorSearchEndpoint(BaseModel):
+    """Vector search endpoint that hosts one or more vector search indexes."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    type: VectorSearchEndpointType = VectorSearchEndpointType.STANDARD
+    name: str = Field(
+        description="Vector search endpoint name in the workspace.",
+    )
+    type: VectorSearchEndpointType = Field(
+        default=VectorSearchEndpointType.STANDARD,
+        description="Endpoint type: STANDARD or OPTIMIZED_STORAGE.",
+    )
 
     @field_serializer("type")
     def serialize_type(self, value: VectorSearchEndpointType) -> str:
@@ -739,8 +844,14 @@ class IndexModel(IsDatabricksResource, HasFullName):
     """Model representing a Databricks Vector Search index."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Schema reference qualifying the index name.",
+    )
+    name: str = Field(
+        description="Index name (short) or fully qualified name (catalog.schema.index).",
+    )
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -779,9 +890,18 @@ class IndexModel(IsDatabricksResource, HasFullName):
 
 
 class FunctionModel(IsDatabricksResource, HasFullName):
+    """Unity Catalog function reference. Provide a fully qualified name or a schema + function name."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: Optional[str] = None
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Schema reference qualifying the function. If omitted, name must be fully qualified.",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Function name (short) or fully qualified name (catalog.schema.function).",
+    )
 
     @model_validator(mode="after")
     def validate_name_or_schema_required(self) -> Self:
@@ -852,10 +972,21 @@ class FunctionModel(IsDatabricksResource, HasFullName):
 
 
 class WarehouseModel(IsDatabricksResource):
+    """SQL warehouse configuration. Provide either a name or warehouse_id."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: Optional[str] = None
-    description: Optional[str] = None
-    warehouse_id: AnyVariable
+    name: Optional[str] = Field(
+        default=None,
+        description="SQL warehouse display name. Resolved to warehouse_id automatically.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description of this warehouse.",
+    )
+    warehouse_id: Optional[AnyVariable] = Field(
+        default=None,
+        description="SQL warehouse ID. If omitted, looked up by name.",
+    )
 
     _warehouse_details: Optional[GetWarehouseResponse] = PrivateAttr(default=None)
 
@@ -865,6 +996,19 @@ class WarehouseModel(IsDatabricksResource):
                 id=value_of(self.warehouse_id)
             )
         return self._warehouse_details
+
+    def _resolve_warehouse_id_by_name(self, name: str) -> str:
+        """Look up a warehouse ID by iterating all warehouses and matching by name."""
+        logger.info(f"Resolving warehouse by name: '{name}'")
+        warehouses: Iterator[EndpointInfo] = self.workspace_client.warehouses.list()
+        for warehouse in warehouses:
+            if warehouse.name == name:
+                logger.info(f"Resolved warehouse '{name}' to id '{warehouse.id}'")
+                return warehouse.id
+        raise ValueError(
+            f"No warehouse found with name '{name}'. "
+            "Verify the name matches an existing SQL warehouse in your workspace."
+        )
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -882,9 +1026,17 @@ class WarehouseModel(IsDatabricksResource):
         ]
 
     @model_validator(mode="after")
-    def update_warehouse_id(self) -> Self:
-        self.warehouse_id = value_of(self.warehouse_id)
-        return self
+    def resolve_warehouse_by_name(self) -> Self:
+        """Resolve warehouse_id from name when only name is provided."""
+        if self.warehouse_id:
+            self.warehouse_id = value_of(self.warehouse_id)
+            return self
+        if self.name:
+            self.warehouse_id = self._resolve_warehouse_id_by_name(self.name)
+            return self
+        raise ValueError(
+            "Either 'warehouse_id' or 'name' must be provided for WarehouseModel."
+        )
 
     @model_validator(mode="after")
     def populate_name(self) -> Self:
@@ -900,10 +1052,21 @@ class WarehouseModel(IsDatabricksResource):
 
 
 class GenieRoomModel(IsDatabricksResource):
+    """Databricks Genie space configuration for natural-language SQL exploration."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: Optional[str] = None
-    description: Optional[str] = None
-    space_id: AnyVariable
+    name: Optional[str] = Field(
+        default=None,
+        description="Display name for the Genie room. Auto-populated from the space if omitted.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Description of the Genie room. Auto-populated from the space if omitted.",
+    )
+    space_id: Optional[AnyVariable] = Field(
+        default=None,
+        description="Databricks Genie space ID. If omitted, looked up by name.",
+    )
 
     _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
 
@@ -927,6 +1090,29 @@ class GenieRoomModel(IsDatabricksResource):
                 )
                 return None
         return self._space_details
+
+    def _resolve_space_id_by_name(self, name: str) -> str:
+        """Look up a Genie space ID by iterating all spaces and matching by title."""
+        logger.info(f"Resolving Genie space by name: '{name}'")
+        page_token: Optional[str] = None
+        while True:
+            response: GenieListSpacesResponse = self.workspace_client.genie.list_spaces(
+                page_token=page_token
+            )
+            if response.spaces:
+                for space in response.spaces:
+                    if space.title == name:
+                        logger.info(
+                            f"Resolved Genie space '{name}' to space_id '{space.space_id}'"
+                        )
+                        return space.space_id
+            if not response.next_page_token:
+                break
+            page_token = response.next_page_token
+        raise ValueError(
+            f"No Genie space found with title '{name}'. "
+            "Verify the name matches an existing Genie space in your workspace."
+        )
 
     def _parse_serialized_space(self) -> dict[str, Any]:
         """Parse the serialized_space JSON string and return the parsed data."""
@@ -1109,9 +1295,17 @@ class GenieRoomModel(IsDatabricksResource):
         ]
 
     @model_validator(mode="after")
-    def update_space_id(self) -> Self:
-        self.space_id = value_of(self.space_id)
-        return self
+    def resolve_space_by_name(self) -> Self:
+        """Resolve space_id from name when only name is provided."""
+        if self.space_id:
+            self.space_id = value_of(self.space_id)
+            return self
+        if self.name:
+            self.space_id = self._resolve_space_id_by_name(self.name)
+            return self
+        raise ValueError(
+            "Either 'space_id' or 'name' must be provided for GenieRoomModel."
+        )
 
     @model_validator(mode="after")
     def populate_name_and_description(self) -> Self:
@@ -1129,9 +1323,17 @@ class GenieRoomModel(IsDatabricksResource):
 
 
 class VolumeModel(IsDatabricksResource, HasFullName):
+    """Unity Catalog volume reference for file storage."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Schema reference qualifying the volume name.",
+    )
+    name: str = Field(
+        description="Volume name (short) or fully qualified name (catalog.schema.volume).",
+    )
 
     @property
     def full_name(self) -> str:
@@ -1155,9 +1357,17 @@ class VolumeModel(IsDatabricksResource, HasFullName):
 
 
 class VolumePathModel(BaseModel, HasFullName):
+    """A path within a Unity Catalog volume (e.g., /Volumes/catalog/schema/volume/subdir)."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    volume: Optional[VolumeModel] = None
-    path: Optional[str] = None
+    volume: Optional[VolumeModel] = Field(
+        default=None,
+        description="Volume reference. Combined with path to form the full /Volumes/... path.",
+    )
+    path: Optional[str] = Field(
+        default=None,
+        description="Relative path within the volume, or an absolute /Volumes/... path if volume is omitted.",
+    )
 
     @model_validator(mode="after")
     def validate_path_or_volume(self) -> Self:
@@ -1222,21 +1432,48 @@ class VectorStoreModel(IsDatabricksResource):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    # RUNTIME: Only index is truly required for querying existing indexes
-    index: Optional[IndexModel] = None
+    index: Optional[IndexModel] = Field(
+        default=None,
+        description="Vector search index to query. Required for runtime; auto-generated in provisioning mode.",
+    )
 
-    # PROVISIONING ONLY: Required when creating a new index
-    source_table: Optional[TableModel] = None
-    embedding_source_column: Optional[str] = None
-    embedding_model: Optional[LLMModel] = None
-    endpoint: Optional[VectorSearchEndpoint] = None
+    source_table: Optional[TableModel] = Field(
+        default=None,
+        description="Source table for provisioning a new vector search index. Omit when using an existing index.",
+    )
+    embedding_source_column: Optional[str] = Field(
+        default=None,
+        description="Column in the source table containing text to embed. Required in provisioning mode.",
+    )
+    embedding_model: Optional[LLMModel] = Field(
+        default=None,
+        description="Embedding model endpoint. Defaults to 'databricks-gte-large-en' in provisioning mode.",
+    )
+    endpoint: Optional[VectorSearchEndpoint] = Field(
+        default=None,
+        description="Vector search endpoint hosting the index. Auto-detected in provisioning mode.",
+    )
 
-    # OPTIONAL: For both modes
-    source_path: Optional[VolumePathModel] = None
-    checkpoint_path: Optional[VolumePathModel] = None
-    primary_key: Optional[str] = None
-    columns: Optional[list[str]] = Field(default_factory=list)
-    doc_uri: Optional[str] = None
+    source_path: Optional[VolumePathModel] = Field(
+        default=None,
+        description="Volume path for source data files (alternative to source_table).",
+    )
+    checkpoint_path: Optional[VolumePathModel] = Field(
+        default=None,
+        description="Volume path for sync checkpoint storage.",
+    )
+    primary_key: Optional[str] = Field(
+        default=None,
+        description="Primary key column in the source table. Auto-detected if omitted.",
+    )
+    columns: Optional[list[str]] = Field(
+        default_factory=list,
+        description="Columns to include in search results.",
+    )
+    doc_uri: Optional[str] = Field(
+        default=None,
+        description="Column name containing document URIs for provenance tracking.",
+    )
 
     @model_validator(mode="after")
     def validate_configuration_mode(self) -> Self:
@@ -1397,8 +1634,12 @@ class VectorStoreModel(IsDatabricksResource):
 
 
 class ConnectionModel(IsDatabricksResource, HasFullName):
+    """Unity Catalog connection for external data sources and MCP servers."""
+
     model_config = ConfigDict()
-    name: str
+    name: str = Field(
+        description="Unity Catalog connection name.",
+    )
 
     @property
     def full_name(self) -> str:
@@ -1482,20 +1723,58 @@ class DatabaseModel(IsDatabricksResource):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: Optional[str] = None
-    instance_name: Optional[str] = None
-    description: Optional[str] = None
-    host: Optional[AnyVariable] = None
-    database: Optional[AnyVariable] = "databricks_postgres"
-    port: Optional[AnyVariable] = 5432
-    connection_kwargs: Optional[dict[str, Any]] = Field(default_factory=dict)
-    max_pool_size: Optional[int] = 10
-    timeout_seconds: Optional[int] = 10
-    capacity: Optional[Literal["CU_1", "CU_2"]] = "CU_2"
-    node_count: Optional[int] = None
-    # Database-specific auth (user identity for DB connection)
-    user: Optional[AnyVariable] = None
-    password: Optional[AnyVariable] = None
+    name: Optional[str] = Field(
+        default=None,
+        description="Logical database name. For Lakebase, defaults to instance_name.",
+    )
+    instance_name: Optional[str] = Field(
+        default=None,
+        description="Databricks Lakebase instance name. Mutually exclusive with host (standard PostgreSQL).",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description of this database connection.",
+    )
+    host: Optional[AnyVariable] = Field(
+        default=None,
+        description="PostgreSQL host address. For Lakebase, auto-fetched from the instance API.",
+    )
+    database: Optional[AnyVariable] = Field(
+        default="databricks_postgres",
+        description="Database name within the PostgreSQL server.",
+    )
+    port: Optional[AnyVariable] = Field(
+        default=5432,
+        description="PostgreSQL port number.",
+    )
+    connection_kwargs: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Extra keyword arguments passed to the connection pool.",
+    )
+    max_pool_size: Optional[int] = Field(
+        default=10,
+        description="Maximum number of connections in the pool.",
+    )
+    timeout_seconds: Optional[int] = Field(
+        default=10,
+        description="Connection timeout in seconds.",
+    )
+    capacity: Optional[Literal["CU_1", "CU_2"]] = Field(
+        default="CU_2",
+        description="Lakebase compute capacity tier (CU_1 or CU_2).",
+    )
+    node_count: Optional[int] = Field(
+        default=None,
+        description="Number of Lakebase compute nodes for horizontal scaling.",
+    )
+    user: Optional[AnyVariable] = Field(
+        default=None,
+        description="Database username. For Lakebase, auto-detected from workspace identity.",
+    )
+    password: Optional[AnyVariable] = Field(
+        default=None,
+        description="Database password. For Lakebase, a token is generated automatically.",
+    )
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -1734,12 +2013,20 @@ class DatabaseModel(IsDatabricksResource):
 
 
 class GenieLRUCacheParametersModel(BaseModel):
+    """Configuration for a simple LRU (Least Recently Used) Genie response cache."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    capacity: int = 1000
-    time_to_live_seconds: int | None = (
-        60 * 60 * 24
-    )  # 1 day default, None or negative = never expires
-    warehouse: WarehouseModel
+    capacity: int = Field(
+        default=1000,
+        description="Maximum number of cached responses before LRU eviction.",
+    )
+    time_to_live_seconds: int | None = Field(
+        default=60 * 60 * 24,
+        description="Cache entry TTL in seconds. None or negative = entries never expire. Default: 1 day.",
+    )
+    warehouse: WarehouseModel = Field(
+        description="SQL warehouse used by the Genie API for query execution.",
+    )
 
 
 class GenieContextAwareCacheParametersBase(BaseModel):
@@ -1752,23 +2039,44 @@ class GenieContextAwareCacheParametersBase(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    time_to_live_seconds: int | None = (
-        60 * 60 * 24
-    )  # 1 day default, None or negative = never expires
-    similarity_threshold: float = 0.85  # Minimum similarity for question matching (L2 distance converted to 0-1 scale)
-    context_similarity_threshold: float = 0.80  # Minimum similarity for context matching (L2 distance converted to 0-1 scale)
-    question_weight: Optional[float] = (
-        0.6  # Weight for question similarity in combined score (0-1). If not provided, computed as 1 - context_weight
+    time_to_live_seconds: int | None = Field(
+        default=60 * 60 * 24,
+        description="Cache entry TTL in seconds. None or negative = entries never expire. Default: 1 day.",
     )
-    context_weight: Optional[float] = (
-        None  # Weight for context similarity in combined score (0-1). If not provided, computed as 1 - question_weight
+    similarity_threshold: float = Field(
+        default=0.85,
+        description="Minimum similarity score (0-1) for question matching.",
     )
-    embedding_model: str | LLMModel = "databricks-gte-large-en"
-    embedding_dims: int | None = None  # Auto-detected if None
-    warehouse: WarehouseModel
-    context_window_size: int = 4  # Number of previous turns to include for context
-    max_context_tokens: int = (
-        2000  # Maximum context length to prevent extremely long embeddings
+    context_similarity_threshold: float = Field(
+        default=0.80,
+        description="Minimum similarity score (0-1) for conversation context matching.",
+    )
+    question_weight: Optional[float] = Field(
+        default=0.6,
+        description="Weight for question similarity in the combined score (0-1). Computed as 1 - context_weight if omitted.",
+    )
+    context_weight: Optional[float] = Field(
+        default=None,
+        description="Weight for context similarity in the combined score (0-1). Computed as 1 - question_weight if omitted.",
+    )
+    embedding_model: str | LLMModel = Field(
+        default="databricks-gte-large-en",
+        description="Embedding model endpoint for generating similarity vectors.",
+    )
+    embedding_dims: int | None = Field(
+        default=None,
+        description="Embedding vector dimensions. Auto-detected from the model if not set.",
+    )
+    warehouse: WarehouseModel = Field(
+        description="SQL warehouse used by the Genie API for query execution.",
+    )
+    context_window_size: int = Field(
+        default=4,
+        description="Number of previous conversation turns included as context for matching.",
+    )
+    max_context_tokens: int = Field(
+        default=2000,
+        description="Maximum token length for context to prevent oversized embeddings.",
     )
 
     @model_validator(mode="after")
@@ -1819,29 +2127,40 @@ class GenieContextAwareCacheParametersModel(GenieContextAwareCacheParametersBase
     fields for table management and prompt history tracking.
     """
 
-    database: DatabaseModel
-    table_name: str = "genie_context_aware_cache"
-    # Prompt history configuration
-    # Prompt history is always enabled - it stores all user prompts to maintain
-    # conversation context for accurate context-aware matching even when cache hits occur
-    prompt_history_table: str = "genie_prompt_history"  # Table name for prompt history
-    max_prompt_history_length: int = 50  # Maximum prompts to keep per conversation
-    use_genie_api_for_history: bool = (
-        False  # Fallback to Genie API if local history empty
+    database: DatabaseModel = Field(
+        description="PostgreSQL or Lakebase database for persistent cache storage.",
     )
-    prompt_history_ttl_seconds: int | None = (
-        None  # TTL for prompts (None = use cache TTL)
+    table_name: str = Field(
+        default="genie_context_aware_cache",
+        description="Table name for storing cache entries in the database.",
     )
-    # IVFFlat index tuning for pg_vector similarity search.
-    # These parameters control recall vs speed trade-offs at scale.
-    ivfflat_lists: int | None = (
-        None  # Number of IVF lists. None = auto-computed as max(100, sqrt(row_count))
+    prompt_history_table: str = Field(
+        default="genie_prompt_history",
+        description="Table name for storing prompt history used in context-aware matching.",
     )
-    ivfflat_probes: int | None = (
-        None  # Number of lists to probe per query. None = auto-computed as max(10, sqrt(lists)).
+    max_prompt_history_length: int = Field(
+        default=50,
+        description="Maximum number of prompts to keep per conversation.",
     )
-    ivfflat_candidates: int = (
-        20  # Number of top-K candidates to retrieve before Python-side reranking.
+    use_genie_api_for_history: bool = Field(
+        default=False,
+        description="Fall back to the Genie API when local prompt history is empty.",
+    )
+    prompt_history_ttl_seconds: int | None = Field(
+        default=None,
+        description="TTL for prompt history entries in seconds. None = use the cache TTL.",
+    )
+    ivfflat_lists: int | None = Field(
+        default=None,
+        description="Number of IVFFlat index lists for pg_vector. None = auto-computed as max(100, sqrt(row_count)).",
+    )
+    ivfflat_probes: int | None = Field(
+        default=None,
+        description="Number of IVFFlat lists to probe per query. None = auto-computed as max(10, sqrt(lists)).",
+    )
+    ivfflat_candidates: int = Field(
+        default=20,
+        description="Number of top-K candidates retrieved before Python-side reranking.",
     )
 
     @field_validator("table_name", "prompt_history_table")
@@ -1895,20 +2214,36 @@ class GenieInMemoryContextAwareCacheParametersModel(
     with PostgreSQL backend instead.
     """
 
-    time_to_live_seconds: int | None = (
-        60 * 60 * 24 * 7
-    )  # 1 week default (604800 seconds), None or negative = never expires
-    capacity: int | None = (
-        10000  # Maximum cache entries. ~200MB for 10000 entries (1024-dim embeddings). LRU eviction when full. None = unlimited (not recommended for production).
+    time_to_live_seconds: int | None = Field(
+        default=60 * 60 * 24 * 7,
+        description="Cache entry TTL in seconds. Default: 1 week (604800s). None or negative = never expires.",
     )
-    context_window_size: int = 3  # Number of previous turns to include for context
+    capacity: int | None = Field(
+        default=10000,
+        description="Maximum cache entries (~200MB at 10000 with 1024-dim embeddings). LRU eviction when full. None = unlimited.",
+    )
+    context_window_size: int = Field(
+        default=3,
+        description="Number of previous conversation turns included as context for matching.",
+    )
 
 
 class SearchParametersModel(BaseModel):
+    """Tuning parameters for vector similarity search queries."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    num_results: Optional[int] = 10
-    filters: Optional[dict[str, Any]] = Field(default_factory=dict)
-    query_type: Optional[str] = "ANN"
+    num_results: Optional[int] = Field(
+        default=10,
+        description="Number of results to return per search query.",
+    )
+    filters: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Static metadata filters applied to every search (key-value pairs).",
+    )
+    query_type: Optional[str] = Field(
+        default="ANN",
+        description="Search algorithm type: 'ANN' (approximate nearest neighbor) or 'HYBRID'.",
+    )
 
 
 class InstructionAwareRerankModel(BaseModel):
@@ -2358,11 +2693,19 @@ class RankingResult(BaseModel):
 
 
 class RetrieverModel(BaseModel):
+    """Retriever combining a vector store with search parameters, reranking, and instructed retrieval."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    vector_store: VectorStoreModel
-    columns: Optional[list[str]] = Field(default_factory=list)
+    vector_store: VectorStoreModel = Field(
+        description="Vector search index configuration used for similarity search.",
+    )
+    columns: Optional[list[str]] = Field(
+        default_factory=list,
+        description="Columns to return from search results. Defaults to the vector store's columns.",
+    )
     search_parameters: SearchParametersModel = Field(
-        default_factory=SearchParametersModel
+        default_factory=SearchParametersModel,
+        description="Search tuning: number of results, query type, and metadata filters.",
     )
     rerank: Optional[RerankParametersModel | bool] = Field(
         default=None,
@@ -2444,12 +2787,19 @@ class HumanInTheLoopModel(BaseModel):
 
 
 class BaseFunctionModel(ABC, BaseModel):
+    """Base class for all function/tool implementations (Python, factory, inline, MCP, UC)."""
+
     model_config = ConfigDict(
         use_enum_values=True,
         discriminator="type",
     )
-    type: FunctionType
-    human_in_the_loop: Optional[HumanInTheLoopModel] = None
+    type: FunctionType = Field(
+        description="Function type discriminator (python, factory, inline, mcp, unity_catalog).",
+    )
+    human_in_the_loop: Optional[HumanInTheLoopModel] = Field(
+        default=None,
+        description="Human-in-the-loop approval configuration for this tool.",
+    )
 
     @abstractmethod
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]: ...
@@ -2463,9 +2813,16 @@ class BaseFunctionModel(ABC, BaseModel):
 
 
 class PythonFunctionModel(BaseFunctionModel, HasFullName):
+    """A tool implemented as a Python function, imported by fully qualified name."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: Literal[FunctionType.PYTHON] = FunctionType.PYTHON
-    name: str
+    type: Literal[FunctionType.PYTHON] = Field(
+        default=FunctionType.PYTHON,
+        description="Function type discriminator. Must be 'python'.",
+    )
+    name: str = Field(
+        description="Fully qualified Python function name (e.g., 'my_package.tools.my_tool').",
+    )
 
     @property
     def full_name(self) -> str:
@@ -2478,10 +2835,20 @@ class PythonFunctionModel(BaseFunctionModel, HasFullName):
 
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
+    """A tool created by calling a factory function with optional arguments."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: Literal[FunctionType.FACTORY] = FunctionType.FACTORY
-    name: str
-    args: Optional[dict[str, Any]] = Field(default_factory=dict)
+    type: Literal[FunctionType.FACTORY] = Field(
+        default=FunctionType.FACTORY,
+        description="Function type discriminator. Must be 'factory'.",
+    )
+    name: str = Field(
+        description="Fully qualified factory function name that returns a tool or list of tools.",
+    )
+    args: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Keyword arguments passed to the factory function.",
+    )
 
     @property
     def full_name(self) -> str:
@@ -2531,7 +2898,10 @@ class InlineFunctionModel(BaseFunctionModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: Literal[FunctionType.INLINE] = FunctionType.INLINE
+    type: Literal[FunctionType.INLINE] = Field(
+        default=FunctionType.INLINE,
+        description="Function type discriminator. Must be 'inline'.",
+    )
     code: str = Field(
         ...,
         description="Python code defining a tool function decorated with @tool",
@@ -2579,6 +2949,8 @@ class InlineFunctionModel(BaseFunctionModel):
 
 
 class TransportType(str, Enum):
+    """MCP transport protocol."""
+
     STREAMABLE_HTTP = "streamable_http"
     STDIO = "stdio"
 
@@ -2594,19 +2966,54 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: Literal[FunctionType.MCP] = FunctionType.MCP
-    transport: TransportType = TransportType.STREAMABLE_HTTP
-    command: Optional[str] = "python"
-    url: Optional[AnyVariable] = None
-    headers: dict[str, AnyVariable] = Field(default_factory=dict)
-    args: list[str] = Field(default_factory=list)
-    # MCP-specific fields
-    app: Optional[DatabricksAppModel] = None
-    connection: Optional[ConnectionModel] = None
-    functions: Optional[SchemaModel] = None
-    genie_room: Optional[GenieRoomModel] = None
-    sql: Optional[bool] = None
-    vector_search: Optional[VectorStoreModel] = None
+    type: Literal[FunctionType.MCP] = Field(
+        default=FunctionType.MCP,
+        description="Function type discriminator. Must be 'mcp'.",
+    )
+    transport: TransportType = Field(
+        default=TransportType.STREAMABLE_HTTP,
+        description="MCP transport protocol: streamable_http (default) or stdio.",
+    )
+    command: Optional[str] = Field(
+        default="python",
+        description="Executable command for STDIO transport (e.g., 'python', 'node').",
+    )
+    url: Optional[AnyVariable] = Field(
+        default=None,
+        description="Direct MCP server URL. Mutually exclusive with app, connection, genie_room, sql, vector_search, functions.",
+    )
+    headers: dict[str, AnyVariable] = Field(
+        default_factory=dict,
+        description="HTTP headers sent with MCP requests (e.g., authorization tokens).",
+    )
+    args: list[str] = Field(
+        default_factory=list,
+        description="Command-line arguments for STDIO transport.",
+    )
+    app: Optional[DatabricksAppModel] = Field(
+        default=None,
+        description="Databricks App whose /mcp endpoint serves MCP tools.",
+    )
+    connection: Optional[ConnectionModel] = Field(
+        default=None,
+        description="Unity Catalog connection for external MCP servers.",
+    )
+    functions: Optional[SchemaModel] = Field(
+        default=None,
+        description="Unity Catalog schema whose functions are exposed as MCP tools.",
+    )
+    genie_room: Optional[GenieRoomModel] = Field(
+        default=None,
+        description="Genie space exposed as an MCP server for natural-language SQL.",
+    )
+    sql: Optional[bool] = Field(
+        default=None,
+        description="Enable the Databricks SQL MCP server (serverless, workspace-level).",
+    )
+    vector_search: Optional[VectorStoreModel] = Field(
+        default=None,
+        description="Vector search index exposed as an MCP server.",
+    )
     # Tool filtering
     include_tools: Optional[list[str]] = Field(
         default=None,
@@ -2883,10 +3290,20 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
 
 
 class UnityCatalogFunctionModel(BaseFunctionModel):
+    """A tool backed by a Unity Catalog SQL function."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: Literal[FunctionType.UNITY_CATALOG] = FunctionType.UNITY_CATALOG
-    resource: FunctionModel
-    partial_args: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
+    type: Literal[FunctionType.UNITY_CATALOG] = Field(
+        default=FunctionType.UNITY_CATALOG,
+        description="Function type discriminator. Must be 'unity_catalog'.",
+    )
+    resource: FunctionModel = Field(
+        description="Unity Catalog function reference.",
+    )
+    partial_args: Optional[dict[str, AnyVariable]] = Field(
+        default_factory=dict,
+        description="Pre-filled arguments automatically injected when the function is called.",
+    )
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_uc_tools
@@ -2907,20 +3324,49 @@ AnyTool: TypeAlias = (
 
 
 class ToolModel(BaseModel):
+    """A named tool binding an identifier to a function implementation."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    function: AnyTool
+    name: str = Field(
+        description="Display name for the tool shown to the LLM during function calling.",
+    )
+    function: AnyTool = Field(
+        description="Function implementation: Python, factory, inline, Unity Catalog, MCP, or a reference string.",
+    )
 
 
 class PromptModel(BaseModel, HasFullName):
+    """A prompt backed by the MLflow Prompt Registry with versioning and alias support."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
-    description: Optional[str] = None
-    default_template: Optional[str] = None
-    alias: Optional[str] = None
-    version: Optional[int] = None
-    tags: Optional[dict[str, Any]] = Field(default_factory=dict)
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Unity Catalog schema qualifying the prompt name (catalog.schema.name).",
+    )
+    name: str = Field(
+        description="Prompt name in the MLflow Prompt Registry.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description stored with the prompt in the registry.",
+    )
+    default_template: Optional[str] = Field(
+        default=None,
+        description="Inline template text registered when auto_register is true and no registry entry exists.",
+    )
+    alias: Optional[str] = Field(
+        default=None,
+        description="Prompt alias to load (e.g., 'latest', 'champion'). Mutually exclusive with version.",
+    )
+    version: Optional[int] = Field(
+        default=None,
+        description="Specific prompt version number to load. Mutually exclusive with alias.",
+    )
+    tags: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Key-value tags attached to the prompt version in the registry.",
+    )
     auto_register: bool = Field(
         default=False,
         description="Whether to automatically register the default_template to the prompt registry. "
@@ -3047,16 +3493,45 @@ class GuardrailModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    model: Optional[str | LLMModel] = None
-    prompt: Optional[str | PromptModel] = None
-    scorer: Optional[str] = None
-    scorer_args: dict[str, Any] = Field(default_factory=dict)
-    hub: Optional[str] = None
-    num_retries: Optional[int] = 3
-    fail_on_error: Optional[bool] = False
-    max_context_length: Optional[int] = 8000
-    apply_to: Literal["input", "output", "both"] = "both"
+    name: str = Field(
+        description="Name identifying this guardrail.",
+    )
+    model: Optional[str | LLMModel] = Field(
+        default=None,
+        description="LLM model for the judge. Required for custom judge mode.",
+    )
+    prompt: Optional[str | PromptModel] = Field(
+        default=None,
+        description="Evaluation instructions using {{ inputs }} and {{ outputs }} template variables. Required for custom judge mode.",
+    )
+    scorer: Optional[str] = Field(
+        default=None,
+        description="Fully qualified name of an MLflow Scorer class (e.g., 'mlflow.genai.scorers.guardrails.DetectPII'). Required for scorer-based mode.",
+    )
+    scorer_args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments forwarded to the scorer constructor (e.g., {'pii_entities': ['CREDIT_CARD', 'SSN']}).",
+    )
+    hub: Optional[str] = Field(
+        default=None,
+        description="Guardrails-AI hub URI for auto-installing the scorer validator (e.g., 'hub://guardrails/toxic_language'). Requires scorer.",
+    )
+    num_retries: Optional[int] = Field(
+        default=3,
+        description="Maximum retry attempts when the evaluation call fails.",
+    )
+    fail_on_error: Optional[bool] = Field(
+        default=False,
+        description="If true, block responses when the evaluation itself errors. If false, let responses through on errors.",
+    )
+    max_context_length: Optional[int] = Field(
+        default=8000,
+        description="Maximum character length for extracted tool context passed to the guardrail.",
+    )
+    apply_to: Literal["input", "output", "both"] = Field(
+        default="both",
+        description="When to run: 'input' (before model), 'output' (after model), or 'both'.",
+    )
 
     @model_validator(mode="after")
     def validate_guardrail_type(self) -> Self:
@@ -3152,9 +3627,16 @@ class StorageType(str, Enum):
 
 
 class CheckpointerModel(BaseModel):
+    """Conversation state checkpointer for persisting LangGraph thread state across turns."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    database: Optional[DatabaseModel] = None
+    name: str = Field(
+        description="Unique name for this checkpointer instance.",
+    )
+    database: Optional[DatabaseModel] = Field(
+        default=None,
+        description="Database for persistent storage. If omitted, uses in-memory storage (lost on restart).",
+    )
 
     @property
     def storage_type(self) -> StorageType:
@@ -3172,12 +3654,28 @@ class CheckpointerModel(BaseModel):
 
 
 class StoreModel(BaseModel):
+    """Long-term memory store for cross-thread memories (user profiles, preferences, episodes)."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    embedding_model: Optional[LLMModel] = None
-    dims: Optional[int] = None
-    database: Optional[DatabaseModel] = None
-    namespace: Optional[str] = None
+    name: str = Field(
+        description="Unique name for this store instance.",
+    )
+    embedding_model: Optional[LLMModel] = Field(
+        default=None,
+        description="Embedding model for semantic memory search. Required for vector-based recall.",
+    )
+    dims: Optional[int] = Field(
+        default=None,
+        description="Embedding dimensions. Auto-detected from the model if not set.",
+    )
+    database: Optional[DatabaseModel] = Field(
+        default=None,
+        description="Database for persistent storage. If omitted, uses in-memory storage (lost on restart).",
+    )
+    namespace: Optional[str] = Field(
+        default=None,
+        description="Namespace prefix for memory keys, enabling multi-tenant isolation.",
+    )
 
     @property
     def storage_type(self) -> StorageType:
@@ -3253,10 +3751,21 @@ class MemoryExtractionModel(BaseModel):
 
 
 class MemoryModel(BaseModel):
+    """Memory configuration combining state checkpointing, long-term memory storage, and automatic extraction."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    checkpointer: Optional[CheckpointerModel] = None
-    store: Optional[StoreModel] = None
-    extraction: Optional[MemoryExtractionModel] = None
+    checkpointer: Optional[CheckpointerModel] = Field(
+        default=None,
+        description="Checkpointer for persisting conversation thread state across turns.",
+    )
+    store: Optional[StoreModel] = Field(
+        default=None,
+        description="Long-term memory store for cross-thread knowledge (profiles, preferences, episodes).",
+    )
+    extraction: Optional[MemoryExtractionModel] = Field(
+        default=None,
+        description="Automatic memory extraction and injection settings.",
+    )
 
 
 FunctionHook: TypeAlias = PythonFunctionModel | FactoryFunctionModel | str
@@ -3415,18 +3924,40 @@ class AgentModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    description: Optional[str] = None
-    model: LLMModel
-    tools: list[ToolModel] = Field(default_factory=list)
-    guardrails: list[GuardrailModel] = Field(default_factory=list)
-    prompt: Optional[str | PromptModel] = None
-    handoff_prompt: Optional[str] = None
+    name: str = Field(
+        description="Unique agent name used for identification in multi-agent orchestration.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description shown when the LLM selects handoff targets.",
+    )
+    model: LLMModel = Field(
+        description="LLM model configuration (serving endpoint name, temperature, etc.).",
+    )
+    tools: list[ToolModel] = Field(
+        default_factory=list,
+        description="Tools available to this agent during reasoning.",
+    )
+    guardrails: list[GuardrailModel] = Field(
+        default_factory=list,
+        description="Guardrails that evaluate this agent's inputs and/or outputs.",
+    )
+    prompt: Optional[str | PromptModel] = Field(
+        default=None,
+        description="System prompt as an inline string or a PromptModel referencing the MLflow Prompt Registry.",
+    )
+    handoff_prompt: Optional[str] = Field(
+        default=None,
+        description="Additional instructions appended to the prompt during multi-agent handoff.",
+    )
     middleware: list[MiddlewareModel] = Field(
         default_factory=list,
-        description="List of middleware to apply to this agent",
+        description="List of middleware to apply to this agent.",
     )
-    response_format: Optional[ResponseFormatModel | type | str] = None
+    response_format: Optional[ResponseFormatModel | type | str] = Field(
+        default=None,
+        description="Structured output format (Pydantic type, JSON schema, or ResponseFormatModel).",
+    )
 
     @model_validator(mode="after")
     def validate_response_format(self) -> Self:
@@ -3475,13 +4006,23 @@ class AgentModel(BaseModel):
 
 
 class SupervisorModel(BaseModel):
+    """Configuration for the supervisor agent in a supervisor orchestration pattern."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: LLMModel
-    tools: list[ToolModel] = Field(default_factory=list)
-    prompt: Optional[str | PromptModel] = None
+    model: LLMModel = Field(
+        description="LLM model used by the supervisor to route tasks to sub-agents.",
+    )
+    tools: list[ToolModel] = Field(
+        default_factory=list,
+        description="Tools available directly to the supervisor agent.",
+    )
+    prompt: Optional[str | PromptModel] = Field(
+        default=None,
+        description="System prompt for the supervisor agent.",
+    )
     middleware: list[MiddlewareModel] = Field(
         default_factory=list,
-        description="List of middleware to apply to the supervisor",
+        description="List of middleware to apply to the supervisor.",
     )
 
 
@@ -3526,8 +4067,13 @@ class HandoffRouteModel(BaseModel):
 
 
 class SwarmModel(BaseModel):
+    """Configuration for swarm-style multi-agent orchestration with agent-to-agent handoffs."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    default_agent: Optional[AgentModel | str] = None
+    default_agent: Optional[AgentModel | str] = Field(
+        default=None,
+        description="The initial agent that receives user messages. Defaults to the first agent.",
+    )
     middleware: list[MiddlewareModel] = Field(
         default_factory=list,
         description="List of middleware to apply to all agents in the swarm",
@@ -3546,10 +4092,21 @@ class SwarmModel(BaseModel):
 
 
 class OrchestrationModel(BaseModel):
+    """Multi-agent orchestration configuration. Exactly one of supervisor or swarm must be specified."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    supervisor: Optional[SupervisorModel] = None
-    swarm: Optional[SwarmModel | Literal[True]] = None
-    memory: Optional[MemoryModel] = None
+    supervisor: Optional[SupervisorModel] = Field(
+        default=None,
+        description="Supervisor pattern: a central LLM routes tasks to sub-agents.",
+    )
+    swarm: Optional[SwarmModel | Literal[True]] = Field(
+        default=None,
+        description="Swarm pattern: agents hand off to each other via tool calls. Set to true for defaults.",
+    )
+    memory: Optional[MemoryModel] = Field(
+        default=None,
+        description="Memory configuration scoped to the orchestration layer (checkpointer, store, extraction).",
+    )
 
     @model_validator(mode="after")
     def validate_and_normalize(self) -> Self:
@@ -3567,9 +4124,17 @@ class OrchestrationModel(BaseModel):
 
 
 class RegisteredModelModel(BaseModel, HasFullName):
+    """Unity Catalog registered model where the agent artifact is logged."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Schema reference qualifying the model name.",
+    )
+    name: str = Field(
+        description="Registered model name (short) or fully qualified (catalog.schema.model).",
+    )
 
     @property
     def full_name(self) -> str:
@@ -3579,6 +4144,8 @@ class RegisteredModelModel(BaseModel, HasFullName):
 
 
 class Entitlement(str, Enum):
+    """Access control entitlements for serving endpoints and apps."""
+
     CAN_MANAGE = "CAN_MANAGE"
     CAN_QUERY = "CAN_QUERY"
     CAN_VIEW = "CAN_VIEW"
@@ -3587,9 +4154,16 @@ class Entitlement(str, Enum):
 
 
 class AppPermissionModel(BaseModel):
+    """Access control entry granting entitlements to principals on a serving endpoint."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    principals: list[ServicePrincipalModel | str] = Field(default_factory=list)
-    entitlements: list[Entitlement]
+    principals: list[ServicePrincipalModel | str] = Field(
+        default_factory=list,
+        description="Users, groups, or service principals receiving the entitlements.",
+    )
+    entitlements: list[Entitlement] = Field(
+        description="Entitlements to grant (CAN_MANAGE, CAN_QUERY, CAN_VIEW, CAN_REVIEW).",
+    )
 
     @model_validator(mode="after")
     def resolve_principals(self) -> Self:
@@ -3605,6 +4179,8 @@ class AppPermissionModel(BaseModel):
 
 
 class LogLevel(str, Enum):
+    """Logging verbosity level."""
+
     TRACE = "TRACE"
     DEBUG = "DEBUG"
     INFO = "INFO"
@@ -3613,28 +4189,49 @@ class LogLevel(str, Enum):
 
 
 class WorkloadSize(str, Enum):
+    """Model Serving workload size controlling compute resources."""
+
     SMALL = "Small"
     MEDIUM = "Medium"
     LARGE = "Large"
 
 
 class MessageRole(str, Enum):
+    """Role of a message in a chat conversation."""
+
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
 
 
 class Message(BaseModel):
+    """A single chat message with a role and content."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    role: MessageRole
-    content: str
+    role: MessageRole = Field(
+        description="Message role: user, assistant, or system.",
+    )
+    content: str = Field(
+        description="Message text content.",
+    )
 
 
 class ChatPayload(BaseModel):
+    """Chat request payload containing messages and optional custom inputs."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    input: Optional[list[Message]] = None
-    messages: Optional[list[Message]] = None
-    custom_inputs: Optional[dict] = Field(default_factory=dict)
+    input: Optional[list[Message]] = Field(
+        default=None,
+        description="Chat messages (alias for 'messages'). Provide either input or messages.",
+    )
+    messages: Optional[list[Message]] = Field(
+        default=None,
+        description="Chat messages (alias for 'input'). Provide either messages or input.",
+    )
+    custom_inputs: Optional[dict] = Field(
+        default_factory=dict,
+        description="Extra inputs forwarded to the agent (e.g., configurable with thread_id).",
+    )
 
     @model_validator(mode="after")
     def validate_mutual_exclusion_and_alias(self) -> "ChatPayload":
@@ -3716,11 +4313,13 @@ class ChatHistoryModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: LLMModel
+    model: LLMModel = Field(
+        description="LLM used to generate conversation summaries.",
+    )
     max_tokens: int = Field(
         default=2048,
         gt=0,
-        description="Maximum tokens to keep after summarization",
+        description="Maximum tokens to keep after summarization.",
     )
     max_tokens_before_summary: Optional[int] = Field(
         default=None,
@@ -3735,9 +4334,15 @@ class ChatHistoryModel(BaseModel):
 
 
 class GuidelineModel(BaseModel):
+    """A named set of evaluation guidelines used by the Guidelines scorer."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    guidelines: list[str]
+    name: str = Field(
+        description="Unique name for this guideline set.",
+    )
+    guidelines: list[str] = Field(
+        description="List of guideline statements the scorer evaluates responses against.",
+    )
 
 
 class MonitoringModel(BaseModel):
@@ -3806,7 +4411,10 @@ class TraceLocationModel(BaseModel):
     model_config = ConfigDict(
         use_enum_values=True, extra="forbid", populate_by_name=True
     )
-    schema_model: SchemaModel = Field(alias="schema")
+    schema_model: SchemaModel = Field(
+        alias="schema",
+        description="Unity Catalog schema (catalog.schema) where OTEL trace tables are stored.",
+    )
     warehouse: Union[WarehouseModel, str] = Field(
         description="SQL warehouse for creating views and querying traces. "
         "Accepts a WarehouseModel reference or a warehouse ID string.",
@@ -3855,33 +4463,92 @@ class TraceLocationModel(BaseModel):
 
 
 class AppModel(BaseModel):
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    service_principal: Optional[ServicePrincipalModel] = None
-    description: Optional[str] = None
-    log_level: Optional[LogLevel] = "WARNING"
-    registered_model: RegisteredModelModel
-    endpoint_name: Optional[str] = None
-    tags: Optional[dict[str, Any]] = Field(default_factory=dict)
-    scale_to_zero: Optional[bool] = True
-    environment_vars: Optional[dict[str, AnyVariable]] = Field(default_factory=dict)
-    budget_policy_id: Optional[str] = None
-    workload_size: Optional[WorkloadSize] = "Small"
-    permissions: Optional[list[AppPermissionModel]] = Field(default_factory=list)
-    agents: list[AgentModel] = Field(default_factory=list)
+    """Application-level configuration for deployment, model registration, and orchestration."""
 
-    orchestration: Optional[OrchestrationModel] = None
-    alias: Optional[str] = None
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str = Field(
+        description="Unique application name used for the serving endpoint and model registration.",
+    )
+    service_principal: Optional[ServicePrincipalModel] = Field(
+        default=None,
+        description="Service principal credentials injected as environment variables during Model Serving deployment.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description of the application.",
+    )
+    log_level: Optional[LogLevel] = Field(
+        default="WARNING",
+        description="Logging verbosity level (TRACE, DEBUG, INFO, WARNING, ERROR).",
+    )
+    registered_model: RegisteredModelModel = Field(
+        description="Unity Catalog registered model where the agent is logged.",
+    )
+    endpoint_name: Optional[str] = Field(
+        default=None,
+        description="Model Serving endpoint name. Defaults to the app name if not specified.",
+    )
+    tags: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Key-value tags attached to the registered model version.",
+    )
+    scale_to_zero: Optional[bool] = Field(
+        default=True,
+        description="Whether the serving endpoint scales to zero when idle.",
+    )
+    environment_vars: Optional[dict[str, AnyVariable]] = Field(
+        default_factory=dict,
+        description="Environment variables set on the serving endpoint or Databricks App.",
+    )
+    budget_policy_id: Optional[str] = Field(
+        default=None,
+        description="Databricks budget policy ID for cost attribution.",
+    )
+    workload_size: Optional[WorkloadSize] = Field(
+        default="Small",
+        description="Model Serving workload size (Small, Medium, Large).",
+    )
+    permissions: Optional[list[AppPermissionModel]] = Field(
+        default_factory=list,
+        description="Access control list for the serving endpoint.",
+    )
+    agents: list[AgentModel] = Field(
+        default_factory=list,
+        description="List of agent definitions. At least one is required.",
+    )
+
+    orchestration: Optional[OrchestrationModel] = Field(
+        default=None,
+        description="Multi-agent orchestration mode (supervisor or swarm). Auto-configured if omitted.",
+    )
+    alias: Optional[str] = Field(
+        default=None,
+        description="Model version alias (e.g., 'champion') assigned after registration.",
+    )
     initialization_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
-        default_factory=list
+        default_factory=list,
+        description="Functions called once at startup after config is loaded.",
     )
     shutdown_hooks: Optional[FunctionHook | list[FunctionHook]] = Field(
-        default_factory=list
+        default_factory=list,
+        description="Functions called on graceful shutdown.",
     )
-    input_example: Optional[ChatPayload] = None
-    chat_history: Optional[ChatHistoryModel] = None
-    code_paths: list[str] = Field(default_factory=list)
-    pip_requirements: list[str] = Field(default_factory=list)
+    input_example: Optional[ChatPayload] = Field(
+        default=None,
+        description="Example chat payload logged alongside the model for documentation and testing.",
+    )
+    chat_history: Optional[ChatHistoryModel] = Field(
+        default=None,
+        description="Chat history summarization settings to manage long conversations.",
+    )
+    code_paths: list[str] = Field(
+        default_factory=list,
+        description="Additional Python file paths bundled with the model artifact.",
+    )
+    pip_requirements: list[str] = Field(
+        default_factory=list,
+        description="Extra pip packages installed in the serving environment.",
+    )
     python_version: Optional[str] = Field(
         default="3.12",
         description="Python version for Model Serving deployment. Defaults to 3.12 "
@@ -4049,19 +4716,35 @@ class EvaluationModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     model: LLMModel = Field(
-        ..., description="LLM model used as the judge for LLM-based evaluation scorers"
+        ..., description="LLM model used as the judge for LLM-based evaluation scorers."
     )
-    table: TableModel
-    num_evals: int
+    table: TableModel = Field(
+        description="Unity Catalog table where evaluation results are stored.",
+    )
+    num_evals: int = Field(
+        description="Number of evaluation samples to generate from the agent.",
+    )
     replace: bool = Field(
         default=False,
         description="If True, drop and recreate the evaluation table and dataset. "
         "If False, reuse existing resources.",
     )
-    agent_description: Optional[str] = None
-    question_guidelines: Optional[str] = None
-    custom_inputs: dict[str, Any] = Field(default_factory=dict)
-    guidelines: list[GuidelineModel] = Field(default_factory=list)
+    agent_description: Optional[str] = Field(
+        default=None,
+        description="Description of the agent used when generating synthetic evaluation questions.",
+    )
+    question_guidelines: Optional[str] = Field(
+        default=None,
+        description="Guidelines for the synthetic question generator (e.g., topic focus, difficulty).",
+    )
+    custom_inputs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra key-value inputs forwarded to the agent during evaluation runs.",
+    )
+    guidelines: list[GuidelineModel] = Field(
+        default_factory=list,
+        description="Guideline configurations for Guidelines scorers used during evaluation.",
+    )
 
     @property
     def judge_model_endpoint(self) -> str:
@@ -4075,9 +4758,17 @@ class EvaluationModel(BaseModel):
 
 
 class EvaluationDatasetExpectationsModel(BaseModel):
+    """Expected outcomes for an evaluation entry. Provide one of expected_response or expected_facts."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    expected_response: Optional[str] = None
-    expected_facts: Optional[list[str]] = None
+    expected_response: Optional[str] = Field(
+        default=None,
+        description="Full expected response text for correctness scoring.",
+    )
+    expected_facts: Optional[list[str]] = Field(
+        default=None,
+        description="List of facts the response should contain for fact-based correctness scoring.",
+    )
 
     @model_validator(mode="after")
     def validate_mutually_exclusive(self) -> Self:
@@ -4087,9 +4778,15 @@ class EvaluationDatasetExpectationsModel(BaseModel):
 
 
 class EvaluationDatasetEntryModel(BaseModel):
+    """A single evaluation example pairing input messages with expected outcomes."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    inputs: ChatPayload
-    expectations: EvaluationDatasetExpectationsModel
+    inputs: ChatPayload = Field(
+        description="Chat messages to send to the agent as evaluation input.",
+    )
+    expectations: EvaluationDatasetExpectationsModel = Field(
+        description="Expected response or facts for scoring the agent's output.",
+    )
 
     def to_mlflow_format(self) -> dict[str, Any]:
         """
@@ -4113,11 +4810,25 @@ class EvaluationDatasetEntryModel(BaseModel):
 
 
 class EvaluationDatasetModel(BaseModel, HasFullName):
+    """An MLflow evaluation dataset containing input/expectation pairs."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
-    name: str
-    data: Optional[list[EvaluationDatasetEntryModel]] = Field(default_factory=list)
-    overwrite: Optional[bool] = False
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Schema reference qualifying the dataset name.",
+    )
+    name: str = Field(
+        description="Dataset name in the MLflow registry.",
+    )
+    data: Optional[list[EvaluationDatasetEntryModel]] = Field(
+        default_factory=list,
+        description="Inline evaluation entries merged into the dataset on creation.",
+    )
+    overwrite: Optional[bool] = Field(
+        default=False,
+        description="If true, delete and recreate the dataset. If false, reuse the existing one.",
+    )
 
     def as_dataset(self) -> EvaluationDataset:
         evaluation_dataset: EvaluationDataset
@@ -4172,12 +4883,27 @@ class PromptOptimizationModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    prompt: Optional[PromptModel] = None
-    agent: AgentModel
-    dataset: EvaluationDatasetModel  # Training dataset with examples
-    reflection_model: Optional[LLMModel | str] = None
-    num_candidates: Optional[int] = 50
+    name: str = Field(
+        description="Unique name for this optimization run.",
+    )
+    prompt: Optional[PromptModel] = Field(
+        default=None,
+        description="Prompt to optimize. If omitted, uses the agent's prompt.",
+    )
+    agent: AgentModel = Field(
+        description="Agent whose prompt is being optimized.",
+    )
+    dataset: EvaluationDatasetModel = Field(
+        description="Training dataset with input/expectation pairs for fitness evaluation.",
+    )
+    reflection_model: Optional[LLMModel | str] = Field(
+        default=None,
+        description="LLM used for reflective mutation during GEPA optimization.",
+    )
+    num_candidates: Optional[int] = Field(
+        default=50,
+        description="Number of candidate prompts to evaluate per optimization run.",
+    )
 
     def optimize(self, w: WorkspaceClient | None = None) -> PromptModel:
         """
@@ -4233,13 +4959,22 @@ class PromptOptimizationModel(BaseModel):
 
 
 class OptimizationsModel(BaseModel):
+    """Container for prompt and cache threshold optimization configurations."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    training_datasets: dict[str, EvaluationDatasetModel] = Field(default_factory=dict)
+    training_datasets: dict[str, EvaluationDatasetModel] = Field(
+        default_factory=dict,
+        description="Named training datasets used by optimization runs.",
+    )
     prompt_optimizations: dict[str, PromptOptimizationModel] = Field(
-        default_factory=dict
+        default_factory=dict,
+        description="Named prompt optimization configurations using GEPA.",
     )
     cache_threshold_optimizations: dict[str, "ContextAwareCacheOptimizationModel"] = (
-        Field(default_factory=dict)
+        Field(
+            default_factory=dict,
+            description="Named cache threshold optimization configurations using Bayesian optimization.",
+        )
     )
 
     def optimize(self, w: WorkspaceClient | None = None) -> dict[str, Any]:
@@ -4297,15 +5032,38 @@ class ContextAwareCacheEvalEntryModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    question: str
-    question_embedding: list[float]
-    context: str = ""
-    context_embedding: list[float] = Field(default_factory=list)
-    cached_question: str
-    cached_question_embedding: list[float]
-    cached_context: str = ""
-    cached_context_embedding: list[float] = Field(default_factory=list)
-    expected_match: Optional[bool] = None  # None = use LLM judge
+    question: str = Field(
+        description="Incoming user question to evaluate against the cache.",
+    )
+    question_embedding: list[float] = Field(
+        description="Pre-computed embedding vector for the question.",
+    )
+    context: str = Field(
+        default="",
+        description="Conversation context accompanying the question.",
+    )
+    context_embedding: list[float] = Field(
+        default_factory=list,
+        description="Pre-computed embedding vector for the context.",
+    )
+    cached_question: str = Field(
+        description="Previously cached question to compare against.",
+    )
+    cached_question_embedding: list[float] = Field(
+        description="Pre-computed embedding vector for the cached question.",
+    )
+    cached_context: str = Field(
+        default="",
+        description="Context that was stored with the cached question.",
+    )
+    cached_context_embedding: list[float] = Field(
+        default_factory=list,
+        description="Pre-computed embedding vector for the cached context.",
+    )
+    expected_match: Optional[bool] = Field(
+        default=None,
+        description="Whether the pair should be a cache hit (true) or miss (false). None = use LLM judge.",
+    )
 
 
 class ContextAwareCacheEvalDatasetModel(BaseModel):
@@ -4324,9 +5082,17 @@ class ContextAwareCacheEvalDatasetModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    description: str = ""
-    entries: list[ContextAwareCacheEvalEntryModel] = Field(default_factory=list)
+    name: str = Field(
+        description="Unique name for this evaluation dataset.",
+    )
+    description: str = Field(
+        default="",
+        description="Human-readable description of the evaluation dataset.",
+    )
+    entries: list[ContextAwareCacheEvalEntryModel] = Field(
+        default_factory=list,
+        description="List of question/context pair entries for evaluation.",
+    )
 
     def as_eval_dataset(self) -> "ContextAwareCacheEvalDataset":
         """Convert to internal evaluation dataset format."""
@@ -4376,14 +5142,36 @@ class ContextAwareCacheOptimizationModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str
-    cache_parameters: Optional[GenieContextAwareCacheParametersModel] = None
-    dataset: ContextAwareCacheEvalDatasetModel
-    judge_model: Optional[LLMModel | str] = "databricks-meta-llama-3-3-70b-instruct"
-    n_trials: int = 50
-    metric: Literal["f1", "precision", "recall", "fbeta"] = "f1"
-    beta: float = 1.0  # For fbeta metric
-    seed: Optional[int] = None
+    name: str = Field(
+        description="Unique name for this optimization run (used as the Optuna study name).",
+    )
+    cache_parameters: Optional[GenieContextAwareCacheParametersModel] = Field(
+        default=None,
+        description="Cache configuration whose thresholds serve as the starting point for optimization.",
+    )
+    dataset: ContextAwareCacheEvalDatasetModel = Field(
+        description="Evaluation dataset with question/context pairs and expected match labels.",
+    )
+    judge_model: Optional[LLMModel | str] = Field(
+        default="databricks-meta-llama-3-3-70b-instruct",
+        description="LLM judge for evaluating match quality when expected_match is None.",
+    )
+    n_trials: int = Field(
+        default=50,
+        description="Number of Bayesian optimization trials to run.",
+    )
+    metric: Literal["f1", "precision", "recall", "fbeta"] = Field(
+        default="f1",
+        description="Optimization metric to maximize (f1, precision, recall, or fbeta).",
+    )
+    beta: float = Field(
+        default=1.0,
+        description="Beta parameter for the fbeta metric (higher = favor recall over precision).",
+    )
+    seed: Optional[int] = Field(
+        default=None,
+        description="Random seed for reproducible optimization results.",
+    )
 
     def optimize(
         self, w: WorkspaceClient | None = None
@@ -4439,6 +5227,8 @@ class ContextAwareCacheOptimizationModel(BaseModel):
 
 
 class DatasetFormat(str, Enum):
+    """Supported data file formats for dataset loading."""
+
     CSV = "csv"
     DELTA = "delta"
     JSON = "json"
@@ -4449,14 +5239,37 @@ class DatasetFormat(str, Enum):
 
 
 class DatasetModel(BaseModel):
+    """A dataset definition for provisioning a table with DDL and seed data."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    table: Optional[TableModel] = None
-    ddl: Optional[str | VolumeModel] = None
-    data: Optional[str | VolumePathModel] = None
-    format: Optional[DatasetFormat] = None
-    read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
-    table_schema: Optional[str] = None
-    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
+    table: Optional[TableModel] = Field(
+        default=None,
+        description="Target table where the dataset is materialized.",
+    )
+    ddl: Optional[str | VolumeModel] = Field(
+        default=None,
+        description="SQL DDL statement or Volume reference containing the CREATE TABLE statement.",
+    )
+    data: Optional[str | VolumePathModel] = Field(
+        default=None,
+        description="Seed data as inline SQL INSERT statements or a VolumePath to a data file.",
+    )
+    format: Optional[DatasetFormat] = Field(
+        default=None,
+        description="Data file format when loading from a file (csv, json, parquet, delta, etc.).",
+    )
+    read_options: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Spark read options passed when loading data files (e.g., {'header': 'true'}).",
+    )
+    table_schema: Optional[str] = Field(
+        default=None,
+        description="Explicit Spark schema string for the data file (e.g., 'id INT, name STRING').",
+    )
+    parameters: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Variable substitution parameters for DDL and data templates.",
+    )
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.base import ServiceProvider
@@ -4467,16 +5280,33 @@ class DatasetModel(BaseModel):
 
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
+    """Test configuration for validating a Unity Catalog SQL function after creation."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
+    parameters: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Parameter values to pass when invoking the function for testing.",
+    )
 
 
 class UnityCatalogFunctionSqlModel(BaseModel):
+    """A Unity Catalog SQL function definition with DDL, parameters, and optional test."""
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    function: FunctionModel
-    ddl: str
-    parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
-    test: Optional[UnityCatalogFunctionSqlTestModel] = None
+    function: FunctionModel = Field(
+        description="Unity Catalog function reference (target location).",
+    )
+    ddl: str = Field(
+        description="SQL DDL statement defining the function (CREATE OR REPLACE FUNCTION ...).",
+    )
+    parameters: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Variable substitution parameters for the DDL template.",
+    )
+    test: Optional[UnityCatalogFunctionSqlTestModel] = Field(
+        default=None,
+        description="Optional test to run after creating the function to verify it works.",
+    )
 
     def create(
         self,
@@ -4491,17 +5321,53 @@ class UnityCatalogFunctionSqlModel(BaseModel):
 
 
 class ResourcesModel(BaseModel):
+    """Databricks resource declarations used by agents and tools.
+
+    Each resource type is a named dictionary so entries can be referenced
+    elsewhere in the config via YAML anchors.
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    llms: dict[str, LLMModel] = Field(default_factory=dict)
-    vector_stores: dict[str, VectorStoreModel] = Field(default_factory=dict)
-    genie_rooms: dict[str, GenieRoomModel] = Field(default_factory=dict)
-    tables: dict[str, TableModel] = Field(default_factory=dict)
-    volumes: dict[str, VolumeModel] = Field(default_factory=dict)
-    functions: dict[str, FunctionModel] = Field(default_factory=dict)
-    warehouses: dict[str, WarehouseModel] = Field(default_factory=dict)
-    databases: dict[str, DatabaseModel] = Field(default_factory=dict)
-    connections: dict[str, ConnectionModel] = Field(default_factory=dict)
-    apps: dict[str, DatabricksAppModel] = Field(default_factory=dict)
+    llms: dict[str, LLMModel] = Field(
+        default_factory=dict,
+        description="LLM serving endpoint configurations keyed by name.",
+    )
+    vector_stores: dict[str, VectorStoreModel] = Field(
+        default_factory=dict,
+        description="Vector search index configurations for semantic retrieval.",
+    )
+    genie_rooms: dict[str, GenieRoomModel] = Field(
+        default_factory=dict,
+        description="Databricks Genie space configurations for natural-language SQL.",
+    )
+    tables: dict[str, TableModel] = Field(
+        default_factory=dict,
+        description="Unity Catalog table references.",
+    )
+    volumes: dict[str, VolumeModel] = Field(
+        default_factory=dict,
+        description="Unity Catalog volume references for file storage.",
+    )
+    functions: dict[str, FunctionModel] = Field(
+        default_factory=dict,
+        description="Unity Catalog function references.",
+    )
+    warehouses: dict[str, WarehouseModel] = Field(
+        default_factory=dict,
+        description="SQL warehouse configurations for query execution.",
+    )
+    databases: dict[str, DatabaseModel] = Field(
+        default_factory=dict,
+        description="Database connection configurations (Lakebase or standard PostgreSQL).",
+    )
+    connections: dict[str, ConnectionModel] = Field(
+        default_factory=dict,
+        description="Unity Catalog connection references for MCP and external data sources.",
+    )
+    apps: dict[str, DatabricksAppModel] = Field(
+        default_factory=dict,
+        description="Databricks App references used as MCP endpoints or tool backends.",
+    )
 
     @model_validator(mode="after")
     def update_genie_warehouses(self) -> Self:
@@ -4612,27 +5478,85 @@ class ResourcesModel(BaseModel):
 
 
 class AppConfig(BaseModel):
+    """Top-level configuration for a DAO AI application.
+
+    Defines all resources, agents, tools, and deployment settings
+    needed to build and deploy an AI agent on Databricks.
+    """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    version: Optional[str] = None
-    variables: dict[str, AnyVariable] = Field(default_factory=dict)
-    service_principals: dict[str, ServicePrincipalModel] = Field(default_factory=dict)
-    schemas: dict[str, SchemaModel] = Field(default_factory=dict)
-    resources: Optional[ResourcesModel] = None
-    retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
-    tools: dict[str, ToolModel] = Field(default_factory=dict)
-    guardrails: dict[str, GuardrailModel] = Field(default_factory=dict)
-    middleware: dict[str, MiddlewareModel] = Field(default_factory=dict)
-    memory: Optional[MemoryModel] = None
-    prompts: dict[str, PromptModel] = Field(default_factory=dict)
-    agents: dict[str, AgentModel] = Field(default_factory=dict)
-    app: Optional[AppModel] = None
-    evaluation: Optional[EvaluationModel] = None
-    optimizations: Optional[OptimizationsModel] = None
-    datasets: Optional[list[DatasetModel]] = Field(default_factory=list)
-    unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
-        default_factory=list
+    version: Optional[str] = Field(
+        default=None,
+        description="Configuration schema version for forward compatibility.",
     )
-    providers: Optional[dict[type | str, Any]] = None
+    variables: dict[str, AnyVariable] = Field(
+        default_factory=dict,
+        description="Named variables (env vars, secrets, literals, composites) reusable via YAML anchors.",
+    )
+    service_principals: dict[str, ServicePrincipalModel] = Field(
+        default_factory=dict,
+        description="Named service principals for OAuth M2M authentication with Databricks resources.",
+    )
+    schemas: dict[str, SchemaModel] = Field(
+        default_factory=dict,
+        description="Unity Catalog schema references (catalog + schema) used by tables, functions, and prompts.",
+    )
+    resources: Optional[ResourcesModel] = Field(
+        default=None,
+        description="Databricks resource declarations: LLMs, vector stores, Genie rooms, tables, warehouses, databases, and more.",
+    )
+    retrievers: dict[str, RetrieverModel] = Field(
+        default_factory=dict,
+        description="Named retriever configurations combining a vector store with search parameters and optional reranking.",
+    )
+    tools: dict[str, ToolModel] = Field(
+        default_factory=dict,
+        description="Named tool definitions (Python, factory, inline, Unity Catalog, or MCP) available to agents.",
+    )
+    guardrails: dict[str, GuardrailModel] = Field(
+        default_factory=dict,
+        description="Named guardrail configurations for evaluating agent responses against quality or safety criteria.",
+    )
+    middleware: dict[str, MiddlewareModel] = Field(
+        default_factory=dict,
+        description="Named middleware definitions that can be applied to agents for cross-cutting concerns.",
+    )
+    memory: Optional[MemoryModel] = Field(
+        default=None,
+        description="Global memory configuration (checkpointer, store, extraction) shared across agents.",
+    )
+    prompts: dict[str, PromptModel] = Field(
+        default_factory=dict,
+        description="Named prompt definitions backed by the MLflow Prompt Registry.",
+    )
+    agents: dict[str, AgentModel] = Field(
+        default_factory=dict,
+        description="Named agent definitions combining an LLM model with tools, guardrails, and middleware.",
+    )
+    app: Optional[AppModel] = Field(
+        default=None,
+        description="Application-level settings: deployment target, model registration, permissions, and orchestration.",
+    )
+    evaluation: Optional[EvaluationModel] = Field(
+        default=None,
+        description="Offline evaluation configuration using MLflow GenAI scorers and a judge model.",
+    )
+    optimizations: Optional[OptimizationsModel] = Field(
+        default=None,
+        description="Prompt and cache threshold optimization configurations.",
+    )
+    datasets: Optional[list[DatasetModel]] = Field(
+        default_factory=list,
+        description="Dataset definitions for provisioning tables with DDL and seed data.",
+    )
+    unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
+        default_factory=list,
+        description="Unity Catalog SQL function definitions to create during provisioning.",
+    )
+    providers: Optional[dict[type | str, Any]] = Field(
+        default=None,
+        description="Custom provider overrides for dependency injection (advanced usage).",
+    )
 
     # Private attribute to track the source config file path (set by from_file)
     _source_config_path: str | None = None

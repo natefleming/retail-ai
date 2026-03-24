@@ -1,5 +1,6 @@
 """
-Unit tests for WarehouseModel auto-population of name from warehouse API.
+Unit tests for WarehouseModel auto-population of name from warehouse API
+and name-based warehouse resolution.
 """
 
 from unittest.mock import Mock, patch
@@ -26,6 +27,14 @@ def mock_warehouse_response():
     mock_response.cluster_size = "Medium"
     mock_response.state = Mock(value="RUNNING")
     return mock_response
+
+
+def _make_endpoint_info(name: str, warehouse_id: str) -> Mock:
+    """Create a mock EndpointInfo for warehouses.list() results."""
+    endpoint = Mock()
+    endpoint.name = name
+    endpoint.id = warehouse_id
+    return endpoint
 
 
 @pytest.mark.unit
@@ -160,6 +169,90 @@ class TestWarehouseModelNamePopulation:
             # Description should be preserved, name auto-populated
             assert warehouse.name == "Production Warehouse"
             assert warehouse.description == "My custom description"
+
+
+@pytest.mark.unit
+class TestWarehouseModelNameResolution:
+    """Test suite for resolving warehouse_id from name."""
+
+    def test_resolve_warehouse_by_name(self, mock_workspace_client):
+        """Test that warehouse_id is resolved when only name is provided."""
+        mock_workspace_client.warehouses.list.return_value = iter(
+            [
+                _make_endpoint_info("Staging Warehouse", "staging_id"),
+                _make_endpoint_info("Production Warehouse", "prod_id"),
+                _make_endpoint_info("Dev Warehouse", "dev_id"),
+            ]
+        )
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            warehouse = WarehouseModel(name="Production Warehouse")
+
+            assert warehouse.warehouse_id == "prod_id"
+            assert warehouse.name == "Production Warehouse"
+
+    def test_resolve_warehouse_by_name_first_match(self, mock_workspace_client):
+        """Test that resolution short-circuits on first match."""
+        call_count = 0
+        endpoints = [
+            _make_endpoint_info("Target Warehouse", "target_id"),
+            _make_endpoint_info("Other Warehouse", "other_id"),
+        ]
+
+        def counting_iter():
+            nonlocal call_count
+            for ep in endpoints:
+                call_count += 1
+                yield ep
+
+        mock_workspace_client.warehouses.list.return_value = counting_iter()
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            warehouse = WarehouseModel(name="Target Warehouse")
+
+            assert warehouse.warehouse_id == "target_id"
+            assert call_count == 1
+
+    def test_resolve_warehouse_by_name_not_found(self, mock_workspace_client):
+        """Test that ValueError is raised when no warehouse matches the name."""
+        mock_workspace_client.warehouses.list.return_value = iter(
+            [
+                _make_endpoint_info("Other Warehouse", "other_id"),
+            ]
+        )
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            with pytest.raises(ValueError, match="No warehouse found with name"):
+                WarehouseModel(name="Nonexistent Warehouse")
+
+    def test_resolve_warehouse_by_name_empty_list(self, mock_workspace_client):
+        """Test that ValueError is raised when warehouse list is empty."""
+        mock_workspace_client.warehouses.list.return_value = iter([])
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            with pytest.raises(ValueError, match="No warehouse found with name"):
+                WarehouseModel(name="Any Warehouse")
+
+    def test_neither_name_nor_id_raises_error(self, mock_workspace_client):
+        """Test that ValueError is raised when neither name nor warehouse_id is provided."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            with pytest.raises(
+                ValueError, match="Either 'warehouse_id' or 'name' must be provided"
+            ):
+                WarehouseModel()
+
+    def test_warehouse_id_takes_precedence_over_name_lookup(
+        self, mock_workspace_client, mock_warehouse_response
+    ):
+        """Test that warehouse_id is used directly when both name and id are provided."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
+
+            warehouse = WarehouseModel(name="Custom Label", warehouse_id="abc123")
+
+            assert warehouse.warehouse_id == "abc123"
+            assert warehouse.name == "Custom Label"
+            mock_workspace_client.warehouses.list.assert_not_called()
 
 
 if __name__ == "__main__":

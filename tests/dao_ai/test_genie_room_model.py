@@ -1,8 +1,10 @@
 """
-Integration tests for GenieRoomModel parsing serialized Genie spaces.
+Integration tests for GenieRoomModel parsing serialized Genie spaces
+and name-based space resolution.
 
 This test suite verifies that GenieRoomModel correctly parses serialized_space
-JSON strings from Databricks Genie and extracts TableModel and FunctionModel instances.
+JSON strings from Databricks Genie and extracts TableModel and FunctionModel instances,
+and that space_id can be resolved from a Genie space title.
 """
 
 import json
@@ -11,6 +13,26 @@ from unittest.mock import Mock, patch
 import pytest
 
 from dao_ai.config import FunctionModel, GenieRoomModel, TableModel
+
+
+def _make_genie_space_summary(title: str, space_id: str) -> Mock:
+    """Create a mock GenieSpace for list_spaces() results."""
+    space = Mock()
+    space.title = title
+    space.space_id = space_id
+    space.description = None
+    space.warehouse_id = None
+    return space
+
+
+def _make_list_spaces_response(
+    spaces: list, next_page_token: str | None = None
+) -> Mock:
+    """Create a mock GenieListSpacesResponse."""
+    response = Mock()
+    response.spaces = spaces
+    response.next_page_token = next_page_token
+    return response
 
 
 @pytest.fixture
@@ -939,6 +961,102 @@ class TestGenieRoomModelSerialization:
             assert len(tables) == 2
             table_names = [t.name for t in tables]
             assert "catalog.schema.table2" not in table_names
+
+
+@pytest.mark.unit
+class TestGenieRoomModelNameResolution:
+    """Test suite for resolving space_id from name (title)."""
+
+    def test_resolve_space_by_name(self, mock_workspace_client):
+        """Test that space_id is resolved when only name is provided."""
+        mock_workspace_client.genie.list_spaces.return_value = (
+            _make_list_spaces_response(
+                [
+                    _make_genie_space_summary("Staging Analytics", "staging_id"),
+                    _make_genie_space_summary("Sales Analytics", "sales_id"),
+                    _make_genie_space_summary("Inventory Tracker", "inv_id"),
+                ]
+            )
+        )
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            genie_room = GenieRoomModel(name="Sales Analytics")
+
+            assert genie_room.space_id == "sales_id"
+            assert genie_room.name == "Sales Analytics"
+
+    def test_resolve_space_by_name_pagination(self, mock_workspace_client):
+        """Test that resolution works across multiple pages."""
+        page1 = _make_list_spaces_response(
+            [_make_genie_space_summary("Page 1 Space", "p1_id")],
+            next_page_token="page2_token",
+        )
+        page2 = _make_list_spaces_response(
+            [_make_genie_space_summary("Target Space", "target_id")],
+            next_page_token=None,
+        )
+        mock_workspace_client.genie.list_spaces.side_effect = [page1, page2]
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            genie_room = GenieRoomModel(name="Target Space")
+
+            assert genie_room.space_id == "target_id"
+            assert mock_workspace_client.genie.list_spaces.call_count == 2
+
+    def test_resolve_space_by_name_short_circuits(self, mock_workspace_client):
+        """Test that resolution short-circuits on first match without fetching more pages."""
+        page1 = _make_list_spaces_response(
+            [_make_genie_space_summary("Target Space", "target_id")],
+            next_page_token="page2_token",
+        )
+        mock_workspace_client.genie.list_spaces.return_value = page1
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            genie_room = GenieRoomModel(name="Target Space")
+
+            assert genie_room.space_id == "target_id"
+            assert mock_workspace_client.genie.list_spaces.call_count == 1
+
+    def test_resolve_space_by_name_not_found(self, mock_workspace_client):
+        """Test that ValueError is raised when no space matches the name."""
+        mock_workspace_client.genie.list_spaces.return_value = (
+            _make_list_spaces_response(
+                [
+                    _make_genie_space_summary("Other Space", "other_id"),
+                ]
+            )
+        )
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            with pytest.raises(ValueError, match="No Genie space found with title"):
+                GenieRoomModel(name="Nonexistent Space")
+
+    def test_resolve_space_by_name_empty_list(self, mock_workspace_client):
+        """Test that ValueError is raised when space list is empty."""
+        mock_workspace_client.genie.list_spaces.return_value = (
+            _make_list_spaces_response([])
+        )
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            with pytest.raises(ValueError, match="No Genie space found with title"):
+                GenieRoomModel(name="Any Space")
+
+    def test_neither_name_nor_space_id_raises_error(self, mock_workspace_client):
+        """Test that ValueError is raised when neither name nor space_id is provided."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            with pytest.raises(
+                ValueError, match="Either 'space_id' or 'name' must be provided"
+            ):
+                GenieRoomModel()
+
+    def test_space_id_takes_precedence_over_name_lookup(self, mock_workspace_client):
+        """Test that space_id is used directly when both name and space_id are provided."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            genie_room = GenieRoomModel(name="Custom Label", space_id="explicit_id")
+
+            assert genie_room.space_id == "explicit_id"
+            assert genie_room.name == "Custom Label"
+            mock_workspace_client.genie.list_spaces.assert_not_called()
 
 
 @pytest.mark.skipif(

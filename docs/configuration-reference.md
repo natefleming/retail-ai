@@ -51,12 +51,14 @@ resources:
 
   warehouses:
     warehouse: &warehouse
-      warehouse_id: string
+      warehouse_id: string         # or omit and provide name instead
+      name: string                 # resolves warehouse_id by name if warehouse_id is omitted
       on_behalf_of_user: bool
 
   genie_rooms:
     genie: &genie
-      space_id: string
+      space_id: string             # or omit and provide name instead
+      name: string                 # resolves space_id by title if space_id is omitted
 
 # Retriever configurations
 retrievers:
