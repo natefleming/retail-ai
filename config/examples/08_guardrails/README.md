@@ -11,31 +11,41 @@ Tool context from `ToolMessage` objects in the conversation (search results, SQL
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#e65100'}}}%%
 flowchart TB
+    subgraph InputGuardrails["Input Guardrails (before_model)"]
+        InputCheck["Scorer evaluates user message"]
+        InputPass{"Pass?"}
+        InputBlock["Block + jump to end"]
+        InputCheck --> InputPass
+        InputPass -->|"false"| InputBlock
+    end
+
     subgraph Agent["Agent"]
         LLM["Agent LLM"]
         Response["Generated Response"]
         LLM --> Response
     end
 
-    subgraph Guardrails["Guardrail Evaluation"]
-        Judge["MLflow Judge"]
-        
+    subgraph OutputGuardrails["Output Guardrails (after_model)"]
+        Judge["MLflow Judge / Scorer"]
+
         subgraph Checks["Quality Checks"]
             direction LR
             Tone["Tone Check"]
             Complete["Completeness"]
             Veracity["Veracity"]
         end
-        
+
         Judge --> Checks
     end
 
-    subgraph Result["Result"]
-        Pass{Pass?}
+    subgraph OutputResult["Result"]
+        Pass{"Pass?"}
         Retry["Retry with Feedback"]
         Approve["Return to User"]
     end
 
+    UserMsg["User Message"] --> InputCheck
+    InputPass -->|"true"| LLM
     Response --> Judge
     Checks --> Pass
     Pass -->|"false"| Retry
@@ -48,6 +58,7 @@ flowchart TB
 | File | Description |
 |------|-------------|
 | [`guardrails_basic.yaml`](./guardrails_basic.yaml) | MLflow judge-based guardrails with tone, completeness, and veracity checks |
+| [`guardrails_scorers.yaml`](./guardrails_scorers.yaml) | MLflow Scorer-based guardrails (ToxicLanguage, GibberishText) alongside custom judges |
 
 ## How Guardrails Work
 
@@ -143,7 +154,7 @@ guardrails:
     model: *judge_llm
     prompt: *veracity_guardrail_prompt
     num_retries: 2
-    fail_open: true               # Let responses through if judge fails
+    fail_on_error: false           # Let responses through on evaluation error
 ```
 
 ### 3. Apply to Agents
@@ -161,6 +172,32 @@ agents:
       - *tone_guardrail
       - *completeness_guardrail
       - *veracity_guardrail
+```
+
+## Input vs Output Guardrails
+
+By default guardrails run on both user input and model output (`apply_to: both`).
+Use `apply_to` to control when each guardrail executes:
+
+| Value | Hook | Behaviour |
+|-------|------|-----------|
+| `input` | `before_model` | Evaluates the user message **before** the model runs. On failure the request is immediately blocked (no retries). |
+| `output` | `after_model` | Evaluates the model's response **after** it runs. On failure the model retries up to `num_retries` times. |
+| `both` | both hooks | Runs the guardrail in both places. |
+
+```yaml
+guardrails:
+  toxic_guardrail:
+    name: toxic_check
+    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
+    hub: hub://guardrails/toxic_language
+    apply_to: input        # block toxic user messages before the model runs
+
+  tone_guardrail:
+    name: tone_check
+    model: *judge_llm
+    prompt: *tone_prompt
+    apply_to: output       # evaluate agent response quality only
 ```
 
 ## Specialized Guardrails (Zero-Config)
@@ -220,11 +257,109 @@ middleware:
       check_verbosity: true
 ```
 
+## Scorer-Based Guardrails (MLflow Scorers)
+
+Scorer-based guardrails use MLflow's `Scorer` interface to plug in any evaluation logic, including built-in `GuardrailsScorer` validators from `mlflow.genai.scorers.guardrails`. These validators use the [guardrails-ai](https://docs.guardrailsai.com/) library for deterministic safety checks.
+
+### Prerequisites
+
+`GuardrailsScorer` validators require installation from the guardrails-ai hub. DAO AI can **auto-install** them at startup when the `hub` field is set on a guardrail and the `GUARDRAILSAI_API_KEY` environment variable is present:
+
+```bash
+# Set your hub API key (get one at https://hub.guardrailsai.com/keys)
+export GUARDRAILSAI_API_KEY="your-token-here"
+```
+
+Then add `hub:` to your guardrail config:
+
+```yaml
+guardrails:
+  toxic_guardrail:
+    name: toxic_check
+    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
+    hub: hub://guardrails/toxic_language        # auto-installed at startup
+    scorer_args:
+      threshold: 0.7
+```
+
+At startup, `AppConfig.initialize()` will automatically:
+1. Configure guardrails-ai with your token (metrics disabled, remote inferencing enabled)
+2. Install any hub validators that are not yet available
+3. Skip validators that are already installed
+
+If you prefer manual installation, omit the `hub` field and install validators yourself:
+
+```bash
+guardrails configure --token $GUARDRAILSAI_API_KEY --disable-metrics --enable-remote-inferencing
+guardrails hub install hub://guardrails/toxic_language
+guardrails hub install hub://guardrails/gibberish_text
+# etc.
+```
+
+### Available Built-in Scorers
+
+| Scorer | Description | Key Args |
+|--------|-------------|----------|
+| `ToxicLanguage` | Detects toxic/offensive language | `threshold` (0.5) |
+| `NSFWText` | Detects NSFW content | `threshold` (0.5) |
+| `DetectJailbreak` | Detects jailbreak/prompt injection | `threshold` (0.5), `device` |
+| `DetectPII` | Detects personally identifiable information | `pii_entities` |
+| `SecretsPresent` | Detects API keys and secrets | -- |
+| `GibberishText` | Detects gibberish/nonsense text | `threshold` (0.5) |
+
+### Configuration via `guardrails:` Section
+
+```yaml
+guardrails:
+  # Scorer-based: provide scorer (FQN), hub URI, and optional scorer_args
+  pii_guardrail: &pii_guardrail
+    name: pii_check
+    scorer: mlflow.genai.scorers.guardrails.DetectPII
+    hub: hub://guardrails/detect_pii
+    scorer_args:
+      pii_entities: ["CREDIT_CARD", "SSN", "EMAIL_ADDRESS"]
+    fail_on_error: true
+
+  toxic_guardrail: &toxic_guardrail
+    name: toxic_check
+    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
+    hub: hub://guardrails/toxic_language
+    scorer_args:
+      threshold: 0.7
+    num_retries: 1
+```
+
+### Configuration via `middleware:` Section
+
+```yaml
+middleware:
+  secrets_check:
+    name: dao_ai.middleware.create_scorer_guardrail_middleware
+    args:
+      name: secrets_check
+      scorer_name: mlflow.genai.scorers.guardrails.SecretsPresent
+      fail_on_error: true
+```
+
+### Custom Scorers
+
+Any class extending `mlflow.genai.scorers.base.Scorer` can be used:
+
+```yaml
+guardrails:
+  custom_scorer: &custom_scorer
+    name: my_check
+    scorer: my_package.my_module.MyCustomScorer
+    scorer_args:
+      param1: value1
+```
+
 ## Guardrail Types Summary
 
 | Type | Config | Prompt Required | Key Feature |
 |------|--------|----------------|-------------|
-| **Generic** | `guardrails:` section | Yes | Fully customizable evaluation |
+| **Custom Judge** | `guardrails:` with `model`+`prompt` | Yes | Fully customizable LLM evaluation |
+| **Scorer-based** | `guardrails:` with `scorer` | No | MLflow Scorer interface (ToxicLanguage, DetectPII, etc.) |
 | **Veracity** | `middleware:` section | No | Auto-skips when no tool context |
 | **Relevance** | `middleware:` section | No | Topic drift detection |
 | **Tone** | `middleware:` section | No | Preset profiles (professional, etc.) |
@@ -234,25 +369,31 @@ middleware:
 
 ## Configuration Options
 
-### Generic Guardrails (`guardrails:` section)
+### Guardrails (`guardrails:` section)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | required | Guardrail identifier |
-| `model` | string/LLMModel | required | LLM for the MLflow judge |
-| `prompt` | string/PromptModel | required | Evaluation instructions with `{{ inputs }}`/`{{ outputs }}` |
+| `model` | string/LLMModel | -- | LLM for the MLflow judge (required for custom judge mode) |
+| `prompt` | string/PromptModel | -- | Evaluation instructions with `{{ inputs }}`/`{{ outputs }}` (required for custom judge mode) |
+| `scorer` | string | -- | FQN of an MLflow `Scorer` class (required for scorer mode) |
+| `scorer_args` | dict | `{}` | Kwargs forwarded to the scorer constructor |
+| `hub` | string | -- | Guardrails-ai hub URI (e.g. `hub://guardrails/toxic_language`). Enables auto-install when `GUARDRAILSAI_API_KEY` is set |
 | `num_retries` | int | 3 | Max retry attempts |
-| `fail_open` | bool | true | Let responses through on judge error |
+| `fail_on_error` | bool | false | Block responses when evaluation errors (e.g. scorer exception) |
 | `max_context_length` | int | 8000 | Max chars for extracted tool context |
+| `apply_to` | `"input"` / `"output"` / `"both"` | `"both"` | When to run: before the model (input), after the model (output), or both |
+
+Either `model`+`prompt` (custom judge) or `scorer` (scorer-based) must be provided, not both.
 
 ### Specialized Guardrails (`middleware:` section)
 
 | Guardrail | Required Args | Optional Args |
 |-----------|---------------|---------------|
-| **Veracity** | `model` | `num_retries` (2), `fail_open` (true), `max_context_length` (8000) |
-| **Relevance** | `model` | `num_retries` (2), `fail_open` (true) |
-| **Tone** | `model` | `tone` ("professional"), `custom_guidelines`, `num_retries` (2), `fail_open` (true) |
-| **Conciseness** | `model` | `max_length` (3000), `min_length` (20), `check_verbosity` (true), `num_retries` (2), `fail_open` (true) |
+| **Veracity** | `model` | `num_retries` (2), `fail_on_error` (false), `max_context_length` (8000) |
+| **Relevance** | `model` | `num_retries` (2), `fail_on_error` (false) |
+| **Tone** | `model` | `tone` ("professional"), `custom_guidelines`, `num_retries` (2), `fail_on_error` (false) |
+| **Conciseness** | `model` | `max_length` (3000), `min_length` (20), `check_verbosity` (true), `num_retries` (2), `fail_on_error` (false) |
 
 ## LLM Configuration
 
@@ -273,8 +414,11 @@ resources:
 ## Quick Start
 
 ```bash
-# Run with guardrails
+# Run with custom LLM-judge guardrails
 dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml
+
+# Run with MLflow Scorer guardrails (requires guardrails-ai)
+dao-ai chat -c config/examples/08_guardrails/guardrails_scorers.yaml
 
 # See guardrail evaluation in logs
 dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml --log-level DEBUG
@@ -294,7 +438,7 @@ dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml --log-level D
 3. **Use lower temperature for judge** -- More consistent evaluations
 4. **Test edge cases** -- Verify guardrails don't block valid responses
 5. **Version prompts in MLflow** -- Track prompt changes over time
-6. **Use fail_open: true** -- Prefer availability over strictness for most use cases
+6. **Use fail_on_error: false** -- Prefer availability over strictness for most use cases
 7. **Combine with offline evaluation** -- Use `create_veracity_scorer` for thorough trace-based evaluation
 
 ## Troubleshooting
@@ -305,7 +449,7 @@ dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml --log-level D
 | Guardrails never trigger | Check prompt scoring criteria |
 | High latency | Reduce num_retries, use faster judge model |
 | Inconsistent evaluation | Lower judge temperature |
-| Judge errors | Check model endpoint availability, verify fail_open setting |
+| Judge errors | Check model endpoint availability, verify fail_on_error setting |
 
 ## Next Steps
 

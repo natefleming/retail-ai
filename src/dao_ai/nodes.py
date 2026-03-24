@@ -122,20 +122,27 @@ def _create_middleware_list(
             guardrail_names=guardrail_names,
         )
     for guardrail in agent.guardrails:
-        # Use the LLMModel's URI as the MLflow judge model endpoint
-        model_endpoint: str = guardrail.model.uri
+        num_retries: int = guardrail.num_retries or 3
+        fail_on_error: bool = (
+            guardrail.fail_on_error if guardrail.fail_on_error is not None else False
+        )
+        max_context_length: int = guardrail.max_context_length or 8000
+        apply_to = guardrail.apply_to
 
-        # GuardrailMiddleware handles PromptModel resolution internally
+        scorer = guardrail.as_scorer()
         guardrail_middleware: GuardrailMiddleware = GuardrailMiddleware(
             name=guardrail.name,
-            model=model_endpoint,
-            prompt=guardrail.prompt,
-            num_retries=guardrail.num_retries or 3,
-            fail_open=guardrail.fail_open if guardrail.fail_open is not None else True,
-            max_context_length=guardrail.max_context_length or 8000,
+            scorer=scorer,
+            num_retries=num_retries,
+            fail_on_error=fail_on_error,
+            max_context_length=max_context_length,
+            apply_to=apply_to,
         )
         logger.trace(
-            "Created guardrail middleware", guardrail=guardrail.name, agent=agent.name
+            "Created guardrail middleware",
+            guardrail=guardrail.name,
+            agent=agent.name,
+            apply_to=apply_to,
         )
         middleware_list.append(guardrail_middleware)
 
@@ -385,6 +392,12 @@ def create_agent_node(
     else:
         logger.debug("No custom prompt configured", agent=agent.name)
 
+    # Capture the original PromptModel reference before any string conversion
+    # so it can be forwarded for MLflow trace linking.
+    prompt_model_ref: PromptModel | None = (
+        agent.prompt if isinstance(agent.prompt, PromptModel) else None
+    )
+
     # Append memory tool instructions to the prompt when memory tools are present
     effective_prompt: str | PromptModel | None = agent.prompt
     if has_memory_tools and effective_prompt is not None:
@@ -406,7 +419,9 @@ def create_agent_node(
         logger.debug("HITL decision guidance appended to prompt", agent=agent.name)
 
     # Get the prompt as middleware (always returns AgentMiddleware or None)
-    prompt_middleware: AgentMiddleware | None = make_prompt(effective_prompt)
+    prompt_middleware: AgentMiddleware | None = make_prompt(
+        effective_prompt, prompt_model=prompt_model_ref
+    )
 
     # Add prompt middleware at the beginning for priority
     if prompt_middleware is not None:

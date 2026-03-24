@@ -22,7 +22,7 @@ from mlflow.types.responses import (
 )
 
 from dao_ai.config import AppConfig
-from dao_ai.logging import configure_logging
+from dao_ai.logging import configure_logging, suppress_autolog_context_warnings
 from dao_ai.models import LanggraphResponsesAgent
 
 
@@ -49,6 +49,7 @@ load_dotenv(dotenv_path=".env.local", override=True)
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_tracking_uri("databricks")
 mlflow.langchain.autolog()
+suppress_autolog_context_warnings()
 
 # Get config path from environment or use default
 config_path: str = os.environ.get("DAO_AI_CONFIG_PATH", "dao_ai.yaml")
@@ -59,6 +60,27 @@ config: AppConfig = AppConfig.from_file(config_path)
 # Configure logging
 if config.app and config.app.log_level:
     configure_logging(level=config.app.log_level)
+
+# Configure UC-based trace storage if trace_location is set
+if config.app and config.app.trace_location:
+    from mlflow.entities import UCSchemaLocation
+    from mlflow.tracing.enablement import set_experiment_trace_location
+
+    _loc = config.app.trace_location
+    _uc_schema_location = UCSchemaLocation(
+        catalog_name=_loc.catalog_name,
+        schema_name=_loc.schema_name,
+    )
+
+    _experiment_id: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
+    if _experiment_id:
+        set_experiment_trace_location(
+            location=_uc_schema_location,
+            experiment_id=_experiment_id,
+            sql_warehouse_id=_loc.warehouse_id,
+        )
+
+    mlflow.tracing.set_destination(destination=_uc_schema_location)
 
 # Create the ResponsesAgent - cast to LanggraphResponsesAgent to access async methods
 _responses_agent: LanggraphResponsesAgent = config.as_responses_agent()  # type: ignore[assignment]

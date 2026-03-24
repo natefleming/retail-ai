@@ -5,6 +5,7 @@
       "description": "Configuration model for an agent in the DAO AI framework.\n\nAgents combine an LLM with tools and middleware to create systems that can\nreason about tasks, decide which tools to use, and iteratively work towards solutions.\n\nMiddleware replaces the previous pre_agent_hook and post_agent_hook patterns,\nproviding a more flexible and composable way to customize agent behavior.",
       "properties": {
         "name": {
+          "description": "Unique agent name used for identification in multi-agent orchestration.",
           "title": "Name",
           "type": "string"
         },
@@ -18,12 +19,15 @@
             }
           ],
           "default": null,
+          "description": "Human-readable description shown when the LLM selects handoff targets.",
           "title": "Description"
         },
         "model": {
-          "$ref": "#/$defs/LLMModel"
+          "$ref": "#/$defs/LLMModel",
+          "description": "LLM model configuration (serving endpoint name, temperature, etc.)."
         },
         "tools": {
+          "description": "Tools available to this agent during reasoning.",
           "items": {
             "$ref": "#/$defs/ToolModel"
           },
@@ -31,6 +35,7 @@
           "type": "array"
         },
         "guardrails": {
+          "description": "Guardrails that evaluate this agent's inputs and/or outputs.",
           "items": {
             "$ref": "#/$defs/GuardrailModel"
           },
@@ -50,6 +55,7 @@
             }
           ],
           "default": null,
+          "description": "System prompt as an inline string or a PromptModel referencing the MLflow Prompt Registry.",
           "title": "Prompt"
         },
         "handoff_prompt": {
@@ -62,10 +68,11 @@
             }
           ],
           "default": null,
+          "description": "Additional instructions appended to the prompt during multi-agent handoff.",
           "title": "Handoff Prompt"
         },
         "middleware": {
-          "description": "List of middleware to apply to this agent",
+          "description": "List of middleware to apply to this agent.",
           "items": {
             "$ref": "#/$defs/MiddlewareModel"
           },
@@ -85,6 +92,7 @@
             }
           ],
           "default": null,
+          "description": "Structured output format (Pydantic type, JSON schema, or ResponseFormatModel).",
           "title": "Response Format"
         }
       },
@@ -97,8 +105,10 @@
     },
     "AppModel": {
       "additionalProperties": false,
+      "description": "Application-level configuration for deployment, model registration, and orchestration.",
       "properties": {
         "name": {
+          "description": "Unique application name used for the serving endpoint and model registration.",
           "title": "Name",
           "type": "string"
         },
@@ -111,7 +121,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal credentials injected as environment variables during Model Serving deployment."
         },
         "description": {
           "anyOf": [
@@ -123,6 +134,7 @@
             }
           ],
           "default": null,
+          "description": "Human-readable description of the application.",
           "title": "Description"
         },
         "log_level": {
@@ -134,10 +146,12 @@
               "type": "null"
             }
           ],
-          "default": "WARNING"
+          "default": "WARNING",
+          "description": "Logging verbosity level (TRACE, DEBUG, INFO, WARNING, ERROR)."
         },
         "registered_model": {
-          "$ref": "#/$defs/RegisteredModelModel"
+          "$ref": "#/$defs/RegisteredModelModel",
+          "description": "Unity Catalog registered model where the agent is logged."
         },
         "endpoint_name": {
           "anyOf": [
@@ -149,6 +163,7 @@
             }
           ],
           "default": null,
+          "description": "Model Serving endpoint name. Defaults to the app name if not specified.",
           "title": "Endpoint Name"
         },
         "tags": {
@@ -161,6 +176,7 @@
               "type": "null"
             }
           ],
+          "description": "Key-value tags attached to the registered model version.",
           "title": "Tags"
         },
         "scale_to_zero": {
@@ -173,6 +189,7 @@
             }
           ],
           "default": true,
+          "description": "Whether the serving endpoint scales to zero when idle.",
           "title": "Scale To Zero"
         },
         "environment_vars": {
@@ -212,6 +229,7 @@
               "type": "null"
             }
           ],
+          "description": "Environment variables set on the serving endpoint or Databricks App.",
           "title": "Environment Vars"
         },
         "budget_policy_id": {
@@ -224,6 +242,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks budget policy ID for cost attribution.",
           "title": "Budget Policy Id"
         },
         "workload_size": {
@@ -235,7 +254,8 @@
               "type": "null"
             }
           ],
-          "default": "Small"
+          "default": "Small",
+          "description": "Model Serving workload size (Small, Medium, Large)."
         },
         "permissions": {
           "anyOf": [
@@ -249,9 +269,11 @@
               "type": "null"
             }
           ],
+          "description": "Access control list for the serving endpoint.",
           "title": "Permissions"
         },
         "agents": {
+          "description": "List of agent definitions. At least one is required.",
           "items": {
             "$ref": "#/$defs/AgentModel"
           },
@@ -267,7 +289,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Multi-agent orchestration mode (supervisor or swarm). Auto-configured if omitted."
         },
         "alias": {
           "anyOf": [
@@ -279,6 +302,7 @@
             }
           ],
           "default": null,
+          "description": "Model version alias (e.g., 'champion') assigned after registration.",
           "title": "Alias"
         },
         "initialization_hooks": {
@@ -312,6 +336,7 @@
               "type": "null"
             }
           ],
+          "description": "Functions called once at startup after config is loaded.",
           "title": "Initialization Hooks"
         },
         "shutdown_hooks": {
@@ -345,6 +370,7 @@
               "type": "null"
             }
           ],
+          "description": "Functions called on graceful shutdown.",
           "title": "Shutdown Hooks"
         },
         "input_example": {
@@ -356,7 +382,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Example chat payload logged alongside the model for documentation and testing."
         },
         "chat_history": {
           "anyOf": [
@@ -367,9 +394,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Chat history summarization settings to manage long conversations."
         },
         "code_paths": {
+          "description": "Additional Python file paths bundled with the model artifact.",
           "items": {
             "type": "string"
           },
@@ -377,6 +406,7 @@
           "type": "array"
         },
         "pip_requirements": {
+          "description": "Extra pip packages installed in the serving environment.",
           "items": {
             "type": "string"
           },
@@ -407,6 +437,30 @@
           ],
           "default": null,
           "description": "Default deployment target. If not specified, defaults to MODEL_SERVING. Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'."
+        },
+        "trace_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceLocationModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. Accepts a schema reference or 'catalog.schema' string. When set, set_experiment_trace_location() is called at startup for both Model Serving and Databricks Apps deployments."
+        },
+        "monitoring": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MonitoringModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Production monitoring configuration. When present, scorers are registered to continuously evaluate production traces. Works with both experiment-based traces and UC OTEL trace tables. When trace_location is also configured, the SQL warehouse from trace_location is used for monitoring."
         }
       },
       "required": [
@@ -418,8 +472,10 @@
     },
     "AppPermissionModel": {
       "additionalProperties": false,
+      "description": "Access control entry granting entitlements to principals on a serving endpoint.",
       "properties": {
         "principals": {
+          "description": "Users, groups, or service principals receiving the entitlements.",
           "items": {
             "anyOf": [
               {
@@ -434,6 +490,7 @@
           "type": "array"
         },
         "entitlements": {
+          "description": "Entitlements to grant (CAN_MANAGE, CAN_QUERY, CAN_VIEW, CAN_REVIEW).",
           "items": {
             "$ref": "#/$defs/Entitlement"
           },
@@ -452,11 +509,12 @@
       "description": "Configuration for chat history summarization.\n\nAttributes:\n    model: The LLM to use for generating summaries.\n    max_tokens: Maximum tokens to keep after summarization (the \"keep\" threshold).\n        After summarization, recent messages totaling up to this many tokens are preserved.\n    max_tokens_before_summary: Token threshold that triggers summarization.\n        When conversation exceeds this, summarization runs. Mutually exclusive with\n        max_messages_before_summary. If neither is set, defaults to max_tokens * 10.\n    max_messages_before_summary: Message count threshold that triggers summarization.\n        When conversation exceeds this many messages, summarization runs.\n        Mutually exclusive with max_tokens_before_summary.",
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLMModel"
+          "$ref": "#/$defs/LLMModel",
+          "description": "LLM used to generate conversation summaries."
         },
         "max_tokens": {
           "default": 2048,
-          "description": "Maximum tokens to keep after summarization",
+          "description": "Maximum tokens to keep after summarization.",
           "exclusiveMinimum": 0,
           "title": "Max Tokens",
           "type": "integer"
@@ -498,6 +556,7 @@
     },
     "ChatPayload": {
       "additionalProperties": false,
+      "description": "Chat request payload containing messages and optional custom inputs.",
       "properties": {
         "input": {
           "anyOf": [
@@ -512,6 +571,7 @@
             }
           ],
           "default": null,
+          "description": "Chat messages (alias for 'messages'). Provide either input or messages.",
           "title": "Input"
         },
         "messages": {
@@ -527,6 +587,7 @@
             }
           ],
           "default": null,
+          "description": "Chat messages (alias for 'input'). Provide either messages or input.",
           "title": "Messages"
         },
         "custom_inputs": {
@@ -539,6 +600,7 @@
               "type": "null"
             }
           ],
+          "description": "Extra inputs forwarded to the agent (e.g., configurable with thread_id).",
           "title": "Custom Inputs"
         }
       },
@@ -547,8 +609,10 @@
     },
     "CheckpointerModel": {
       "additionalProperties": false,
+      "description": "Conversation state checkpointer for persisting LangGraph thread state across turns.",
       "properties": {
         "name": {
+          "description": "Unique name for this checkpointer instance.",
           "title": "Name",
           "type": "string"
         },
@@ -561,7 +625,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Database for persistent storage. If omitted, uses in-memory storage (lost on restart)."
         }
       },
       "required": [
@@ -630,6 +695,7 @@
       "type": "object"
     },
     "CompositeVariableModel": {
+      "description": "A variable that tries multiple sources in order, returning the first non-None value.",
       "properties": {
         "default_value": {
           "anyOf": [
@@ -639,9 +705,11 @@
             }
           ],
           "default": null,
+          "description": "Fallback value used when all options resolve to None.",
           "title": "Default Value"
         },
         "options": {
+          "description": "Ordered list of variable sources tried until one returns a non-None value.",
           "items": {
             "anyOf": [
               {
@@ -675,6 +743,7 @@
       "type": "object"
     },
     "ConnectionModel": {
+      "description": "Unity Catalog connection for external data sources and MCP servers.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -686,6 +755,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -697,7 +767,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -730,6 +801,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -763,6 +835,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -796,6 +869,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -829,9 +903,11 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "name": {
+          "description": "Unity Catalog connection name.",
           "title": "Name",
           "type": "string"
         }
@@ -847,15 +923,18 @@
       "description": "Dataset for context-aware cache threshold optimization.\n\nContains pairs of questions/contexts to evaluate whether thresholds\ncorrectly identify semantic matches.\n\nExample:\n    dataset:\n      name: my_cache_eval_dataset\n      description: \"Evaluation data for cache tuning\"\n      entries:\n        - question: \"What are total sales?\"\n          # ... entry fields",
       "properties": {
         "name": {
+          "description": "Unique name for this evaluation dataset.",
           "title": "Name",
           "type": "string"
         },
         "description": {
           "default": "",
+          "description": "Human-readable description of the evaluation dataset.",
           "title": "Description",
           "type": "string"
         },
         "entries": {
+          "description": "List of question/context pair entries for evaluation.",
           "items": {
             "$ref": "#/$defs/ContextAwareCacheEvalEntryModel"
           },
@@ -874,10 +953,12 @@
       "description": "Single evaluation entry for context-aware cache threshold optimization.\n\nRepresents a pair of question/context combinations to evaluate\nwhether the cache should return a hit or miss.\n\nExample:\n    entry:\n      question: \"What are total sales?\"\n      question_embedding: [0.1, 0.2, ...]  # Pre-computed\n      context: \"Previous: Show me revenue\"\n      context_embedding: [0.1, 0.2, ...]\n      cached_question: \"Show total sales\"\n      cached_question_embedding: [0.1, 0.2, ...]\n      cached_context: \"Previous: Show me revenue\"\n      cached_context_embedding: [0.1, 0.2, ...]\n      expected_match: true",
       "properties": {
         "question": {
+          "description": "Incoming user question to evaluate against the cache.",
           "title": "Question",
           "type": "string"
         },
         "question_embedding": {
+          "description": "Pre-computed embedding vector for the question.",
           "items": {
             "type": "number"
           },
@@ -886,10 +967,12 @@
         },
         "context": {
           "default": "",
+          "description": "Conversation context accompanying the question.",
           "title": "Context",
           "type": "string"
         },
         "context_embedding": {
+          "description": "Pre-computed embedding vector for the context.",
           "items": {
             "type": "number"
           },
@@ -897,10 +980,12 @@
           "type": "array"
         },
         "cached_question": {
+          "description": "Previously cached question to compare against.",
           "title": "Cached Question",
           "type": "string"
         },
         "cached_question_embedding": {
+          "description": "Pre-computed embedding vector for the cached question.",
           "items": {
             "type": "number"
           },
@@ -909,10 +994,12 @@
         },
         "cached_context": {
           "default": "",
+          "description": "Context that was stored with the cached question.",
           "title": "Cached Context",
           "type": "string"
         },
         "cached_context_embedding": {
+          "description": "Pre-computed embedding vector for the cached context.",
           "items": {
             "type": "number"
           },
@@ -929,6 +1016,7 @@
             }
           ],
           "default": null,
+          "description": "Whether the pair should be a cache hit (true) or miss (false). None = use LLM judge.",
           "title": "Expected Match"
         }
       },
@@ -946,6 +1034,7 @@
       "description": "Configuration for context-aware cache threshold optimization.\n\nUses Optuna Bayesian optimization to find optimal threshold values\nthat maximize cache hit accuracy (F1 score by default).\n\nExample:\n    optimizations:\n      cache_threshold_optimizations:\n        my_optimization:\n          name: optimize_cache_thresholds\n          cache_parameters: *my_cache_params\n          dataset: *my_eval_dataset\n          judge_model: databricks-meta-llama-3-3-70b-instruct\n          n_trials: 50\n          metric: f1",
       "properties": {
         "name": {
+          "description": "Unique name for this optimization run (used as the Optuna study name).",
           "title": "Name",
           "type": "string"
         },
@@ -958,33 +1047,38 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Cache configuration whose thresholds serve as the starting point for optimization."
         },
         "dataset": {
-          "$ref": "#/$defs/ContextAwareCacheEvalDatasetModel"
+          "$ref": "#/$defs/ContextAwareCacheEvalDatasetModel",
+          "description": "Evaluation dataset with question/context pairs and expected match labels."
         },
         "judge_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "type": "string"
             },
             {
-              "type": "string"
+              "$ref": "#/$defs/LLMModel"
             },
             {
               "type": "null"
             }
           ],
           "default": "databricks-meta-llama-3-3-70b-instruct",
+          "description": "LLM judge for evaluating match quality when expected_match is None.",
           "title": "Judge Model"
         },
         "n_trials": {
           "default": 50,
+          "description": "Number of Bayesian optimization trials to run.",
           "title": "N Trials",
           "type": "integer"
         },
         "metric": {
           "default": "f1",
+          "description": "Optimization metric to maximize (f1, precision, recall, or fbeta).",
           "enum": [
             "f1",
             "precision",
@@ -996,6 +1090,7 @@
         },
         "beta": {
           "default": 1.0,
+          "description": "Beta parameter for the fbeta metric (higher = favor recall over precision).",
           "title": "Beta",
           "type": "number"
         },
@@ -1009,6 +1104,7 @@
             }
           ],
           "default": null,
+          "description": "Random seed for reproducible optimization results.",
           "title": "Seed"
         }
       },
@@ -1033,6 +1129,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -1044,7 +1141,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -1077,6 +1175,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -1110,6 +1209,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -1143,6 +1243,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -1176,6 +1277,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "name": {
@@ -1188,6 +1290,7 @@
             }
           ],
           "default": null,
+          "description": "Logical database name. For Lakebase, defaults to instance_name.",
           "title": "Name"
         },
         "instance_name": {
@@ -1200,6 +1303,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks Lakebase instance name. Mutually exclusive with host (standard PostgreSQL).",
           "title": "Instance Name"
         },
         "description": {
@@ -1212,6 +1316,7 @@
             }
           ],
           "default": null,
+          "description": "Human-readable description of this database connection.",
           "title": "Description"
         },
         "host": {
@@ -1245,6 +1350,7 @@
             }
           ],
           "default": null,
+          "description": "PostgreSQL host address. For Lakebase, auto-fetched from the instance API.",
           "title": "Host"
         },
         "database": {
@@ -1278,6 +1384,7 @@
             }
           ],
           "default": "databricks_postgres",
+          "description": "Database name within the PostgreSQL server.",
           "title": "Database"
         },
         "port": {
@@ -1311,6 +1418,7 @@
             }
           ],
           "default": 5432,
+          "description": "PostgreSQL port number.",
           "title": "Port"
         },
         "connection_kwargs": {
@@ -1323,6 +1431,7 @@
               "type": "null"
             }
           ],
+          "description": "Extra keyword arguments passed to the connection pool.",
           "title": "Connection Kwargs"
         },
         "max_pool_size": {
@@ -1335,6 +1444,7 @@
             }
           ],
           "default": 10,
+          "description": "Maximum number of connections in the pool.",
           "title": "Max Pool Size"
         },
         "timeout_seconds": {
@@ -1347,6 +1457,7 @@
             }
           ],
           "default": 10,
+          "description": "Connection timeout in seconds.",
           "title": "Timeout Seconds"
         },
         "capacity": {
@@ -1363,6 +1474,7 @@
             }
           ],
           "default": "CU_2",
+          "description": "Lakebase compute capacity tier (CU_1 or CU_2).",
           "title": "Capacity"
         },
         "node_count": {
@@ -1375,6 +1487,7 @@
             }
           ],
           "default": null,
+          "description": "Number of Lakebase compute nodes for horizontal scaling.",
           "title": "Node Count"
         },
         "user": {
@@ -1408,6 +1521,7 @@
             }
           ],
           "default": null,
+          "description": "Database username. For Lakebase, auto-detected from workspace identity.",
           "title": "User"
         },
         "password": {
@@ -1441,6 +1555,7 @@
             }
           ],
           "default": null,
+          "description": "Database password. For Lakebase, a token is generated automatically.",
           "title": "Password"
         }
       },
@@ -1461,6 +1576,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -1472,7 +1588,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -1505,6 +1622,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -1538,6 +1656,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -1571,6 +1690,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -1604,9 +1724,11 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "name": {
+          "description": "The unique instance name of the Databricks App in the workspace.",
           "title": "Name",
           "type": "string"
         }
@@ -1618,6 +1740,7 @@
       "type": "object"
     },
     "DatasetFormat": {
+      "description": "Supported data file formats for dataset loading.",
       "enum": [
         "csv",
         "delta",
@@ -1632,6 +1755,7 @@
     },
     "DatasetModel": {
       "additionalProperties": false,
+      "description": "A dataset definition for provisioning a table with DDL and seed data.",
       "properties": {
         "table": {
           "anyOf": [
@@ -1642,7 +1766,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Target table where the dataset is materialized."
         },
         "ddl": {
           "anyOf": [
@@ -1657,6 +1782,7 @@
             }
           ],
           "default": null,
+          "description": "SQL DDL statement or Volume reference containing the CREATE TABLE statement.",
           "title": "Ddl"
         },
         "data": {
@@ -1672,6 +1798,7 @@
             }
           ],
           "default": null,
+          "description": "Seed data as inline SQL INSERT statements or a VolumePath to a data file.",
           "title": "Data"
         },
         "format": {
@@ -1683,7 +1810,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Data file format when loading from a file (csv, json, parquet, delta, etc.)."
         },
         "read_options": {
           "anyOf": [
@@ -1695,6 +1823,7 @@
               "type": "null"
             }
           ],
+          "description": "Spark read options passed when loading data files (e.g., {'header': 'true'}).",
           "title": "Read Options"
         },
         "table_schema": {
@@ -1707,6 +1836,7 @@
             }
           ],
           "default": null,
+          "description": "Explicit Spark schema string for the data file (e.g., 'id INT, name STRING').",
           "title": "Table Schema"
         },
         "parameters": {
@@ -1719,6 +1849,7 @@
               "type": "null"
             }
           ],
+          "description": "Variable substitution parameters for DDL and data templates.",
           "title": "Parameters"
         }
       },
@@ -1801,6 +1932,7 @@
       "type": "string"
     },
     "Entitlement": {
+      "description": "Access control entitlements for serving endpoints and apps.",
       "enum": [
         "CAN_MANAGE",
         "CAN_QUERY",
@@ -1812,8 +1944,10 @@
       "type": "string"
     },
     "EnvironmentVariableModel": {
+      "description": "A variable resolved from an environment variable at runtime.",
       "properties": {
         "env": {
+          "description": "Environment variable name to read at runtime.",
           "title": "Env",
           "type": "string"
         },
@@ -1825,6 +1959,7 @@
             }
           ],
           "default": null,
+          "description": "Fallback value used when the environment variable is not set.",
           "title": "Default Value"
         }
       },
@@ -1836,12 +1971,15 @@
     },
     "EvaluationDatasetEntryModel": {
       "additionalProperties": false,
+      "description": "A single evaluation example pairing input messages with expected outcomes.",
       "properties": {
         "inputs": {
-          "$ref": "#/$defs/ChatPayload"
+          "$ref": "#/$defs/ChatPayload",
+          "description": "Chat messages to send to the agent as evaluation input."
         },
         "expectations": {
-          "$ref": "#/$defs/EvaluationDatasetExpectationsModel"
+          "$ref": "#/$defs/EvaluationDatasetExpectationsModel",
+          "description": "Expected response or facts for scoring the agent's output."
         }
       },
       "required": [
@@ -1853,6 +1991,7 @@
     },
     "EvaluationDatasetExpectationsModel": {
       "additionalProperties": false,
+      "description": "Expected outcomes for an evaluation entry. Provide one of expected_response or expected_facts.",
       "properties": {
         "expected_response": {
           "anyOf": [
@@ -1864,6 +2003,7 @@
             }
           ],
           "default": null,
+          "description": "Full expected response text for correctness scoring.",
           "title": "Expected Response"
         },
         "expected_facts": {
@@ -1879,6 +2019,7 @@
             }
           ],
           "default": null,
+          "description": "List of facts the response should contain for fact-based correctness scoring.",
           "title": "Expected Facts"
         }
       },
@@ -1887,6 +2028,7 @@
     },
     "EvaluationDatasetModel": {
       "additionalProperties": false,
+      "description": "An MLflow evaluation dataset containing input/expectation pairs.",
       "properties": {
         "schema": {
           "anyOf": [
@@ -1897,9 +2039,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Schema reference qualifying the dataset name."
         },
         "name": {
+          "description": "Dataset name in the MLflow registry.",
           "title": "Name",
           "type": "string"
         },
@@ -1915,6 +2059,7 @@
               "type": "null"
             }
           ],
+          "description": "Inline evaluation entries merged into the dataset on creation.",
           "title": "Data"
         },
         "overwrite": {
@@ -1927,6 +2072,7 @@
             }
           ],
           "default": false,
+          "description": "If true, delete and recreate the dataset. If false, reuse the existing one.",
           "title": "Overwrite"
         }
       },
@@ -1938,16 +2084,18 @@
     },
     "EvaluationModel": {
       "additionalProperties": false,
-      "description": "Configuration for MLflow GenAI evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    replace: If True, drop and recreate the evaluation table and dataset.\n        If False, reuse existing resources. Defaults to False.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.\n    monitoring: Optional production monitoring configuration. When present,\n        scorers are registered for continuous evaluation of production traces.",
+      "description": "Configuration for MLflow GenAI offline evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    replace: If True, drop and recreate the evaluation table and dataset.\n        If False, reuse existing resources. Defaults to False.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.",
       "properties": {
         "model": {
           "$ref": "#/$defs/LLMModel",
-          "description": "LLM model used as the judge for LLM-based evaluation scorers"
+          "description": "LLM model used as the judge for LLM-based evaluation scorers."
         },
         "table": {
-          "$ref": "#/$defs/TableModel"
+          "$ref": "#/$defs/TableModel",
+          "description": "Unity Catalog table where evaluation results are stored."
         },
         "num_evals": {
+          "description": "Number of evaluation samples to generate from the agent.",
           "title": "Num Evals",
           "type": "integer"
         },
@@ -1967,6 +2115,7 @@
             }
           ],
           "default": null,
+          "description": "Description of the agent used when generating synthetic evaluation questions.",
           "title": "Agent Description"
         },
         "question_guidelines": {
@@ -1979,30 +2128,22 @@
             }
           ],
           "default": null,
+          "description": "Guidelines for the synthetic question generator (e.g., topic focus, difficulty).",
           "title": "Question Guidelines"
         },
         "custom_inputs": {
           "additionalProperties": true,
+          "description": "Extra key-value inputs forwarded to the agent during evaluation runs.",
           "title": "Custom Inputs",
           "type": "object"
         },
         "guidelines": {
+          "description": "Guideline configurations for Guidelines scorers used during evaluation.",
           "items": {
             "$ref": "#/$defs/GuidelineModel"
           },
           "title": "Guidelines",
           "type": "array"
-        },
-        "monitoring": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MonitoringModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -2015,10 +2156,12 @@
     },
     "FactoryFunctionModel": {
       "additionalProperties": false,
+      "description": "A tool created by calling a factory function with optional arguments.",
       "properties": {
         "type": {
           "const": "factory",
           "default": "factory",
+          "description": "Function type discriminator. Must be 'factory'.",
           "title": "Type",
           "type": "string"
         },
@@ -2031,9 +2174,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
         },
         "name": {
+          "description": "Fully qualified factory function name that returns a tool or list of tools.",
           "title": "Name",
           "type": "string"
         },
@@ -2047,6 +2192,7 @@
               "type": "null"
             }
           ],
+          "description": "Keyword arguments passed to the factory function.",
           "title": "Args"
         }
       },
@@ -2058,6 +2204,7 @@
     },
     "FunctionModel": {
       "additionalProperties": false,
+      "description": "Unity Catalog function reference. Provide a fully qualified name or a schema + function name.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -2069,6 +2216,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -2080,7 +2228,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -2113,6 +2262,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -2146,6 +2296,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -2179,6 +2330,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -2212,6 +2364,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "schema": {
@@ -2223,7 +2376,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Schema reference qualifying the function. If omitted, name must be fully qualified."
         },
         "name": {
           "anyOf": [
@@ -2235,6 +2389,7 @@
             }
           ],
           "default": null,
+          "description": "Function name (short) or fully qualified name (catalog.schema.function).",
           "title": "Name"
         }
       },
@@ -2255,15 +2410,18 @@
             }
           ],
           "default": 86400,
+          "description": "Cache entry TTL in seconds. None or negative = entries never expire. Default: 1 day.",
           "title": "Time To Live Seconds"
         },
         "similarity_threshold": {
           "default": 0.85,
+          "description": "Minimum similarity score (0-1) for question matching.",
           "title": "Similarity Threshold",
           "type": "number"
         },
         "context_similarity_threshold": {
           "default": 0.8,
+          "description": "Minimum similarity score (0-1) for conversation context matching.",
           "title": "Context Similarity Threshold",
           "type": "number"
         },
@@ -2277,6 +2435,7 @@
             }
           ],
           "default": 0.6,
+          "description": "Weight for question similarity in the combined score (0-1). Computed as 1 - context_weight if omitted.",
           "title": "Question Weight"
         },
         "context_weight": {
@@ -2289,6 +2448,7 @@
             }
           ],
           "default": null,
+          "description": "Weight for context similarity in the combined score (0-1). Computed as 1 - question_weight if omitted.",
           "title": "Context Weight"
         },
         "embedding_model": {
@@ -2301,6 +2461,7 @@
             }
           ],
           "default": "databricks-gte-large-en",
+          "description": "Embedding model endpoint for generating similarity vectors.",
           "title": "Embedding Model"
         },
         "embedding_dims": {
@@ -2313,41 +2474,50 @@
             }
           ],
           "default": null,
+          "description": "Embedding vector dimensions. Auto-detected from the model if not set.",
           "title": "Embedding Dims"
         },
         "warehouse": {
-          "$ref": "#/$defs/WarehouseModel"
+          "$ref": "#/$defs/WarehouseModel",
+          "description": "SQL warehouse used by the Genie API for query execution."
         },
         "context_window_size": {
           "default": 4,
+          "description": "Number of previous conversation turns included as context for matching.",
           "title": "Context Window Size",
           "type": "integer"
         },
         "max_context_tokens": {
           "default": 2000,
+          "description": "Maximum token length for context to prevent oversized embeddings.",
           "title": "Max Context Tokens",
           "type": "integer"
         },
         "database": {
-          "$ref": "#/$defs/DatabaseModel"
+          "$ref": "#/$defs/DatabaseModel",
+          "description": "PostgreSQL or Lakebase database for persistent cache storage."
         },
         "table_name": {
           "default": "genie_context_aware_cache",
+          "description": "Table name for storing cache entries in the database.",
           "title": "Table Name",
           "type": "string"
         },
         "prompt_history_table": {
           "default": "genie_prompt_history",
+          "description": "Table name for storing prompt history used in context-aware matching.",
           "title": "Prompt History Table",
           "type": "string"
         },
         "max_prompt_history_length": {
           "default": 50,
+          "description": "Maximum number of prompts to keep per conversation.",
           "title": "Max Prompt History Length",
           "type": "integer"
         },
         "use_genie_api_for_history": {
           "default": false,
+          "description": "Fall back to the Genie API when local prompt history is empty.",
           "title": "Use Genie Api For History",
           "type": "boolean"
         },
@@ -2361,6 +2531,7 @@
             }
           ],
           "default": null,
+          "description": "TTL for prompt history entries in seconds. None = use the cache TTL.",
           "title": "Prompt History Ttl Seconds"
         },
         "ivfflat_lists": {
@@ -2373,6 +2544,7 @@
             }
           ],
           "default": null,
+          "description": "Number of IVFFlat index lists for pg_vector. None = auto-computed as max(100, sqrt(row_count)).",
           "title": "Ivfflat Lists"
         },
         "ivfflat_probes": {
@@ -2385,10 +2557,12 @@
             }
           ],
           "default": null,
+          "description": "Number of IVFFlat lists to probe per query. None = auto-computed as max(10, sqrt(lists)).",
           "title": "Ivfflat Probes"
         },
         "ivfflat_candidates": {
           "default": 20,
+          "description": "Number of top-K candidates retrieved before Python-side reranking.",
           "title": "Ivfflat Candidates",
           "type": "integer"
         }
@@ -2402,6 +2576,7 @@
     },
     "GenieRoomModel": {
       "additionalProperties": false,
+      "description": "Databricks Genie space configuration for natural-language SQL exploration.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -2413,6 +2588,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -2424,7 +2600,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -2457,6 +2634,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -2490,6 +2668,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -2523,6 +2702,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -2556,6 +2736,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "name": {
@@ -2568,6 +2749,7 @@
             }
           ],
           "default": null,
+          "description": "Display name for the Genie room. Auto-populated from the space if omitted.",
           "title": "Name"
         },
         "description": {
@@ -2580,6 +2762,7 @@
             }
           ],
           "default": null,
+          "description": "Description of the Genie room. Auto-populated from the space if omitted.",
           "title": "Description"
         },
         "space_id": {
@@ -2607,22 +2790,25 @@
             },
             {
               "type": "boolean"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
+          "description": "Databricks Genie space ID. If omitted, looked up by name.",
           "title": "Space Id"
         }
       },
-      "required": [
-        "space_id"
-      ],
       "title": "GenieRoomModel",
       "type": "object"
     },
     "GuardrailModel": {
       "additionalProperties": false,
-      "description": "Configuration for an LLM-based guardrail.\n\nGuardrails use MLflow judges to evaluate agent responses against criteria\ndefined by the prompt. The prompt determines the evaluation type -- tone,\ncompleteness, veracity/groundedness, or any custom criteria.\n\nTool context from ToolMessage objects in the conversation is automatically\nextracted and included in the ``inputs`` dict, so veracity prompts can\nreference it via ``{{ inputs }}``.\n\nAttributes:\n    name: Name identifying this guardrail\n    model: LLM model for the judge. Accepts a string (model name) or LLMModel.\n        The model's Databricks URI is used as the MLflow judge model endpoint.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and ``{{ outputs }}``\n        template variables. Accepts a string or PromptModel.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3)\n    fail_open: If True, let responses through when the judge call fails (default: True)\n    max_context_length: Max character length for extracted tool context (default: 8000)",
+      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nTwo configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n\nThe two modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``LLMModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge mode.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    hub: Optional guardrails-ai hub URI for the scorer validator\n        (e.g. ``\"hub://guardrails/toxic_language\"``).  When set,\n        the validator is auto-installed at startup if the\n        ``GUARDRAILSAI_API_KEY`` environment variable is present.\n        Only valid when *scorer* is also set.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
       "properties": {
         "name": {
+          "description": "Name identifying this guardrail.",
           "title": "Name",
           "type": "string"
         },
@@ -2633,8 +2819,13 @@
             },
             {
               "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
+          "description": "LLM model for the judge. Required for custom judge mode.",
           "title": "Model"
         },
         "prompt": {
@@ -2644,9 +2835,46 @@
             },
             {
               "$ref": "#/$defs/PromptModel"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
+          "description": "Evaluation instructions using {{ inputs }} and {{ outputs }} template variables. Required for custom judge mode.",
           "title": "Prompt"
+        },
+        "scorer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fully qualified name of an MLflow Scorer class (e.g., 'mlflow.genai.scorers.guardrails.DetectPII'). Required for scorer-based mode.",
+          "title": "Scorer"
+        },
+        "scorer_args": {
+          "additionalProperties": true,
+          "description": "Keyword arguments forwarded to the scorer constructor (e.g., {'pii_entities': ['CREDIT_CARD', 'SSN']}).",
+          "title": "Scorer Args",
+          "type": "object"
+        },
+        "hub": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Guardrails-AI hub URI for auto-installing the scorer validator (e.g., 'hub://guardrails/toxic_language'). Requires scorer.",
+          "title": "Hub"
         },
         "num_retries": {
           "anyOf": [
@@ -2658,9 +2886,10 @@
             }
           ],
           "default": 3,
+          "description": "Maximum retry attempts when the evaluation call fails.",
           "title": "Num Retries"
         },
-        "fail_open": {
+        "fail_on_error": {
           "anyOf": [
             {
               "type": "boolean"
@@ -2669,8 +2898,9 @@
               "type": "null"
             }
           ],
-          "default": true,
-          "title": "Fail Open"
+          "default": false,
+          "description": "If true, block responses when the evaluation itself errors. If false, let responses through on errors.",
+          "title": "Fail On Error"
         },
         "max_context_length": {
           "anyOf": [
@@ -2682,25 +2912,38 @@
             }
           ],
           "default": 8000,
+          "description": "Maximum character length for extracted tool context passed to the guardrail.",
           "title": "Max Context Length"
+        },
+        "apply_to": {
+          "default": "both",
+          "description": "When to run: 'input' (before model), 'output' (after model), or 'both'.",
+          "enum": [
+            "input",
+            "output",
+            "both"
+          ],
+          "title": "Apply To",
+          "type": "string"
         }
       },
       "required": [
-        "name",
-        "model",
-        "prompt"
+        "name"
       ],
       "title": "GuardrailModel",
       "type": "object"
     },
     "GuidelineModel": {
       "additionalProperties": false,
+      "description": "A named set of evaluation guidelines used by the Guidelines scorer.",
       "properties": {
         "name": {
+          "description": "Unique name for this guideline set.",
           "title": "Name",
           "type": "string"
         },
         "guidelines": {
+          "description": "List of guideline statements the scorer evaluates responses against.",
           "items": {
             "type": "string"
           },
@@ -2792,6 +3035,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -2803,7 +3047,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -2836,6 +3081,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -2869,6 +3115,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -2902,6 +3149,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -2935,6 +3183,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "schema": {
@@ -2946,9 +3195,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Schema reference qualifying the index name."
         },
         "name": {
+          "description": "Index name (short) or fully qualified name (catalog.schema.index).",
           "title": "Name",
           "type": "string"
         }
@@ -2966,6 +3217,7 @@
         "type": {
           "const": "inline",
           "default": "inline",
+          "description": "Function type discriminator. Must be 'inline'.",
           "title": "Type",
           "type": "string"
         },
@@ -2978,7 +3230,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
         },
         "code": {
           "description": "Python code defining a tool function decorated with @tool",
@@ -3123,6 +3376,7 @@
     },
     "LLMModel": {
       "additionalProperties": false,
+      "description": "Configuration for an LLM served via a Databricks Model Serving endpoint.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -3134,6 +3388,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -3145,7 +3400,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -3178,6 +3434,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -3211,6 +3468,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -3244,6 +3502,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -3277,9 +3536,11 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "name": {
+          "description": "Serving endpoint name (e.g., 'databricks-meta-llama-3-3-70b-instruct').",
           "title": "Name",
           "type": "string"
         },
@@ -3293,6 +3554,7 @@
             }
           ],
           "default": null,
+          "description": "Human-readable description of this model configuration.",
           "title": "Description"
         },
         "temperature": {
@@ -3305,6 +3567,7 @@
             }
           ],
           "default": 0.1,
+          "description": "Sampling temperature controlling output randomness (0.0 = deterministic, 1.0 = creative).",
           "title": "Temperature"
         },
         "max_tokens": {
@@ -3317,6 +3580,7 @@
             }
           ],
           "default": 8192,
+          "description": "Maximum number of tokens in the model response.",
           "title": "Max Tokens"
         },
         "fallbacks": {
@@ -3338,6 +3602,7 @@
               "type": "null"
             }
           ],
+          "description": "Ordered list of fallback model names or LLMModel configs tried on primary model failure.",
           "title": "Fallbacks"
         },
         "use_responses_api": {
@@ -3361,6 +3626,7 @@
       "type": "object"
     },
     "LogLevel": {
+      "description": "Logging verbosity level.",
       "enum": [
         "TRACE",
         "DEBUG",
@@ -3385,6 +3651,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -3396,7 +3663,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -3429,6 +3697,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -3462,6 +3731,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -3495,6 +3765,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -3528,11 +3799,13 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "type": {
           "const": "mcp",
           "default": "mcp",
+          "description": "Function type discriminator. Must be 'mcp'.",
           "title": "Type",
           "type": "string"
         },
@@ -3545,11 +3818,13 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
         },
         "transport": {
           "$ref": "#/$defs/TransportType",
-          "default": "streamable_http"
+          "default": "streamable_http",
+          "description": "MCP transport protocol: streamable_http (default) or stdio."
         },
         "command": {
           "anyOf": [
@@ -3561,6 +3836,7 @@
             }
           ],
           "default": "python",
+          "description": "Executable command for STDIO transport (e.g., 'python', 'node').",
           "title": "Command"
         },
         "url": {
@@ -3594,6 +3870,7 @@
             }
           ],
           "default": null,
+          "description": "Direct MCP server URL. Mutually exclusive with app, connection, genie_room, sql, vector_search, functions.",
           "title": "Url"
         },
         "headers": {
@@ -3625,10 +3902,12 @@
               }
             ]
           },
+          "description": "HTTP headers sent with MCP requests (e.g., authorization tokens).",
           "title": "Headers",
           "type": "object"
         },
         "args": {
+          "description": "Command-line arguments for STDIO transport.",
           "items": {
             "type": "string"
           },
@@ -3644,7 +3923,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Databricks App whose /mcp endpoint serves MCP tools."
         },
         "connection": {
           "anyOf": [
@@ -3655,7 +3935,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Unity Catalog connection for external MCP servers."
         },
         "functions": {
           "anyOf": [
@@ -3666,7 +3947,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Unity Catalog schema whose functions are exposed as MCP tools."
         },
         "genie_room": {
           "anyOf": [
@@ -3677,7 +3959,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Genie space exposed as an MCP server for natural-language SQL."
         },
         "sql": {
           "anyOf": [
@@ -3689,6 +3972,7 @@
             }
           ],
           "default": null,
+          "description": "Enable the Databricks SQL MCP server (serverless, workspace-level).",
           "title": "Sql"
         },
         "vector_search": {
@@ -3700,7 +3984,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Vector search index exposed as an MCP server."
         },
         "include_tools": {
           "anyOf": [
@@ -3824,6 +4109,7 @@
     },
     "MemoryModel": {
       "additionalProperties": false,
+      "description": "Memory configuration combining state checkpointing, long-term memory storage, and automatic extraction.",
       "properties": {
         "checkpointer": {
           "anyOf": [
@@ -3834,7 +4120,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Checkpointer for persisting conversation thread state across turns."
         },
         "store": {
           "anyOf": [
@@ -3845,7 +4132,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Long-term memory store for cross-thread knowledge (profiles, preferences, episodes)."
         },
         "extraction": {
           "anyOf": [
@@ -3856,7 +4144,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Automatic memory extraction and injection settings."
         }
       },
       "title": "MemoryModel",
@@ -3864,11 +4153,14 @@
     },
     "Message": {
       "additionalProperties": false,
+      "description": "A single chat message with a role and content.",
       "properties": {
         "role": {
-          "$ref": "#/$defs/MessageRole"
+          "$ref": "#/$defs/MessageRole",
+          "description": "Message role: user, assistant, or system."
         },
         "content": {
+          "description": "Message text content.",
           "title": "Content",
           "type": "string"
         }
@@ -3881,6 +4173,7 @@
       "type": "object"
     },
     "MessageRole": {
+      "description": "Role of a message in a chat conversation.",
       "enum": [
         "user",
         "assistant",
@@ -3913,7 +4206,7 @@
     },
     "MonitoringModel": {
       "additionalProperties": false,
-      "description": "Configuration for production monitoring of GenAI scorers.\n\nControls how evaluation scorers are registered and scheduled against\nproduction traces via the MLflow 3 scorer lifecycle API.\n\nAttributes:\n    sample_rate: Sampling rate for built-in scorers (Safety, Completeness,\n        RelevanceToQuery, ToolCallEfficiency). Defaults to 1.0 (100%).\n    guidelines_sample_rate: Sampling rate for Guidelines scorers, which\n        invoke an LLM judge per trace and are more expensive. Defaults\n        to 0.5 (50%).",
+      "description": "Configuration for production monitoring of GenAI scorers.\n\nControls which scorers are registered and at what sampling rates against\nproduction traces stored in Unity Catalog via the MLflow 3 scorer\nlifecycle API.\n\nAttributes:\n    sample_rate: Sampling rate for built-in scorers. Defaults to 1.0 (100%).\n    scorers: Optional list of built-in scorer names to enable. When omitted,\n        all built-in scorers are registered (safety, completeness,\n        relevance_to_query, tool_call_efficiency).\n    guidelines: Optional list of guideline configurations for Guidelines\n        scorers used in production monitoring.\n    guidelines_sample_rate: Sampling rate for Guidelines scorers, which\n        invoke an LLM judge per trace and are more expensive. Defaults\n        to 0.5 (50%).",
       "properties": {
         "sample_rate": {
           "default": 1.0,
@@ -3922,6 +4215,37 @@
           "minimum": 0.0,
           "title": "Sample Rate",
           "type": "number"
+        },
+        "scorers": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/GuardrailModel"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Built-in scorer names, glob patterns, or GuardrailModel references to enable. Built-in options: safety, completeness, relevance_to_query, tool_call_efficiency. Supports glob patterns: '*' (all built-in scorers), 'safe*', etc. GuardrailModel entries are converted to scorers via as_scorer(). Defaults to all built-in scorers when omitted.",
+          "title": "Scorers"
+        },
+        "guidelines": {
+          "description": "Guideline configurations for production monitoring Guidelines scorers.",
+          "items": {
+            "$ref": "#/$defs/GuidelineModel"
+          },
+          "title": "Guidelines",
+          "type": "array"
         },
         "guidelines_sample_rate": {
           "default": 0.5,
@@ -3937,11 +4261,13 @@
     },
     "OptimizationsModel": {
       "additionalProperties": false,
+      "description": "Container for prompt and cache threshold optimization configurations.",
       "properties": {
         "training_datasets": {
           "additionalProperties": {
             "$ref": "#/$defs/EvaluationDatasetModel"
           },
+          "description": "Named training datasets used by optimization runs.",
           "title": "Training Datasets",
           "type": "object"
         },
@@ -3949,6 +4275,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/PromptOptimizationModel"
           },
+          "description": "Named prompt optimization configurations using GEPA.",
           "title": "Prompt Optimizations",
           "type": "object"
         },
@@ -3956,6 +4283,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/ContextAwareCacheOptimizationModel"
           },
+          "description": "Named cache threshold optimization configurations using Bayesian optimization.",
           "title": "Cache Threshold Optimizations",
           "type": "object"
         }
@@ -3965,6 +4293,7 @@
     },
     "OrchestrationModel": {
       "additionalProperties": false,
+      "description": "Multi-agent orchestration configuration. Exactly one of supervisor or swarm must be specified.",
       "properties": {
         "supervisor": {
           "anyOf": [
@@ -3975,7 +4304,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Supervisor pattern: a central LLM routes tasks to sub-agents."
         },
         "swarm": {
           "anyOf": [
@@ -3991,6 +4321,7 @@
             }
           ],
           "default": null,
+          "description": "Swarm pattern: agents hand off to each other via tool calls. Set to true for defaults.",
           "title": "Swarm"
         },
         "memory": {
@@ -4002,7 +4333,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Memory configuration scoped to the orchestration layer (checkpointer, store, extraction)."
         }
       },
       "title": "OrchestrationModel",
@@ -4010,8 +4342,10 @@
     },
     "PermissionModel": {
       "additionalProperties": false,
+      "description": "A grant of Unity Catalog privileges to one or more principals.",
       "properties": {
         "principals": {
+          "description": "Users, groups, or service principals receiving the privileges.",
           "items": {
             "anyOf": [
               {
@@ -4026,6 +4360,7 @@
           "type": "array"
         },
         "privileges": {
+          "description": "Unity Catalog privileges to grant (e.g., SELECT, EXECUTE, USE_SCHEMA).",
           "items": {
             "$ref": "#/$defs/Privilege"
           },
@@ -4040,6 +4375,7 @@
       "type": "object"
     },
     "PrimitiveVariableModel": {
+      "description": "A variable holding a literal primitive value (string, int, float, or bool).",
       "properties": {
         "value": {
           "anyOf": [
@@ -4056,6 +4392,7 @@
               "type": "boolean"
             }
           ],
+          "description": "Literal value (string, integer, float, or boolean).",
           "title": "Value"
         }
       },
@@ -4066,6 +4403,7 @@
       "type": "object"
     },
     "Privilege": {
+      "description": "Unity Catalog privilege types for granting access to resources.",
       "enum": [
         "ALL_PRIVILEGES",
         "USE_CATALOG",
@@ -4094,6 +4432,7 @@
     },
     "PromptModel": {
       "additionalProperties": false,
+      "description": "A prompt backed by the MLflow Prompt Registry with versioning and alias support.",
       "properties": {
         "schema": {
           "anyOf": [
@@ -4104,9 +4443,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Unity Catalog schema qualifying the prompt name (catalog.schema.name)."
         },
         "name": {
+          "description": "Prompt name in the MLflow Prompt Registry.",
           "title": "Name",
           "type": "string"
         },
@@ -4120,6 +4461,7 @@
             }
           ],
           "default": null,
+          "description": "Human-readable description stored with the prompt in the registry.",
           "title": "Description"
         },
         "default_template": {
@@ -4132,6 +4474,7 @@
             }
           ],
           "default": null,
+          "description": "Inline template text registered when auto_register is true and no registry entry exists.",
           "title": "Default Template"
         },
         "alias": {
@@ -4144,6 +4487,7 @@
             }
           ],
           "default": null,
+          "description": "Prompt alias to load (e.g., 'latest', 'champion'). Mutually exclusive with version.",
           "title": "Alias"
         },
         "version": {
@@ -4156,6 +4500,7 @@
             }
           ],
           "default": null,
+          "description": "Specific prompt version number to load. Mutually exclusive with alias.",
           "title": "Version"
         },
         "tags": {
@@ -4168,6 +4513,7 @@
               "type": "null"
             }
           ],
+          "description": "Key-value tags attached to the prompt version in the registry.",
           "title": "Tags"
         },
         "auto_register": {
@@ -4188,6 +4534,7 @@
       "description": "Configuration for prompt optimization using GEPA.\n\nGEPA (Generative Evolution of Prompts and Agents) is an evolutionary\noptimizer that uses reflective mutation to improve prompts based on\nevaluation feedback.\n\nExample:\n    prompt_optimization:\n      name: optimize_my_prompt\n      prompt: *my_prompt\n      agent: *my_agent\n      dataset: *my_training_dataset\n      reflection_model: databricks-meta-llama-3-3-70b-instruct\n      num_candidates: 50",
       "properties": {
         "name": {
+          "description": "Unique name for this optimization run.",
           "title": "Name",
           "type": "string"
         },
@@ -4200,27 +4547,31 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Prompt to optimize. If omitted, uses the agent's prompt."
         },
         "agent": {
-          "$ref": "#/$defs/AgentModel"
+          "$ref": "#/$defs/AgentModel",
+          "description": "Agent whose prompt is being optimized."
         },
         "dataset": {
-          "$ref": "#/$defs/EvaluationDatasetModel"
+          "$ref": "#/$defs/EvaluationDatasetModel",
+          "description": "Training dataset with input/expectation pairs for fitness evaluation."
         },
         "reflection_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "type": "string"
             },
             {
-              "type": "string"
+              "$ref": "#/$defs/LLMModel"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
+          "description": "LLM used for reflective mutation during GEPA optimization.",
           "title": "Reflection Model"
         },
         "num_candidates": {
@@ -4233,6 +4584,7 @@
             }
           ],
           "default": 50,
+          "description": "Number of candidate prompts to evaluate per optimization run.",
           "title": "Num Candidates"
         }
       },
@@ -4246,10 +4598,12 @@
     },
     "PythonFunctionModel": {
       "additionalProperties": false,
+      "description": "A tool implemented as a Python function, imported by fully qualified name.",
       "properties": {
         "type": {
           "const": "python",
           "default": "python",
+          "description": "Function type discriminator. Must be 'python'.",
           "title": "Type",
           "type": "string"
         },
@@ -4262,9 +4616,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
         },
         "name": {
+          "description": "Fully qualified Python function name (e.g., 'my_package.tools.my_tool').",
           "title": "Name",
           "type": "string"
         }
@@ -4277,6 +4633,7 @@
     },
     "RegisteredModelModel": {
       "additionalProperties": false,
+      "description": "Unity Catalog registered model where the agent artifact is logged.",
       "properties": {
         "schema": {
           "anyOf": [
@@ -4287,9 +4644,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Schema reference qualifying the model name."
         },
         "name": {
+          "description": "Registered model name (short) or fully qualified (catalog.schema.model).",
           "title": "Name",
           "type": "string"
         }
@@ -4364,11 +4723,13 @@
     },
     "ResourcesModel": {
       "additionalProperties": false,
+      "description": "Databricks resource declarations used by agents and tools.\n\nEach resource type is a named dictionary so entries can be referenced\nelsewhere in the config via YAML anchors.",
       "properties": {
         "llms": {
           "additionalProperties": {
             "$ref": "#/$defs/LLMModel"
           },
+          "description": "LLM serving endpoint configurations keyed by name.",
           "title": "Llms",
           "type": "object"
         },
@@ -4376,6 +4737,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/VectorStoreModel"
           },
+          "description": "Vector search index configurations for semantic retrieval.",
           "title": "Vector Stores",
           "type": "object"
         },
@@ -4383,6 +4745,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/GenieRoomModel"
           },
+          "description": "Databricks Genie space configurations for natural-language SQL.",
           "title": "Genie Rooms",
           "type": "object"
         },
@@ -4390,6 +4753,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/TableModel"
           },
+          "description": "Unity Catalog table references.",
           "title": "Tables",
           "type": "object"
         },
@@ -4397,6 +4761,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/VolumeModel"
           },
+          "description": "Unity Catalog volume references for file storage.",
           "title": "Volumes",
           "type": "object"
         },
@@ -4404,6 +4769,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/FunctionModel"
           },
+          "description": "Unity Catalog function references.",
           "title": "Functions",
           "type": "object"
         },
@@ -4411,6 +4777,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/WarehouseModel"
           },
+          "description": "SQL warehouse configurations for query execution.",
           "title": "Warehouses",
           "type": "object"
         },
@@ -4418,6 +4785,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/DatabaseModel"
           },
+          "description": "Database connection configurations (Lakebase or standard PostgreSQL).",
           "title": "Databases",
           "type": "object"
         },
@@ -4425,6 +4793,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/ConnectionModel"
           },
+          "description": "Unity Catalog connection references for MCP and external data sources.",
           "title": "Connections",
           "type": "object"
         },
@@ -4432,6 +4801,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/DatabricksAppModel"
           },
+          "description": "Databricks App references used as MCP endpoints or tool backends.",
           "title": "Apps",
           "type": "object"
         }
@@ -4475,9 +4845,11 @@
     },
     "RetrieverModel": {
       "additionalProperties": false,
+      "description": "Retriever combining a vector store with search parameters, reranking, and instructed retrieval.",
       "properties": {
         "vector_store": {
-          "$ref": "#/$defs/VectorStoreModel"
+          "$ref": "#/$defs/VectorStoreModel",
+          "description": "Vector search index configuration used for similarity search."
         },
         "columns": {
           "anyOf": [
@@ -4491,10 +4863,12 @@
               "type": "null"
             }
           ],
+          "description": "Columns to return from search results. Defaults to the vector store's columns.",
           "title": "Columns"
         },
         "search_parameters": {
-          "$ref": "#/$defs/SearchParametersModel"
+          "$ref": "#/$defs/SearchParametersModel",
+          "description": "Search tuning: number of results, query type, and metadata filters."
         },
         "rerank": {
           "anyOf": [
@@ -4569,6 +4943,7 @@
     },
     "SchemaModel": {
       "additionalProperties": false,
+      "description": "Unity Catalog schema reference (catalog + schema) used to qualify tables, functions, and prompts.",
       "properties": {
         "catalog_name": {
           "anyOf": [
@@ -4597,6 +4972,7 @@
               "type": "boolean"
             }
           ],
+          "description": "Unity Catalog catalog name.",
           "title": "Catalog Name"
         },
         "schema_name": {
@@ -4626,6 +5002,7 @@
               "type": "boolean"
             }
           ],
+          "description": "Unity Catalog schema name within the catalog.",
           "title": "Schema Name"
         },
         "permissions": {
@@ -4640,6 +5017,7 @@
               "type": "null"
             }
           ],
+          "description": "Permissions to grant on this schema during provisioning.",
           "title": "Permissions"
         }
       },
@@ -4652,6 +5030,7 @@
     },
     "SearchParametersModel": {
       "additionalProperties": false,
+      "description": "Tuning parameters for vector similarity search queries.",
       "properties": {
         "num_results": {
           "anyOf": [
@@ -4663,6 +5042,7 @@
             }
           ],
           "default": 10,
+          "description": "Number of results to return per search query.",
           "title": "Num Results"
         },
         "filters": {
@@ -4675,6 +5055,7 @@
               "type": "null"
             }
           ],
+          "description": "Static metadata filters applied to every search (key-value pairs).",
           "title": "Filters"
         },
         "query_type": {
@@ -4687,6 +5068,7 @@
             }
           ],
           "default": "ANN",
+          "description": "Search algorithm type: 'ANN' (approximate nearest neighbor) or 'HYBRID'.",
           "title": "Query Type"
         }
       },
@@ -4694,12 +5076,15 @@
       "type": "object"
     },
     "SecretVariableModel": {
+      "description": "A variable resolved from a Databricks secret scope at runtime.",
       "properties": {
         "scope": {
+          "description": "Databricks secret scope name.",
           "title": "Scope",
           "type": "string"
         },
         "secret": {
+          "description": "Secret key within the scope.",
           "title": "Secret",
           "type": "string"
         },
@@ -4711,6 +5096,7 @@
             }
           ],
           "default": null,
+          "description": "Fallback value used when the secret cannot be retrieved.",
           "title": "Default Value"
         }
       },
@@ -4722,6 +5108,7 @@
       "type": "object"
     },
     "ServicePrincipalModel": {
+      "description": "Databricks service principal credentials for OAuth M2M authentication.",
       "properties": {
         "client_id": {
           "anyOf": [
@@ -4750,6 +5137,7 @@
               "type": "boolean"
             }
           ],
+          "description": "OAuth application (client) ID for the service principal.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -4779,6 +5167,7 @@
               "type": "boolean"
             }
           ],
+          "description": "OAuth client secret for the service principal.",
           "title": "Client Secret"
         }
       },
@@ -4791,8 +5180,10 @@
     },
     "StoreModel": {
       "additionalProperties": false,
+      "description": "Long-term memory store for cross-thread memories (user profiles, preferences, episodes).",
       "properties": {
         "name": {
+          "description": "Unique name for this store instance.",
           "title": "Name",
           "type": "string"
         },
@@ -4805,7 +5196,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Embedding model for semantic memory search. Required for vector-based recall."
         },
         "dims": {
           "anyOf": [
@@ -4816,7 +5208,8 @@
               "type": "null"
             }
           ],
-          "default": 1536,
+          "default": null,
+          "description": "Embedding dimensions. Auto-detected from the model if not set.",
           "title": "Dims"
         },
         "database": {
@@ -4828,7 +5221,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Database for persistent storage. If omitted, uses in-memory storage (lost on restart)."
         },
         "namespace": {
           "anyOf": [
@@ -4840,6 +5234,7 @@
             }
           ],
           "default": null,
+          "description": "Namespace prefix for memory keys, enabling multi-tenant isolation.",
           "title": "Namespace"
         }
       },
@@ -4851,11 +5246,14 @@
     },
     "SupervisorModel": {
       "additionalProperties": false,
+      "description": "Configuration for the supervisor agent in a supervisor orchestration pattern.",
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLMModel"
+          "$ref": "#/$defs/LLMModel",
+          "description": "LLM model used by the supervisor to route tasks to sub-agents."
         },
         "tools": {
+          "description": "Tools available directly to the supervisor agent.",
           "items": {
             "$ref": "#/$defs/ToolModel"
           },
@@ -4868,14 +5266,18 @@
               "type": "string"
             },
             {
+              "$ref": "#/$defs/PromptModel"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
+          "description": "System prompt for the supervisor agent.",
           "title": "Prompt"
         },
         "middleware": {
-          "description": "List of middleware to apply to the supervisor",
+          "description": "List of middleware to apply to the supervisor.",
           "items": {
             "$ref": "#/$defs/MiddlewareModel"
           },
@@ -4891,6 +5293,7 @@
     },
     "SwarmModel": {
       "additionalProperties": false,
+      "description": "Configuration for swarm-style multi-agent orchestration with agent-to-agent handoffs.",
       "properties": {
         "default_agent": {
           "anyOf": [
@@ -4905,6 +5308,7 @@
             }
           ],
           "default": null,
+          "description": "The initial agent that receives user messages. Defaults to the first agent.",
           "title": "Default Agent"
         },
         "middleware": {
@@ -4956,6 +5360,7 @@
     },
     "TableModel": {
       "additionalProperties": false,
+      "description": "Unity Catalog table reference. Provide a fully qualified name or a schema + table name.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -4967,6 +5372,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -4978,7 +5384,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -5011,6 +5418,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -5044,6 +5452,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -5077,6 +5486,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -5110,6 +5520,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "schema": {
@@ -5121,7 +5532,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Schema reference qualifying the table. If omitted, name must be fully qualified."
         },
         "name": {
           "anyOf": [
@@ -5133,6 +5545,7 @@
             }
           ],
           "default": null,
+          "description": "Table name (short) or fully qualified name (catalog.schema.table).",
           "title": "Name"
         }
       },
@@ -5141,8 +5554,10 @@
     },
     "ToolModel": {
       "additionalProperties": false,
+      "description": "A named tool binding an identifier to a function implementation.",
       "properties": {
         "name": {
+          "description": "Display name for the tool shown to the LLM during function calling.",
           "title": "Name",
           "type": "string"
         },
@@ -5167,6 +5582,7 @@
               "type": "string"
             }
           ],
+          "description": "Function implementation: Python, factory, inline, Unity Catalog, MCP, or a reference string.",
           "title": "Function"
         }
       },
@@ -5177,7 +5593,36 @@
       "title": "ToolModel",
       "type": "object"
     },
+    "TraceLocationModel": {
+      "additionalProperties": false,
+      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nAccepts either a SchemaModel reference (aliased to \"schema\") or a string\nin \"catalog.schema\" format. When configured on AppModel, traces are stored\nin UC Delta tables via set_experiment_trace_location().",
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/SchemaModel",
+          "description": "Unity Catalog schema (catalog.schema) where OTEL trace tables are stored."
+        },
+        "warehouse": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WarehouseModel"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "SQL warehouse for creating views and querying traces. Accepts a WarehouseModel reference or a warehouse ID string.",
+          "title": "Warehouse"
+        }
+      },
+      "required": [
+        "schema",
+        "warehouse"
+      ],
+      "title": "TraceLocationModel",
+      "type": "object"
+    },
     "TransportType": {
+      "description": "MCP transport protocol.",
       "enum": [
         "streamable_http",
         "stdio"
@@ -5187,10 +5632,12 @@
     },
     "UnityCatalogFunctionModel": {
       "additionalProperties": false,
+      "description": "A tool backed by a Unity Catalog SQL function.",
       "properties": {
         "type": {
           "const": "unity_catalog",
           "default": "unity_catalog",
+          "description": "Function type discriminator. Must be 'unity_catalog'.",
           "title": "Type",
           "type": "string"
         },
@@ -5203,10 +5650,12 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
         },
         "resource": {
-          "$ref": "#/$defs/FunctionModel"
+          "$ref": "#/$defs/FunctionModel",
+          "description": "Unity Catalog function reference."
         },
         "partial_args": {
           "anyOf": [
@@ -5245,6 +5694,7 @@
               "type": "null"
             }
           ],
+          "description": "Pre-filled arguments automatically injected when the function is called.",
           "title": "Partial Args"
         }
       },
@@ -5256,11 +5706,14 @@
     },
     "UnityCatalogFunctionSqlModel": {
       "additionalProperties": false,
+      "description": "A Unity Catalog SQL function definition with DDL, parameters, and optional test.",
       "properties": {
         "function": {
-          "$ref": "#/$defs/FunctionModel"
+          "$ref": "#/$defs/FunctionModel",
+          "description": "Unity Catalog function reference (target location)."
         },
         "ddl": {
+          "description": "SQL DDL statement defining the function (CREATE OR REPLACE FUNCTION ...).",
           "title": "Ddl",
           "type": "string"
         },
@@ -5274,6 +5727,7 @@
               "type": "null"
             }
           ],
+          "description": "Variable substitution parameters for the DDL template.",
           "title": "Parameters"
         },
         "test": {
@@ -5285,7 +5739,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Optional test to run after creating the function to verify it works."
         }
       },
       "required": [
@@ -5297,6 +5752,7 @@
     },
     "UnityCatalogFunctionSqlTestModel": {
       "additionalProperties": false,
+      "description": "Test configuration for validating a Unity Catalog SQL function after creation.",
       "properties": {
         "parameters": {
           "anyOf": [
@@ -5308,6 +5764,7 @@
               "type": "null"
             }
           ],
+          "description": "Parameter values to pass when invoking the function for testing.",
           "title": "Parameters"
         }
       },
@@ -5316,14 +5773,17 @@
     },
     "VectorSearchEndpoint": {
       "additionalProperties": false,
+      "description": "Vector search endpoint that hosts one or more vector search indexes.",
       "properties": {
         "name": {
+          "description": "Vector search endpoint name in the workspace.",
           "title": "Name",
           "type": "string"
         },
         "type": {
           "$ref": "#/$defs/VectorSearchEndpointType",
-          "default": "STANDARD"
+          "default": "STANDARD",
+          "description": "Endpoint type: STANDARD or OPTIMIZED_STORAGE."
         }
       },
       "required": [
@@ -5333,6 +5793,7 @@
       "type": "object"
     },
     "VectorSearchEndpointType": {
+      "description": "Vector search endpoint compute profile.",
       "enum": [
         "STANDARD",
         "OPTIMIZED_STORAGE"
@@ -5354,6 +5815,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -5365,7 +5827,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -5398,6 +5861,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -5431,6 +5895,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -5464,6 +5929,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -5497,6 +5963,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "index": {
@@ -5508,7 +5975,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Vector search index to query. Required for runtime; auto-generated in provisioning mode."
         },
         "source_table": {
           "anyOf": [
@@ -5519,7 +5987,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Source table for provisioning a new vector search index. Omit when using an existing index."
         },
         "embedding_source_column": {
           "anyOf": [
@@ -5531,6 +6000,7 @@
             }
           ],
           "default": null,
+          "description": "Column in the source table containing text to embed. Required in provisioning mode.",
           "title": "Embedding Source Column"
         },
         "embedding_model": {
@@ -5542,7 +6012,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Embedding model endpoint. Defaults to 'databricks-gte-large-en' in provisioning mode."
         },
         "endpoint": {
           "anyOf": [
@@ -5553,7 +6024,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Vector search endpoint hosting the index. Auto-detected in provisioning mode."
         },
         "source_path": {
           "anyOf": [
@@ -5564,7 +6036,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Volume path for source data files (alternative to source_table)."
         },
         "checkpoint_path": {
           "anyOf": [
@@ -5575,7 +6048,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Volume path for sync checkpoint storage."
         },
         "primary_key": {
           "anyOf": [
@@ -5587,6 +6061,7 @@
             }
           ],
           "default": null,
+          "description": "Primary key column in the source table. Auto-detected if omitted.",
           "title": "Primary Key"
         },
         "columns": {
@@ -5601,6 +6076,7 @@
               "type": "null"
             }
           ],
+          "description": "Columns to include in search results.",
           "title": "Columns"
         },
         "doc_uri": {
@@ -5613,6 +6089,7 @@
             }
           ],
           "default": null,
+          "description": "Column name containing document URIs for provenance tracking.",
           "title": "Doc Uri"
         }
       },
@@ -5658,6 +6135,7 @@
     },
     "VolumeModel": {
       "additionalProperties": false,
+      "description": "Unity Catalog volume reference for file storage.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -5669,6 +6147,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -5680,7 +6159,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -5713,6 +6193,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -5746,6 +6227,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -5779,6 +6261,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -5812,6 +6295,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "schema": {
@@ -5823,9 +6307,11 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Schema reference qualifying the volume name."
         },
         "name": {
+          "description": "Volume name (short) or fully qualified name (catalog.schema.volume).",
           "title": "Name",
           "type": "string"
         }
@@ -5838,6 +6324,7 @@
     },
     "VolumePathModel": {
       "additionalProperties": false,
+      "description": "A path within a Unity Catalog volume (e.g., /Volumes/catalog/schema/volume/subdir).",
       "properties": {
         "volume": {
           "anyOf": [
@@ -5848,7 +6335,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Volume reference. Combined with path to form the full /Volumes/... path."
         },
         "path": {
           "anyOf": [
@@ -5860,6 +6348,7 @@
             }
           ],
           "default": null,
+          "description": "Relative path within the volume, or an absolute /Volumes/... path if volume is omitted.",
           "title": "Path"
         }
       },
@@ -5868,6 +6357,7 @@
     },
     "WarehouseModel": {
       "additionalProperties": false,
+      "description": "SQL warehouse configuration. Provide either a name or warehouse_id.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -5879,6 +6369,7 @@
             }
           ],
           "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
           "title": "On Behalf Of User"
         },
         "service_principal": {
@@ -5890,7 +6381,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
         },
         "client_id": {
           "anyOf": [
@@ -5923,6 +6415,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client ID for service principal authentication.",
           "title": "Client Id"
         },
         "client_secret": {
@@ -5956,6 +6449,7 @@
             }
           ],
           "default": null,
+          "description": "OAuth client secret for service principal authentication.",
           "title": "Client Secret"
         },
         "workspace_host": {
@@ -5989,6 +6483,7 @@
             }
           ],
           "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
           "title": "Workspace Host"
         },
         "pat": {
@@ -6022,6 +6517,7 @@
             }
           ],
           "default": null,
+          "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
         "name": {
@@ -6034,6 +6530,7 @@
             }
           ],
           "default": null,
+          "description": "SQL warehouse display name. Resolved to warehouse_id automatically.",
           "title": "Name"
         },
         "description": {
@@ -6046,6 +6543,7 @@
             }
           ],
           "default": null,
+          "description": "Human-readable description of this warehouse.",
           "title": "Description"
         },
         "warehouse_id": {
@@ -6073,18 +6571,21 @@
             },
             {
               "type": "boolean"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
+          "description": "SQL warehouse ID. If omitted, looked up by name.",
           "title": "Warehouse Id"
         }
       },
-      "required": [
-        "warehouse_id"
-      ],
       "title": "WarehouseModel",
       "type": "object"
     },
     "WorkloadSize": {
+      "description": "Model Serving workload size controlling compute resources.",
       "enum": [
         "Small",
         "Medium",
@@ -6095,6 +6596,7 @@
     }
   },
   "additionalProperties": false,
+  "description": "Top-level configuration for a DAO AI application.\n\nDefines all resources, agents, tools, and deployment settings\nneeded to build and deploy an AI agent on Databricks.",
   "properties": {
     "version": {
       "anyOf": [
@@ -6106,6 +6608,7 @@
         }
       ],
       "default": null,
+      "description": "Configuration schema version for forward compatibility.",
       "title": "Version"
     },
     "variables": {
@@ -6137,6 +6640,7 @@
           }
         ]
       },
+      "description": "Named variables (env vars, secrets, literals, composites) reusable via YAML anchors.",
       "title": "Variables",
       "type": "object"
     },
@@ -6144,6 +6648,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/ServicePrincipalModel"
       },
+      "description": "Named service principals for OAuth M2M authentication with Databricks resources.",
       "title": "Service Principals",
       "type": "object"
     },
@@ -6151,6 +6656,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/SchemaModel"
       },
+      "description": "Unity Catalog schema references (catalog + schema) used by tables, functions, and prompts.",
       "title": "Schemas",
       "type": "object"
     },
@@ -6163,12 +6669,14 @@
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "description": "Databricks resource declarations: LLMs, vector stores, Genie rooms, tables, warehouses, databases, and more."
     },
     "retrievers": {
       "additionalProperties": {
         "$ref": "#/$defs/RetrieverModel"
       },
+      "description": "Named retriever configurations combining a vector store with search parameters and optional reranking.",
       "title": "Retrievers",
       "type": "object"
     },
@@ -6176,6 +6684,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/ToolModel"
       },
+      "description": "Named tool definitions (Python, factory, inline, Unity Catalog, or MCP) available to agents.",
       "title": "Tools",
       "type": "object"
     },
@@ -6183,6 +6692,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/GuardrailModel"
       },
+      "description": "Named guardrail configurations for evaluating agent responses against quality or safety criteria.",
       "title": "Guardrails",
       "type": "object"
     },
@@ -6190,6 +6700,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/MiddlewareModel"
       },
+      "description": "Named middleware definitions that can be applied to agents for cross-cutting concerns.",
       "title": "Middleware",
       "type": "object"
     },
@@ -6202,12 +6713,14 @@
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "description": "Global memory configuration (checkpointer, store, extraction) shared across agents."
     },
     "prompts": {
       "additionalProperties": {
         "$ref": "#/$defs/PromptModel"
       },
+      "description": "Named prompt definitions backed by the MLflow Prompt Registry.",
       "title": "Prompts",
       "type": "object"
     },
@@ -6215,6 +6728,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/AgentModel"
       },
+      "description": "Named agent definitions combining an LLM model with tools, guardrails, and middleware.",
       "title": "Agents",
       "type": "object"
     },
@@ -6227,7 +6741,8 @@
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "description": "Application-level settings: deployment target, model registration, permissions, and orchestration."
     },
     "evaluation": {
       "anyOf": [
@@ -6238,7 +6753,8 @@
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "description": "Offline evaluation configuration using MLflow GenAI scorers and a judge model."
     },
     "optimizations": {
       "anyOf": [
@@ -6249,7 +6765,8 @@
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "description": "Prompt and cache threshold optimization configurations."
     },
     "datasets": {
       "anyOf": [
@@ -6263,6 +6780,7 @@
           "type": "null"
         }
       ],
+      "description": "Dataset definitions for provisioning tables with DDL and seed data.",
       "title": "Datasets"
     },
     "unity_catalog_functions": {
@@ -6277,6 +6795,7 @@
           "type": "null"
         }
       ],
+      "description": "Unity Catalog SQL function definitions to create during provisioning.",
       "title": "Unity Catalog Functions"
     },
     "providers": {
@@ -6290,6 +6809,7 @@
         }
       ],
       "default": null,
+      "description": "Custom provider overrides for dependency injection (advanced usage).",
       "title": "Providers"
     }
   },

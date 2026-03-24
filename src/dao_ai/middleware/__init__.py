@@ -58,6 +58,7 @@ from dao_ai.middleware.guardrails import (
     ConcisenessGuardrailMiddleware,
     ContentFilterMiddleware,
     GuardrailMiddleware,
+    JudgeScorer,
     RelevanceGuardrailMiddleware,
     SafetyGuardrailMiddleware,
     ToneGuardrailMiddleware,
@@ -67,6 +68,7 @@ from dao_ai.middleware.guardrails import (
     create_guardrail_middleware,
     create_relevance_guardrail_middleware,
     create_safety_guardrail_middleware,
+    create_scorer_guardrail_middleware,
     create_tone_guardrail_middleware,
     create_veracity_guardrail_middleware,
 )
@@ -148,6 +150,7 @@ __all__ = [
     # Core factory function
     "create_factory_middleware",
     # DAO AI middleware implementations
+    "JudgeScorer",
     "GuardrailMiddleware",
     "ContentFilterMiddleware",
     "SafetyGuardrailMiddleware",
@@ -173,6 +176,7 @@ __all__ = [
     "RefineMiddleware",
     # DAO AI middleware factory functions
     "create_guardrail_middleware",
+    "create_scorer_guardrail_middleware",
     "create_content_filter_middleware",
     "create_safety_guardrail_middleware",
     "create_veracity_guardrail_middleware",

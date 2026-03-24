@@ -293,12 +293,14 @@ Prompt history is **always enabled** - it's fundamental to maintaining accurate 
 genie_tools:
   my_genie_tool:
     genie_room:
-      space_id: my-space-id
+      space_id: my-space-id        # or omit and use name instead
+      # name: "My Genie Space"     # resolves space_id automatically
     context_aware_cache_parameters:
       database:
         instance_name: retail-consumer-goods  # Lakebase
       warehouse:
-        warehouse_id: my-warehouse-id
+        warehouse_id: my-warehouse-id  # or omit and use name instead
+        # name: "My Warehouse"        # resolves warehouse_id automatically
       
       # Prompt history configuration
       prompt_history_table: genie_prompt_history  # Table for prompt storage
@@ -354,8 +356,9 @@ database = DatabaseModel(
     workspace_client=workspace_client,
 )
 
+# Provide warehouse_id directly, or just name to resolve the ID automatically
 warehouse = WarehouseModel(
-    warehouse_id="your-warehouse-id",
+    warehouse_id="your-warehouse-id",  # or use: name="Your Warehouse Name"
     workspace_client=workspace_client,
 )
 

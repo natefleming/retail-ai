@@ -372,15 +372,19 @@ class DatabricksStoreManager(StoreManagerBase):
 
             if self.store_model.embedding_model is not None:
                 embedding_endpoint = self.store_model.embedding_model.name
-                embedding_dims = self.store_model.dims
+                embeddings = DatabricksEmbeddings(endpoint=embedding_endpoint)
+
+                from dao_ai.memory.core import _resolve_embedding_dims
+
+                embedding_dims = _resolve_embedding_dims(
+                    embeddings, self.store_model.dims
+                )
 
                 logger.debug(
                     "Configuring store embeddings",
                     endpoint=embedding_endpoint,
                     dimensions=embedding_dims,
                 )
-
-                embeddings = DatabricksEmbeddings(endpoint=embedding_endpoint)
 
             t1 = time.monotonic()
             store = AsyncDatabricksStore(

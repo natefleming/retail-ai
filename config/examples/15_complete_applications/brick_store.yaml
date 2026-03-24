@@ -543,7 +543,7 @@ memory: &memory
   store: 
     name: default_store  # Type inferred as memory (no database)
     embedding_model: *embedding_model
-    dims: 1536
+    # dims: 1536                                    # Auto-detected from embedding model if omitted
 
 
 agents:
@@ -1297,6 +1297,12 @@ app:
     schema: *dais_schema
     name: dais_rct_multi_agent_dao
   endpoint_name: dais_rct_multi_agent_dao
+  trace_location:
+    schema: *dais_schema
+    warehouse: *dais_warehouse
+  monitoring:
+    sample_rate: 1.0
+    guidelines_sample_rate: 0.5
   tags:
     business: dais
     streaming: true
@@ -1331,9 +1337,6 @@ evaluation:
       # conversation_id is auto-generated as UUID if not provided
       user_id: my_user_id
     session: {}
-  monitoring:
-    sample_rate: 1.0
-    guidelines_sample_rate: 0.5
 
 datasets:
   # Core product and inventory tables

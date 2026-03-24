@@ -26,6 +26,7 @@ from dao_ai.config import (
     AppConfig,
     MemoryModel,
     OrchestrationModel,
+    PromptModel,
     SupervisorModel,
 )
 from dao_ai.middleware.base import AgentMiddleware
@@ -137,16 +138,27 @@ def _create_supervisor_agent(
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
 
+    # Capture the original PromptModel reference before any string conversion
+    # so it can be forwarded for MLflow trace linking.
+    effective_prompt: str | PromptModel | None = supervisor.prompt
+    prompt_model_ref: PromptModel | None = (
+        effective_prompt if isinstance(effective_prompt, PromptModel) else None
+    )
+
     # Append memory tool instructions to the prompt when memory tools are present
-    effective_prompt: str | None = supervisor.prompt
     if has_memory_tools and effective_prompt is not None:
         from dao_ai.nodes import MEMORY_TOOL_INSTRUCTIONS
 
-        effective_prompt = effective_prompt + MEMORY_TOOL_INSTRUCTIONS
+        if isinstance(effective_prompt, PromptModel):
+            effective_prompt = effective_prompt.template + MEMORY_TOOL_INSTRUCTIONS
+        else:
+            effective_prompt = effective_prompt + MEMORY_TOOL_INSTRUCTIONS
         logger.debug("Memory tool instructions appended to supervisor prompt")
 
     # Get the prompt as middleware (always returns AgentMiddleware or None)
-    prompt_middleware: LangchainAgentMiddleware | None = make_prompt(effective_prompt)
+    prompt_middleware: LangchainAgentMiddleware | None = make_prompt(
+        effective_prompt, prompt_model=prompt_model_ref
+    )
 
     # Add prompt middleware at the beginning for priority
     if prompt_middleware is not None:

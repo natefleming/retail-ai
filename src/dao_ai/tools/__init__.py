@@ -1,6 +1,7 @@
 from dao_ai.genie.cache import LRUCacheService, PostgresContextAwareGenieService
 from dao_ai.hooks.core import create_hooks
 from dao_ai.tools.agent import create_agent_endpoint_tool
+from dao_ai.tools.app_info import create_app_info_tool
 from dao_ai.tools.core import create_tools, say_hello_tool
 from dao_ai.tools.email import create_send_email_tool
 from dao_ai.tools.genie import create_genie_tool
@@ -30,6 +31,7 @@ from dao_ai.tools.visualization import create_visualization_tool
 __all__ = [
     "add_time_tool",
     "create_agent_endpoint_tool",
+    "create_app_info_tool",
     "create_execute_statement_tool",
     "create_factory_tool",
     "create_genie_tool",

@@ -336,6 +336,8 @@ def test_create_agent_sets_experiment():
     mock_resources.databases = MagicMock(values=lambda: [])
     mock_resources.volumes = MagicMock(values=lambda: [])
     mock_config.resources = mock_resources
+    mock_config.guardrails = {}
+    mock_config.agents = {}
 
     # Create mock experiment
     mock_experiment = MagicMock()
@@ -443,6 +445,8 @@ def test_create_agent_uses_configured_python_version():
     mock_resources.databases = MagicMock(values=lambda: [])
     mock_resources.volumes = MagicMock(values=lambda: [])
     mock_config.resources = mock_resources
+    mock_config.guardrails = {}
+    mock_config.agents = {}
 
     # Create mock experiment
     mock_experiment = MagicMock()
@@ -513,6 +517,8 @@ def test_deploy_agent_sets_endpoint_tag():
     mock_app.workload_size = "Small"
     mock_app.tags = {"custom_tag": "custom_value"}
     mock_app.permissions = []
+    mock_app.trace_location = None
+    mock_app.monitoring = None
 
     mock_config.app = mock_app
 
@@ -656,6 +662,8 @@ def test_deploy_apps_agent_creates_new_app():
     mock_app.name = "test_app"
     mock_app.description = "Test app description"
     mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
     mock_config.resources = None  # No resources (required for generate_app_resources)
@@ -724,6 +732,8 @@ def test_deploy_apps_agent_updates_existing_app():
     mock_app.name = "test_app"
     mock_app.description = "Test app description"
     mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
     mock_config.resources = None  # No resources (required for generate_app_resources)
@@ -2530,3 +2540,213 @@ def test_vector_store_create_mode_detection():
         ) as mock_create:
             vector_store_provisioning.create()
             mock_create.assert_called_once()
+
+
+# =============================================================================
+# Trace Location / OTEL Environment Variable Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+def test_set_databricks_env_vars_injects_trace_location_env_vars():
+    """Test that set_databricks_env_vars auto-injects MLFLOW_TRACING_DESTINATION
+    and MLFLOW_TRACING_SQL_WAREHOUSE_ID when trace_location is configured."""
+    from dao_ai.config import AppModel, SchemaModel, TraceLocationModel
+
+    schema = SchemaModel(catalog_name="my_catalog", schema_name="my_schema")
+    trace_loc = TraceLocationModel(schema=schema, warehouse="abc123")
+
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.environment_vars = {}
+    mock_app.service_principal = None
+    mock_app.trace_location = trace_loc
+
+    with patch(
+        "dao_ai.utils.get_default_databricks_host",
+        return_value="https://test.databricks.com",
+    ):
+        AppModel.set_databricks_env_vars(mock_app)
+
+    assert (
+        mock_app.environment_vars["MLFLOW_TRACING_DESTINATION"]
+        == "my_catalog.my_schema"
+    )
+    assert mock_app.environment_vars["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] == "abc123"
+
+
+@pytest.mark.unit
+def test_set_databricks_env_vars_does_not_override_explicit_trace_vars():
+    """Test that explicit environment_vars for tracing take precedence."""
+    from dao_ai.config import AppModel, SchemaModel, TraceLocationModel
+
+    schema = SchemaModel(catalog_name="my_catalog", schema_name="my_schema")
+    trace_loc = TraceLocationModel(schema=schema, warehouse="abc123")
+
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.environment_vars = {
+        "MLFLOW_TRACING_DESTINATION": "override_catalog.override_schema",
+        "MLFLOW_TRACING_SQL_WAREHOUSE_ID": "override_wh",
+    }
+    mock_app.service_principal = None
+    mock_app.trace_location = trace_loc
+
+    with patch(
+        "dao_ai.utils.get_default_databricks_host",
+        return_value="https://test.databricks.com",
+    ):
+        AppModel.set_databricks_env_vars(mock_app)
+
+    assert (
+        mock_app.environment_vars["MLFLOW_TRACING_DESTINATION"]
+        == "override_catalog.override_schema"
+    )
+    assert mock_app.environment_vars["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] == "override_wh"
+
+
+@pytest.mark.unit
+def test_set_databricks_env_vars_no_trace_vars_without_trace_location():
+    """Test that MLFLOW_TRACING_DESTINATION is not set when trace_location is None."""
+    from dao_ai.config import AppModel
+
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.environment_vars = {}
+    mock_app.service_principal = None
+    mock_app.trace_location = None
+
+    with patch(
+        "dao_ai.utils.get_default_databricks_host",
+        return_value="https://test.databricks.com",
+    ):
+        AppModel.set_databricks_env_vars(mock_app)
+
+    assert "MLFLOW_TRACING_DESTINATION" not in mock_app.environment_vars
+    assert "MLFLOW_TRACING_SQL_WAREHOUSE_ID" not in mock_app.environment_vars
+
+
+@pytest.mark.unit
+def test_deploy_model_serving_links_experiment_and_grants_permissions():
+    """Test that deploy_model_serving_agent links experiment to UC trace location
+    and grants OTEL table permissions when trace_location is configured."""
+    from dao_ai.config import AppConfig, AppModel, TraceLocationModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_registered_model = MagicMock()
+
+    mock_app.endpoint_name = "test_endpoint"
+    mock_registered_model.full_name = "cat.sch.model"
+    mock_app.registered_model = mock_registered_model
+    mock_app.scale_to_zero = True
+    mock_app.environment_vars = {}
+    mock_app.workload_size = "Small"
+    mock_app.tags = {}
+    mock_app.permissions = []
+
+    trace_loc = MagicMock(spec=TraceLocationModel)
+    trace_loc.catalog_name = "trace_cat"
+    trace_loc.schema_name = "trace_sch"
+    trace_loc.warehouse_id = "wh123"
+    mock_app.trace_location = trace_loc
+    mock_app.monitoring = None
+    mock_app.service_principal = None
+
+    mock_config.app = mock_app
+
+    mock_experiment = MagicMock()
+    mock_experiment.experiment_id = "exp123"
+
+    with (
+        patch(
+            "dao_ai.providers.databricks.agents.get_deployments",
+            side_effect=Exception("Not found"),
+        ),
+        patch("dao_ai.providers.databricks.agents.deploy"),
+        patch("dao_ai.providers.databricks.get_latest_model_version", return_value=1),
+        patch("dao_ai.providers.databricks.mlflow.set_registry_uri"),
+        patch(
+            "mlflow.tracing.enablement.set_experiment_trace_location"
+        ) as mock_set_loc,
+    ):
+        with patch.object(DatabricksProvider, "__init__", return_value=None):
+            provider = DatabricksProvider()
+            provider.w = MagicMock()
+
+            with patch.object(
+                provider, "get_or_create_experiment", return_value=mock_experiment
+            ):
+                with patch.object(
+                    provider, "grant_otel_table_permissions"
+                ) as mock_grant:
+                    provider.deploy_model_serving_agent(mock_config)
+
+                    mock_set_loc.assert_called_once()
+                    call_kwargs = mock_set_loc.call_args.kwargs
+                    assert call_kwargs["experiment_id"] == "exp123"
+                    assert call_kwargs["sql_warehouse_id"] == "wh123"
+
+                    mock_grant.assert_called_once_with(mock_config)
+
+
+@pytest.mark.unit
+def test_grant_otel_table_permissions_grants_modify_and_select():
+    """Test that grant_otel_table_permissions grants MODIFY and SELECT on each OTEL table."""
+    from dao_ai.config import (
+        AppConfig,
+        AppModel,
+        ServicePrincipalModel,
+        TraceLocationModel,
+    )
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+
+    trace_loc = MagicMock(spec=TraceLocationModel)
+    trace_loc.catalog_name = "cat"
+    trace_loc.schema_name = "sch"
+    trace_loc.warehouse_id = "wh1"
+    mock_app.trace_location = trace_loc
+
+    mock_sp = MagicMock(spec=ServicePrincipalModel)
+    mock_sp.client_id = "sp-client-id-123"
+    mock_app.service_principal = mock_sp
+
+    mock_config.app = mock_app
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        with patch("dao_ai.config.value_of", return_value="sp-client-id-123"):
+            provider = DatabricksProvider()
+            provider.w = MagicMock()
+
+            provider.grant_otel_table_permissions(mock_config)
+
+            expected_table_count = len(TraceLocationModel.OTEL_TABLE_SUFFIXES)
+            # 2 privileges per table (MODIFY and SELECT)
+            assert provider.w.grants.update.call_count == expected_table_count * 2
+
+
+@pytest.mark.unit
+def test_grant_otel_table_permissions_skips_without_service_principal():
+    """Test that grant_otel_table_permissions does nothing without a service principal."""
+    from dao_ai.config import AppConfig, AppModel, TraceLocationModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+
+    trace_loc = MagicMock(spec=TraceLocationModel)
+    trace_loc.catalog_name = "cat"
+    trace_loc.schema_name = "sch"
+    mock_app.trace_location = trace_loc
+    mock_app.service_principal = None
+
+    mock_config.app = mock_app
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+
+        provider.grant_otel_table_permissions(mock_config)
+
+        provider.w.grants.update.assert_not_called()

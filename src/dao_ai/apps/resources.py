@@ -1019,6 +1019,15 @@ def generate_app_yaml(
         {"name": "DAO_AI_CONFIG_PATH", "value": "dao_ai.yaml"},
     ]
 
+    # Add SQL warehouse ID for UC trace location if configured
+    if config.app and config.app.trace_location:
+        env_vars.append(
+            {
+                "name": "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
+                "value": config.app.trace_location.warehouse_id,
+            }
+        )
+
     # Extract environment variables from config.app.environment_vars
     config_env_vars = _extract_env_vars_from_config(config)
 

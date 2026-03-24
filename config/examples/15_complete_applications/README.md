@@ -66,6 +66,7 @@ flowchart TB
 | [`hardware_store_swarm.yaml`](./hardware_store_swarm.yaml) | 🐝 Swarm | Swarm orchestration with handoffs |
 | [`hardware_store_lakebase.yaml`](./hardware_store_lakebase.yaml) | 👔 Supervisor + 🧠 Lakebase | Supervisor with PostgreSQL memory persistence |
 | [`hardware_store_instructed.yaml`](./hardware_store_instructed.yaml) | 🎯 Instructed | Hardware store with instructed retrieval |
+| [`sporting_goods_store.yaml`](./sporting_goods_store.yaml) | 👔 Supervisor + 🧠 Lakebase | Merchandiser 360 multi-agent system for sporting goods lifecycle management |
 
 ## Hardware Store Supervisor Architecture
 
@@ -157,6 +158,166 @@ flowchart TB
 - **General** (blue, entry point): Can handoff to any agent
 - **DIY**: Can handoff to product, inventory, recommendation
 - **Inventory** (green): Terminal agent with no outbound handoffs
+
+---
+
+## Sporting Goods Store - Merchandiser 360
+
+A multi-agent system for sporting goods merchandising lifecycle management. Covers the full merchandiser workflow: assortment planning, demand forecasting, purchase orders, pricing strategy, sales analytics, and inventory management across categories like athletic footwear, apparel, team sports, fitness equipment, outdoor/camping, cycling, golf, and accessories.
+
+### Merchandiser 360 Architecture
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph User["👤 Merchandiser"]
+        Query["What's the demand forecast<br/>for running shoes next quarter?"]
+    end
+
+    subgraph SupervisorLayer["🎯 Supervisor"]
+        Router["Routing LLM<br/>gpt-5-4-mini<br/>Routes to specialist"]
+    end
+
+    subgraph Specialists["👷 7 Specialized Agents"]
+        Assortment["📊 Assortment<br/>Planning"]
+        Forecasting["📈 Demand<br/>Forecasting"]
+        PurchaseOrder["📋 Purchase<br/>Orders"]
+        Pricing["💲 Pricing<br/>Strategy"]
+        Sales["🏷️ Sales<br/>Analytics"]
+        InventoryAgent["📦 Inventory<br/>Management"]
+        General["💬 General<br/>Assistant"]
+    end
+
+    subgraph MemoryLayer["🧠 Lakebase Persistent Memory"]
+        Checkpointer["Checkpointer"]
+        Store["User Store<br/>per-user namespace"]
+        Extraction["Memory Extraction<br/>user_profile, preference, episode"]
+    end
+
+    subgraph DataLayer["☁️ Databricks Platform"]
+        GenieRooms["🧞 Genie Rooms x2"]
+        UCFunctions["⚙️ UC Functions x6"]
+        VectorSearch["🔍 Vector Search"]
+        Lakebase["🗄️ Lakebase"]
+        LLMs["🧠 LLM Endpoints"]
+    end
+
+    Query --> Router
+    Router --> Assortment
+    Router --> Forecasting
+    Router --> PurchaseOrder
+    Router --> Pricing
+    Router --> Sales
+    Router --> InventoryAgent
+    Router --> General
+    Specialists --> MemoryLayer
+    Specialists --> DataLayer
+
+    style SupervisorLayer fill:#fff3e0,stroke:#e65100
+    style Specialists fill:#e8f5e9,stroke:#2e7d32
+    style MemoryLayer fill:#e3f2fd,stroke:#1565c0
+    style DataLayer fill:#f3e5f5,stroke:#7b1fa2
+```
+
+### Agents
+
+| Agent | Description | Tools |
+|-------|-------------|-------|
+| **Assortment Planning** | Category mix, planogram strategy, seasonal transitions, product lifecycle | Genie (Merchandising Analytics), Vector Search |
+| **Demand Forecasting** | Sales predictions, trend analysis, seasonal demand, stockout risk | Genie (Merchandising Analytics), Current Time |
+| **Purchase Orders** | PO lifecycle, vendor relations, buying decisions, receiving | Genie (Merchandising Analytics), find_inventory_by_sku |
+| **Pricing Strategy** | Markdowns, promotions, competitive pricing, clearance, margin analysis | Genie (Sales & Pricing), find_product_by_sku, find_product_by_upc |
+| **Sales Analytics** | Store comparisons, revenue tracking, department sales, return analysis | Genie (Sales & Pricing), find_inventory_by_sku, Vector Search |
+| **Inventory Management** | Stock levels, replenishment, allocation, store-level availability | find_inventory_by_sku/upc, find_store_inventory_by_sku/upc, Vector Search |
+| **General Assistant** | Product information, store inquiries, general questions | Vector Search |
+
+### Tools and Data Sources
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart LR
+    subgraph GenieTools["🧞 Genie Rooms"]
+        G1["Merchandising Analytics<br/>Assortment, demand, POs,<br/>category performance"]
+        G2["Sales & Pricing Analytics<br/>Revenue, margins, promos,<br/>competitive pricing"]
+    end
+
+    subgraph UCTools["⚙️ Unity Catalog Functions"]
+        UC1["find_product_by_sku"]
+        UC2["find_product_by_upc"]
+        UC3["find_inventory_by_sku"]
+        UC4["find_inventory_by_upc"]
+        UC5["find_store_inventory_by_sku"]
+        UC6["find_store_inventory_by_upc"]
+    end
+
+    subgraph VSTools["🔍 Vector Search"]
+        VS1["Product Catalog Search<br/>Hybrid query + Instructed retrieval<br/>Decomposition + Reranking"]
+    end
+
+    subgraph Caching["⚡ Caching Layer"]
+        C1["LRU Cache<br/>capacity: 100, TTL: 1h"]
+        C2["Semantic Cache<br/>similarity: 0.85, TTL: 24h"]
+    end
+
+    GenieTools --> Caching
+
+    style GenieTools fill:#e3f2fd,stroke:#1565c0
+    style UCTools fill:#e8f5e9,stroke:#2e7d32
+    style VSTools fill:#fff3e0,stroke:#e65100
+    style Caching fill:#fce4ec,stroke:#c2185b
+```
+
+### Key Features
+
+- **Lakebase Persistent Memory** -- Checkpointer for conversation state, per-user namespace store, and background memory extraction across three schemas (`user_profile`, `preference`, `episode`). Memories are auto-injected into agent context (limit: 5).
+- **Instructed Retrieval** -- Vector search with query decomposition into up to 3 sub-queries, Reciprocal Rank Fusion (RRF, k=60) for merging, normalized filter case (uppercase), and LLM-based reranking with domain-specific instructions.
+- **Genie Caching** -- Dual-layer caching on both Genie rooms: LRU cache (100 capacity, 1h TTL) plus context-aware semantic cache via Lakebase (0.85 similarity threshold, 24h TTL). Persistent conversation history enabled.
+- **Monitoring** -- Built-in scorers (`safety`, `completeness`, `relevance_to_query`, `tool_call_efficiency`) at 100% sample rate, plus custom guideline scorers at 50% (`merchandising_accuracy`, `tool_usage_quality`, `response_professionalism`).
+- **MLflow Prompt Registry** -- 7 auto-registered prompts with `environment` and `domain` tags. Each agent prompt is versioned and managed through MLflow Prompt Registry.
+- **Middleware** -- Store number field validation (`store_num`) ensures inventory and sales lookups are scoped to the correct location.
+- **Evaluation** -- 25 auto-generated eval questions with merchandising-specific guidelines covering all 7 agent specializations and multiple user personas (merchandiser, buyer, pricing analyst, store manager, demand planner).
+- **Service Principal** -- Dedicated `retail_consumer_goods_sp` service principal with secrets managed via Unity Catalog scopes.
+- **LLM Fallbacks** -- Tool-calling LLM configured with automatic fallback (`claude-sonnet-4-6` -> `claude-sonnet-4-5`).
+
+### Datasets
+
+| Table | Description |
+|-------|-------------|
+| `products` | Product catalog with SKU, UPC, brand, sport category, pricing, and descriptions |
+| `inventory` | Stock levels across all stores and warehouses |
+| `dim_stores` | Store dimension table with location and attributes |
+| `sales_orders` | Sales transaction history |
+| `purchase_orders` | Purchase order records with vendor and status tracking |
+| `pricing_history` | Historical pricing changes, markdowns, and promotions |
+
+All tables live in `retail_consumer_goods.sporting_goods_store` within Unity Catalog.
+
+### Quick Start
+
+```bash
+# Validate the sporting goods store configuration
+dao-ai validate -c config/examples/15_complete_applications/sporting_goods_store.yaml
+
+# Run in chat mode
+dao-ai chat -c config/examples/15_complete_applications/sporting_goods_store.yaml
+
+# Visualize the multi-agent architecture
+dao-ai graph -c config/examples/15_complete_applications/sporting_goods_store.yaml -o sporting_goods_architecture.png
+
+# Deploy to Databricks
+dao-ai bundle --deploy -c config/examples/15_complete_applications/sporting_goods_store.yaml
+```
+
+### Sample Prompts
+
+- "What Nike running shoes do we carry?"
+- "What's the demand forecast for running shoes next quarter?"
+- "Show me open purchase orders from Nike"
+- "What are our margin targets for footwear?"
+- "How are trail running shoes performing this month?"
+- "What's the stock level on SKU NKE-RUN-001?"
+
+---
 
 ## Feature Integration
 

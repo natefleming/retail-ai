@@ -51,6 +51,8 @@ sys.path.insert(0, "../src")
 import dao_ai.providers
 import dao_ai.providers.base
 import dao_ai.providers.databricks
+import dao_ai.memory.postgres
+import dao_ai.memory.databricks
 
 # COMMAND ----------
 
@@ -60,22 +62,31 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-# DBTITLE 1,Initialize and Configure DAO AI ChatModel
+# DBTITLE 1,Initialize and Configure DAO AI ResponsesAgent
 import mlflow
-from langgraph.graph.state import CompiledStateGraph
-from mlflow.pyfunc import ChatModel
-from dao_ai.graph import create_dao_ai_graph
-from dao_ai.models import create_agent
+from mlflow.pyfunc import ResponsesAgent
 from dao_ai.config import AppConfig
 from dao_ai.logging import configure_logging
 
-mlflow.langchain.autolog(log_traces=True)
+mlflow.langchain.autolog(run_tracer_inline=True)
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 configure_logging(level=config.app.log_level)
 
-graph: CompiledStateGraph = create_dao_ai_graph(config=config)
-app: ChatModel = create_agent(graph)
+if config.app and config.app.trace_location:
+    os.environ.setdefault("MLFLOW_TRACING_SQL_WAREHOUSE_ID", config.app.trace_location.warehouse_id)
+
+    from mlflow.entities import UCSchemaLocation
+
+    _loc = config.app.trace_location
+    mlflow.tracing.set_destination(
+        destination=UCSchemaLocation(
+            catalog_name=_loc.catalog_name,
+            schema_name=_loc.schema_name,
+        )
+    )
+
+app: ResponsesAgent = config.as_responses_agent()
 
 # COMMAND ----------
 
@@ -102,8 +113,8 @@ from typing import Any
 import mlflow
 from mlflow import MlflowClient
 from mlflow.entities.model_registry.model_version import ModelVersion
-from mlflow.types.llm import ChatCompletionResponse
-from dao_ai.models import process_messages, get_latest_model_version
+from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
+from dao_ai.models import get_latest_model_version
 
 mlflow.set_registry_uri("databricks-uc")
 mlflow_client = MlflowClient()
@@ -116,16 +127,40 @@ model_version: ModelVersion = mlflow_client.get_model_version(registered_model_n
 _predict_counter = {"current": 0, "total": 0}
 
 
+def _extract_output_text(response: ResponsesAgentResponse) -> str:
+    texts: list[str] = []
+    for output in response.output:
+        if isinstance(output, dict):
+            if output.get("type") == "message":
+                for content in output.get("content", []):
+                    if isinstance(content, dict) and content.get("type") == "output_text":
+                        texts.append(content.get("text", ""))
+                    elif isinstance(content, dict) and "text" in content:
+                        texts.append(content.get("text", ""))
+                    elif getattr(content, "type", None) == "output_text":
+                        texts.append(content.text)
+        elif getattr(output, "type", None) == "message":
+            for content in output.content:
+                if isinstance(content, dict) and "text" in content:
+                    texts.append(content.get("text", ""))
+                elif getattr(content, "type", None) == "output_text":
+                    texts.append(content.text)
+    return "".join(texts) if texts else str(response.output)
+
+
 def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any] | None) -> str:
-    input_data: dict[str, Any] = {"messages": messages}
-    if custom_inputs:
-        input_data["custom_inputs"] = custom_inputs
+    import asyncio
 
-    response: ChatCompletionResponse = process_messages(app, **input_data)
-    return response.choices[0].message.content
+    request = ResponsesAgentRequest(
+        input=[{"role": m["role"], "content": m["content"]} for m in messages],
+        custom_inputs=custom_inputs,
+    )
+    loop = asyncio.get_event_loop()
+    response: ResponsesAgentResponse = loop.run_until_complete(app.apredict(request))
+    return _extract_output_text(response)
 
 
-@mlflow.trace(name="predict", span_type="CHAIN")
+@mlflow.trace(name="evaluation", span_type="CHAIN")
 def predict_fn(messages: list[dict[str, Any]]) -> str:
     _predict_counter["current"] += 1
     row_num = _predict_counter["current"]
@@ -187,7 +222,7 @@ print(f"Experiment name:   {experiment.name}")
 print(f"Experiment ID:     {model_run.info.experiment_id}")
 
 mlflow.autolog(disable=True)
-mlflow.langchain.autolog(log_traces=True)
+mlflow.langchain.autolog(run_tracer_inline=True)
 
 run_tags: dict[str, str] = {
     k: str(v) for k, v in (config.app.tags or {}).items()
@@ -198,21 +233,32 @@ run_name: str = f"{config.app.name}_evaluation_v{latest_version}_{datetime.now()
 _predict_counter["total"] = len(eval_df)
 print(f"Starting evaluation: {len(eval_df)} rows, {len(scorers)} scorers")
 
-with mlflow.start_run(run_name=run_name, tags=run_tags):
-    eval_results = mlflow.genai.evaluate(
-        data=eval_dataset,
-        predict_fn=predict_fn,
-        model_id=model_version.model_id,
-        scorers=scorers,
-    )
+with mlflow.start_run(run_name=run_name, tags=run_tags) as run:
+    try:
+        eval_results: EvaluationResult = mlflow.genai.evaluate(
+            data=eval_dataset,
+            predict_fn=predict_fn,
+            model_id=model_version.model_id,
+            scorers=scorers,
+        )
+        print(f"Evaluation completed. Run ID: {run.info.run_id}")
+    except Exception as e:
+        print(f"Evaluation raised an exception (metrics may still be logged): {e}")
+        eval_results = None
 
 # COMMAND ----------
 
 # DBTITLE 1,Display Evaluation Results
-print("Evaluation Metrics:")
-for metric_name, metric_value in eval_results.metrics.items():
-    print(f"  {metric_name}: {metric_value}")
+if eval_results is not None:
+    print("Evaluation Metrics:")
+    for metric_name, metric_value in eval_results.metrics.items():
+        print(f"  {metric_name}: {metric_value}")
 
-eval_results_df = prepare_eval_results_for_display(eval_results)
-print(f"Total evaluation results: {len(eval_results_df)} rows")
-display(eval_results_df.head(100))
+    eval_results_df = prepare_eval_results_for_display(eval_results)
+    print(f"Total evaluation results: {len(eval_results_df)} rows")
+    if not eval_results_df.empty:
+        display(eval_results_df.head(100))
+    else:
+        print("No detailed results table available. Available tables:", list(eval_results.tables.keys()))
+else:
+    print("Evaluation results not available. Check the MLflow run for logged metrics and traces.")

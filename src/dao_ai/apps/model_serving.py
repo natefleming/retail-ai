@@ -14,12 +14,16 @@ from mlflow.models import ModelConfig  # noqa: E402
 from mlflow.pyfunc import ResponsesAgent  # noqa: E402
 
 from dao_ai.config import AppConfig  # noqa: E402
-from dao_ai.logging import configure_logging  # noqa: E402
+from dao_ai.logging import (  # noqa: E402
+    configure_logging,
+    suppress_autolog_context_warnings,
+)
 
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_tracking_uri("databricks")
 
-mlflow.langchain.autolog()
+mlflow.langchain.autolog(run_tracer_inline=True)
+suppress_autolog_context_warnings()
 
 model_config: ModelConfig = ModelConfig()
 config: AppConfig = AppConfig(**model_config.to_dict())
@@ -27,6 +31,20 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 log_level: str = config.app.log_level
 
 configure_logging(level=log_level)
+
+config.initialize()
+
+# Configure UC-based trace destination if trace_location is set
+if config.app and config.app.trace_location:
+    from mlflow.entities import UCSchemaLocation  # noqa: E402
+
+    _loc = config.app.trace_location
+    mlflow.tracing.set_destination(
+        destination=UCSchemaLocation(
+            catalog_name=_loc.catalog_name,
+            schema_name=_loc.schema_name,
+        )
+    )
 
 from loguru import logger  # noqa: E402
 

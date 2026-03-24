@@ -20,6 +20,21 @@ from dao_ai.memory.base import (
 )
 
 
+def _resolve_embedding_dims(embeddings: Embeddings, configured_dims: int | None) -> int:
+    """Resolve embedding dimensions, auto-detecting from the model if not configured.
+
+    Follows the same pattern as the Genie contextual cache
+    (see genie/cache/context_aware/base.py ``_initialize_embeddings``).
+    """
+    if configured_dims is not None:
+        return configured_dims
+
+    sample: list[float] = embeddings.embed_documents(["test"])[0]
+    dims: int = len(sample)
+    logger.debug("Auto-detected embedding dimensions", dims=dims)
+    return dims
+
+
 class InMemoryStoreManager(StoreManagerBase):
     def __init__(self, store_model: StoreModel):
         self.store_model = store_model
@@ -39,7 +54,7 @@ class InMemoryStoreManager(StoreManagerBase):
             def embed_texts(texts: list[str]) -> list[list[float]]:
                 return embeddings.embed_documents(texts)
 
-            dims: int = self.store_model.dims
+            dims: int = _resolve_embedding_dims(embeddings, self.store_model.dims)
             index = {"dims": dims, "embed": embed_texts}
             logger.debug(
                 "Store embeddings configured",

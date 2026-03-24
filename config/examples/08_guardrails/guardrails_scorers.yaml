@@ -1,0 +1,232 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# MLflow Scorer-Based Guardrails Example
+# =============================================================================
+# This configuration demonstrates how to use MLflow Scorer-based guardrails
+# alongside custom LLM-judge guardrails.
+#
+# Scorer-based guardrails use MLflow's mlflow.genai.scorers.base.Scorer
+# interface.  Built-in GuardrailsScorer validators from
+# mlflow.genai.scorers.guardrails include:
+#
+#   - ToxicLanguage   -- Detects toxic/offensive language
+#   - NSFWText        -- Detects NSFW content
+#   - DetectJailbreak -- Detects jailbreak/prompt injection
+#   - DetectPII       -- Detects personally identifiable information
+#   - SecretsPresent  -- Detects API keys and secrets
+#   - GibberishText   -- Detects gibberish/nonsense text
+#
+# PREREQUISITE: GuardrailsScorer validators must be installed from the
+# guardrails-ai hub *before* using them.  Each validator is a separate
+# hub package that requires authentication:
+#
+#   guardrails hub install hub://guardrails/toxic_language
+#   guardrails hub install hub://guardrails/gibberish_text
+#   guardrails hub install hub://guardrails/secrets_present
+#   guardrails hub install hub://guardrails/detect_pii
+#   guardrails hub install hub://guardrails/nsfw_text
+#   guardrails hub install hub://guardrails/detect_jailbreak
+#
+# Generate a hub token at https://hub.guardrailsai.com/ and run:
+#   guardrails configure
+#
+# Configuration Modes:
+#   1. Scorer-based  -- Set `scorer` to a fully qualified Scorer class name.
+#                       Optionally provide `scorer_args` for constructor kwargs.
+#   2. Custom judge  -- Set `model` and `prompt` (existing LLM-judge pattern).
+#
+# Both modes can be mixed on the same agent.
+# =============================================================================
+
+variables:
+  guardrailsai_api_key: &guardrailsai_api_key
+    options:
+      - scope: retail_consumer_goods
+        secret: GUARDRAILSAI_API_KEY
+      - env: GUARDRAILSAI_API_KEY
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: nfleming
+    schema_name: retail_ai
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.7
+      max_tokens: 4096
+
+    judge_llm: &judge_llm
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.3
+      max_tokens: 2048
+
+# =============================================================================
+# PROMPTS (for custom LLM-judge guardrails)
+# =============================================================================
+
+prompts:
+  professional_tone_prompt: &professional_tone_prompt
+    schema: *retail_schema
+    name: professional_tone_guardrail
+    description: "Evaluates if agent responses maintain a professional, helpful tone"
+    default_template: |
+      Evaluate if the following response is professional, helpful, and appropriate 
+      for customer service.
+      
+      User Request: {{ inputs }}
+      Agent Response: {{ outputs }}
+      
+      The response should:
+      - Use professional language (no slang or jargon)
+      - Be respectful and courteous
+      - Be clear and easy to understand
+      - Maintain a helpful, service-oriented tone
+      
+      Rate as true if the response meets these criteria, false if it doesn't.
+    tags:
+      type: guardrail
+      category: tone
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+
+tools:
+  search_tool: &search_tool
+    name: search
+    function:
+      type: factory
+      name: dao_ai.tools.create_search_tool
+
+  greeting_tool: &greeting_tool
+    name: greeting
+    function:
+      type: python
+      name: dao_ai.tools.say_hello_tool
+
+# =============================================================================
+# GUARDRAILS
+# =============================================================================
+# Scorer-based guardrails use the `scorer` field with a fully qualified
+# class name.  Custom LLM-judge guardrails use `model` + `prompt`.
+
+guardrails:
+
+  # --- Scorer-based guardrails (MLflow GuardrailsScorer) ---
+
+  toxic_language_guardrail: &toxic_language_guardrail
+    name: toxic_language_check
+    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
+    hub: hub://guardrails/toxic_language
+    scorer_args:
+      threshold: 0.7
+    num_retries: 1
+    fail_on_error: true
+    apply_to: input                # check user messages before the model runs
+
+  gibberish_guardrail: &gibberish_guardrail
+    name: gibberish_check
+    scorer: mlflow.genai.scorers.guardrails.GibberishText
+    hub: hub://guardrails/gibberish_text
+    scorer_args:
+      threshold: 0.8
+    num_retries: 1
+    fail_on_error: false
+    apply_to: input                # check user messages before the model runs
+
+  secrets_guardrail: &secrets_guardrail
+    name: secrets_check
+    scorer: mlflow.genai.scorers.guardrails.SecretsPresent
+    hub: hub://guardrails/secrets_present
+    fail_on_error: true
+    apply_to: both                 # check both input and output (default)
+
+  # --- Custom LLM-judge guardrails (existing pattern) ---
+
+  tone_guardrail: &tone_guardrail
+    name: tone_check
+    model: *judge_llm
+    prompt: *professional_tone_prompt
+    num_retries: 2
+    apply_to: output               # evaluate agent responses only
+
+# =============================================================================
+# SPECIALIZED GUARDRAILS (via Middleware factory functions)
+# =============================================================================
+# These use the middleware factory pattern for zero-config guardrails.
+# Scorer-based guardrails can also be configured here using
+# create_scorer_guardrail_middleware.
+
+middleware:
+
+  # Built-in veracity guardrail (LLM-judge, zero-config prompt)
+  veracity_middleware: &veracity_middleware
+    name: dao_ai.middleware.create_veracity_guardrail_middleware
+    args:
+      model: "databricks:/databricks-claude-3-7-sonnet"
+      num_retries: 2
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+
+agents:
+  general_agent: &general_agent
+    name: assistant
+    description: "Assistant with both scorer-based and custom LLM-judge guardrails"
+    model: *default_llm
+
+    tools:
+      - *search_tool
+      - *greeting_tool
+
+    # Mix of scorer-based and custom guardrails
+    guardrails:
+      - *toxic_language_guardrail
+      - *gibberish_guardrail
+      - *secrets_guardrail
+      - *tone_guardrail
+
+    # Specialized middleware guardrails
+    middleware:
+      - *veracity_middleware
+
+    prompt: |
+      You are a helpful, knowledgeable assistant designed to provide accurate and 
+      professional responses.
+      
+      Guidelines:
+      - Always maintain a professional, helpful, and respectful tone
+      - Never make up information -- use search tools or acknowledge limitations
+      - Do not include sensitive information like API keys or secrets
+      - Be clear, thorough, and easy to understand
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+
+app:
+  name: guardrails_scorers_dao
+  description: "Agent with MLflow Scorer-based and custom LLM-judge guardrails"
+  log_level: TRACE
+
+  registered_model:
+    schema: *retail_schema
+    name: guardrails_scorers_example_agent_dao
+
+  environment_vars:
+    GUARDRAILSAI_API_KEY: *guardrailsai_api_key
+
+  agents:
+    - *general_agent
+
+  input_example:
+    input:
+      - role: user
+        content: What is Python?
+    custom_inputs:
+      configurable:
+        user_id: test_user
