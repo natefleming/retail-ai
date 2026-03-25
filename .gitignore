@@ -268,8 +268,6 @@ tags
 .ionide
 
 
-.github/
-
 .databricks
 
 mlruns/
