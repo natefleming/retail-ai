@@ -57,7 +57,7 @@ dependencies:
   # Search and tools
   - ddgs==9.10.0
   - flashrank==0.2.10
-  - litellm==1.80.0
+  - litellm==1.81.1
   # Utilities
   - loguru==0.7.3
   - python-dotenv==1.2.1
