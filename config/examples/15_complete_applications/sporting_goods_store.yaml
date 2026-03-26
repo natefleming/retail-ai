@@ -366,6 +366,64 @@ tools:
       type: python
       name: dao_ai.tools.current_time_tool
 
+  app_info_tool: &app_info_tool
+    name: app_info
+    function:
+      type: factory
+      name: dao_ai.tools.create_app_info_tool
+      args:
+        app_name: "Sporting Goods Store Assistant"
+        description: >
+          AI-powered merchandising and inventory management assistant
+          for retail professionals. Manages assortment planning,
+          demand forecasting, purchase orders, pricing strategy,
+          sales analytics, and inventory operations across all
+          sporting goods categories.
+        agents:
+          - name: assortment_planning
+            description: "Assortment planning specialist managing category mix, planogram strategy, seasonal transitions, and product lifecycle for sporting goods"
+            handoff_prompt: |
+              Questions about assortment strategy, category mix, planogram planning, product assortment, seasonal transitions, new product introductions, or SKU rationalization.
+              Example: "What categories are over-assorted?" or "Plan the spring outdoor assortment" or "Which SKUs should we discontinue?"
+          - name: forecasting
+            description: "Demand forecasting analyst providing predictions, trend analysis, seasonal projections, and stockout risk assessment for sporting goods"
+            handoff_prompt: |
+              Questions about demand forecasting, sales predictions, trend analysis, seasonal demand patterns, or stockout risk assessment.
+              Example: " " or "Which products are trending up?" or "What's the stockout risk for running shoes?"
+          - name: purchase_order
+            description: "Purchase order and buying specialist managing PO lifecycle, vendor relationships, buying decisions, and receiving for sporting goods"
+            handoff_prompt: |
+              Questions about purchase orders, buying decisions, vendor management, reorder quantities, PO tracking, receiving, or supplier performance.
+              Example: "What POs are in transit?" or "Should we reorder Nike Pegasus?" or "How is vendor delivery performance?"
+          - name: pricing
+            description: "Pricing strategy specialist managing initial pricing, markdowns, promotions, competitive pricing, and clearance for sporting goods"
+            handoff_prompt: |
+              Questions about pricing strategy, markdowns, promotional pricing, competitive pricing, price changes, margin analysis, or clearance pricing.
+              Example: "What products need markdowns?" or "How effective was the Spring Running promotion?" or "What's the margin impact of matching competitor prices?"
+          - name: sales
+            description: "Sales analytics specialist providing performance analysis, revenue tracking, store comparisons, and return analysis for sporting goods"
+            handoff_prompt: |
+              Questions about sales performance, revenue tracking, store comparisons, department sales, top sellers, return rates, or sales trends.
+              Example: "What were total sales this week?" or "Which store is performing best?" or "What are the top sellers in footwear?"
+          - name: inventory
+            description: "Inventory management specialist providing stock levels, replenishment, allocation, and product availability for sporting goods"
+            handoff_prompt: |
+              Questions about stock levels, product availability, inventory replenishment, store transfers, warehouse stock, or out-of-stock situations.
+              Example: "Do we have Nike Pegasus in stock at Denver?" or "What products are at critical stock levels?" or "How much warehouse inventory do we have for camping tents?"
+          - name: general
+            description: "General merchandising assistant for product information, store inquiries, and questions not handled by specialist agents"
+            handoff_prompt: |
+              General questions about products, store information, policies, or any inquiry that doesn't fit the specialized merchandising categories above.
+              Example: "Tell me about the Nike Air Force 1" or "What running shoes do we carry?" or "What departments does the Denver store have?"
+        sample_prompts:
+          - "What Nike running shoes do we carry?"
+          - "What's the demand forecast for running shoes next quarter?"
+          - "Show me open purchase orders from Nike"
+          - "What are our margin targets for footwear?"
+          - "How are trail running shoes performing this month?"
+          - "What's the stock level on SKU NKE-RUN-001?"
+
+
 # =============================================================================
 # PROMPTS (MLflow Prompt Registry)
 # =============================================================================
@@ -921,33 +979,7 @@ app:
     supervisor:
       model: *fast_llm
       tools:
-        - name: app_info
-          function:
-            type: factory
-            name: dao_ai.tools.create_app_info_tool
-            args:
-              app_name: "Sporting Goods Store Assistant"
-              description: >
-                AI-powered merchandising and inventory management assistant
-                for retail professionals. Manages assortment planning,
-                demand forecasting, purchase orders, pricing strategy,
-                sales analytics, and inventory operations across all
-                sporting goods categories.
-              agents:
-                - *assortment_planning
-                - *forecasting
-                - *purchase_order
-                - *pricing
-                - *sales
-                - *inventory
-                - *general
-              sample_prompts:
-                - "What Nike running shoes do we carry?"
-                - "What's the demand forecast for running shoes next quarter?"
-                - "Show me open purchase orders from Nike"
-                - "What are our margin targets for footwear?"
-                - "How are trail running shoes performing this month?"
-                - "What's the stock level on SKU NKE-RUN-001?"
+        - *app_info_tool
       middleware:
         - *store_validation
   input_example:
