@@ -1040,8 +1040,8 @@ def test_database_model_name_defaults_to_instance_name():
 
 
 @pytest.mark.unit
-def test_database_model_connection_params_auto_fetches_host():
-    """Test connection_params auto-fetches host for Lakebase without OBO."""
+def test_database_model_connection_params_auto_fetches_host_provisioned():
+    """Test connection_params auto-fetches host for provisioned Lakebase without OBO."""
     from unittest.mock import MagicMock, PropertyMock, patch
 
     mock_ws_client = MagicMock()
@@ -1060,9 +1060,7 @@ def test_database_model_connection_params_auto_fetches_host():
 
         database = DatabaseModel(
             instance_name="test_db",
-            # No name provided - should default to instance_name
-            # No host provided - should auto-fetch
-            # No on_behalf_of_user - should still work
+            lakebase_type="provisioned",
         )
 
         params = database.connection_params
@@ -1074,8 +1072,57 @@ def test_database_model_connection_params_auto_fetches_host():
 
 
 @pytest.mark.unit
+def test_database_model_connection_params_auto_fetches_host_autoscaling():
+    """Test connection_params auto-fetches host for autoscaling Lakebase."""
+    from unittest.mock import MagicMock, PropertyMock, patch
+
+    mock_ws_client = MagicMock()
+
+    # Mock branch with default=True
+    mock_branch = MagicMock()
+    mock_branch.name = "projects/test_db/branches/production"
+    mock_branch.status.default = True
+    # Use side_effect to return fresh iterators each call
+    mock_ws_client.postgres.list_branches.side_effect = lambda *a, **kw: iter(
+        [mock_branch]
+    )
+
+    # Mock endpoint with host
+    mock_endpoint = MagicMock()
+    mock_endpoint.name = "projects/test_db/branches/production/endpoints/primary"
+    mock_endpoint.status.endpoint_type = "ENDPOINT_TYPE_READ_WRITE"
+    mock_endpoint.status.hosts.host = "ep-test.database.azuredatabricks.net"
+    mock_endpoint.status.current_state = "ACTIVE"
+    mock_ws_client.postgres.list_endpoints.side_effect = lambda *a, **kw: iter(
+        [mock_endpoint]
+    )
+
+    # Mock credential generation
+    mock_ws_client.postgres.generate_database_credential.return_value = MagicMock(
+        token="test-token"
+    )
+    mock_ws_client.current_user.me.return_value = MagicMock(user_name="test_user")
+
+    with patch.object(
+        DatabaseModel, "workspace_client", new_callable=PropertyMock
+    ) as mock_prop:
+        mock_prop.return_value = mock_ws_client
+
+        database = DatabaseModel(
+            instance_name="test_db",
+            lakebase_type="autoscaling",
+        )
+
+        params = database.connection_params
+
+        assert params["host"] == "ep-test.database.azuredatabricks.net"
+        mock_ws_client.postgres.list_branches.assert_called()
+        mock_ws_client.postgres.list_endpoints.assert_called()
+
+
+@pytest.mark.unit
 def test_postgres_pool_manager_uses_lakebase_pool():
-    """Test PostgresPoolManager uses LakebasePool for Lakebase connections."""
+    """Test PostgresPoolManager uses LakebasePool for provisioned Lakebase connections."""
     from unittest.mock import MagicMock, PropertyMock, patch
 
     from dao_ai.memory.postgres import PostgresPoolManager
@@ -1100,9 +1147,10 @@ def test_postgres_pool_manager_uses_lakebase_pool():
         with patch("dao_ai.memory.postgres.LakebasePool") as mock_lakebase_pool_class:
             mock_lakebase_pool_class.return_value = mock_lakebase_pool_instance
 
-            # Create a Lakebase database model
+            # Create a provisioned Lakebase database model
             database = DatabaseModel(
                 instance_name="test-lakebase-instance",
+                lakebase_type="provisioned",
             )
 
             # Get the pool
@@ -1314,6 +1362,78 @@ def test_database_model_capacity_validation():
         password="test_password",
     )
     assert db3.capacity == "CU_2"
+
+
+@pytest.mark.unit
+def test_database_model_as_resources_provisioned():
+    """Test DatabaseModel.as_resources returns DatabricksLakebase for provisioned Lakebase."""
+    from mlflow.models.resources import DatabricksLakebase
+
+    db = DatabaseModel(
+        name="test-db",
+        instance_name="test-db",
+        lakebase_type="provisioned",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+    resources = db.as_resources()
+    assert len(resources) == 1
+    assert isinstance(resources[0], DatabricksLakebase)
+    assert resources[0].name == "test-db"
+
+
+@pytest.mark.unit
+def test_database_model_as_resources_autoscaling():
+    """Test DatabaseModel.as_resources returns empty list for autoscaling Lakebase.
+
+    Autoscaling Lakebase uses the 'postgres' API scope instead of a
+    DatabricksLakebase resource (which maps to the provisioned Database
+    Instances API). Returning a DatabricksLakebase resource for autoscaling
+    would cause 'Database instance does not exist' errors at deploy time.
+    """
+    db = DatabaseModel(
+        name="test-db",
+        instance_name="test-db",
+        lakebase_type="autoscaling",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+    resources = db.as_resources()
+    assert len(resources) == 0
+    assert db.api_scopes == ["postgres"]
+
+
+@pytest.mark.unit
+def test_database_model_as_resources_default_is_autoscaling():
+    """Test that default lakebase_type is autoscaling and as_resources returns empty list."""
+    db = DatabaseModel(
+        name="test-db",
+        instance_name="test-db",
+        host="localhost",
+        user="test_user",
+        password="test_password",
+    )
+    assert db.lakebase_type == "autoscaling"
+    assert db.is_lakebase_autoscaling is True
+    assert db.is_lakebase_provisioned is False
+    resources = db.as_resources()
+    assert len(resources) == 0
+
+
+@pytest.mark.unit
+def test_database_model_as_resources_standard_postgres():
+    """Test DatabaseModel.as_resources returns empty list for standard PostgreSQL."""
+    db = DatabaseModel(
+        name="test-db",
+        host="my-postgres-host.example.com",
+        user="test_user",
+        password="test_password",
+    )
+    assert db.is_lakebase is False
+    resources = db.as_resources()
+    assert len(resources) == 0
 
 
 @pytest.mark.unit

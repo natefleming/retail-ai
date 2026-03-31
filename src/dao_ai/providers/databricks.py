@@ -1801,6 +1801,315 @@ class DatabricksProvider(ServiceProvider):
             )
             raise
 
+    def create_lakebase_autoscaling(self, database: DatabaseModel) -> None:
+        """
+        Create a Lakebase Autoscaling project using the Postgres API.
+
+        Handles idempotent project creation, gracefully handling cases where
+        the project already exists.
+        """
+        import time
+
+        from databricks.sdk.service.postgres import (
+            Project,
+            ProjectDefaultEndpointSettings,
+            ProjectSpec,
+        )
+
+        workspace_client: WorkspaceClient = database.workspace_client
+        project_name = f"projects/{database.instance_name}"
+
+        try:
+            existing_project = workspace_client.postgres.get_project(project_name)
+            if existing_project:
+                logger.info(
+                    "Autoscaling Lakebase project already exists",
+                    instance_name=database.instance_name,
+                )
+
+                # Check endpoint status
+                try:
+                    branches = list(
+                        workspace_client.postgres.list_branches(project_name)
+                    )
+                    if branches:
+                        default_branch = next(
+                            (b for b in branches if b.status and b.status.default),
+                            branches[0],
+                        )
+                        endpoints = list(
+                            workspace_client.postgres.list_endpoints(
+                                default_branch.name
+                            )
+                        )
+                        for ep in endpoints:
+                            if ep.status and ep.status.current_state == "ACTIVE":
+                                logger.info(
+                                    "Autoscaling Lakebase endpoint is ACTIVE",
+                                    instance_name=database.instance_name,
+                                )
+                                return
+                            elif ep.status and ep.status.current_state == "INIT":
+                                logger.info(
+                                    "Autoscaling Lakebase endpoint initializing, waiting",
+                                    instance_name=database.instance_name,
+                                )
+                                max_wait = 300
+                                elapsed = 0
+                                while elapsed < max_wait:
+                                    time.sleep(10)
+                                    elapsed += 10
+                                    eps = list(
+                                        workspace_client.postgres.list_endpoints(
+                                            default_branch.name
+                                        )
+                                    )
+                                    if (
+                                        eps
+                                        and eps[0].status
+                                        and eps[0].status.current_state == "ACTIVE"
+                                    ):
+                                        logger.success(
+                                            "Autoscaling Lakebase endpoint is now ACTIVE",
+                                            instance_name=database.instance_name,
+                                        )
+                                        return
+                                logger.warning(
+                                    "Timed out waiting for endpoint to become ACTIVE",
+                                    instance_name=database.instance_name,
+                                )
+                                return
+                except Exception as ep_err:
+                    logger.warning(
+                        "Could not check endpoint status",
+                        instance_name=database.instance_name,
+                        error=str(ep_err),
+                    )
+                return
+
+        except NotFound:
+            logger.info(
+                "Creating new autoscaling Lakebase project",
+                instance_name=database.instance_name,
+            )
+
+            try:
+                min_cu = database.autoscaling_min_cu or 2
+                max_cu = database.autoscaling_max_cu or 4
+
+                project = Project(
+                    spec=ProjectSpec(
+                        default_endpoint_settings=ProjectDefaultEndpointSettings(
+                            autoscaling_limit_min_cu=min_cu,
+                            autoscaling_limit_max_cu=max_cu,
+                            suspend_timeout_duration="0s",
+                        ),
+                    ),
+                )
+
+                workspace_client.postgres.create_project(
+                    project=project,
+                    project_id=database.instance_name,
+                )
+
+                logger.success(
+                    "Autoscaling Lakebase project created",
+                    instance_name=database.instance_name,
+                )
+
+                # Wait for the endpoint to become ACTIVE
+                max_wait = 300
+                elapsed = 0
+                while elapsed < max_wait:
+                    time.sleep(10)
+                    elapsed += 10
+                    try:
+                        branches = list(
+                            workspace_client.postgres.list_branches(project_name)
+                        )
+                        if branches:
+                            default_branch = next(
+                                (b for b in branches if b.status and b.status.default),
+                                branches[0],
+                            )
+                            endpoints = list(
+                                workspace_client.postgres.list_endpoints(
+                                    default_branch.name
+                                )
+                            )
+                            if (
+                                endpoints
+                                and endpoints[0].status
+                                and endpoints[0].status.current_state == "ACTIVE"
+                            ):
+                                logger.success(
+                                    "Autoscaling Lakebase endpoint is now ACTIVE",
+                                    instance_name=database.instance_name,
+                                )
+                                return
+                    except Exception:
+                        pass
+
+                logger.warning(
+                    "Timed out waiting for autoscaling Lakebase to become ACTIVE",
+                    instance_name=database.instance_name,
+                )
+                return
+
+            except Exception as create_error:
+                error_msg = str(create_error)
+                if (
+                    "already exists" in error_msg.lower()
+                    or "RESOURCE_ALREADY_EXISTS" in error_msg
+                ):
+                    logger.info(
+                        "Autoscaling Lakebase project created concurrently",
+                        instance_name=database.instance_name,
+                    )
+                    return
+                logger.error(
+                    "Error creating autoscaling Lakebase project",
+                    instance_name=database.instance_name,
+                    error=error_msg,
+                )
+                raise
+
+        except Exception as e:
+            error_msg = str(e)
+            if (
+                "already exists" in error_msg.lower()
+                or "RESOURCE_ALREADY_EXISTS" in error_msg
+            ):
+                logger.info(
+                    "Autoscaling Lakebase project already exists (detected via exception)",
+                    instance_name=database.instance_name,
+                )
+                return
+            logger.error(
+                "Unexpected error while handling autoscaling Lakebase project",
+                instance_name=database.instance_name,
+                error=error_msg,
+            )
+            raise
+
+    def _resolve_autoscaling_default_branch(
+        self, workspace_client: WorkspaceClient, instance_name: str
+    ) -> str:
+        """Resolve the default branch name for an autoscaling Lakebase project."""
+        project_name = f"projects/{instance_name}"
+        branches = list(workspace_client.postgres.list_branches(project_name))
+        if not branches:
+            raise ValueError(
+                f"No branches found for autoscaling Lakebase project '{instance_name}'."
+            )
+        default_branch = next(
+            (b for b in branches if b.status and b.status.default),
+            branches[0],
+        )
+        return default_branch.name
+
+    def create_lakebase_autoscaling_role(self, database: DatabaseModel) -> None:
+        """
+        Create a role for a service principal on an autoscaling Lakebase project.
+
+        Roles are created at the branch level in the autoscaling Postgres API.
+        """
+        from databricks.sdk.service.postgres import (
+            Role,
+            RoleIdentityType,
+            RoleMembershipRole,
+            RoleRoleSpec,
+        )
+
+        from dao_ai.config import value_of
+
+        if not database.client_id:
+            logger.warning(
+                "client_id required to create autoscaling role",
+                instance_name=database.instance_name,
+            )
+            return
+
+        client_id: str = value_of(database.client_id)
+        workspace_client: WorkspaceClient = database.workspace_client
+
+        # Roles are created on a branch, not on the project
+        branch_name = self._resolve_autoscaling_default_branch(
+            workspace_client, database.instance_name
+        )
+
+        # role_id must match ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ so sanitize the client_id
+        # Must start with a lowercase letter, so prefix with 'sp-' for service principal
+        import re
+
+        sanitized = re.sub(r"[^a-z0-9-]", "-", client_id.lower()).strip("-")
+        sanitized_role_id = f"sp-{sanitized}"[:63]
+
+        logger.debug(
+            "Creating autoscaling Lakebase role",
+            role_name=client_id,
+            role_id=sanitized_role_id,
+            instance_name=database.instance_name,
+            branch=branch_name,
+        )
+
+        try:
+            # Check if role already exists
+            try:
+                role_resource_name = f"{branch_name}/roles/{sanitized_role_id}"
+                _ = workspace_client.postgres.get_role(name=role_resource_name)
+                logger.info(
+                    "Autoscaling Lakebase role already exists",
+                    role_name=client_id,
+                    instance_name=database.instance_name,
+                )
+                return
+            except NotFound:
+                logger.debug(
+                    "Autoscaling role not found, creating",
+                    role_name=client_id,
+                )
+
+            role = Role(
+                spec=RoleRoleSpec(
+                    postgres_role=client_id,
+                    identity_type=RoleIdentityType.SERVICE_PRINCIPAL,
+                    membership_roles=[RoleMembershipRole.DATABRICKS_SUPERUSER],
+                ),
+            )
+
+            workspace_client.postgres.create_role(
+                parent=branch_name,
+                role=role,
+                role_id=sanitized_role_id,
+            )
+
+            logger.success(
+                "Autoscaling Lakebase role created",
+                role_name=client_id,
+                instance_name=database.instance_name,
+            )
+
+        except Exception as e:
+            error_msg = str(e)
+            if (
+                "already exists" in error_msg.lower()
+                or "RESOURCE_ALREADY_EXISTS" in error_msg
+            ):
+                logger.info(
+                    "Autoscaling Lakebase role created concurrently",
+                    role_name=client_id,
+                    instance_name=database.instance_name,
+                )
+                return
+            logger.error(
+                "Error creating autoscaling Lakebase role",
+                role_name=client_id,
+                instance_name=database.instance_name,
+                error=error_msg,
+            )
+            raise
+
     def get_prompt(self, prompt_model: PromptModel) -> PromptVersion:
         """
         Load prompt from MLflow Prompt Registry with fallback logic.

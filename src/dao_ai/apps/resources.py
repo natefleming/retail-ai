@@ -265,8 +265,10 @@ def _extract_database_resources(
     """Extract Lakebase database resources from DatabaseModels."""
     resources: list[dict[str, Any]] = []
     for key, db in databases.items():
-        # Only include Lakebase databases (those with instance_name)
-        if not db.is_lakebase:
+        # Only include provisioned Lakebase databases.
+        # Autoscaling Lakebase uses the "postgres" API scope and does not
+        # register as a database instance resource.
+        if not db.is_lakebase_provisioned:
             continue
         resource: dict[str, Any] = {
             "name": key,
@@ -673,8 +675,10 @@ def _extract_sdk_database_resources(
     """Extract SDK AppResource objects for Lakebase databases."""
     resources: list[AppResource] = []
     for key, db in databases.items():
-        # Only include Lakebase databases (those with instance_name)
-        if not db.is_lakebase:
+        # Only include provisioned Lakebase databases.
+        # Autoscaling Lakebase uses the "postgres" API scope and does not
+        # register as a database instance resource.
+        if not db.is_lakebase_provisioned:
             continue
         sanitized_name = _sanitize_resource_name(key)
         # Use db.database for the actual database name (defaults to "databricks_postgres")
