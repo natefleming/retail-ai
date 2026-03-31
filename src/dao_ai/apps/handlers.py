@@ -14,6 +14,7 @@ from typing import AsyncGenerator
 
 import mlflow
 from dotenv import load_dotenv
+from loguru import logger
 from mlflow.genai.agent_server import get_request_headers, invoke, stream
 from mlflow.types.responses import (
     ResponsesAgentRequest,
@@ -74,11 +75,20 @@ if config.app and config.app.trace_location:
 
     _experiment_id: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
     if _experiment_id:
-        set_experiment_trace_location(
-            location=_uc_schema_location,
-            experiment_id=_experiment_id,
-            sql_warehouse_id=_loc.warehouse_id,
-        )
+        try:
+            set_experiment_trace_location(
+                location=_uc_schema_location,
+                experiment_id=_experiment_id,
+                sql_warehouse_id=_loc.warehouse_id,
+            )
+        except Exception as _trace_loc_err:
+            # This is typically already configured at deploy time.
+            # At app runtime the auto-created SP may lack USE CATALOG,
+            # which is not fatal — set_destination below handles routing.
+            logger.warning(
+                "Could not set experiment trace location at app startup "
+                f"(usually already configured at deploy time): {_trace_loc_err}"
+            )
 
     mlflow.tracing.set_destination(destination=_uc_schema_location)
 

@@ -1299,6 +1299,11 @@ def run_databricks_command(
         logger.error(f"Configuration file {config_path} does not exist.")
         sys.exit(1)
 
+    # Set profile env var so WorkspaceClient instances created during config
+    # validation (e.g. warehouse name resolution) use the correct workspace.
+    if profile:
+        os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+
     # Load app config
     app_config: AppConfig = AppConfig.from_file(config_path) if config_path else None
     normalized_name: str = normalize_name(app_config.app.name) if app_config else None

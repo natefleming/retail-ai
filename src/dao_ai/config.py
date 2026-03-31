@@ -37,7 +37,6 @@ from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.apps import App
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieListSpacesResponse, GenieSpace
-from databricks.sdk.service.database import DatabaseInstance
 from databricks.sdk.service.sql import EndpointInfo, GetWarehouseResponse
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
@@ -1731,6 +1730,13 @@ class DatabaseModel(IsDatabricksResource):
         default=None,
         description="Databricks Lakebase instance name. Mutually exclusive with host (standard PostgreSQL).",
     )
+    lakebase_type: Optional[Literal["provisioned", "autoscaling"]] = Field(
+        default="autoscaling",
+        description=(
+            "Lakebase deployment type. 'autoscaling' uses the Postgres API (projects/branches/endpoints). "
+            "'provisioned' uses the legacy Database Instances API. Only applies when instance_name is set."
+        ),
+    )
     description: Optional[str] = Field(
         default=None,
         description="Human-readable description of this database connection.",
@@ -1761,11 +1767,19 @@ class DatabaseModel(IsDatabricksResource):
     )
     capacity: Optional[Literal["CU_1", "CU_2"]] = Field(
         default="CU_2",
-        description="Lakebase compute capacity tier (CU_1 or CU_2).",
+        description="Lakebase compute capacity tier (CU_1 or CU_2). Only used for provisioned Lakebase.",
+    )
+    autoscaling_min_cu: Optional[int] = Field(
+        default=2,
+        description="Minimum compute units for autoscaling Lakebase.",
+    )
+    autoscaling_max_cu: Optional[int] = Field(
+        default=4,
+        description="Maximum compute units for autoscaling Lakebase.",
     )
     node_count: Optional[int] = Field(
         default=None,
-        description="Number of Lakebase compute nodes for horizontal scaling.",
+        description="Number of Lakebase compute nodes for horizontal scaling. Only used for provisioned Lakebase.",
     )
     user: Optional[AnyVariable] = Field(
         default=None,
@@ -1778,6 +1792,8 @@ class DatabaseModel(IsDatabricksResource):
 
     @property
     def api_scopes(self) -> Sequence[str]:
+        if self.is_lakebase_autoscaling:
+            return ["postgres"]
         return ["database.database-instances"]
 
     @property
@@ -1785,14 +1801,28 @@ class DatabaseModel(IsDatabricksResource):
         """Returns True if this is a Databricks Lakebase connection (instance_name provided)."""
         return self.instance_name is not None
 
+    @property
+    def is_lakebase_autoscaling(self) -> bool:
+        """Returns True if this is an autoscaling Lakebase connection."""
+        return self.is_lakebase and self.lakebase_type == "autoscaling"
+
+    @property
+    def is_lakebase_provisioned(self) -> bool:
+        """Returns True if this is a provisioned Lakebase connection."""
+        return self.is_lakebase and self.lakebase_type == "provisioned"
+
     def as_resources(self) -> Sequence[DatabricksResource]:
-        if self.is_lakebase:
+        if self.is_lakebase_provisioned:
             return [
                 DatabricksLakebase(
                     database_instance_name=self.instance_name,
                     on_behalf_of_user=self.on_behalf_of_user,
                 )
             ]
+        # Autoscaling Lakebase uses the "postgres" API scope instead of
+        # a DatabricksLakebase resource (which maps to the provisioned
+        # Database Instances API).  Returning an empty list here avoids
+        # the "Database instance … does not exist" error at deploy time.
         return []
 
     @model_validator(mode="after")
@@ -1899,6 +1929,78 @@ class DatabaseModel(IsDatabricksResource):
         return self
 
     @property
+    def autoscaling_endpoint_name(self) -> str:
+        """Resolve and return the autoscaling endpoint resource name."""
+        _, endpoint_name = self._resolve_autoscaling_endpoint_info()
+        return endpoint_name
+
+    @property
+    def autoscaling_default_branch(self) -> str:
+        """Resolve and return the default branch name for autoscaling Lakebase."""
+        w: WorkspaceClient = self.workspace_client
+        project_name = f"projects/{self.instance_name}"
+        branches = list(w.postgres.list_branches(project_name))
+        if not branches:
+            raise ValueError(
+                f"No branches found for autoscaling Lakebase project '{self.instance_name}'."
+            )
+        default_branch = next(
+            (b for b in branches if b.status and b.status.default),
+            branches[0],
+        )
+        return default_branch.name
+
+    def _resolve_autoscaling_endpoint_info(self) -> tuple[str, str]:
+        """Resolve the read-write host and endpoint name from the autoscaling Lakebase Postgres API.
+
+        Returns:
+            Tuple of (host, endpoint_name)
+        """
+        w: WorkspaceClient = self.workspace_client
+        project_name = f"projects/{self.instance_name}"
+
+        # List branches to find the default (production) branch
+        branches = list(w.postgres.list_branches(project_name))
+        if not branches:
+            raise ValueError(
+                f"No branches found for autoscaling Lakebase project '{self.instance_name}'."
+            )
+
+        # Use the default branch (usually 'production')
+        default_branch = next(
+            (b for b in branches if b.status and b.status.default),
+            branches[0],
+        )
+
+        # List endpoints on the branch to find the read-write endpoint
+        endpoints = list(w.postgres.list_endpoints(default_branch.name))
+        if not endpoints:
+            raise ValueError(
+                f"No endpoints found for autoscaling Lakebase branch '{default_branch.name}'."
+            )
+
+        # Find the read-write endpoint
+        rw_endpoint = next(
+            (
+                ep
+                for ep in endpoints
+                if ep.status and ep.status.endpoint_type == "ENDPOINT_TYPE_READ_WRITE"
+            ),
+            endpoints[0],
+        )
+
+        if (
+            not rw_endpoint.status
+            or not rw_endpoint.status.hosts
+            or not rw_endpoint.status.hosts.host
+        ):
+            raise ValueError(
+                f"No host found for autoscaling Lakebase endpoint in project '{self.instance_name}'."
+            )
+
+        return rw_endpoint.status.hosts.host, rw_endpoint.name
+
+    @property
     def connection_params(self) -> dict[str, Any]:
         """
         Get database connection parameters as a dictionary.
@@ -1910,8 +2012,6 @@ class DatabaseModel(IsDatabricksResource):
         """
         import uuid as _uuid
 
-        from databricks.sdk.service.database import DatabaseCredential
-
         host: str
         port: int
         database: str
@@ -1920,8 +2020,18 @@ class DatabaseModel(IsDatabricksResource):
 
         # Resolve host - fetch from API at runtime for Lakebase if not provided
         host_value: Any = self.host
-        if host_value is None and self.is_lakebase:
-            # Fetch host from Lakebase instance API
+        autoscaling_endpoint_name: str | None = None
+
+        if host_value is None and self.is_lakebase_autoscaling:
+            # Fetch host and endpoint name from autoscaling Postgres API (single API call)
+            resolved_host, autoscaling_endpoint_name = (
+                self._resolve_autoscaling_endpoint_info()
+            )
+            host_value = resolved_host
+        elif host_value is None and self.is_lakebase_provisioned:
+            # Fetch host from provisioned Database Instances API
+            from databricks.sdk.service.database import DatabaseInstance
+
             existing_instance: DatabaseInstance = (
                 self.workspace_client.database.get_database_instance(
                     name=self.instance_name
@@ -1940,21 +2050,38 @@ class DatabaseModel(IsDatabricksResource):
         port = value_of(self.port)
         database = value_of(self.database)
 
-        if self.is_lakebase:
-            # Lakebase: Use Databricks-generated credentials
+        if self.is_lakebase_autoscaling:
+            # Autoscaling Lakebase: Use Postgres API for credentials
             if self.client_id and self.client_secret and self.workspace_host:
                 username = value_of(self.client_id)
             elif self.user:
                 username = value_of(self.user)
-            # For OBO mode, no username is needed - the token identity is used
 
-            # Generate Databricks database credential (token)
             w: WorkspaceClient = self.workspace_client
-            cred: DatabaseCredential = w.database.generate_database_credential(
-                request_id=str(_uuid.uuid4()),
-                instance_names=[self.instance_name],
+            # Resolve endpoint name if not already resolved (e.g., when host was provided explicitly)
+            if autoscaling_endpoint_name is None:
+                _, autoscaling_endpoint_name = self._resolve_autoscaling_endpoint_info()
+            cred = w.postgres.generate_database_credential(
+                endpoint=autoscaling_endpoint_name,
             )
             password_value = cred.token
+        elif self.is_lakebase_provisioned:
+            # Provisioned Lakebase: Use Database Instances API for credentials
+            from databricks.sdk.service.database import DatabaseCredential
+
+            if self.client_id and self.client_secret and self.workspace_host:
+                username = value_of(self.client_id)
+            elif self.user:
+                username = value_of(self.user)
+
+            w = self.workspace_client
+            cred_provisioned: DatabaseCredential = (
+                w.database.generate_database_credential(
+                    request_id=str(_uuid.uuid4()),
+                    instance_names=[self.instance_name],
+                )
+            )
+            password_value = cred_provisioned.token
         else:
             # Standard PostgreSQL: Use provided credentials
             if self.user:
@@ -2008,8 +2135,12 @@ class DatabaseModel(IsDatabricksResource):
         if w is None:
             w = self.workspace_client
         provider: DatabricksProvider = DatabricksProvider(w=w)
-        provider.create_lakebase(self)
-        provider.create_lakebase_instance_role(self)
+        if self.is_lakebase_autoscaling:
+            provider.create_lakebase_autoscaling(self)
+            provider.create_lakebase_autoscaling_role(self)
+        else:
+            provider.create_lakebase(self)
+            provider.create_lakebase_instance_role(self)
 
 
 class GenieLRUCacheParametersModel(BaseModel):
@@ -4467,7 +4598,9 @@ class AppModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str = Field(
-        description="Unique application name used for the serving endpoint and model registration.",
+        max_length=30,
+        min_length=2,
+        description="Unique application name used for the serving endpoint and model registration. Must be 2-30 characters.",
     )
     service_principal: Optional[ServicePrincipalModel] = Field(
         default=None,

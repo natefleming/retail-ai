@@ -194,7 +194,7 @@ agents:
 # APPLICATION CONFIGURATION
 # =============================================================================
 app:
-  name: custom_field_validation_middleware_example
+  name: field_validation_dao
   description: "Example demonstrating custom field validation middleware"
   log_level: DEBUG
   registered_model:
