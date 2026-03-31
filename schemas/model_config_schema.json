@@ -108,7 +108,9 @@
       "description": "Application-level configuration for deployment, model registration, and orchestration.",
       "properties": {
         "name": {
-          "description": "Unique application name used for the serving endpoint and model registration.",
+          "description": "Unique application name used for the serving endpoint and model registration. Must be 2-30 characters.",
+          "maxLength": 30,
+          "minLength": 2,
           "title": "Name",
           "type": "string"
         },
@@ -1306,6 +1308,23 @@
           "description": "Databricks Lakebase instance name. Mutually exclusive with host (standard PostgreSQL).",
           "title": "Instance Name"
         },
+        "lakebase_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "provisioned",
+                "autoscaling"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "autoscaling",
+          "description": "Lakebase deployment type. 'autoscaling' uses the Postgres API (projects/branches/endpoints). 'provisioned' uses the legacy Database Instances API. Only applies when instance_name is set.",
+          "title": "Lakebase Type"
+        },
         "description": {
           "anyOf": [
             {
@@ -1474,8 +1493,34 @@
             }
           ],
           "default": "CU_2",
-          "description": "Lakebase compute capacity tier (CU_1 or CU_2).",
+          "description": "Lakebase compute capacity tier (CU_1 or CU_2). Only used for provisioned Lakebase.",
           "title": "Capacity"
+        },
+        "autoscaling_min_cu": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 2,
+          "description": "Minimum compute units for autoscaling Lakebase.",
+          "title": "Autoscaling Min Cu"
+        },
+        "autoscaling_max_cu": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 4,
+          "description": "Maximum compute units for autoscaling Lakebase.",
+          "title": "Autoscaling Max Cu"
         },
         "node_count": {
           "anyOf": [
@@ -1487,7 +1532,7 @@
             }
           ],
           "default": null,
-          "description": "Number of Lakebase compute nodes for horizontal scaling.",
+          "description": "Number of Lakebase compute nodes for horizontal scaling. Only used for provisioned Lakebase.",
           "title": "Node Count"
         },
         "user": {

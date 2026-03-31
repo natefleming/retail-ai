@@ -14,11 +14,86 @@ from loguru import logger
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
-from dao_ai.config import CheckpointerModel, DatabaseModel, StoreModel
+from dao_ai.config import CheckpointerModel, DatabaseModel, StoreModel, value_of
 from dao_ai.memory.base import (
     CheckpointManagerBase,
     StoreManagerBase,
 )
+
+
+class DaoLakebasePool(LakebasePool):
+    """LakebasePool subclass that accepts an explicit username.
+
+    The upstream LakebasePool infers the Postgres username via
+    workspace_client.current_user.me(). On Databricks clusters this may
+    return the cluster identity rather than the configured service principal.
+    This subclass allows callers to provide the correct username directly.
+    """
+
+    def __init__(self, *, username: str, **kwargs):
+        self._explicit_username = username
+        super().__init__(**kwargs)
+
+    def _infer_username(self) -> str:
+        return self._explicit_username
+
+
+class DaoAsyncLakebasePool(AsyncLakebasePool):
+    """AsyncLakebasePool subclass that accepts an explicit username.
+
+    See DaoLakebasePool for rationale.
+    """
+
+    def __init__(self, *, username: str, **kwargs):
+        self._explicit_username = username
+        super().__init__(**kwargs)
+
+    def _infer_username(self) -> str:
+        return self._explicit_username
+
+
+def _lakebase_kwargs(database: DatabaseModel) -> dict:
+    """Build LakebasePool kwargs from a DatabaseModel.
+
+    Routes to the correct Lakebase mode (provisioned vs autoscaling) and
+    includes the workspace_client with proper authentication.
+    """
+    kwargs: dict = {"workspace_client": database.workspace_client}
+    if database.is_lakebase_autoscaling:
+        kwargs["branch"] = database.autoscaling_default_branch
+    else:
+        kwargs["instance_name"] = database.instance_name
+    return kwargs
+
+
+def _create_lakebase_pool(database: DatabaseModel, **pool_kwargs) -> LakebasePool:
+    """Create a LakebasePool from a DatabaseModel.
+
+    When the config provides an explicit client_id, uses DaoLakebasePool
+    to ensure the correct Postgres username (on clusters, current_user.me()
+    may return the cluster identity instead of the configured service principal).
+    """
+    kwargs = _lakebase_kwargs(database) | pool_kwargs
+    client_id_value = value_of(database.client_id) if database.client_id else None
+
+    if client_id_value:
+        return DaoLakebasePool(username=client_id_value, **kwargs)
+    return LakebasePool(**kwargs)
+
+
+def _create_async_lakebase_pool(
+    database: DatabaseModel, **pool_kwargs
+) -> AsyncLakebasePool:
+    """Create an AsyncLakebasePool from a DatabaseModel.
+
+    See _create_lakebase_pool for rationale.
+    """
+    kwargs = _lakebase_kwargs(database) | pool_kwargs
+    client_id_value = value_of(database.client_id) if database.client_id else None
+
+    if client_id_value:
+        return DaoAsyncLakebasePool(username=client_id_value, **kwargs)
+    return AsyncLakebasePool(**kwargs)
 
 
 def _create_pool(
@@ -114,11 +189,10 @@ class AsyncPostgresPoolManager:
             logger.debug("Creating new async PostgreSQL pool", database=database.name)
 
             if database.is_lakebase:
-                # Use AsyncLakebasePool for Lakebase connections
+                # Use AsyncLakebasePool for Lakebase connections (provisioned or autoscaling)
                 # AsyncLakebasePool handles automatic token rotation and host resolution
-                lakebase_pool = AsyncLakebasePool(
-                    instance_name=database.instance_name,
-                    workspace_client=database.workspace_client,
+                lakebase_pool = _create_async_lakebase_pool(
+                    database,
                     min_size=1,
                     max_size=database.max_pool_size,
                     timeout=float(database.timeout_seconds),
@@ -133,6 +207,7 @@ class AsyncPostgresPoolManager:
                     "Async Lakebase connection pool created",
                     database=database.name,
                     instance_name=database.instance_name,
+                    lakebase_type=database.lakebase_type,
                     pool_size=database.max_pool_size,
                 )
             else:
@@ -394,11 +469,10 @@ class PostgresPoolManager:
             logger.debug("Creating new PostgreSQL pool", database=database.name)
 
             if database.is_lakebase:
-                # Use LakebasePool for Lakebase connections
+                # Use LakebasePool for Lakebase connections (provisioned or autoscaling)
                 # LakebasePool handles automatic token rotation and host resolution
-                lakebase_pool = LakebasePool(
-                    instance_name=database.instance_name,
-                    workspace_client=database.workspace_client,
+                lakebase_pool = _create_lakebase_pool(
+                    database,
                     min_size=1,
                     max_size=database.max_pool_size,
                     timeout=float(database.timeout_seconds),
@@ -411,6 +485,7 @@ class PostgresPoolManager:
                     "Lakebase connection pool created",
                     database=database.name,
                     instance_name=database.instance_name,
+                    lakebase_type=database.lakebase_type,
                     pool_size=database.max_pool_size,
                 )
             else:

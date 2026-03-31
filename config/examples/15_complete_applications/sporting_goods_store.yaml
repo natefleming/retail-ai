@@ -119,7 +119,8 @@ resources:
   # ---------------------------------------------------------------------------
   warehouses:
     shared_warehouse: &shared_warehouse
-      name: "Shared Endpoint"
+      # name: "Shared Endpoint"
+      name: "Shared Unity Catalog Serverless"
       on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
@@ -914,13 +915,13 @@ agents:
 # APPLICATION
 # =============================================================================
 app:
-  name: sporting_goods_merchandiser_360_dao
+  name: sporting_goods_store_dao
   description: "Multi-agent merchandiser 360 system for sporting goods store covering assortment planning, forecasting, buying, pricing, sales, and inventory"
   log_level: TRACE
   registered_model:
     schema: *sporting_goods_schema
-    name: sporting_goods_merchandiser_360_dao
-  endpoint_name: sporting_goods_merchandiser_360_dao
+    name: sporting_goods_store_dao
+  endpoint_name: sporting_goods_store_dao
   trace_location:
     schema: *sporting_goods_schema
     warehouse: *shared_warehouse
