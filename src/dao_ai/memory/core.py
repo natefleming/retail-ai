@@ -88,9 +88,11 @@ class StoreManager:
                     store_manager = InMemoryStoreManager(store_model)
                     cls.store_managers[store_model.name] = store_manager
             case StorageType.POSTGRES:
-                # Route based on database configuration: instance_name -> Databricks, host -> Postgres
+                # Route based on database configuration:
+                # - Lakebase (provisioned or autoscaling) -> DatabricksStoreManager (uses LakebasePool)
+                # - Standard PostgreSQL (host) -> PostgresStoreManager
                 if store_model.database.is_lakebase:
-                    # Databricks Lakebase connection
+                    # Lakebase connection (uses LakebasePool with token rotation)
                     from dao_ai.memory.databricks import DatabricksStoreManager
 
                     store_manager = cls.store_managers.get(
@@ -105,7 +107,6 @@ class StoreManager:
                     # Standard PostgreSQL connection
                     from dao_ai.memory.postgres import PostgresStoreManager
 
-                    # Use database name as key for standard PostgreSQL
                     cache_key = f"{store_model.database.name}"
                     store_manager = cls.store_managers.get(cache_key)
                     if store_manager is None:
@@ -136,9 +137,11 @@ class CheckpointManager:
                         checkpointer_manager
                     )
             case StorageType.POSTGRES:
-                # Route based on database configuration: instance_name -> Databricks, host -> Postgres
+                # Route based on database configuration:
+                # - Lakebase (provisioned or autoscaling) -> DatabricksCheckpointerManager (uses LakebasePool)
+                # - Standard PostgreSQL -> AsyncPostgresCheckpointerManager
                 if checkpointer_model.database.is_lakebase:
-                    # Databricks Lakebase connection
+                    # Lakebase connection (uses LakebasePool with token rotation)
                     from dao_ai.memory.databricks import DatabricksCheckpointerManager
 
                     checkpointer_manager = cls.checkpoint_managers.get(
@@ -155,7 +158,6 @@ class CheckpointManager:
                     # Standard PostgreSQL connection
                     from dao_ai.memory.postgres import AsyncPostgresCheckpointerManager
 
-                    # Use database name as key for standard PostgreSQL
                     cache_key = f"{checkpointer_model.database.name}"
                     checkpointer_manager = cls.checkpoint_managers.get(cache_key)
                     if checkpointer_manager is None:

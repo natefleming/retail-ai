@@ -128,7 +128,7 @@ agents:
 
 
 app:
-  name: genie_in_memory_context_aware_cache_dao     # Application name  
+  name: genie_inmem_ctx_cache_dao                   # Application name
   description: "Multi-agent system that talks to genie with in-memory context-aware caching (no database required)"
   log_level: DEBUG                                  # Logging level for the application
   environment_vars:                                 # Secrets to inject at runtime

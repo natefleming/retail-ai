@@ -188,12 +188,12 @@ agents:
       Handles product searches requiring highest accuracy using hybrid search and reranking.
 
 app:
-  name: vector_search_with_reranking_dao
+  name: vs_with_reranking_dao
   description: "Demonstrates vector search with FlashRank reranking configurations"
   log_level: TRACE
   registered_model:
     schema: *retail_schema
-    name: vector_search_with_reranking_dao
+    name: vs_with_reranking_dao
   endpoint_name: vector_search_reranking_agent_dao
   tags:
     demo: reranking

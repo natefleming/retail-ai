@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Iterable, Sequence
 from functools import partial
 from typing import Any, Literal
 
+from databricks_ai_bridge.lakebase import LakebasePool
 from databricks_langchain import (
     CheckpointSaver as DatabricksCheckpointSaver,
 )
@@ -41,6 +42,7 @@ from dao_ai.memory.base import (
     CheckpointManagerBase,
     StoreManagerBase,
 )
+from dao_ai.memory.postgres import _create_lakebase_pool
 
 # Type alias for namespace path
 NamespacePath = tuple[str, ...]
@@ -55,7 +57,21 @@ class AsyncDatabricksCheckpointSaver(DatabricksCheckpointSaver):
 
     Provides async implementations of checkpoint methods by delegating
     to the sync methods using asyncio.to_thread().
+
+    Accepts an optional pre-built LakebasePool to use instead of creating
+    one internally, allowing callers to control authentication and pool config.
     """
+
+    def __init__(self, *, pool: LakebasePool | None = None, **kwargs):
+        if pool is not None:
+            # Bypass parent __init__ which creates its own LakebasePool.
+            # Wire the pre-built pool directly via PostgresSaver (our grandparent).
+            from langgraph.checkpoint.postgres import PostgresSaver
+
+            self._lakebase = pool
+            PostgresSaver.__init__(self, pool.pool)
+        else:
+            super().__init__(**kwargs)
 
     async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Async version of get_tuple."""
@@ -154,7 +170,43 @@ class AsyncDatabricksStore(DatabricksStore):
 
     Provides async implementations of store methods by delegating
     to the sync methods using asyncio.to_thread().
+
+    Accepts an optional pre-built LakebasePool to use instead of creating
+    one internally, allowing callers to control authentication and pool config.
     """
+
+    def __init__(
+        self,
+        *,
+        pool: LakebasePool | None = None,
+        embeddings: DatabricksEmbeddings | None = None,
+        embedding_dims: int | None = None,
+        embedding_fields: list[str] | None = None,
+        **kwargs,
+    ):
+        if pool is not None:
+            # Bypass parent __init__ which creates its own LakebasePool.
+            # DatabricksStore._with_store() only needs _lakebase and index_config.
+            self._lakebase = pool
+            self.embeddings = embeddings
+            self.index_config = None
+            if embeddings is not None:
+                if embedding_dims is None:
+                    raise ValueError(
+                        "embedding_dims is required when providing embeddings"
+                    )
+                self.index_config = {
+                    "dims": embedding_dims,
+                    "embed": embeddings,
+                    "fields": embedding_fields or ["$"],
+                }
+        else:
+            super().__init__(
+                embeddings=embeddings,
+                embedding_dims=embedding_dims,
+                embedding_fields=embedding_fields,
+                **kwargs,
+            )
 
     async def abatch(self, ops: Iterable[Op]) -> list[Result]:
         """Async version of batch."""
@@ -299,24 +351,17 @@ class DatabricksCheckpointerManager(CheckpointManagerBase):
             instance_name = database.instance_name
 
             t0 = time.monotonic()
-            workspace_client = database.workspace_client
-            logger.info(
-                "Workspace client created for checkpointer",
-                instance_name=instance_name,
-                elapsed_ms=round((time.monotonic() - t0) * 1000),
-            )
-
+            pool = _create_lakebase_pool(database)
             t1 = time.monotonic()
-            checkpointer = AsyncDatabricksCheckpointSaver(
-                instance_name=instance_name,
-                workspace_client=workspace_client,
-            )
+
+            checkpointer = AsyncDatabricksCheckpointSaver(pool=pool)
 
             logger.debug("Setting up checkpoint tables", instance_name=instance_name)
             checkpointer.setup()
             logger.info(
                 "Databricks checkpointer initialized",
                 instance_name=instance_name,
+                lakebase_type=database.lakebase_type,
                 setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
                 total_elapsed_ms=round((time.monotonic() - t0) * 1000),
             )
@@ -360,12 +405,7 @@ class DatabricksStoreManager(StoreManagerBase):
             instance_name = database.instance_name
 
             t0 = time.monotonic()
-            workspace_client = database.workspace_client
-            logger.info(
-                "Workspace client created for store",
-                instance_name=instance_name,
-                elapsed_ms=round((time.monotonic() - t0) * 1000),
-            )
+            pool = _create_lakebase_pool(database)
 
             embeddings: DatabricksEmbeddings | None = None
             embedding_dims: int | None = None
@@ -388,8 +428,7 @@ class DatabricksStoreManager(StoreManagerBase):
 
             t1 = time.monotonic()
             store = AsyncDatabricksStore(
-                instance_name=instance_name,
-                workspace_client=workspace_client,
+                pool=pool,
                 embeddings=embeddings,
                 embedding_dims=embedding_dims,
             )
@@ -398,6 +437,7 @@ class DatabricksStoreManager(StoreManagerBase):
             logger.info(
                 "Databricks store initialized",
                 instance_name=instance_name,
+                lakebase_type=database.lakebase_type,
                 embeddings_enabled=embeddings is not None,
                 setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
                 total_elapsed_ms=round((time.monotonic() - t0) * 1000),
