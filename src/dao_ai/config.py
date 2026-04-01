@@ -1671,39 +1671,48 @@ class DatabaseModel(IsDatabricksResource):
     - user/password: For user-based database authentication
 
     Connection Types (determined by fields provided):
-    - Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)
+    - Autoscaling Lakebase: Provide `project` (and optionally `branch`)
+    - Provisioned Lakebase: Provide `instance_name`
     - Standard PostgreSQL: Provide `host` (authentication required via user/password)
 
-    Note: For Lakebase connections, `name` is optional and defaults to `instance_name`.
+    Note: `project` and `instance_name` are mutually exclusive.
+    For Lakebase connections, `name` defaults to `project` or `instance_name`.
     For PostgreSQL connections, `name` is required.
 
-    Example Databricks Lakebase (minimal):
+    Example Autoscaling Lakebase (minimal):
     ```yaml
     databases:
       my_lakebase:
-        instance_name: my-lakebase-instance  # name defaults to instance_name
+        project: my-lakebase-project  # name defaults to project
     ```
 
-    Example Databricks Lakebase with Service Principal:
+    Example Autoscaling Lakebase with branch and Service Principal:
     ```yaml
     databases:
       my_lakebase:
-        instance_name: my-lakebase-instance
-        service_principal:
-          client_id:
-            env: SERVICE_PRINCIPAL_CLIENT_ID
-          client_secret:
-            scope: my-scope
-            secret: sp-client-secret
+        project: my-lakebase-project
+        branch: main                  # optional, auto-resolved if omitted
+        client_id:
+          env: SERVICE_PRINCIPAL_CLIENT_ID
+        client_secret:
+          scope: my-scope
+          secret: sp-client-secret
         workspace_host:
           env: DATABRICKS_HOST
     ```
 
-    Example Databricks Lakebase with Ambient Authentication:
+    Example Provisioned Lakebase:
     ```yaml
     databases:
       my_lakebase:
         instance_name: my-lakebase-instance
+    ```
+
+    Example Lakebase with Ambient Authentication:
+    ```yaml
+    databases:
+      my_lakebase:
+        project: my-lakebase-project
         on_behalf_of_user: true
     ```
 
@@ -1724,18 +1733,15 @@ class DatabaseModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: Optional[str] = Field(
         default=None,
-        description="Logical database name. For Lakebase, defaults to instance_name.",
+        description="Logical database name. For Lakebase, defaults to project or instance_name.",
+    )
+    project: Optional[str] = Field(
+        default=None,
+        description="Autoscaling Lakebase project name. Mutually exclusive with instance_name.",
     )
     instance_name: Optional[str] = Field(
         default=None,
-        description="Databricks Lakebase instance name. Mutually exclusive with host (standard PostgreSQL).",
-    )
-    lakebase_type: Optional[Literal["provisioned", "autoscaling"]] = Field(
-        default="autoscaling",
-        description=(
-            "Lakebase deployment type. 'autoscaling' uses the Postgres API (projects/branches/endpoints). "
-            "'provisioned' uses the legacy Database Instances API. Only applies when instance_name is set."
-        ),
+        description="Provisioned Lakebase instance name. Mutually exclusive with project.",
     )
     description: Optional[str] = Field(
         default=None,
@@ -1765,9 +1771,10 @@ class DatabaseModel(IsDatabricksResource):
         default=10,
         description="Connection timeout in seconds.",
     )
-    capacity: Optional[Literal["CU_1", "CU_2"]] = Field(
-        default="CU_2",
-        description="Lakebase compute capacity tier (CU_1 or CU_2). Only used for provisioned Lakebase.",
+    # --- Autoscaling Lakebase fields (only valid with project) ---
+    branch: Optional[str] = Field(
+        default=None,
+        description="Autoscaling Lakebase branch name. If omitted, the default branch is auto-resolved.",
     )
     autoscaling_min_cu: Optional[int] = Field(
         default=2,
@@ -1777,10 +1784,16 @@ class DatabaseModel(IsDatabricksResource):
         default=4,
         description="Maximum compute units for autoscaling Lakebase.",
     )
+    # --- Provisioned Lakebase fields (only valid with instance_name) ---
+    capacity: Optional[Literal["CU_1", "CU_2"]] = Field(
+        default="CU_2",
+        description="Lakebase compute capacity tier (CU_1 or CU_2).",
+    )
     node_count: Optional[int] = Field(
         default=None,
-        description="Number of Lakebase compute nodes for horizontal scaling. Only used for provisioned Lakebase.",
+        description="Number of Lakebase compute nodes for horizontal scaling.",
     )
+    # --- Common auth fields ---
     user: Optional[AnyVariable] = Field(
         default=None,
         description="Database username. For Lakebase, auto-detected from workspace identity.",
@@ -1798,18 +1811,18 @@ class DatabaseModel(IsDatabricksResource):
 
     @property
     def is_lakebase(self) -> bool:
-        """Returns True if this is a Databricks Lakebase connection (instance_name provided)."""
-        return self.instance_name is not None
+        """Returns True if this is a Databricks Lakebase connection (project or instance_name provided)."""
+        return self.project is not None or self.instance_name is not None
 
     @property
     def is_lakebase_autoscaling(self) -> bool:
         """Returns True if this is an autoscaling Lakebase connection."""
-        return self.is_lakebase and self.lakebase_type == "autoscaling"
+        return self.project is not None
 
     @property
     def is_lakebase_provisioned(self) -> bool:
         """Returns True if this is a provisioned Lakebase connection."""
-        return self.is_lakebase and self.lakebase_type == "provisioned"
+        return self.instance_name is not None
 
     def as_resources(self) -> Sequence[DatabricksResource]:
         if self.is_lakebase_provisioned:
@@ -1829,25 +1842,31 @@ class DatabaseModel(IsDatabricksResource):
     def validate_connection_type(self) -> Self:
         """Validate connection configuration based on type.
 
-        - If instance_name is provided: Databricks Lakebase connection
-          (host is optional - will be fetched from API if not provided)
-        - If only host is provided: Standard PostgreSQL connection
-          (must not have instance_name)
+        - project: Autoscaling Lakebase (mutually exclusive with instance_name)
+        - instance_name: Provisioned Lakebase (mutually exclusive with project)
+        - host: Standard PostgreSQL (no project or instance_name)
         """
-        if not self.instance_name and not self.host:
+        if self.project and self.instance_name:
             raise ValueError(
-                "Either instance_name (Databricks Lakebase) or host (PostgreSQL) must be provided."
+                "'project' (autoscaling) and 'instance_name' (provisioned) are mutually exclusive."
+            )
+        if not self.project and not self.instance_name and not self.host:
+            raise ValueError(
+                "One of 'project' (autoscaling Lakebase), 'instance_name' (provisioned Lakebase), "
+                "or 'host' (PostgreSQL) must be provided."
             )
         return self
 
     @model_validator(mode="after")
-    def populate_name_from_instance_name(self) -> Self:
-        """Populate name from instance_name if not provided for Lakebase connections."""
-        if self.name is None and self.instance_name:
+    def populate_name(self) -> Self:
+        """Populate name from project or instance_name if not provided."""
+        if self.name is None and self.project:
+            self.name = self.project
+        elif self.name is None and self.instance_name:
             self.name = self.instance_name
         elif self.name is None:
             raise ValueError(
-                "Either 'name' or 'instance_name' must be provided for DatabaseModel."
+                "Either 'name', 'project', or 'instance_name' must be provided for DatabaseModel."
             )
         return self
 
@@ -1936,13 +1955,15 @@ class DatabaseModel(IsDatabricksResource):
 
     @property
     def autoscaling_default_branch(self) -> str:
-        """Resolve and return the default branch name for autoscaling Lakebase."""
+        """Return the configured branch name, or resolve the default branch from the API."""
+        project_name = f"projects/{self.project}"
+        if self.branch:
+            return f"{project_name}/branches/{self.branch}"
         w: WorkspaceClient = self.workspace_client
-        project_name = f"projects/{self.instance_name}"
         branches = list(w.postgres.list_branches(project_name))
         if not branches:
             raise ValueError(
-                f"No branches found for autoscaling Lakebase project '{self.instance_name}'."
+                f"No branches found for autoscaling Lakebase project '{self.project}'."
             )
         default_branch = next(
             (b for b in branches if b.status and b.status.default),
@@ -1957,26 +1978,13 @@ class DatabaseModel(IsDatabricksResource):
             Tuple of (host, endpoint_name)
         """
         w: WorkspaceClient = self.workspace_client
-        project_name = f"projects/{self.instance_name}"
-
-        # List branches to find the default (production) branch
-        branches = list(w.postgres.list_branches(project_name))
-        if not branches:
-            raise ValueError(
-                f"No branches found for autoscaling Lakebase project '{self.instance_name}'."
-            )
-
-        # Use the default branch (usually 'production')
-        default_branch = next(
-            (b for b in branches if b.status and b.status.default),
-            branches[0],
-        )
+        branch_name = self.autoscaling_default_branch
 
         # List endpoints on the branch to find the read-write endpoint
-        endpoints = list(w.postgres.list_endpoints(default_branch.name))
+        endpoints = list(w.postgres.list_endpoints(branch_name))
         if not endpoints:
             raise ValueError(
-                f"No endpoints found for autoscaling Lakebase branch '{default_branch.name}'."
+                f"No endpoints found for autoscaling Lakebase branch '{branch_name}'."
             )
 
         # Find the read-write endpoint
@@ -1995,7 +2003,7 @@ class DatabaseModel(IsDatabricksResource):
             or not rw_endpoint.status.hosts.host
         ):
             raise ValueError(
-                f"No host found for autoscaling Lakebase endpoint in project '{self.instance_name}'."
+                f"No host found for autoscaling Lakebase endpoint in project '{self.project}'."
             )
 
         return rw_endpoint.status.hosts.host, rw_endpoint.name
@@ -2040,7 +2048,7 @@ class DatabaseModel(IsDatabricksResource):
             host_value = existing_instance.read_write_dns
 
         if host_value is None:
-            instance_or_name = self.instance_name if self.is_lakebase else self.name
+            instance_or_name = self.project or self.instance_name or self.name
             raise ValueError(
                 f"Database host not configured for {instance_or_name}. "
                 "Please provide 'host' explicitly."

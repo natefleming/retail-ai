@@ -1817,14 +1817,14 @@ class DatabricksProvider(ServiceProvider):
         )
 
         workspace_client: WorkspaceClient = database.workspace_client
-        project_name = f"projects/{database.instance_name}"
+        project_name = f"projects/{database.project}"
 
         try:
             existing_project = workspace_client.postgres.get_project(project_name)
             if existing_project:
                 logger.info(
                     "Autoscaling Lakebase project already exists",
-                    instance_name=database.instance_name,
+                    project=database.project,
                 )
 
                 # Check endpoint status
@@ -1846,13 +1846,13 @@ class DatabricksProvider(ServiceProvider):
                             if ep.status and ep.status.current_state == "ACTIVE":
                                 logger.info(
                                     "Autoscaling Lakebase endpoint is ACTIVE",
-                                    instance_name=database.instance_name,
+                                    project=database.project,
                                 )
                                 return
                             elif ep.status and ep.status.current_state == "INIT":
                                 logger.info(
                                     "Autoscaling Lakebase endpoint initializing, waiting",
-                                    instance_name=database.instance_name,
+                                    project=database.project,
                                 )
                                 max_wait = 300
                                 elapsed = 0
@@ -1871,18 +1871,18 @@ class DatabricksProvider(ServiceProvider):
                                     ):
                                         logger.success(
                                             "Autoscaling Lakebase endpoint is now ACTIVE",
-                                            instance_name=database.instance_name,
+                                            project=database.project,
                                         )
                                         return
                                 logger.warning(
                                     "Timed out waiting for endpoint to become ACTIVE",
-                                    instance_name=database.instance_name,
+                                    project=database.project,
                                 )
                                 return
                 except Exception as ep_err:
                     logger.warning(
                         "Could not check endpoint status",
-                        instance_name=database.instance_name,
+                        project=database.project,
                         error=str(ep_err),
                     )
                 return
@@ -1890,7 +1890,7 @@ class DatabricksProvider(ServiceProvider):
         except NotFound:
             logger.info(
                 "Creating new autoscaling Lakebase project",
-                instance_name=database.instance_name,
+                project=database.project,
             )
 
             try:
@@ -1909,12 +1909,12 @@ class DatabricksProvider(ServiceProvider):
 
                 workspace_client.postgres.create_project(
                     project=project,
-                    project_id=database.instance_name,
+                    project_id=database.project,
                 )
 
                 logger.success(
                     "Autoscaling Lakebase project created",
-                    instance_name=database.instance_name,
+                    project=database.project,
                 )
 
                 # Wait for the endpoint to become ACTIVE
@@ -1944,7 +1944,7 @@ class DatabricksProvider(ServiceProvider):
                             ):
                                 logger.success(
                                     "Autoscaling Lakebase endpoint is now ACTIVE",
-                                    instance_name=database.instance_name,
+                                    project=database.project,
                                 )
                                 return
                     except Exception:
@@ -1952,7 +1952,7 @@ class DatabricksProvider(ServiceProvider):
 
                 logger.warning(
                     "Timed out waiting for autoscaling Lakebase to become ACTIVE",
-                    instance_name=database.instance_name,
+                    project=database.project,
                 )
                 return
 
@@ -1964,12 +1964,12 @@ class DatabricksProvider(ServiceProvider):
                 ):
                     logger.info(
                         "Autoscaling Lakebase project created concurrently",
-                        instance_name=database.instance_name,
+                        project=database.project,
                     )
                     return
                 logger.error(
                     "Error creating autoscaling Lakebase project",
-                    instance_name=database.instance_name,
+                    project=database.project,
                     error=error_msg,
                 )
                 raise
@@ -1982,25 +1982,25 @@ class DatabricksProvider(ServiceProvider):
             ):
                 logger.info(
                     "Autoscaling Lakebase project already exists (detected via exception)",
-                    instance_name=database.instance_name,
+                    project=database.project,
                 )
                 return
             logger.error(
                 "Unexpected error while handling autoscaling Lakebase project",
-                instance_name=database.instance_name,
+                project=database.project,
                 error=error_msg,
             )
             raise
 
     def _resolve_autoscaling_default_branch(
-        self, workspace_client: WorkspaceClient, instance_name: str
+        self, workspace_client: WorkspaceClient, project: str
     ) -> str:
         """Resolve the default branch name for an autoscaling Lakebase project."""
-        project_name = f"projects/{instance_name}"
+        project_name = f"projects/{project}"
         branches = list(workspace_client.postgres.list_branches(project_name))
         if not branches:
             raise ValueError(
-                f"No branches found for autoscaling Lakebase project '{instance_name}'."
+                f"No branches found for autoscaling Lakebase project '{project}'."
             )
         default_branch = next(
             (b for b in branches if b.status and b.status.default),
@@ -2026,7 +2026,7 @@ class DatabricksProvider(ServiceProvider):
         if not database.client_id:
             logger.warning(
                 "client_id required to create autoscaling role",
-                instance_name=database.instance_name,
+                project=database.project,
             )
             return
 
@@ -2035,7 +2035,7 @@ class DatabricksProvider(ServiceProvider):
 
         # Roles are created on a branch, not on the project
         branch_name = self._resolve_autoscaling_default_branch(
-            workspace_client, database.instance_name
+            workspace_client, database.project
         )
 
         # role_id must match ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ so sanitize the client_id
@@ -2049,7 +2049,7 @@ class DatabricksProvider(ServiceProvider):
             "Creating autoscaling Lakebase role",
             role_name=client_id,
             role_id=sanitized_role_id,
-            instance_name=database.instance_name,
+            project=database.project,
             branch=branch_name,
         )
 
@@ -2061,7 +2061,7 @@ class DatabricksProvider(ServiceProvider):
                 logger.info(
                     "Autoscaling Lakebase role already exists",
                     role_name=client_id,
-                    instance_name=database.instance_name,
+                    project=database.project,
                 )
                 return
             except NotFound:
@@ -2087,7 +2087,7 @@ class DatabricksProvider(ServiceProvider):
             logger.success(
                 "Autoscaling Lakebase role created",
                 role_name=client_id,
-                instance_name=database.instance_name,
+                project=database.project,
             )
 
         except Exception as e:
@@ -2099,13 +2099,13 @@ class DatabricksProvider(ServiceProvider):
                 logger.info(
                     "Autoscaling Lakebase role created concurrently",
                     role_name=client_id,
-                    instance_name=database.instance_name,
+                    project=database.project,
                 )
                 return
             logger.error(
                 "Error creating autoscaling Lakebase role",
                 role_name=client_id,
-                instance_name=database.instance_name,
+                project=database.project,
                 error=error_msg,
             )
             raise

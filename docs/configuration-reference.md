@@ -43,11 +43,28 @@ resources:
       columns: [string]
 
   databases:
-    postgres_db: &postgres_db
-      instance_name: string
-      client_id: *api_key       # OAuth credentials
+    # Autoscaling Lakebase
+    autoscaling_db: &autoscaling_db
+      project: string              # autoscaling Lakebase project name
+      branch: string               # optional, auto-resolved if omitted
+      client_id: *api_key          # OAuth credentials
       client_secret: *secret
       workspace_host: string
+
+    # Provisioned Lakebase
+    provisioned_db: &provisioned_db
+      instance_name: string        # provisioned Lakebase instance name
+      client_id: *api_key          # OAuth credentials
+      client_secret: *secret
+      workspace_host: string
+
+    # Standard PostgreSQL
+    postgres_db: &postgres_db
+      host: string
+      port: int
+      database: string
+      user: string
+      password: string
 
   warehouses:
     warehouse: &warehouse

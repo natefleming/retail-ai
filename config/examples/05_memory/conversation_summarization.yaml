@@ -56,10 +56,8 @@ resources:
   # This enables conversation state to be saved and restored across sessions
   databases:
     lakehouse_database: &lakehouse_database
-      name: "Conversation Summarization Database"
-      instance_name: "retail-consumer-goods"
+      project: "retail-consumer-goods"
       description: "PostgreSQL database for conversation checkpoints and memory"
-      # Authentication is automatically provided via instance_name (Databricks Lakebase)
 
 # =============================================================================
 # MEMORY CONFIGURATION

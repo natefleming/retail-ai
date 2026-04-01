@@ -165,8 +165,7 @@ resources:
   # ---------------------------------------------------------------------------
   databases:
     retail_database: &retail_database
-      name: "retail-consumer-goods"
-      instance_name: "retail-consumer-goods"
+      project: "retail-consumer-goods"
       description: "Databricks Lakebase for agent memory and checkpoints"
       client_id: *client_id
       client_secret: *client_secret

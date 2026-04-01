@@ -38,10 +38,8 @@ resources:
 
   databases:
     # Lakebase (PostgreSQL) database for context-aware cache storage
-    # Authentication is automatically provided via instance_name (Databricks Lakebase)
     context_aware_cache_db: &context_aware_cache_db
-      name: "Retail and Consumer Goods Database"
-      instance_name: "retail-consumer-goods"        # Databricks Lakebase instance name
+      project: "retail-consumer-goods"              # Autoscaling Lakebase project name
       description: "PostgreSQL database for context-aware cache"
 
   genie_rooms:

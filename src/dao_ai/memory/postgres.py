@@ -206,8 +206,7 @@ class AsyncPostgresPoolManager:
                 logger.success(
                     "Async Lakebase connection pool created",
                     database=database.name,
-                    instance_name=database.instance_name,
-                    lakebase_type=database.lakebase_type,
+                    lakebase=database.project or database.instance_name,
                     pool_size=database.max_pool_size,
                 )
             else:
@@ -484,8 +483,7 @@ class PostgresPoolManager:
                 logger.success(
                     "Lakebase connection pool created",
                     database=database.name,
-                    instance_name=database.instance_name,
-                    lakebase_type=database.lakebase_type,
+                    lakebase=database.project or database.instance_name,
                     pool_size=database.max_pool_size,
                 )
             else:

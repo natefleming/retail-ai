@@ -52,8 +52,7 @@ resources:
 
   databases:
     lakebase_db: &lakebase_db
-      name: retail-consumer-goods
-      instance_name: retail-consumer-goods
+      project: retail-consumer-goods
       client_id: *client_id
       client_secret: *client_secret
 

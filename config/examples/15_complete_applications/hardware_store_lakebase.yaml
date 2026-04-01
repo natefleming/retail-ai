@@ -149,7 +149,7 @@ resources:
     # Lakebase database for agent memory and checkpoints
     retail_database: &retail_database
       name: "Retail and Consumer Goods Database"
-      instance_name: "retail-consumer-goods"  # Use instance_name for Databricks Lakebase
+      project: "retail-consumer-goods"  # Autoscaling Lakebase project name
       description: "Database for agent memory and checkpoints" 
    
       client_id: *client_id

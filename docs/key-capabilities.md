@@ -679,18 +679,23 @@ memory:
     embedding_model: *embedding_model
 
 # Option 2: Lakebase (Databricks-native)
+# First define the database in resources:
+resources:
+  databases:
+    my_lakebase: &my_lakebase
+      project: "my-project"        # autoscaling Lakebase project name
+      branch: "main"               # optional, auto-resolved if omitted
+      # Or for provisioned Lakebase:
+      # instance_name: "my-instance"
+
 memory:
   checkpointer:
     name: conversation_checkpointer
-    type: lakebase
-    schema: *my_schema              # Unity Catalog schema
-    table_name: agent_checkpoints   # PostgreSQL table for conversation state
-  
+    database: *my_lakebase
+
   store:
     name: user_preferences_store
-    type: lakebase
-    schema: *my_schema
-    table_name: agent_store         # PostgreSQL table for key-value storage
+    database: *my_lakebase
     embedding_model: *embedding_model
 ```
 
@@ -720,15 +725,11 @@ Configure long-term memory with the `extraction` block:
 memory:
   checkpointer:
     name: conversation_checkpointer
-    type: lakebase
-    schema: *my_schema
-    table_name: agent_checkpoints
+    database: *my_lakebase
 
   store:
     name: memory_store
-    type: lakebase
-    schema: *my_schema
-    table_name: agent_store
+    database: *my_lakebase
     embedding_model: *embedding_model
 
   extraction:
