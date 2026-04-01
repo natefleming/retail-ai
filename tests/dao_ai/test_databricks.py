@@ -1060,7 +1060,6 @@ def test_database_model_connection_params_auto_fetches_host_provisioned():
 
         database = DatabaseModel(
             instance_name="test_db",
-            lakebase_type="provisioned",
         )
 
         params = database.connection_params
@@ -1109,8 +1108,7 @@ def test_database_model_connection_params_auto_fetches_host_autoscaling():
         mock_prop.return_value = mock_ws_client
 
         database = DatabaseModel(
-            instance_name="test_db",
-            lakebase_type="autoscaling",
+            project="test_db",
         )
 
         params = database.connection_params
@@ -1150,7 +1148,6 @@ def test_postgres_pool_manager_uses_lakebase_pool():
             # Create a provisioned Lakebase database model
             database = DatabaseModel(
                 instance_name="test-lakebase-instance",
-                lakebase_type="provisioned",
             )
 
             # Get the pool
@@ -1372,11 +1369,11 @@ def test_database_model_as_resources_provisioned():
     db = DatabaseModel(
         name="test-db",
         instance_name="test-db",
-        lakebase_type="provisioned",
         host="localhost",
         user="test_user",
         password="test_password",
     )
+    assert db.is_lakebase_provisioned is True
     resources = db.as_resources()
     assert len(resources) == 1
     assert isinstance(resources[0], DatabricksLakebase)
@@ -1394,32 +1391,42 @@ def test_database_model_as_resources_autoscaling():
     """
     db = DatabaseModel(
         name="test-db",
-        instance_name="test-db",
-        lakebase_type="autoscaling",
+        project="test-db",
         host="localhost",
         user="test_user",
         password="test_password",
     )
+    assert db.is_lakebase_autoscaling is True
     resources = db.as_resources()
     assert len(resources) == 0
     assert db.api_scopes == ["postgres"]
 
 
 @pytest.mark.unit
-def test_database_model_as_resources_default_is_autoscaling():
-    """Test that default lakebase_type is autoscaling and as_resources returns empty list."""
+def test_database_model_as_resources_project_defaults_name():
+    """Test that project serves as the default name for autoscaling Lakebase."""
     db = DatabaseModel(
-        name="test-db",
-        instance_name="test-db",
+        project="my-project",
         host="localhost",
         user="test_user",
         password="test_password",
     )
-    assert db.lakebase_type == "autoscaling"
+    assert db.name == "my-project"
     assert db.is_lakebase_autoscaling is True
     assert db.is_lakebase_provisioned is False
-    resources = db.as_resources()
-    assert len(resources) == 0
+
+
+@pytest.mark.unit
+def test_database_model_project_and_instance_name_mutually_exclusive():
+    """Test that project and instance_name cannot both be set."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        DatabaseModel(
+            project="my-project",
+            instance_name="my-instance",
+            host="localhost",
+            user="test_user",
+            password="test_password",
+        )
 
 
 @pytest.mark.unit

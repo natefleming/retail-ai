@@ -351,9 +351,8 @@ from dao_ai.genie.core import GenieService
 workspace_client = WorkspaceClient()
 
 database = DatabaseModel(
-    name="retail-consumer-goods",
-    instance_name="retail-consumer-goods",
-    workspace_client=workspace_client,
+    project="retail-consumer-goods",  # autoscaling Lakebase
+    # Or for provisioned: instance_name="retail-consumer-goods"
 )
 
 # Provide warehouse_id directly, or just name to resolve the ID automatically

@@ -42,8 +42,7 @@ resources:
 
   databases:
     context_aware_cache_db: &context_aware_cache_db
-      name: "Retail and Consumer Goods Database"
-      instance_name: "retail-consumer-goods"
+      project: "retail-consumer-goods"
 
 
 # =============================================================================

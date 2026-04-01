@@ -47,10 +47,8 @@ resources:
   # ---------------------------------------------------------------------------
   databases:
     lakebase_db: &lakebase_db
-      name: "my-lakebase-instance"           # Your Lakebase database name
-      instance_name: "my-lakebase-instance"  # Must match the name above
+      project: "my-lakebase-project"         # Autoscaling Lakebase project name
       description: "Databricks Lakebase for conversation persistence"
-      # Authentication is automatically provided via instance_name (Databricks Lakebase)
 
 # =============================================================================
 # MEMORY CONFIGURATION

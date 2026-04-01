@@ -326,8 +326,8 @@ dao-ai bundle --deploy -c config/examples/15_complete_applications/sporting_good
 graph TB
     subgraph Integration["🔗 Feature Integration"]
         subgraph Memory["🧠 Memory"]
-            M1["checkpointer: postgres"]
-            M2["store: postgres"]
+            M1["checkpointer: lakebase"]
+            M2["store: lakebase"]
             M3["summarizer: *default_llm"]
         end
         

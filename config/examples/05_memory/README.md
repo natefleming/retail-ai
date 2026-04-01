@@ -148,18 +148,26 @@ memory:
 
 ## Lakebase Configuration
 
+Lakebase databases are configured in the `resources.databases` section. Use `project` for autoscaling Lakebase or `instance_name` for provisioned:
+
 ```yaml
+resources:
+  databases:
+    my_lakebase: &my_lakebase
+      project: "my-project"        # autoscaling Lakebase project name
+      branch: "main"               # optional, auto-resolved if omitted
+
+    # Or for provisioned Lakebase:
+    # my_lakebase: &my_lakebase
+    #   instance_name: "my-instance"
+
 memory:
   checkpointer:
     name: conversation_checkpointer
-    type: lakebase
-    schema: *my_schema
-    table_name: agent_checkpoints
+    database: *my_lakebase
   store:
     name: memory_store
-    type: lakebase
-    schema: *my_schema
-    table_name: agent_store
+    database: *my_lakebase
     embedding_model: *embedding_model
 ```
 

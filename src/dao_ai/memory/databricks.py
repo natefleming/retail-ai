@@ -348,7 +348,7 @@ class DatabricksCheckpointerManager(CheckpointManagerBase):
                     "Please provide a 'database' field in the checkpointer configuration."
                 )
 
-            instance_name = database.instance_name
+            lakebase_name = database.project or database.instance_name
 
             t0 = time.monotonic()
             pool = _create_lakebase_pool(database)
@@ -356,12 +356,11 @@ class DatabricksCheckpointerManager(CheckpointManagerBase):
 
             checkpointer = AsyncDatabricksCheckpointSaver(pool=pool)
 
-            logger.debug("Setting up checkpoint tables", instance_name=instance_name)
+            logger.debug("Setting up checkpoint tables", lakebase=lakebase_name)
             checkpointer.setup()
             logger.info(
                 "Databricks checkpointer initialized",
-                instance_name=instance_name,
-                lakebase_type=database.lakebase_type,
+                lakebase=lakebase_name,
                 setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
                 total_elapsed_ms=round((time.monotonic() - t0) * 1000),
             )
@@ -402,7 +401,7 @@ class DatabricksStoreManager(StoreManagerBase):
                     "Please provide a 'database' field in the store configuration."
                 )
 
-            instance_name = database.instance_name
+            lakebase_name = database.project or database.instance_name
 
             t0 = time.monotonic()
             pool = _create_lakebase_pool(database)
@@ -436,8 +435,7 @@ class DatabricksStoreManager(StoreManagerBase):
             store.setup()
             logger.info(
                 "Databricks store initialized",
-                instance_name=instance_name,
-                lakebase_type=database.lakebase_type,
+                lakebase=lakebase_name,
                 embeddings_enabled=embeddings is not None,
                 setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
                 total_elapsed_ms=round((time.monotonic() - t0) * 1000),
