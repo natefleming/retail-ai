@@ -165,7 +165,8 @@ resources:
   # ---------------------------------------------------------------------------
   databases:
     retail_database: &retail_database
-      project: "retail-consumer-goods"
+      name: "retail-consumer-goods"
+      instance_name: "retail-consumer-goods"
       description: "Databricks Lakebase for agent memory and checkpoints"
       client_id: *client_id
       client_secret: *client_secret
@@ -921,9 +922,9 @@ app:
     schema: *sporting_goods_schema
     name: sporting_goods_store_dao
   endpoint_name: sporting_goods_store_dao
-  trace_location:
-    schema: *sporting_goods_schema
-    warehouse: *shared_warehouse
+  #trace_location:
+  #  schema: *sporting_goods_schema
+  #  warehouse: *shared_warehouse
   monitoring:
     sample_rate: 1.0
     scorers:
@@ -977,9 +978,13 @@ app:
   orchestration:
     memory: *memory
     supervisor:
-      model: *fast_llm
+      model: *tool_calling_llm
       tools:
         - *app_info_tool
+      prompt: |
+        You are a routing coordinator for a sporting goods merchandising system. You do NOT answer questions yourself. Your ONLY job is to analyze incoming requests and hand off to the most appropriate specialist agent using the handoff tools.
+
+        IMPORTANT: You do NOT have access to product data, inventory systems, sales data, or any merchandising tools. You MUST hand off every request to an agent. Never attempt to answer a merchandising question yourself. Always hand off. Never answer directly.
       middleware:
         - *store_validation
   input_example:
