@@ -81,7 +81,6 @@ resources:
 
     embedding_model: &embedding_model
       name: databricks-gte-large-en
-      on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
@@ -89,6 +88,7 @@ resources:
   vector_stores:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
+      on_behalf_of_user: true
       endpoint:
         name: dbdemos_vs_endpoint
         type: STANDARD
@@ -112,7 +112,6 @@ resources:
         - sport_category
         - base_price
         - long_description
-      on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
   # WAREHOUSES

@@ -4543,8 +4543,6 @@ class TraceLocationModel(BaseModel):
         "mlflow_experiment_trace_otel_spans",
         "mlflow_experiment_trace_otel_logs",
         "mlflow_experiment_trace_otel_metrics",
-        "mlflow_experiment_trace_metadata",
-        "mlflow_experiment_trace_unified",
     )
 
     model_config = ConfigDict(

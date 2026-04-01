@@ -280,7 +280,8 @@ def create_vector_search_tool(
             top_n=instruction_rerank_config.top_n,
         )
 
-    # Build client_args for VectorSearchClient
+    # Build client_args for VectorSearchClient (SP or PAT auth only).
+    # OBO auth is handled separately via workspace_client_from(context).
     client_args: dict[str, Any] = {}
     has_explicit_auth = any(
         [
@@ -288,7 +289,6 @@ def create_vector_search_tool(
             os.environ.get("DATABRICKS_CLIENT_ID"),
             vector_store.pat,
             vector_store.client_id,
-            vector_store.on_behalf_of_user,
         ]
     )
 
@@ -341,12 +341,20 @@ def create_vector_search_tool(
         # Create DatabricksVectorSearch
         # Note: text_column should be None for Databricks-managed embeddings
         # (it's automatically determined from the index)
+        #
+        # When OBO is active, skip client_args entirely so
+        # DatabricksVectorSearch uses the workspace_client (which carries
+        # the user's forwarded token) instead of creating a separate
+        # VectorSearchClient from client_args with ambient/SP auth.
+        effective_client_args: dict[str, Any] | None = (
+            client_args if client_args and not vector_store.on_behalf_of_user else None
+        )
         vs: DatabricksVectorSearch = DatabricksVectorSearch(
             index_name=index_name,
             text_column=None,
             columns=columns,
             workspace_client=workspace_client,
-            client_args=client_args if client_args else None,
+            client_args=effective_client_args,
             primary_key=vector_store.primary_key,
             doc_uri=vector_store.doc_uri,
             include_score=True,

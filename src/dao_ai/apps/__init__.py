@@ -14,11 +14,13 @@ Modules:
 from dao_ai.apps.resources import (
     generate_app_resources,
     generate_app_yaml,
+    generate_deployment_resources,
     generate_sdk_resources,
 )
 
 __all__ = [
     "generate_app_resources",
     "generate_app_yaml",
+    "generate_deployment_resources",
     "generate_sdk_resources",
 ]

@@ -1673,8 +1673,15 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 custom_outputs=custom_outputs,
             )
         except Exception as e:
-            logger.error("Error in graph streaming", error=str(e))
-            raise
+            logger.error("Error in graph streaming", error=str(e), exc_info=True)
+            error_item_id: str = f"error_{uuid.uuid4().hex[:8]}"
+            yield ResponsesAgentStreamEvent(
+                type="response.output_item.done",
+                item=self.create_text_output_item(
+                    text="An unexpected error occurred while processing your request. Please try again.",
+                    id=error_item_id,
+                ),
+            )
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """
