@@ -189,7 +189,9 @@ def instruction_aware_rerank(
         avg_score = sum(
             d.metadata.get("instruction_rerank_score", 0) for d in reranked
         ) / len(reranked)
-        mlflow.set_tag("reranker.instruction_avg_score", f"{avg_score:.3f}")
+        span = mlflow.get_current_active_span()
+        if span:
+            span.set_attribute("reranker.instruction_avg_score", f"{avg_score:.3f}")
 
     logger.debug(
         "Instruction reranking complete",

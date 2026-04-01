@@ -554,7 +554,9 @@ def create_vector_search_tool(
         """Apply instruction-aware reranking and verification based on mode and bypass settings."""
         # Skip post-processing for standard mode when auto_bypass is enabled
         if mode == "standard" and auto_bypass:
-            mlflow.set_tag("router.bypassed_stages", "true")
+            span = mlflow.get_current_active_span()
+            if span:
+                span.set_attribute("router.bypassed_stages", "true")
             return documents
 
         # Apply instruction-aware reranking if configured
@@ -599,29 +601,34 @@ def create_vector_search_tool(
                         previous_feedback=previous_feedback,
                     )
 
+                    _span = mlflow.get_current_active_span()
                     if verification_result.passed:
-                        mlflow.set_tag("verifier.outcome", "passed")
-                        mlflow.set_tag("verifier.retries", str(retry_count))
+                        if _span:
+                            _span.set_attribute("verifier.outcome", "passed")
+                            _span.set_attribute("verifier.retries", str(retry_count))
                         break
 
                     # Handle failure based on configuration
                     if verifier_config.on_failure == "warn":
-                        mlflow.set_tag("verifier.outcome", "warned")
+                        if _span:
+                            _span.set_attribute("verifier.outcome", "warned")
                         documents = add_verification_metadata(
                             documents, verification_result
                         )
                         break
 
                     if retry_count >= verifier_config.max_retries:
-                        mlflow.set_tag("verifier.outcome", "exhausted")
-                        mlflow.set_tag("verifier.retries", str(retry_count))
+                        if _span:
+                            _span.set_attribute("verifier.outcome", "exhausted")
+                            _span.set_attribute("verifier.retries", str(retry_count))
                         documents = add_verification_metadata(
                             documents, verification_result, exhausted=True
                         )
                         break
 
                     # Retry with feedback
-                    mlflow.set_tag("verifier.outcome", "retried")
+                    if _span:
+                        _span.set_attribute("verifier.outcome", "retried")
                     previous_feedback = verification_result.feedback
                     retry_count += 1
                     logger.debug(
@@ -687,7 +694,9 @@ def create_vector_search_tool(
                     logger.warning(
                         "Router failed, defaulting to standard mode", error=str(e)
                     )
-                    mlflow.set_tag("router.fallback", "true")
+                    span = mlflow.get_current_active_span()
+                    if span:
+                        span.set_attribute("router.fallback", "true")
                     mode = router_config.default_mode
             else:
                 mode = router_config.default_mode
@@ -697,7 +706,9 @@ def create_vector_search_tool(
             auto_bypass = False
 
         logger.trace("Routing mode", mode=mode, auto_bypass=auto_bypass)
-        mlflow.set_tag("router.mode", mode)
+        span = mlflow.get_current_active_span()
+        if span:
+            span.set_attribute("router.mode", mode)
 
         # Execute search based on mode
         if mode == "instructed" and instructed_config and decomposition_config:

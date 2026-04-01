@@ -114,10 +114,12 @@ def verify_results(
         )
 
     # Log for observability
-    mlflow.log_text(
-        json.dumps(result.model_dump(), indent=2),
-        "verification_result.json",
-    )
+    span = mlflow.get_current_active_span()
+    if span:
+        span.set_attribute(
+            "verification_result",
+            json.dumps(result.model_dump(), indent=2),
+        )
 
     logger.debug(
         "Verification complete",

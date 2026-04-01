@@ -237,7 +237,16 @@ class DatabricksProvider(ServiceProvider):
     def get_or_create_experiment(self, config: AppConfig) -> Experiment:
         experiment_name: str = self.experiment_name(config)
         experiment: Experiment | None = mlflow.get_experiment_by_name(experiment_name)
-        if experiment is None:
+
+        if experiment is not None and experiment.lifecycle_stage == "deleted":
+            client: MlflowClient = MlflowClient()
+            client.restore_experiment(experiment.experiment_id)
+            logger.info(
+                "Restored deleted experiment",
+                experiment_id=experiment.experiment_id,
+            )
+            experiment = mlflow.get_experiment(experiment.experiment_id)
+        elif experiment is None:
             experiment_id: str = mlflow.create_experiment(name=experiment_name)
             logger.success(
                 "Created new MLflow experiment",
@@ -245,6 +254,7 @@ class DatabricksProvider(ServiceProvider):
                 experiment_id=experiment_id,
             )
             experiment = mlflow.get_experiment(experiment_id)
+
         return experiment
 
     def create_token(self) -> str:

@@ -32,17 +32,21 @@ __all__ = [
 
 
 def _create_handler(include_traceback: bool = False) -> Any:
-    """Build a ``@wrap_tool_call`` handler with the given options."""
+    """Build a ``@wrap_tool_call`` handler with the given options.
+
+    The handler is ``async`` so it works in both sync and async agent
+    execution contexts (``stream``/``invoke`` and ``astream``/``ainvoke``).
+    """
 
     @wrap_tool_call
-    def tool_error_handler(
+    async def tool_error_handler(
         request: ToolCallRequest,
         handler: Any,
     ) -> ToolMessage:
         tool_name: str = request.tool_call.get("name", "unknown")
         tool_call_id: str = request.tool_call.get("id", "")
         try:
-            return handler(request)
+            return await handler(request)
         except Exception as e:
             error_type: str = type(e).__name__
             error_msg: str = str(e)

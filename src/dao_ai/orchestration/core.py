@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_config
-from langgraph.graph.state import CompiledStateGraph
+from langgraph.graph.state import CompiledStateGraph, ParentCommand
 from langgraph.runtime import Runtime
 from langgraph.store.base import BaseStore
 from langgraph.types import Command, Interrupt
@@ -208,64 +208,80 @@ def create_agent_node_handler(
         #      aget_state and propagate using langgraph_interrupt(), which
         #      returns the user's decisions.  We then forward them to the
         #      subgraph via Command(resume=...).
-        if agent.checkpointer:
-            parent_conf = get_config().get("configurable", {})
-            task_id: str = parent_conf.get("__pregel_task_id", "default")
-            thread_id: str = config.get("configurable", {}).get("thread_id", "default")
-            sub_thread_id: str = f"{thread_id}__sub_{task_id}"
-            sub_config: dict[str, Any] = {
-                "configurable": {
-                    **config.get("configurable", {}),
-                    "thread_id": sub_thread_id,
+        #
+        # ParentCommand handling: because worker subgraphs are invoked via
+        # ainvoke() rather than added directly as compiled-graph nodes,
+        # LangGraph's ParentCommand exception (raised when a tool returns
+        # Command(graph=Command.PARENT)) escapes ainvoke() instead of being
+        # caught by the parent pregel engine.  We catch it here and convert
+        # it to a plain Command that the parent graph can process.
+        try:
+            if agent.checkpointer:
+                parent_conf = get_config().get("configurable", {})
+                task_id: str = parent_conf.get("__pregel_task_id", "default")
+                thread_id: str = config.get("configurable", {}).get("thread_id", "default")
+                sub_thread_id: str = f"{thread_id}__sub_{task_id}"
+                sub_config: dict[str, Any] = {
+                    "configurable": {
+                        **config.get("configurable", {}),
+                        "thread_id": sub_thread_id,
+                    }
                 }
-            }
 
-            logger.debug(
-                "HITL: Invoking subgraph with scoped thread",
-                agent=agent_name,
-                sub_thread_id=sub_thread_id,
-            )
-
-            sub_state = await agent.aget_state(config=sub_config)
-            is_interrupted: bool = bool(sub_state and sub_state.next)
-
-            if is_interrupted:
-                interrupts = list(sub_state.interrupts)
-                logger.info(
-                    "HITL: Subgraph is interrupted, propagating to parent",
+                logger.debug(
+                    "HITL: Invoking subgraph with scoped thread",
                     agent=agent_name,
-                    interrupts_count=len(interrupts),
+                    sub_thread_id=sub_thread_id,
                 )
-                resume_value: Any = None
-                for intr in interrupts:
-                    resume_value = langgraph_interrupt(intr.value)
 
-                logger.info(
-                    "HITL: Resume value received, forwarding to subgraph",
-                    agent=agent_name,
-                )
-                result: dict[str, Any] = await agent.ainvoke(
-                    Command(resume=resume_value),
-                    context=runtime.context,
-                    config=sub_config,
-                )
+                sub_state = await agent.aget_state(config=sub_config)
+                is_interrupted: bool = bool(sub_state and sub_state.next)
+
+                if is_interrupted:
+                    interrupts = list(sub_state.interrupts)
+                    logger.info(
+                        "HITL: Subgraph is interrupted, propagating to parent",
+                        agent=agent_name,
+                        interrupts_count=len(interrupts),
+                    )
+                    resume_value: Any = None
+                    for intr in interrupts:
+                        resume_value = langgraph_interrupt(intr.value)
+
+                    logger.info(
+                        "HITL: Resume value received, forwarding to subgraph",
+                        agent=agent_name,
+                    )
+                    result: dict[str, Any] = await agent.ainvoke(
+                        Command(resume=resume_value),
+                        context=runtime.context,
+                        config=sub_config,
+                    )
+                else:
+                    result = await agent.ainvoke(
+                        agent_state, context=runtime.context, config=sub_config
+                    )
+                    if "__interrupt__" in result:
+                        interrupts_list: list[Interrupt] = result["__interrupt__"]
+                        logger.info(
+                            "HITL: Subgraph returned interrupt, propagating",
+                            agent=agent_name,
+                            interrupts_count=len(interrupts_list),
+                        )
+                        for intr in interrupts_list:
+                            langgraph_interrupt(intr.value)
             else:
                 result = await agent.ainvoke(
-                    agent_state, context=runtime.context, config=sub_config
+                    agent_state, context=runtime.context, config=config
                 )
-                if "__interrupt__" in result:
-                    interrupts_list: list[Interrupt] = result["__interrupt__"]
-                    logger.info(
-                        "HITL: Subgraph returned interrupt, propagating",
-                        agent=agent_name,
-                        interrupts_count=len(interrupts_list),
-                    )
-                    for intr in interrupts_list:
-                        langgraph_interrupt(intr.value)
-        else:
-            result = await agent.ainvoke(
-                agent_state, context=runtime.context, config=config
+        except ParentCommand as pc:
+            cmd: Command = pc.args[0]
+            logger.debug(
+                "Subgraph issued parent command, propagating",
+                agent=agent_name,
+                goto=cmd.goto,
             )
+            return cmd
 
         # Extract agent response based on output mode
         result_messages = result.get("messages", [])

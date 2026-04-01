@@ -290,11 +290,13 @@ def decompose_query(
         subqueries.append(SearchQuery(text=query_obj.text, filters=filters))
 
     # Log for observability
-    mlflow.set_tag("num_subqueries", len(subqueries))
-    mlflow.log_text(
-        json.dumps([sq.model_dump() for sq in subqueries], indent=2),
-        "decomposition.json",
-    )
+    span = mlflow.get_current_active_span()
+    if span:
+        span.set_attribute("num_subqueries", len(subqueries))
+        span.set_attribute(
+            "decomposition",
+            json.dumps([sq.model_dump() for sq in subqueries], indent=2),
+        )
 
     logger.debug(
         "Query decomposed",
