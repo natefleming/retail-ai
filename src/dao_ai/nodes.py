@@ -91,6 +91,15 @@ def _create_middleware_list(
     logger.debug("Building middleware list for agent", agent=agent.name)
     middleware_list: list[Any] = []
 
+    # Always add tool error handler as the first middleware so it wraps
+    # the innermost tool execution.  Other middleware (retry, HITL, etc.)
+    # run before this, giving them a chance to handle or retry first.
+    from dao_ai.middleware.tool_error_handler import (
+        create_tool_error_handler_middleware,
+    )
+
+    middleware_list.append(create_tool_error_handler_middleware())
+
     # Add configured middleware using factory pattern
     if agent.middleware:
         middleware_names: list[str] = [mw.name for mw in agent.middleware]

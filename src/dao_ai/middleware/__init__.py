@@ -114,6 +114,7 @@ from dao_ai.middleware.tool_call_observability import (
     ToolCallObservabilityMiddleware,
     create_tool_call_observability_middleware,
 )
+from dao_ai.middleware.tool_error_handler import create_tool_error_handler_middleware
 from dao_ai.middleware.tool_retry import create_tool_retry_middleware
 from dao_ai.middleware.tool_selector import create_llm_tool_selector_middleware
 
@@ -212,6 +213,8 @@ __all__ = [
     # Tool call observability middleware
     "ToolCallObservabilityMiddleware",
     "create_tool_call_observability_middleware",
+    # Tool error handler middleware
+    "create_tool_error_handler_middleware",
     # TodoList middleware factory
     "create_todo_list_middleware",
     # Deep Agents backends

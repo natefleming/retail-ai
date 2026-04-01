@@ -9,7 +9,12 @@ import sqlparse
 from databricks import agents
 from databricks.agents import PermissionLevel, set_permissions
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.errors.platform import NotFound
+from databricks.sdk.errors.platform import (
+    BadRequest,
+    InvalidParameterValue,
+    NotFound,
+    PermissionDenied,
+)
 from databricks.sdk.service.catalog import (
     CatalogInfo,
     ColumnInfo,
@@ -869,20 +874,22 @@ class DatabricksProvider(ServiceProvider):
         )
         logger.info("app.yaml with resources uploaded", path=app_yaml_path)
 
-        # Generate SDK resources from the config (including experiment)
+        # Generate deployment resources as raw dicts for the REST API.
+        # This includes all resource types, even those not yet supported
+        # by the SDK enum (e.g. VECTOR_SEARCH_INDEX).
         from dao_ai.apps.resources import (
-            generate_sdk_resources,
+            generate_deployment_resources,
             generate_user_api_scopes,
         )
 
-        sdk_resources = generate_sdk_resources(
+        deployment_resources = generate_deployment_resources(
             config, experiment_id=experiment.experiment_id
         )
-        if sdk_resources:
+        if deployment_resources:
             logger.info(
                 "Discovered app resources from config",
-                resource_count=len(sdk_resources),
-                resources=[r.name for r in sdk_resources],
+                resource_count=len(deployment_resources),
+                resources=[r.get("name") for r in deployment_resources],
             )
 
         # Generate user API scopes for on-behalf-of-user resources
@@ -902,29 +909,83 @@ class DatabricksProvider(ServiceProvider):
         except NotFound:
             logger.debug("Creating new app", app_name=app_name)
 
-        # Create or update the app with resources and user_api_scopes
+        # Create or update the app using the REST API to support all
+        # resource types including those not yet in the SDK enum.
+        app_body: dict = {
+            "name": app_name,
+            "description": config.app.description or f"DAO AI Agent: {app_name}",
+        }
+        if deployment_resources:
+            app_body["resources"] = deployment_resources
+        if user_api_scopes:
+            app_body["user_api_scopes"] = user_api_scopes
+
+        def _set_app_resources(method: str, path: str, body: dict) -> None:
+            """Create or update app via REST API with fallback.
+
+            If the workspace doesn't support VECTOR_SEARCH_INDEX as a UC
+            securable type, or if the resource limit is exceeded, retries
+            without those resources. The source TABLE resources still
+            provide catalog/schema permissions as a fallback.
+            """
+            try:
+                self.w.api_client.do(method, path, body=body)
+            except (BadRequest, InvalidParameterValue, PermissionDenied) as e:
+                err_msg = str(e)
+                if (
+                    "permission to grant" in err_msg
+                    or "less than or equal to" in err_msg
+                    or "MANAGE permission on the resource" in err_msg
+                ):
+                    body["resources"] = [
+                        r
+                        for r in body.get("resources", [])
+                        if r.get("uc_securable", {}).get("securable_type")
+                        != "VECTOR_SEARCH_INDEX"
+                    ]
+                    logger.warning(
+                        "Retrying without VECTOR_SEARCH_INDEX resources",
+                        error=err_msg,
+                        remaining_resources=len(body.get("resources", [])),
+                    )
+                    self.w.api_client.do(method, path, body=body)
+                else:
+                    raise
+
         if not app_exists:
             logger.info("Creating Databricks App", app_name=app_name)
-            app_spec = App(
-                name=app_name,
-                description=config.app.description or f"DAO AI Agent: {app_name}",
-                resources=sdk_resources if sdk_resources else None,
-                user_api_scopes=user_api_scopes if user_api_scopes else None,
-            )
-            app: App = self.w.apps.create_and_wait(app=app_spec)
+            _set_app_resources("POST", "/api/2.0/apps", app_body)
+            # Wait for app to be ready
+            app = self.w.apps.wait_get_app_active(name=app_name)
             logger.info("App created", app_name=app.name, app_url=app.url)
+
+            # Ensure user_api_scopes are set — the fallback retry may
+            # have created the app without them if resource granting
+            # failed on the first attempt.
+            if user_api_scopes:
+                current_app = self.w.api_client.do("GET", f"/api/2.0/apps/{app_name}")
+                if current_app.get("user_api_scopes") != user_api_scopes:
+                    self.w.api_client.do(
+                        "PATCH",
+                        f"/api/2.0/apps/{app_name}",
+                        body={
+                            "name": app_name,
+                            "user_api_scopes": user_api_scopes,
+                        },
+                    )
+                    logger.info(
+                        "User API scopes set on app",
+                        scopes=user_api_scopes,
+                    )
         else:
             app = existing_app
             # Update resources and scopes on existing app
-            if sdk_resources or user_api_scopes:
+            if deployment_resources or user_api_scopes:
                 logger.info("Updating app resources and scopes", app_name=app_name)
-                updated_app = App(
-                    name=app_name,
-                    description=config.app.description or app.description,
-                    resources=sdk_resources if sdk_resources else None,
-                    user_api_scopes=user_api_scopes if user_api_scopes else None,
-                )
-                app = self.w.apps.update(name=app_name, app=updated_app)
+                if not deployment_resources:
+                    app_body.pop("resources", None)
+                _set_app_resources("PATCH", f"/api/2.0/apps/{app_name}", app_body)
+                app = self.w.apps.get(name=app_name)
                 logger.info("App resources and scopes updated", app_name=app_name)
 
         # Deploy the app with source code

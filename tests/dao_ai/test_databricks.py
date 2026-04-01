@@ -700,18 +700,20 @@ def test_deploy_apps_agent_creates_new_app():
         ):
             # Simulate app doesn't exist
             provider.w.apps.get.side_effect = NotFound("App not found")
-            provider.w.apps.create_and_wait.return_value = mock_created_app
+            provider.w.api_client.do.return_value = {"name": "test-app"}
+            provider.w.apps.wait_get_app_active.return_value = mock_created_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
             provider.deploy_apps_agent(mock_config)
 
-            # Verify create_and_wait was called with an App object
-            provider.w.apps.create_and_wait.assert_called_once()
-            call_args = provider.w.apps.create_and_wait.call_args
-            app_arg = call_args.kwargs.get("app")
-            assert app_arg is not None
-            assert app_arg.name == "test-app"  # Normalized: underscores become dashes
-            assert app_arg.description == "Test app description"
+            # Verify REST API was called to create the app
+            provider.w.api_client.do.assert_called()
+            create_call = provider.w.api_client.do.call_args_list[0]
+            assert create_call.args[0] == "POST"
+            assert create_call.args[1] == "/api/2.0/apps"
+            body = create_call.kwargs.get("body", {})
+            assert body["name"] == "test-app"  # Normalized: underscores become dashes
+            assert body["description"] == "Test app description"
             # Verify deploy_and_wait was called
             provider.w.apps.deploy_and_wait.assert_called_once()
 
@@ -774,8 +776,11 @@ def test_deploy_apps_agent_updates_existing_app():
 
             provider.deploy_apps_agent(mock_config)
 
-            # Verify create_and_wait was NOT called (app already exists)
-            provider.w.apps.create_and_wait.assert_not_called()
+            # Verify REST API was NOT called with POST (app already exists)
+            for call in provider.w.api_client.do.call_args_list:
+                assert call.args[0] != "POST" or "/api/2.0/apps" not in call.args[1], (
+                    "POST /api/2.0/apps should not be called for existing app"
+                )
             # Verify deploy_and_wait was called
             provider.w.apps.deploy_and_wait.assert_called_once()
 
@@ -2306,6 +2311,76 @@ def test_vector_store_model_api_scopes():
     assert "vectorsearch.vector-search-endpoints" in api_scopes
     assert "serving.serving-endpoints" in api_scopes
     assert "vectorsearch.vector-search-indexes" in api_scopes
+
+
+@pytest.mark.unit
+def test_vector_store_obo_skips_client_args():
+    """Test that OBO vector stores don't pass client_args to DatabricksVectorSearch.
+
+    When on_behalf_of_user=True, the workspace_client from
+    workspace_client_from(context) carries the user's forwarded token.
+    Passing client_args would create a separate VectorSearchClient that
+    overrides the OBO token with ambient/SP auth.
+    """
+    from conftest import add_databricks_resource_attrs
+
+    from dao_ai.tools.vector_search import create_vector_search_tool
+
+    mock_ws_client = MagicMock()
+
+    vector_store = Mock(spec=VectorStoreModel)
+    vector_store.index = Mock()
+    vector_store.index.full_name = "catalog.schema.test_index"
+    vector_store.index.name = "test_index"
+    vector_store.primary_key = "id"
+    vector_store.doc_uri = None
+    vector_store.embedding_source_column = "text"
+    add_databricks_resource_attrs(vector_store)
+    vector_store.on_behalf_of_user = True
+    vector_store.workspace_client_from = Mock(return_value=mock_ws_client)
+
+    retriever = Mock()
+    retriever.vector_store = vector_store
+    retriever.columns = ["col1"]
+    retriever.search_parameters = Mock()
+    retriever.search_parameters.num_results = 5
+    retriever.search_parameters.filters = None
+    retriever.search_parameters.query_type = "ANN"
+    retriever.instructed = None
+    retriever.rerank = None
+
+    with (
+        patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as mock_dvs_cls,
+        patch.dict(
+            "os.environ",
+            {"DATABRICKS_HOST": "https://test.databricks.com"},
+            clear=False,
+        ),
+        patch("dao_ai.tools.vector_search.mlflow"),
+    ):
+        mock_dvs_instance = MagicMock()
+        mock_dvs_instance.similarity_search.return_value = []
+        mock_dvs_cls.return_value = mock_dvs_instance
+
+        tool = create_vector_search_tool(
+            retriever=retriever,
+            name="test_vs_tool",
+            description="Test vector search",
+        )
+
+        # Invoke the tool — the runtime context is injected via LangChain's
+        # ToolRuntime mechanism; for this unit test we just call invoke
+        # which triggers _get_vector_search(context=None).
+        tool.invoke({"query": "test query"})
+
+        # Verify DatabricksVectorSearch was called with client_args=None
+        mock_dvs_cls.assert_called_once()
+        call_kwargs = mock_dvs_cls.call_args.kwargs
+        assert call_kwargs.get("client_args") is None, (
+            "client_args should be None for OBO vector stores to prevent "
+            "overriding the workspace_client's forwarded user token"
+        )
+        assert call_kwargs.get("workspace_client") is mock_ws_client
 
 
 # =============================================================================

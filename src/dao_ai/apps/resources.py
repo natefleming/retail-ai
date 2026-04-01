@@ -67,6 +67,7 @@ from dao_ai.config import (
     LLMModel,
     SecretVariableModel,
     TableModel,
+    TraceLocationModel,
     VectorStoreModel,
     VolumeModel,
     WarehouseModel,
@@ -593,8 +594,10 @@ def generate_sdk_resources(
     # Extract secrets from the entire config
     resources.extend(_extract_sdk_secrets_from_config(config))
 
-    # Note: Vector search indexes, functions, and connections are not yet
-    # supported as app resources in the SDK
+    # Vector search indexes, functions, and connections use uc_securable
+    # but some types (e.g. VECTOR_SEARCH_INDEX) are not yet in the SDK enum.
+    # These are added as raw dicts and must be merged separately.
+    # See generate_deployment_resources() for the combined output.
 
     logger.info(f"Generated {len(resources)} SDK app resources from config")
     return resources
@@ -603,9 +606,12 @@ def generate_sdk_resources(
 def _extract_sdk_llm_resources(
     llms: dict[str, LLMModel],
 ) -> list[AppResource]:
-    """Extract SDK AppResource objects for model serving endpoints."""
+    """Extract SDK AppResource objects for model serving endpoints.
+    Skips OBO resources — user identity handles permissions via user_api_scopes."""
     resources: list[AppResource] = []
     for key, llm in llms.items():
+        if llm.on_behalf_of_user:
+            continue
         sanitized_name = _sanitize_resource_name(key)
         resource = AppResource(
             name=sanitized_name,
@@ -625,9 +631,12 @@ def _extract_sdk_llm_resources(
 def _extract_sdk_warehouse_resources(
     warehouses: dict[str, WarehouseModel],
 ) -> list[AppResource]:
-    """Extract SDK AppResource objects for SQL warehouses."""
+    """Extract SDK AppResource objects for SQL warehouses.
+    Skips OBO resources."""
     resources: list[AppResource] = []
     for key, warehouse in warehouses.items():
+        if warehouse.on_behalf_of_user:
+            continue
         warehouse_id = value_of(warehouse.warehouse_id)
         sanitized_name = _sanitize_resource_name(key)
         resource = AppResource(
@@ -648,9 +657,12 @@ def _extract_sdk_warehouse_resources(
 def _extract_sdk_genie_resources(
     genie_rooms: dict[str, GenieRoomModel],
 ) -> list[AppResource]:
-    """Extract SDK AppResource objects for Genie spaces."""
+    """Extract SDK AppResource objects for Genie spaces.
+    Skips OBO resources."""
     resources: list[AppResource] = []
     for key, genie in genie_rooms.items():
+        if genie.on_behalf_of_user:
+            continue
         space_id = value_of(genie.space_id)
         sanitized_name = _sanitize_resource_name(key)
         resource = AppResource(
@@ -672,9 +684,12 @@ def _extract_sdk_genie_resources(
 def _extract_sdk_database_resources(
     databases: dict[str, DatabaseModel],
 ) -> list[AppResource]:
-    """Extract SDK AppResource objects for Lakebase databases."""
+    """Extract SDK AppResource objects for Lakebase databases.
+    Skips OBO resources."""
     resources: list[AppResource] = []
     for key, db in databases.items():
+        if db.on_behalf_of_user:
+            continue
         # Only include provisioned Lakebase databases.
         # Autoscaling Lakebase uses the "postgres" API scope and does not
         # register as a database instance resource.
@@ -704,9 +719,12 @@ def _extract_sdk_database_resources(
 def _extract_sdk_volume_resources(
     volumes: dict[str, VolumeModel],
 ) -> list[AppResource]:
-    """Extract SDK AppResource objects for Unity Catalog volumes."""
+    """Extract SDK AppResource objects for Unity Catalog volumes.
+    Skips OBO resources."""
     resources: list[AppResource] = []
     for key, volume in volumes.items():
+        if volume.on_behalf_of_user:
+            continue
         sanitized_name = _sanitize_resource_name(key)
         resource = AppResource(
             name=sanitized_name,
@@ -829,6 +847,323 @@ def _extract_sdk_secrets_from_config(config: AppConfig) -> list[AppResource]:
     resources = list(secrets.values())
     logger.info(f"Extracted {len(resources)} SDK secret resources from config")
     return resources
+
+
+def _extract_raw_vector_search_resources(
+    vector_stores: dict[str, VectorStoreModel],
+) -> list[dict[str, Any]]:
+    """
+    Extract vector search index resources as raw dicts for the REST API.
+
+    Adds a VECTOR_SEARCH_INDEX UC securable for each index that uses
+    service principal auth (not OBO). When on_behalf_of_user=True, the
+    calling user's identity provides all permissions via user_api_scopes,
+    so no app resource is needed.
+
+    Not all workspaces support VECTOR_SEARCH_INDEX as a UC securable
+    type yet — the deployment code retries without it if rejected.
+    """
+    resources: list[dict[str, Any]] = []
+    for key, vs in vector_stores.items():
+        if vs.index is None:
+            continue
+
+        # OBO vector stores don't need app resources — the user's
+        # identity provides permissions via user_api_scopes.
+        if vs.on_behalf_of_user:
+            logger.debug(f"Skipping vector search resource for OBO store: {key}")
+            continue
+
+        sanitized_name = _sanitize_resource_name(key)
+        resources.append(
+            {
+                "name": sanitized_name,
+                "uc_securable": {
+                    "securable_full_name": vs.index.full_name,
+                    "securable_type": "VECTOR_SEARCH_INDEX",
+                    "permission": "SELECT",
+                },
+            }
+        )
+        logger.debug(
+            f"Extracted vector search index resource: "
+            f"{sanitized_name} -> {vs.index.full_name}"
+        )
+    return resources
+
+
+def _extract_raw_function_resources(
+    functions: dict[str, FunctionModel],
+) -> list[dict[str, Any]]:
+    """
+    Extract UC function resources as raw dicts for the REST API.
+
+    Uses the uc_securable format with FUNCTION type and EXECUTE permission.
+    Skips OBO resources — user identity handles permissions via user_api_scopes.
+    """
+    resources: list[dict[str, Any]] = []
+    for key, func in functions.items():
+        if func.on_behalf_of_user:
+            continue
+        sanitized_name = _sanitize_resource_name(key)
+        resource: dict[str, Any] = {
+            "name": sanitized_name,
+            "uc_securable": {
+                "securable_full_name": func.full_name,
+                "securable_type": "FUNCTION",
+                "permission": "EXECUTE",
+            },
+        }
+        resources.append(resource)
+        logger.debug(
+            f"Extracted raw function resource: {sanitized_name} -> {func.full_name}"
+        )
+    return resources
+
+
+def _extract_raw_table_resources(
+    tables: dict[str, TableModel],
+) -> list[dict[str, Any]]:
+    """
+    Extract UC table resources as raw dicts for the REST API.
+
+    Uses the uc_securable format with TABLE type and SELECT permission.
+    Skips OBO resources — user identity handles permissions via user_api_scopes.
+    """
+    resources: list[dict[str, Any]] = []
+    for key, table in tables.items():
+        if table.on_behalf_of_user:
+            continue
+        sanitized_name = _sanitize_resource_name(key)
+        resource: dict[str, Any] = {
+            "name": sanitized_name,
+            "uc_securable": {
+                "securable_full_name": table.full_name,
+                "securable_type": "TABLE",
+                "permission": "SELECT",
+            },
+        }
+        resources.append(resource)
+        logger.debug(
+            f"Extracted raw table resource: {sanitized_name} -> {table.full_name}"
+        )
+    return resources
+
+
+def _extract_raw_connection_resources(
+    connections: dict[str, ConnectionModel],
+) -> list[dict[str, Any]]:
+    """
+    Extract UC connection resources as raw dicts for the REST API.
+
+    Uses the uc_securable format with CONNECTION type and USE_CONNECTION
+    permission. Skips OBO resources.
+    """
+    resources: list[dict[str, Any]] = []
+    for key, conn in connections.items():
+        if conn.on_behalf_of_user:
+            continue
+        sanitized_name = _sanitize_resource_name(key)
+        resource: dict[str, Any] = {
+            "name": sanitized_name,
+            "uc_securable": {
+                "securable_full_name": conn.full_name,
+                "securable_type": "CONNECTION",
+                "permission": "USE_CONNECTION",
+            },
+        }
+        resources.append(resource)
+        logger.debug(
+            f"Extracted raw connection resource: {sanitized_name} -> {conn.full_name}"
+        )
+    return resources
+
+
+def _extract_raw_trace_location_resources(
+    trace_location: TraceLocationModel,
+    existing_warehouse_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Extract trace location resources as raw dicts for the REST API.
+
+    Generates:
+    - A SQL warehouse resource for the trace warehouse (if not already
+      present in existing_warehouse_ids)
+    - TABLE UC securables for the 5 OTEL trace tables with SELECT permission,
+      granting the app SP USE CATALOG + USE SCHEMA + SELECT
+
+    Args:
+        trace_location: The TraceLocationModel from AppModel
+        existing_warehouse_ids: Set of warehouse IDs already added as resources,
+            to avoid duplicates
+    """
+    resources: list[dict[str, Any]] = []
+
+    # Add the trace warehouse
+    try:
+        wh_id = trace_location.warehouse_id
+    except Exception:
+        wh_id = None
+
+    if wh_id and (
+        existing_warehouse_ids is None or wh_id not in existing_warehouse_ids
+    ):
+        resource: dict[str, Any] = {
+            "name": _sanitize_resource_name("trace_warehouse"),
+            "sql_warehouse": {
+                "id": wh_id,
+                "permission": "CAN_USE",
+            },
+        }
+        resources.append(resource)
+        logger.debug(f"Extracted trace warehouse resource: trace_warehouse -> {wh_id}")
+
+    # Add OTEL trace tables as TABLE UC securables
+    # Use short names to stay within the 30-char resource name limit
+    SHORT_SUFFIX_NAMES: dict[str, str] = {
+        "mlflow_experiment_trace_otel_spans": "trace_otel_spans",
+        "mlflow_experiment_trace_otel_logs": "trace_otel_logs",
+        "mlflow_experiment_trace_otel_metrics": "trace_otel_metrics",
+    }
+    schema_prefix = f"{trace_location.catalog_name}.{trace_location.schema_name}"
+    for suffix in TraceLocationModel.OTEL_TABLE_SUFFIXES:
+        table_full_name = f"{schema_prefix}.{suffix}"
+        short_name = SHORT_SUFFIX_NAMES.get(suffix, suffix)
+        sanitized_name = _sanitize_resource_name(short_name)
+        table_resource: dict[str, Any] = {
+            "name": sanitized_name,
+            "uc_securable": {
+                "securable_full_name": table_full_name,
+                "securable_type": "TABLE",
+                "permission": "SELECT",
+            },
+        }
+        resources.append(table_resource)
+        logger.debug(
+            f"Extracted trace table resource: {sanitized_name} -> {table_full_name}"
+        )
+
+    return resources
+
+
+def generate_deployment_resources(
+    config: AppConfig,
+    experiment_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Generate ALL app resources as raw dicts for REST API deployment.
+
+    This combines SDK-serializable resources with resources that require
+    types not yet supported by the SDK enum (e.g. VECTOR_SEARCH_INDEX).
+    The output is suitable for direct use with the Databricks REST API.
+
+    Args:
+        config: The AppConfig containing resource definitions
+        experiment_id: Optional MLflow experiment ID to add as a resource
+
+    Returns:
+        A list of resource dicts for the Databricks REST API
+    """
+    resources: list[dict[str, Any]] = []
+
+    # Serialize SDK-supported resources to dicts
+    sdk_resources = generate_sdk_resources(config, experiment_id=experiment_id)
+    for r in sdk_resources:
+        resources.append(r.as_dict())
+
+    if config.resources is not None:
+        # Add resources not yet in the SDK's generate_sdk_resources()
+        resources.extend(
+            _extract_raw_vector_search_resources(config.resources.vector_stores)
+        )
+        resources.extend(_extract_raw_function_resources(config.resources.functions))
+        # Only add tables that are NOT auto-populated from Genie rooms.
+        # Genie space resources already grant the app SP access to their
+        # tables, so adding them as separate UC securables is redundant
+        # and wastes the 20-resource limit.
+        genie_table_names: set[str] = set()
+        for genie_room in config.resources.genie_rooms.values():
+            for table in getattr(genie_room, "tables", []):
+                genie_table_names.add(table.full_name)
+
+        non_genie_tables = {
+            key: table
+            for key, table in config.resources.tables.items()
+            if table.full_name not in genie_table_names
+        }
+        if non_genie_tables:
+            resources.extend(_extract_raw_table_resources(non_genie_tables))
+        resources.extend(
+            _extract_raw_connection_resources(config.resources.connections)
+        )
+
+    # Add trace location resources (warehouse + OTEL tables)
+    if config.app and config.app.trace_location:
+        # Collect existing warehouse IDs to avoid duplicates
+        existing_wh_ids: set[str] = set()
+        if config.resources:
+            for wh in config.resources.warehouses.values():
+                try:
+                    existing_wh_ids.add(value_of(wh.warehouse_id))
+                except Exception:
+                    pass
+        resources.extend(
+            _extract_raw_trace_location_resources(
+                config.app.trace_location,
+                existing_warehouse_ids=existing_wh_ids,
+            )
+        )
+
+    # Deduplicate resources by name. SDK resources (added first) take
+    # priority over raw resources. For uc_securable resources with the same
+    # securable_full_name, keep only the first occurrence.
+    seen_names: set[str] = set()
+    seen_securables: set[str] = set()
+    deduplicated: list[dict[str, Any]] = []
+    for r in resources:
+        name = r.get("name", "")
+        securable_fn = (
+            r.get("uc_securable", {}).get("securable_full_name")
+            if "uc_securable" in r
+            else None
+        )
+
+        # Skip duplicate securable_full_name (same UC entity)
+        if securable_fn and securable_fn in seen_securables:
+            logger.debug(f"Skipping duplicate UC securable: {securable_fn}")
+            continue
+
+        # Ensure unique resource names by appending a counter
+        unique_name = name
+        if unique_name in seen_names:
+            counter = 1
+            while True:
+                suffix = f"_{counter}"
+                candidate = name[: 30 - len(suffix)] + suffix
+                if candidate not in seen_names:
+                    unique_name = candidate
+                    r["name"] = unique_name
+                    break
+                counter += 1
+
+        seen_names.add(unique_name)
+        if securable_fn:
+            seen_securables.add(securable_fn)
+        deduplicated.append(r)
+
+    if len(deduplicated) > 20:
+        logger.warning(
+            f"App resource limit is 20 but {len(deduplicated)} resources were "
+            f"generated. The deployment may fail — consider reducing the number "
+            f"of resources in your config.",
+        )
+
+    logger.info(
+        f"Generated {len(deduplicated)} deployment resources "
+        f"(from {len(resources)} before dedup, {len(sdk_resources)} SDK + "
+        f"{len(resources) - len(sdk_resources)} raw)"
+    )
+    return deduplicated
 
 
 def generate_resources_yaml(config: AppConfig) -> str:
