@@ -244,11 +244,6 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             middleware=middleware_config.name,
         )
 
-    # Always apply tool-call-id sanitizer so models that omit IDs don't crash
-    from dao_ai.middleware.tool_call_id_sanitizer import ToolCallIdSanitizerMiddleware
-
-    middlewares.append(ToolCallIdSanitizerMiddleware())
-
     # Set up memory store and checkpointer
     store: BaseStore | None = create_store(orchestration)
     checkpointer: BaseCheckpointSaver | None = create_checkpointer(orchestration)

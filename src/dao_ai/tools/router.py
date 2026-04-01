@@ -88,6 +88,8 @@ def route_query(
         return "standard"
 
     logger.debug("Router decision", mode=decision.mode, query=query[:50])
-    mlflow.set_tag("router.mode", decision.mode)
+    span = mlflow.get_current_active_span()
+    if span:
+        span.set_attribute("router.mode", decision.mode)
 
     return decision.mode

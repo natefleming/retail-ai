@@ -350,11 +350,6 @@ def create_agent_node(
         chat_history=chat_history,
     )
 
-    # Always apply tool-call-id sanitizer so models that omit IDs don't crash
-    from dao_ai.middleware.tool_call_id_sanitizer import ToolCallIdSanitizerMiddleware
-
-    middleware_list.append(ToolCallIdSanitizerMiddleware())
-
     # Add memory context injection middleware if configured
     if memory and memory.store and memory.extraction and store:
         extraction = memory.extraction
