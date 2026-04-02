@@ -621,19 +621,30 @@ class DatabricksProvider(ServiceProvider):
             experiment: Experiment = self.get_or_create_experiment(config)
             loc = config.app.trace_location
 
-            set_experiment_trace_location(
-                location=UCSchemaLocation(
-                    catalog_name=loc.catalog_name,
-                    schema_name=loc.schema_name,
-                ),
-                experiment_id=experiment.experiment_id,
-                sql_warehouse_id=loc.warehouse_id,
-            )
-            logger.info(
-                "Linked experiment to UC trace location for Model Serving",
-                catalog=loc.catalog_name,
-                schema=loc.schema_name,
-            )
+            try:
+                set_experiment_trace_location(
+                    location=UCSchemaLocation(
+                        catalog_name=loc.catalog_name,
+                        schema_name=loc.schema_name,
+                    ),
+                    experiment_id=experiment.experiment_id,
+                    sql_warehouse_id=loc.warehouse_id,
+                )
+                logger.info(
+                    "Linked experiment to UC trace location for Model Serving",
+                    catalog=loc.catalog_name,
+                    schema=loc.schema_name,
+                )
+            except mlflow.exceptions.RestException as e:
+                if "already contains traces" in str(e):
+                    logger.warning(
+                        "UC trace destination already linked or experiment has existing traces, skipping",
+                        experiment_id=experiment.experiment_id,
+                        catalog=loc.catalog_name,
+                        schema=loc.schema_name,
+                    )
+                else:
+                    raise
 
             self.grant_otel_table_permissions(config)
 
@@ -683,6 +694,12 @@ class DatabricksProvider(ServiceProvider):
             logger.debug("No service principal configured, skipping OTEL table grants")
             return
 
+        from databricks.sdk.service.catalog import (
+            PermissionsChange,
+            Privilege,
+            SecurableType,
+        )
+
         from dao_ai.config import TraceLocationModel
 
         for suffix in TraceLocationModel.OTEL_TABLE_SUFFIXES:
@@ -691,12 +708,12 @@ class DatabricksProvider(ServiceProvider):
                 try:
                     self.w.grants.update(
                         full_name=table_name,
-                        securable_type="TABLE",
+                        securable_type=SecurableType.TABLE,
                         changes=[
-                            {
-                                "add": [{"privilege": privilege}],
-                                "principal": grantee,
-                            }
+                            PermissionsChange(
+                                add=[Privilege(privilege)],
+                                principal=grantee,
+                            )
                         ],
                     )
                 except Exception as e:
@@ -789,19 +806,30 @@ class DatabricksProvider(ServiceProvider):
             from mlflow.tracing.enablement import set_experiment_trace_location
 
             loc = config.app.trace_location
-            set_experiment_trace_location(
-                location=UCSchemaLocation(
-                    catalog_name=loc.catalog_name,
-                    schema_name=loc.schema_name,
-                ),
-                experiment_id=experiment.experiment_id,
-                sql_warehouse_id=loc.warehouse_id,
-            )
-            logger.info(
-                "Linked experiment to UC trace location",
-                catalog=loc.catalog_name,
-                schema=loc.schema_name,
-            )
+            try:
+                set_experiment_trace_location(
+                    location=UCSchemaLocation(
+                        catalog_name=loc.catalog_name,
+                        schema_name=loc.schema_name,
+                    ),
+                    experiment_id=experiment.experiment_id,
+                    sql_warehouse_id=loc.warehouse_id,
+                )
+                logger.info(
+                    "Linked experiment to UC trace location",
+                    catalog=loc.catalog_name,
+                    schema=loc.schema_name,
+                )
+            except mlflow.exceptions.RestException as e:
+                if "already contains traces" in str(e):
+                    logger.warning(
+                        "UC trace destination already linked or experiment has existing traces, skipping",
+                        experiment_id=experiment.experiment_id,
+                        catalog=loc.catalog_name,
+                        schema=loc.schema_name,
+                    )
+                else:
+                    raise
 
             self.grant_otel_table_permissions(config)
 
@@ -1050,7 +1078,10 @@ class DatabricksProvider(ServiceProvider):
             config: The AppConfig containing deployment configuration
             target: The deployment target (MODEL_SERVING or APPS)
         """
-        if target == DeploymentTarget.MODEL_SERVING:
+        if target == DeploymentTarget.BOTH:
+            self.deploy_model_serving_agent(config)
+            self.deploy_apps_agent(config)
+        elif target == DeploymentTarget.MODEL_SERVING:
             self.deploy_model_serving_agent(config)
         elif target == DeploymentTarget.APPS:
             self.deploy_apps_agent(config)

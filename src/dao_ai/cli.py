@@ -300,9 +300,9 @@ Examples:
     bundle_parser.add_argument(
         "--deployment-target",
         type=str,
-        choices=["model_serving", "apps"],
+        choices=["model_serving", "apps", "both"],
         default=None,
-        help="Agent deployment target: 'model_serving' or 'apps'. "
+        help="Agent deployment target: 'model_serving', 'apps', or 'both'. "
         "If not specified, uses app.deployment_target from config file, "
         "or defaults to 'model_serving'. Passed to the deploy notebook.",
     )
@@ -334,9 +334,9 @@ Examples:
         "-t",
         "--target",
         type=str,
-        choices=["model_serving", "apps"],
+        choices=["model_serving", "apps", "both"],
         default=None,
-        help="Deployment target: 'model_serving' or 'apps'. "
+        help="Deployment target: 'model_serving', 'apps', or 'both'. "
         "If not specified, uses app.deployment_target from config file, "
         "or defaults to 'model_serving'.",
     )

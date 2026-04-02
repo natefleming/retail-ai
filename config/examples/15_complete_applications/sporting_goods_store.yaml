@@ -60,12 +60,20 @@ resources:
     fast_llm: &fast_llm
       name: databricks-gpt-5-4-mini
       temperature: 0.1
-      max_tokens: 8192
+      max_tokens: 4096
+      on_behalf_of_user: true
+
+    supervisor_llm: &supervisor_llm
+      name: databricks-gpt-5-4-mini
+      temperature: 0.1
+      max_tokens: 1024
+      on_behalf_of_user: true
 
     tool_calling_llm: &tool_calling_llm
       name: databricks-claude-sonnet-4-6
       temperature: 0.1
-      max_tokens: 8192
+      max_tokens: 4096
+      on_behalf_of_user: true
       fallbacks:
         - databricks-claude-sonnet-4-5
 
@@ -78,6 +86,7 @@ resources:
       name: databricks-gpt-5-4-mini
       temperature: 0.0
       max_tokens: 1024
+      on_behalf_of_user: true
 
     embedding_model: &embedding_model
       name: databricks-gte-large-en
@@ -120,7 +129,7 @@ resources:
     shared_warehouse: &shared_warehouse
       # name: "Shared Endpoint"
       name: "Shared Unity Catalog Serverless"
-      on_behalf_of_user: false
+      on_behalf_of_user: true
 
   # ---------------------------------------------------------------------------
   # GENIE ROOMS
@@ -143,21 +152,27 @@ resources:
     find_product_by_sku: &find_product_by_sku
       schema: *sporting_goods_schema
       name: find_product_by_sku
+      on_behalf_of_user: true
     find_product_by_upc: &find_product_by_upc
       schema: *sporting_goods_schema
       name: find_product_by_upc
+      on_behalf_of_user: true
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *sporting_goods_schema
       name: find_inventory_by_sku
+      on_behalf_of_user: true
     find_inventory_by_upc: &find_inventory_by_upc
       schema: *sporting_goods_schema
       name: find_inventory_by_upc
+      on_behalf_of_user: true
     find_store_inventory_by_sku: &find_store_inventory_by_sku
       schema: *sporting_goods_schema
       name: find_store_inventory_by_sku
+      on_behalf_of_user: true
     find_store_inventory_by_upc: &find_store_inventory_by_upc
       schema: *sporting_goods_schema
       name: find_store_inventory_by_upc
+      on_behalf_of_user: true
 
   # ---------------------------------------------------------------------------
   # DATABASES (Lakebase) - temporarily disabled due to workspace quota
@@ -165,7 +180,7 @@ resources:
   databases:
     retail_database: &retail_database
       name: "retail-consumer-goods"
-      instance_name: "retail-consumer-goods"
+      project: "retail-consumer-goods"  # Autoscaling Lakebase project name
       description: "Databricks Lakebase for agent memory and checkpoints"
       client_id: *client_id
       client_secret: *client_secret
@@ -374,47 +389,24 @@ tools:
       args:
         app_name: "Sporting Goods Store Assistant"
         description: >
-          AI-powered merchandising and inventory management assistant
-          for retail professionals. Manages assortment planning,
-          demand forecasting, purchase orders, pricing strategy,
-          sales analytics, and inventory operations across all
-          sporting goods categories.
+          AI-powered merchandising assistant for retail professionals
+          covering assortment planning, forecasting, buying, pricing,
+          sales analytics, and inventory across all sporting goods categories.
         agents:
           - name: assortment_planning
-            description: "Assortment planning specialist managing category mix, planogram strategy, seasonal transitions, and product lifecycle for sporting goods"
-            handoff_prompt: |
-              Questions about assortment strategy, category mix, planogram planning, product assortment, seasonal transitions, new product introductions, or SKU rationalization.
-              Example: "What categories are over-assorted?" or "Plan the spring outdoor assortment" or "Which SKUs should we discontinue?"
+            description: "Assortment planning and planogram strategy"
           - name: forecasting
-            description: "Demand forecasting analyst providing predictions, trend analysis, seasonal projections, and stockout risk assessment for sporting goods"
-            handoff_prompt: |
-              Questions about demand forecasting, sales predictions, trend analysis, seasonal demand patterns, or stockout risk assessment.
-              Example: " " or "Which products are trending up?" or "What's the stockout risk for running shoes?"
+            description: "Demand forecasting and trend analysis"
           - name: purchase_order
-            description: "Purchase order and buying specialist managing PO lifecycle, vendor relationships, buying decisions, and receiving for sporting goods"
-            handoff_prompt: |
-              Questions about purchase orders, buying decisions, vendor management, reorder quantities, PO tracking, receiving, or supplier performance.
-              Example: "What POs are in transit?" or "Should we reorder Nike Pegasus?" or "How is vendor delivery performance?"
+            description: "Purchase orders and vendor management"
           - name: pricing
-            description: "Pricing strategy specialist managing initial pricing, markdowns, promotions, competitive pricing, and clearance for sporting goods"
-            handoff_prompt: |
-              Questions about pricing strategy, markdowns, promotional pricing, competitive pricing, price changes, margin analysis, or clearance pricing.
-              Example: "What products need markdowns?" or "How effective was the Spring Running promotion?" or "What's the margin impact of matching competitor prices?"
+            description: "Pricing strategy, markdowns, and promotions"
           - name: sales
-            description: "Sales analytics specialist providing performance analysis, revenue tracking, store comparisons, and return analysis for sporting goods"
-            handoff_prompt: |
-              Questions about sales performance, revenue tracking, store comparisons, department sales, top sellers, return rates, or sales trends.
-              Example: "What were total sales this week?" or "Which store is performing best?" or "What are the top sellers in footwear?"
+            description: "Sales performance and revenue analytics"
           - name: inventory
-            description: "Inventory management specialist providing stock levels, replenishment, allocation, and product availability for sporting goods"
-            handoff_prompt: |
-              Questions about stock levels, product availability, inventory replenishment, store transfers, warehouse stock, or out-of-stock situations.
-              Example: "Do we have Nike Pegasus in stock at Denver?" or "What products are at critical stock levels?" or "How much warehouse inventory do we have for camping tents?"
+            description: "Stock levels, replenishment, and availability"
           - name: general
-            description: "General merchandising assistant for product information, store inquiries, and questions not handled by specialist agents"
-            handoff_prompt: |
-              General questions about products, store information, policies, or any inquiry that doesn't fit the specialized merchandising categories above.
-              Example: "Tell me about the Nike Air Force 1" or "What running shoes do we carry?" or "What departments does the Denver store have?"
+            description: "Product info and general store inquiries"
         sample_prompts:
           - "What Nike running shoes do we carry?"
           - "What's the demand forecast for running shoes next quarter?"
@@ -824,9 +816,7 @@ agents:
       - *find_product_details_by_description_tool
     guardrails: []
     prompt: *assortment_planning_prompt
-    handoff_prompt: |
-      Questions about assortment strategy, category mix, planogram planning, product assortment, seasonal transitions, new product introductions, or SKU rationalization.
-      Example: "What categories are over-assorted?" or "Plan the spring outdoor assortment" or "Which SKUs should we discontinue?"
+    handoff_prompt: "Assortment strategy, category mix, planogram planning, seasonal transitions, new product introductions, or SKU rationalization."
 
   forecasting: &forecasting
     name: forecasting
@@ -837,9 +827,7 @@ agents:
       - *current_time_tool
     guardrails: []
     prompt: *forecasting_prompt
-    handoff_prompt: |
-      Questions about demand forecasting, sales predictions, trend analysis, seasonal demand patterns, or stockout risk assessment.
-      Example: " " or "Which products are trending up?" or "What's the stockout risk for running shoes?"
+    handoff_prompt: "Demand forecasting, sales predictions, trend analysis, seasonal demand patterns, or stockout risk assessment."
 
   purchase_order: &purchase_order
     name: purchase_order
@@ -850,9 +838,7 @@ agents:
       - *find_inventory_by_sku_tool
     guardrails: []
     prompt: *purchase_order_prompt
-    handoff_prompt: |
-      Questions about purchase orders, buying decisions, vendor management, reorder quantities, PO tracking, receiving, or supplier performance.
-      Example: "What POs are in transit?" or "Should we reorder Nike Pegasus?" or "How is vendor delivery performance?"
+    handoff_prompt: "Purchase orders, buying decisions, vendor management, reorder quantities, PO tracking, receiving, or supplier performance."
 
   pricing: &pricing
     name: pricing
@@ -864,9 +850,7 @@ agents:
       - *find_product_by_upc_tool
     guardrails: []
     prompt: *pricing_prompt
-    handoff_prompt: |
-      Questions about pricing strategy, markdowns, promotional pricing, competitive pricing, price changes, margin analysis, or clearance pricing.
-      Example: "What products need markdowns?" or "How effective was the Spring Running promotion?" or "What's the margin impact of matching competitor prices?"
+    handoff_prompt: "Pricing strategy, markdowns, promotional pricing, competitive pricing, margin analysis, or clearance pricing."
 
   sales: &sales
     name: sales
@@ -878,9 +862,7 @@ agents:
       - *find_product_details_by_description_tool
     guardrails: []
     prompt: *sales_prompt
-    handoff_prompt: |
-      Questions about sales performance, revenue tracking, store comparisons, department sales, top sellers, return rates, or sales trends.
-      Example: "What were total sales this week?" or "Which store is performing best?" or "What are the top sellers in footwear?"
+    handoff_prompt: "Sales performance, revenue tracking, store comparisons, department sales, top sellers, return rates, or sales trends."
 
   inventory: &inventory
     name: inventory
@@ -894,9 +876,7 @@ agents:
       - *find_product_details_by_description_tool
     guardrails: []
     prompt: *inventory_prompt
-    handoff_prompt: |
-      Questions about stock levels, product availability, inventory replenishment, store transfers, warehouse stock, or out-of-stock situations.
-      Example: "Do we have Nike Pegasus in stock at Denver?" or "What products are at critical stock levels?" or "How much warehouse inventory do we have for camping tents?"
+    handoff_prompt: "Stock levels, product availability, replenishment, store transfers, warehouse stock, or out-of-stock situations."
 
   general: &general
     name: general
@@ -906,9 +886,7 @@ agents:
       - *find_product_details_by_description_tool
     guardrails: []
     prompt: *general_prompt
-    handoff_prompt: |
-      General questions about products, store information, policies, or any inquiry that doesn't fit the specialized merchandising categories above.
-      Example: "Tell me about the Nike Air Force 1" or "What running shoes do we carry?" or "What departments does the Denver store have?"
+    handoff_prompt: "General product info, store inquiries, policies, or questions not handled by other specialist agents."
 
 # =============================================================================
 # APPLICATION
@@ -916,12 +894,12 @@ agents:
 app:
   name: sporting_goods_store_dao
   description: "Multi-agent merchandiser 360 system for sporting goods store covering assortment planning, forecasting, buying, pricing, sales, and inventory"
-  log_level: TRACE
+  log_level: DEBUG
   registered_model:
     schema: *sporting_goods_schema
     name: sporting_goods_store_dao
   endpoint_name: sporting_goods_store_dao
-  #trace_location:
+  # trace_location:
   #  schema: *sporting_goods_schema
   #  warehouse: *shared_warehouse
   monitoring:
@@ -977,7 +955,7 @@ app:
   orchestration:
     memory: *memory
     supervisor:
-      model: *tool_calling_llm
+      model: *supervisor_llm
       tools:
         - *app_info_tool
       prompt: |

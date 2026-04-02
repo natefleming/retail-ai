@@ -490,6 +490,9 @@ class DeploymentTarget(str, Enum):
     APPS = "apps"
     """Deploy as a Databricks App."""
 
+    BOTH = "both"
+    """Deploy to both Model Serving and Apps."""
+
 
 class Privilege(str, Enum):
     """Unity Catalog privilege types for granting access to resources."""
@@ -3865,6 +3868,14 @@ class MemoryExtractionModel(BaseModel):
     auto_inject_limit: int = Field(
         default=5,
         description="Maximum number of memories to inject into the prompt.",
+    )
+    supervisor_auto_inject: bool = Field(
+        default=False,
+        description=(
+            "Whether to inject memories into the supervisor's context. "
+            "Disabled by default since the supervisor only routes requests "
+            "and does not need memory context."
+        ),
     )
     background_extraction: bool = Field(
         default=True,

@@ -326,7 +326,8 @@ class TestInstructionAwareRerank:
         # Verify we got results back (rankings were valid)
         assert len(result) == 2
         # Average score should be (0.8 + 0.6) / 2 = 0.7
-        mock_mlflow.set_tag.assert_called_with(
+        mock_span = mock_mlflow.get_current_active_span.return_value
+        mock_span.set_attribute.assert_called_with(
             "reranker.instruction_avg_score", "0.700"
         )
 
