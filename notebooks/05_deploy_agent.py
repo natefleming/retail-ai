@@ -30,7 +30,7 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
 dbutils.widgets.text(name="config-path", defaultValue="")
 dbutils.widgets.dropdown(
     name="deployment-target",
-    choices=["", "model_serving", "apps"],
+    choices=["", "model_serving", "apps", "both"],
     defaultValue="",
 )
 
@@ -103,15 +103,17 @@ from dao_ai.config import AppConfig, DeploymentTarget
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
-# Resolve deployment target from widget (hybrid resolution)
-# If widget is empty/None, deploy_agent() will use config.app.deployment_target or default
-deployment_target: DeploymentTarget | None = None
+# Resolve deployment target fully so it is always a DeploymentTarget value.
+# Priority: 1) widget parameter, 2) config file, 3) default MODEL_SERVING
+deployment_target: DeploymentTarget
 if deployment_target_str:
     deployment_target = DeploymentTarget(deployment_target_str)
     print(f"Using widget-specified deployment target: {deployment_target.value}")
 elif config.app and config.app.deployment_target:
-    print(f"Using config file deployment target: {config.app.deployment_target.value}")
+    deployment_target = config.app.deployment_target
+    print(f"Using config file deployment target: {deployment_target.value}")
 else:
+    deployment_target = DeploymentTarget.MODEL_SERVING
     print("Using default deployment target: model_serving")
 
 # COMMAND ----------
@@ -120,8 +122,15 @@ config.display_graph()
 
 # COMMAND ----------
 
-config.create_agent()
+# Only log/register the MLflow model for Model Serving deployments.
+# Apps deploy directly from the config + PyPI package.
+if deployment_target != DeploymentTarget.APPS:
+    config.create_agent()
 
 # COMMAND ----------
 
-config.deploy_agent(target=deployment_target)
+if deployment_target == DeploymentTarget.BOTH:
+    config.deploy_agent(target=DeploymentTarget.MODEL_SERVING)
+    config.deploy_agent(target=DeploymentTarget.APPS)
+else:
+    config.deploy_agent(target=deployment_target)

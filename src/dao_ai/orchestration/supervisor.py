@@ -308,7 +308,12 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             reflection_executor = create_reflection_executor(extraction_manager, store)
             logger.info("Background memory extraction enabled for supervisor graph")
 
-    if needs_extraction and extraction_manager and memory.extraction.auto_inject:
+    if (
+        needs_extraction
+        and extraction_manager
+        and memory.extraction.auto_inject
+        and memory.extraction.supervisor_auto_inject
+    ):
         from dao_ai.middleware.memory_context import MemoryContextMiddleware
 
         memory_middleware = MemoryContextMiddleware(
@@ -319,6 +324,20 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         logger.info(
             "Memory context injection enabled for supervisor",
             auto_inject_limit=memory.extraction.auto_inject_limit,
+        )
+    elif needs_extraction and extraction_manager and memory.extraction.auto_inject:
+        logger.info(
+            "Memory context injection skipped for supervisor (supervisor_auto_inject=False)"
+        )
+
+    # Add OBO model middleware when supervisor LLM uses on-behalf-of-user authentication
+    if supervisor_config.model.on_behalf_of_user:
+        from dao_ai.middleware.obo import OBOModelMiddleware
+
+        middlewares.append(OBOModelMiddleware(llm_model=supervisor_config.model))
+        logger.info(
+            "OBO model middleware enabled for supervisor",
+            model=supervisor_config.model.name,
         )
 
     # Create the supervisor agent

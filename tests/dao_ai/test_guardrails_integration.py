@@ -23,17 +23,12 @@ from dao_ai.models import ResponsesAgent
 
 
 def has_guardrails_hub() -> bool:
-    """Return True if guardrails-ai hub validators are installed or can be auto-installed.
+    """Return True if guardrails-ai hub validators are actually installed.
 
-    Checks two conditions (either is sufficient):
-    1. Validators are already installed (ToxicLanguage can be instantiated)
-    2. GUARDRAILSAI_API_KEY env var is set (auto-install will happen at startup)
+    The API key alone is not sufficient -- the underlying
+    ``guardrails_grhub_toxic_language`` module must be importable for
+    scorer-based tests to succeed.
     """
-    import os
-
-    if os.environ.get("GUARDRAILSAI_API_KEY"):
-        return True
-
     try:
         from mlflow.genai.scorers.guardrails import ToxicLanguage
 

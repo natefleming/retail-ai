@@ -501,8 +501,11 @@ def test_predict_with_graph_interrupt_exception(responses_agent, mock_graph):
 
     mock_graph.ainvoke.side_effect = GraphInterrupt(interrupts=(mock_interrupt,))
 
-    mock_snapshot = MagicMock()
-    mock_snapshot.values = {
+    pre_snapshot = MagicMock()
+    pre_snapshot.interrupts = ()
+
+    post_snapshot = MagicMock()
+    post_snapshot.values = {
         "messages": [
             MagicMock(
                 content="I can help you send that email. Approval required.",
@@ -510,8 +513,8 @@ def test_predict_with_graph_interrupt_exception(responses_agent, mock_graph):
             )
         ]
     }
-    mock_snapshot.interrupts = (mock_interrupt,)
-    mock_graph.aget_state = AsyncMock(return_value=mock_snapshot)
+    post_snapshot.interrupts = (mock_interrupt,)
+    mock_graph.aget_state = AsyncMock(side_effect=[pre_snapshot, post_snapshot])
 
     request = ResponsesAgentRequest(
         input=[
@@ -624,13 +627,16 @@ def test_predict_stream_with_graph_interrupt_exception(responses_agent, mock_gra
         side_effect=lambda *args, **kwargs: mock_astream_raises()
     )
 
-    mock_snapshot = MagicMock()
-    mock_snapshot.values = {
+    pre_snapshot = MagicMock()
+    pre_snapshot.interrupts = ()
+
+    post_snapshot = MagicMock()
+    post_snapshot.values = {
         "messages": [MagicMock(content="Processing your request...", type="ai")],
         "structured_response": None,
     }
-    mock_snapshot.interrupts = (mock_interrupt,)
-    mock_graph.aget_state = AsyncMock(return_value=mock_snapshot)
+    post_snapshot.interrupts = (mock_interrupt,)
+    mock_graph.aget_state = AsyncMock(side_effect=[pre_snapshot, post_snapshot])
 
     request = ResponsesAgentRequest(
         input=[

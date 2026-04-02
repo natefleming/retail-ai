@@ -91,6 +91,7 @@ from dao_ai.middleware.message_validation import (
 )
 from dao_ai.middleware.model_call_limit import create_model_call_limit_middleware
 from dao_ai.middleware.model_retry import create_model_retry_middleware
+from dao_ai.middleware.obo import OBOModelMiddleware
 from dao_ai.middleware.pii import create_pii_middleware
 from dao_ai.middleware.skills import create_skills_middleware
 from dao_ai.middleware.subagent import create_subagent_middleware
@@ -207,6 +208,8 @@ __all__ = [
     "create_clear_tool_uses_edit",
     # PII middleware factory functions
     "create_pii_middleware",
+    # OBO model middleware
+    "OBOModelMiddleware",
     # Tool call ID sanitizer middleware
     "ToolCallIdSanitizerMiddleware",
     "create_tool_call_id_sanitizer_middleware",

@@ -219,7 +219,9 @@ def create_agent_node_handler(
             if agent.checkpointer:
                 parent_conf = get_config().get("configurable", {})
                 task_id: str = parent_conf.get("__pregel_task_id", "default")
-                thread_id: str = config.get("configurable", {}).get("thread_id", "default")
+                thread_id: str = config.get("configurable", {}).get(
+                    "thread_id", "default"
+                )
                 sub_thread_id: str = f"{thread_id}__sub_{task_id}"
                 sub_config: dict[str, Any] = {
                     "configurable": {

@@ -3,7 +3,7 @@
 These tests require:
 - RETAIL_AI_GENIE_SPACE_ID environment variable
 - DATABRICKS_WAREHOUSE_ID environment variable
-- retail-consumer-goods Lakebase instance
+- retail-consumer-goods Lakebase project
 - Valid Databricks authentication
 
 Run with: pytest tests/dao_ai/genie/test_from_space_integration.py -v -m integration
@@ -63,9 +63,9 @@ def workspace_client() -> WorkspaceClient:
 
 @pytest.fixture
 def database_model() -> DatabaseModel:
-    """Create database model for retail-consumer-goods Lakebase instance."""
+    """Create database model for retail-consumer-goods Lakebase project."""
     return DatabaseModel(
-        instance_name="retail-consumer-goods",
+        project="retail-consumer-goods",
     )
 
 

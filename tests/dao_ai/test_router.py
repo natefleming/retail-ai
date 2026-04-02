@@ -97,7 +97,8 @@ class TestRouteQuery:
         )
 
         assert result == "standard"
-        mock_mlflow.set_tag.assert_called_with("router.mode", "standard")
+        mock_span = mock_mlflow.get_current_active_span.return_value
+        mock_span.set_attribute.assert_called_with("router.mode", "standard")
 
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
@@ -117,7 +118,8 @@ class TestRouteQuery:
         )
 
         assert result == "instructed"
-        mock_mlflow.set_tag.assert_called_with("router.mode", "instructed")
+        mock_span = mock_mlflow.get_current_active_span.return_value
+        mock_span.set_attribute.assert_called_with("router.mode", "instructed")
 
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
