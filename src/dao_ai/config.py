@@ -913,6 +913,19 @@ class FunctionModel(IsDatabricksResource, HasFullName):
             )
         return self
 
+    @model_validator(mode="after")
+    def reject_obo(self) -> Self:
+        if self.on_behalf_of_user:
+            logger.warning(
+                f"on_behalf_of_user is not supported for Unity Catalog functions "
+                f"('{self.full_name}'). UC function execution uses serverless compute "
+                f"via DatabricksFunctionClient. Ignoring on_behalf_of_user. "
+                f"See https://docs.unitycatalog.io/ai/client/#databricks-function-client "
+                f"for more details."
+            )
+            self.on_behalf_of_user = False
+        return self
+
     @property
     def full_name(self) -> str:
         if self.schema_model:
@@ -987,7 +1000,7 @@ class WarehouseModel(IsDatabricksResource):
     )
     warehouse_id: Optional[AnyVariable] = Field(
         default=None,
-        description="SQL warehouse ID. If omitted, looked up by name.",
+        description="SQL warehouse ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
     )
 
     _warehouse_details: Optional[GetWarehouseResponse] = PrivateAttr(default=None)
@@ -1033,6 +1046,11 @@ class WarehouseModel(IsDatabricksResource):
         if self.warehouse_id:
             self.warehouse_id = value_of(self.warehouse_id)
             return self
+        if self.on_behalf_of_user:
+            raise ValueError(
+                "warehouse_id is required when on_behalf_of_user is True. "
+                "Name-based lookup cannot authenticate in Model Serving at startup."
+            )
         if self.name:
             self.warehouse_id = self._resolve_warehouse_id_by_name(self.name)
             return self
@@ -1067,7 +1085,7 @@ class GenieRoomModel(IsDatabricksResource):
     )
     space_id: Optional[AnyVariable] = Field(
         default=None,
-        description="Databricks Genie space ID. If omitted, looked up by name.",
+        description="Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
     )
 
     _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
@@ -1302,6 +1320,11 @@ class GenieRoomModel(IsDatabricksResource):
         if self.space_id:
             self.space_id = value_of(self.space_id)
             return self
+        if self.on_behalf_of_user:
+            raise ValueError(
+                "space_id is required when on_behalf_of_user is True. "
+                "Name-based lookup cannot authenticate in Model Serving at startup."
+            )
         if self.name:
             self.space_id = self._resolve_space_id_by_name(self.name)
             return self

@@ -679,6 +679,80 @@ class TestLLMCaching:
 
         assert key1 != key2
 
+    @patch("databricks_langchain.ChatDatabricks")
+    @patch.object(LLMModel, "workspace_client_from")
+    def test_obo_bypasses_cache(
+        self,
+        mock_workspace_client_from: MagicMock,
+        mock_chat_databricks: MagicMock,
+    ) -> None:
+        """Test that OBO models bypass the cache and create fresh ChatDatabricks."""
+        from dao_ai.tools.instructed_retriever import _get_cached_llm, _llm_cache
+
+        _llm_cache.clear()
+
+        mock_ws = MagicMock()
+        mock_ws.config.auth_type = "pat"
+        mock_workspace_client_from.return_value = mock_ws
+
+        mock_chat_model = MagicMock()
+        mock_chat_databricks.return_value = mock_chat_model
+
+        model_config = LLMModel(name="test-model", on_behalf_of_user=True)
+        mock_context = MagicMock()
+
+        actual = _get_cached_llm(model_config, context=mock_context)
+
+        mock_workspace_client_from.assert_called_once_with(mock_context)
+        mock_chat_databricks.assert_called_once()
+        assert actual is mock_chat_model
+        assert len(_llm_cache) == 0  # cache should not be populated
+
+    @patch("databricks_langchain.ChatDatabricks")
+    @patch.object(LLMModel, "workspace_client_from")
+    def test_obo_creates_fresh_client_per_call(
+        self,
+        mock_workspace_client_from: MagicMock,
+        mock_chat_databricks: MagicMock,
+    ) -> None:
+        """Test that each OBO call creates a new client (no reuse)."""
+        from dao_ai.tools.instructed_retriever import _get_cached_llm, _llm_cache
+
+        _llm_cache.clear()
+
+        mock_ws = MagicMock()
+        mock_ws.config.auth_type = "pat"
+        mock_workspace_client_from.return_value = mock_ws
+
+        model_config = LLMModel(name="test-model", on_behalf_of_user=True)
+        ctx1 = MagicMock()
+        ctx2 = MagicMock()
+
+        _get_cached_llm(model_config, context=ctx1)
+        _get_cached_llm(model_config, context=ctx2)
+
+        assert mock_workspace_client_from.call_count == 2
+        assert mock_chat_databricks.call_count == 2
+
+    @patch.object(LLMModel, "as_chat_model")
+    def test_non_obo_uses_cache(self, mock_as_chat_model: MagicMock) -> None:
+        """Test that non-OBO models use the cache normally."""
+        from dao_ai.tools.instructed_retriever import _get_cached_llm, _llm_cache
+
+        _llm_cache.clear()
+
+        mock_chat_model = MagicMock()
+        mock_as_chat_model.return_value = mock_chat_model
+
+        model_config = LLMModel(name="test-model", on_behalf_of_user=False)
+
+        result1 = _get_cached_llm(model_config)
+        result2 = _get_cached_llm(model_config)
+
+        mock_as_chat_model.assert_called_once()
+        assert result1 is result2
+        assert result1 is mock_chat_model
+
 
 @pytest.mark.integration
 @pytest.mark.skipif(True, reason="Requires Databricks workspace and LLM endpoint")

@@ -129,6 +129,7 @@ resources:
     shared_warehouse: &shared_warehouse
       # name: "Shared Endpoint"
       name: "Shared Unity Catalog Serverless"
+      warehouse_id: 4b9b953939869799
       on_behalf_of_user: true
 
   # ---------------------------------------------------------------------------
@@ -138,12 +139,14 @@ resources:
     merchandising_analytics_room: &merchandising_analytics_room
       name: "Merchandising Analytics - Sporting Goods"
       description: "Genie room for merchandising analytics including assortment planning, demand forecasting, purchase order tracking, category performance, and seasonal trend analysis"
-     # space_id: 01f124c2646f1ed4846cae3f8b36df02
+      on_behalf_of_user: true
+      space_id: 01f124c2646f1ed4846cae3f8b36df02
 
     sales_pricing_room: &sales_pricing_room
       name: "Sales and Pricing Analytics - Sporting Goods"
       description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
-    #  space_id: 01f124c2690f1dcb93a15057c2a74339
+      on_behalf_of_user: true
+      space_id: 01f124c2690f1dcb93a15057c2a74339
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -152,27 +155,27 @@ resources:
     find_product_by_sku: &find_product_by_sku
       schema: *sporting_goods_schema
       name: find_product_by_sku
-      on_behalf_of_user: true
+      on_behalf_of_user: false
     find_product_by_upc: &find_product_by_upc
       schema: *sporting_goods_schema
       name: find_product_by_upc
-      on_behalf_of_user: true
+      on_behalf_of_user: false
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *sporting_goods_schema
       name: find_inventory_by_sku
-      on_behalf_of_user: true
+      on_behalf_of_user: false
     find_inventory_by_upc: &find_inventory_by_upc
       schema: *sporting_goods_schema
       name: find_inventory_by_upc
-      on_behalf_of_user: true
+      on_behalf_of_user: false
     find_store_inventory_by_sku: &find_store_inventory_by_sku
       schema: *sporting_goods_schema
       name: find_store_inventory_by_sku
-      on_behalf_of_user: true
+      on_behalf_of_user: false
     find_store_inventory_by_upc: &find_store_inventory_by_upc
       schema: *sporting_goods_schema
       name: find_store_inventory_by_upc
-      on_behalf_of_user: true
+      on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
   # DATABASES (Lakebase) - temporarily disabled due to workspace quota
@@ -929,7 +932,7 @@ app:
           - Financial figures (margin, revenue, cost) should be formatted consistently with currency symbols
           - Recommendations should include actionable next steps with specific SKUs or categories
           - Seasonal context and timing should be considered in all planning recommendations
-  service_principal: *retail_consumer_goods_sp
+ # service_principal: *retail_consumer_goods_sp
   environment_vars:
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
     RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"

@@ -65,16 +65,16 @@ def create_uc_tools(
         logger.debug(
             "Creating custom tool with partial arguments", function_name=function_name
         )
-        # Use with_partial_args directly with UnityCatalogFunctionModel
         tools = [with_partial_args(original_function_model)]
+    elif original_function_model and original_function_model.resource.on_behalf_of_user:
+        logger.debug("Creating OBO-aware UC tool", function_name=function_name)
+        tools = [_create_obo_uc_tool(original_function_model)]
     else:
-        # For standard UC toolkit, we need workspace_client at creation time
-        # Use the resource's workspace_client (will use ambient auth if no OBO)
+        # Standard UC toolkit -- client bound at creation time (non-OBO)
         workspace_client: WorkspaceClient | None = None
         if original_function_model:
             workspace_client = original_function_model.resource.workspace_client
 
-        # Fallback to standard UC toolkit approach
         client: DatabricksFunctionClient = DatabricksFunctionClient(
             client=workspace_client
         )
@@ -400,6 +400,89 @@ def _create_filtered_schema(original_schema: type, exclude_fields: Set[str]) -> 
             pass
 
         return GenericFilteredSchema
+
+
+def _create_obo_uc_tool(
+    uc_function: UnityCatalogFunctionModel,
+) -> StructuredTool:
+    """Create a UC tool that resolves OBO credentials per-request via runtime context.
+
+    The standard UCFunctionToolkit binds a WorkspaceClient at tool creation
+    time.  That client uses ``ModelServingUserCredentials`` when
+    ``on_behalf_of_user=True``, which works in Model Serving (thread-local
+    tokens) but fails in Databricks Apps (requires
+    ``X-Forwarded-Access-Token`` from request headers).
+
+    This helper introspects the function schema at creation time using
+    ambient auth, then wraps execution in a function that calls
+    ``workspace_client_from(context)`` per-request so OBO works in both
+    deployment targets.
+    """
+    from unitycatalog.ai.langchain.toolkit import generate_function_input_params_schema
+
+    function_name: str = uc_function.resource.full_name
+    tool_name: str = uc_function.resource.name or function_name.replace(".", "_")
+
+    logger.debug(
+        "Creating OBO-aware UC tool",
+        function_name=function_name,
+        tool_name=tool_name,
+    )
+
+    setup_workspace_client: WorkspaceClient = WorkspaceClient()
+    setup_client: DatabricksFunctionClient = DatabricksFunctionClient(
+        client=setup_workspace_client
+    )
+
+    schema_model: type[BaseModel]
+    tool_description: str
+    try:
+        function_info: FunctionInfo = setup_client.get_function(function_name)
+        schema_info = generate_function_input_params_schema(function_info)
+        tool_description = (
+            function_info.comment or f"Unity Catalog function: {function_name}"
+        )
+        schema_model = _fix_boolean_schema_defaults(schema_info.pydantic_model)
+    except Exception as e:
+        logger.warning(
+            "Could not introspect function", function_name=function_name, error=str(e)
+        )
+
+        class GenericOBOParams(BaseModel):
+            """Generic parameters for Unity Catalog function."""
+
+            pass
+
+        schema_model = GenericOBOParams
+        tool_description = f"Unity Catalog function: {function_name}"
+
+    def obo_uc_wrapper(
+        runtime: Annotated[ToolRuntime[Context], InjectedToolArg] = None,
+        **kwargs: Any,
+    ) -> str:
+        context: Context | None = runtime.context if runtime else None
+        workspace_client: WorkspaceClient = uc_function.resource.workspace_client_from(
+            context
+        )
+        client: DatabricksFunctionClient = DatabricksFunctionClient(
+            client=workspace_client
+        )
+        return _execute_uc_function(
+            client=client,
+            function_name=function_name,
+            **kwargs,
+        )
+
+    obo_uc_wrapper.__name__ = tool_name
+
+    obo_tool: StructuredTool = StructuredTool.from_function(
+        func=obo_uc_wrapper,
+        name=tool_name,
+        description=tool_description,
+        args_schema=schema_model,
+    )
+
+    return obo_tool
 
 
 def with_partial_args(

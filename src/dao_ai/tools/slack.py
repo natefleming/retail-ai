@@ -109,6 +109,11 @@ def create_send_slack_message_tool(
 
     # Look up channel_id from channel_name if needed
     if channel_id is None and channel_name is not None:
+        if connection.on_behalf_of_user:
+            raise ValueError(
+                "channel_id is required when on_behalf_of_user is True. "
+                "Name-based channel lookup cannot authenticate at startup."
+            )
         logger.trace(
             "Looking up channel ID for channel name", channel_name=channel_name
         )

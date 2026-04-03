@@ -2,6 +2,7 @@
 Tests for tool error handler middleware.
 """
 
+import asyncio
 from unittest.mock import MagicMock
 
 from langchain.agents.middleware import AgentMiddleware
@@ -9,7 +10,7 @@ from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
 
 from dao_ai.middleware.tool_error_handler import (
-    _create_handler,
+    ToolErrorHandlerMiddleware,
     create_tool_error_handler_middleware,
 )
 
@@ -34,50 +35,41 @@ class TestCreateToolErrorHandlerMiddleware:
         middleware = create_tool_error_handler_middleware()
         assert middleware is not None
         assert isinstance(middleware, AgentMiddleware)
+        assert isinstance(middleware, ToolErrorHandlerMiddleware)
 
     def test_accepts_include_traceback_flag(self) -> None:
         middleware = create_tool_error_handler_middleware(include_traceback=True)
         assert middleware is not None
-        assert isinstance(middleware, AgentMiddleware)
+        assert isinstance(middleware, ToolErrorHandlerMiddleware)
+
+    def test_overrides_both_sync_and_async(self) -> None:
+        """Both wrap_tool_call and awrap_tool_call must be overridden."""
+        mw = create_tool_error_handler_middleware()
+        assert type(mw).wrap_tool_call is not AgentMiddleware.wrap_tool_call
+        assert type(mw).awrap_tool_call is not AgentMiddleware.awrap_tool_call
 
 
-class TestToolErrorHandlerBehavior:
-    """Tests for the wrap_tool_call handler logic."""
+class TestSyncWrapToolCall:
+    """Tests for the synchronous wrap_tool_call path."""
 
-    def test_successful_call_passes_through(self) -> None:
-        handler_middleware = _create_handler(include_traceback=False)
-        assert handler_middleware is not None
+    def test_successful_handler_returns_result_unchanged(self) -> None:
+        mw = ToolErrorHandlerMiddleware()
+        request = _make_request(tool_call_id="call_ok")
+        expected = ToolMessage(content="success data", tool_call_id="call_ok")
 
-    def test_exception_returns_tool_message_with_error(self) -> None:
-        """Verify that a tool exception produces a ToolMessage with status='error'."""
+        result = mw.wrap_tool_call(request, lambda req: expected)
+
+        assert result is expected
+        assert result.content == "success data"
+
+    def test_exception_returns_error_tool_message(self) -> None:
+        mw = ToolErrorHandlerMiddleware()
         request = _make_request(tool_name="search_products", tool_call_id="call_abc")
 
-        def failing_handler(req: ToolCallRequest) -> ToolMessage:
+        def failing(req: ToolCallRequest) -> ToolMessage:
             raise PermissionError("Insufficient permissions for UC entity")
 
-        # The inner function of the @wrap_tool_call middleware handles
-        # exceptions.  We can invoke the handler logic directly via the
-        # module-level helper.
-
-        # _create_handler returns an AgentMiddleware produced by
-        # @wrap_tool_call.  To unit-test the raw logic we re-create the
-        # closure and call it with our mock handler.
-        from langchain.agents.middleware import wrap_tool_call
-
-        @wrap_tool_call
-        def _test_handler(req: ToolCallRequest, handler):  # type: ignore[override]
-            try:
-                return handler(req)
-            except Exception as e:
-                error_type = type(e).__name__
-                return ToolMessage(
-                    content=f"Tool '{req.tool_call.get('name', 'unknown')}' failed: {error_type}: {e}",
-                    tool_call_id=req.tool_call.get("id", ""),
-                    status="error",
-                )
-
-        # Use the middleware's wrap_tool_call method to simulate the call
-        result: ToolMessage = _test_handler.wrap_tool_call(request, failing_handler)
+        result = mw.wrap_tool_call(request, failing)
 
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
@@ -87,85 +79,69 @@ class TestToolErrorHandlerBehavior:
         assert result.tool_call_id == "call_abc"
 
     def test_error_message_contains_tool_name(self) -> None:
+        mw = ToolErrorHandlerMiddleware()
         request = _make_request(tool_name="vector_search", tool_call_id="call_xyz")
 
-        def failing_handler(req: ToolCallRequest) -> ToolMessage:
+        def failing(req: ToolCallRequest) -> ToolMessage:
             raise RuntimeError("Connection refused")
 
-        from langchain.agents.middleware import wrap_tool_call
-
-        @wrap_tool_call
-        def _test_handler(req: ToolCallRequest, handler):  # type: ignore[override]
-            try:
-                return handler(req)
-            except Exception as e:
-                error_type = type(e).__name__
-                return ToolMessage(
-                    content=f"Tool '{req.tool_call.get('name', 'unknown')}' failed: {error_type}: {e}",
-                    tool_call_id=req.tool_call.get("id", ""),
-                    status="error",
-                )
-
-        result: ToolMessage = _test_handler.wrap_tool_call(request, failing_handler)
+        result = mw.wrap_tool_call(request, failing)
         assert "vector_search" in result.content
         assert "RuntimeError" in result.content
         assert "Connection refused" in result.content
 
-    def test_successful_handler_returns_result_unchanged(self) -> None:
-        request = _make_request(tool_name="my_tool", tool_call_id="call_ok")
-        expected = ToolMessage(content="success data", tool_call_id="call_ok")
-
-        def ok_handler(req: ToolCallRequest) -> ToolMessage:
-            return expected
-
-        from langchain.agents.middleware import wrap_tool_call
-
-        @wrap_tool_call
-        def _test_handler(req: ToolCallRequest, handler):  # type: ignore[override]
-            try:
-                return handler(req)
-            except Exception as e:
-                error_type = type(e).__name__
-                return ToolMessage(
-                    content=f"Tool '{req.tool_call.get('name', 'unknown')}' failed: {error_type}: {e}",
-                    tool_call_id=req.tool_call.get("id", ""),
-                    status="error",
-                )
-
-        result: ToolMessage = _test_handler.wrap_tool_call(request, ok_handler)
-        assert result is expected
-        assert result.content == "success data"
-        assert result.status == "success"
-
-    def test_include_traceback_flag(self) -> None:
-        """Verify the include_traceback option adds traceback to the message."""
+    def test_include_traceback(self) -> None:
+        mw = ToolErrorHandlerMiddleware(include_traceback=True)
         request = _make_request(tool_name="failing_tool", tool_call_id="call_tb")
 
-        def failing_handler(req: ToolCallRequest) -> ToolMessage:
+        def failing(req: ToolCallRequest) -> ToolMessage:
             raise ValueError("bad input value")
 
-        import traceback as tb_mod
-
-        from langchain.agents.middleware import wrap_tool_call
-
-        @wrap_tool_call
-        def _test_handler_with_tb(req: ToolCallRequest, handler):  # type: ignore[override]
-            try:
-                return handler(req)
-            except Exception as e:
-                error_type = type(e).__name__
-                error_msg = str(e)
-                content = f"Tool '{req.tool_call.get('name', 'unknown')}' failed: {error_type}: {error_msg}"
-                content = f"{content}\n\nTraceback:\n{tb_mod.format_exc()}"
-                return ToolMessage(
-                    content=content,
-                    tool_call_id=req.tool_call.get("id", ""),
-                    status="error",
-                )
-
-        result: ToolMessage = _test_handler_with_tb.wrap_tool_call(
-            request, failing_handler
-        )
+        result = mw.wrap_tool_call(request, failing)
         assert "Traceback" in result.content
         assert "ValueError" in result.content
         assert "bad input value" in result.content
+
+
+class TestAsyncWrapToolCall:
+    """Tests for the asynchronous awrap_tool_call path."""
+
+    def test_successful_handler_returns_result_unchanged(self) -> None:
+        mw = ToolErrorHandlerMiddleware()
+        request = _make_request(tool_call_id="call_ok")
+        expected = ToolMessage(content="async success", tool_call_id="call_ok")
+
+        async def ok_handler(req: ToolCallRequest) -> ToolMessage:
+            return expected
+
+        result = asyncio.run(mw.awrap_tool_call(request, ok_handler))
+        assert result is expected
+        assert result.content == "async success"
+
+    def test_exception_returns_error_tool_message(self) -> None:
+        mw = ToolErrorHandlerMiddleware()
+        request = _make_request(tool_name="genie_query", tool_call_id="call_async")
+
+        async def failing(req: ToolCallRequest) -> ToolMessage:
+            raise TimeoutError("Genie room timed out")
+
+        result = asyncio.run(mw.awrap_tool_call(request, failing))
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "genie_query" in result.content
+        assert "TimeoutError" in result.content
+        assert "Genie room timed out" in result.content
+        assert result.tool_call_id == "call_async"
+
+    def test_include_traceback(self) -> None:
+        mw = ToolErrorHandlerMiddleware(include_traceback=True)
+        request = _make_request(tool_name="uc_func", tool_call_id="call_tb_async")
+
+        async def failing(req: ToolCallRequest) -> ToolMessage:
+            raise ValueError("bad async input")
+
+        result = asyncio.run(mw.awrap_tool_call(request, failing))
+        assert "Traceback" in result.content
+        assert "ValueError" in result.content
+        assert "bad async input" in result.content

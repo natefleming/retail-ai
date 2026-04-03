@@ -8,7 +8,7 @@ subqueries with metadata filters and merging results using Reciprocal Rank Fusio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import mlflow
 import yaml
@@ -27,6 +27,9 @@ from dao_ai.config import (
     SearchQuery,
 )
 
+if TYPE_CHECKING:
+    from dao_ai.state import Context
+
 # Module-level cache for LLM clients
 _llm_cache: dict[str, BaseChatModel] = {}
 
@@ -42,13 +45,38 @@ def _load_prompt_template() -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def _get_cached_llm(model_config: LLMModel) -> BaseChatModel:
+def _get_cached_llm(
+    model_config: LLMModel,
+    context: "Context | None" = None,
+) -> BaseChatModel:
     """
     Get or create cached LLM client for decomposition.
 
     Uses full config as cache key to avoid collisions when same model name
     has different parameters (temperature, API keys, etc.).
+
+    When ``on_behalf_of_user`` is True, a fresh ``ChatDatabricks`` is created
+    per call using ``workspace_client_from(context)`` -- the cache is
+    bypassed because each request carries a different user token.
     """
+    if model_config.on_behalf_of_user:
+        from databricks.sdk import WorkspaceClient
+        from databricks_langchain import ChatDatabricks
+
+        workspace_client: WorkspaceClient = model_config.workspace_client_from(context)
+        logger.debug(
+            "Created OBO LLM client for decomposition",
+            model=model_config.name,
+            auth_type=workspace_client.config.auth_type,
+        )
+        return ChatDatabricks(
+            model=model_config.name,
+            temperature=model_config.temperature,
+            max_tokens=model_config.max_tokens,
+            use_responses_api=model_config.use_responses_api,
+            workspace_client=workspace_client,
+        )
+
     cache_key = model_config.model_dump_json()
     if cache_key not in _llm_cache:
         _llm_cache[cache_key] = model_config.as_chat_model()

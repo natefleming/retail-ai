@@ -1,12 +1,15 @@
 from textwrap import dedent
-from typing import Any, Callable, Optional, Sequence
+from typing import Annotated, Any, Callable, Optional, Sequence
 
+from databricks_langchain import ChatDatabricks
+from langchain.tools import ToolRuntime
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
 
 from dao_ai.config import LLMModel
+from dao_ai.state import Context
 
 
 def create_agent_endpoint_tool(
@@ -38,8 +41,31 @@ def create_agent_endpoint_tool(
 
     doc: str = description + "\n" + doc_signature
 
-    async def agent_endpoint(prompt: str) -> AIMessage:
-        model: LanguageModelLike = llm.as_chat_model()
+    async def agent_endpoint(
+        prompt: str,
+        runtime: Annotated[ToolRuntime[Context], InjectedToolArg] = None,
+    ) -> AIMessage:
+        context: Context | None = runtime.context if runtime else None
+
+        if llm.on_behalf_of_user:
+            from databricks.sdk import WorkspaceClient
+
+            workspace_client: WorkspaceClient = llm.workspace_client_from(context)
+            logger.debug(
+                "Creating OBO ChatDatabricks for agent endpoint tool",
+                model=llm.name,
+                auth_type=workspace_client.config.auth_type,
+            )
+            model: LanguageModelLike = ChatDatabricks(
+                model=llm.name,
+                temperature=llm.temperature,
+                max_tokens=llm.max_tokens,
+                use_responses_api=llm.use_responses_api,
+                workspace_client=workspace_client,
+            )
+        else:
+            model = llm.as_chat_model()
+
         messages: Sequence[BaseMessage] = [HumanMessage(content=prompt)]
         response: AIMessage = await model.ainvoke(messages)
         return response
