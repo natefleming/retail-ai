@@ -558,3 +558,35 @@ class TestBooleanDefaultsIntegration:
         # Defaults: include_metadata=TRUE, case_sensitive=FALSE
         assert "include_metadata=true" in result
         assert "case_sensitive=false" in result
+
+
+@pytest.mark.unit
+class TestFunctionModelRejectOBO:
+    """FunctionModel must warn and reset on_behalf_of_user when set to True."""
+
+    def test_obo_true_warns_and_resets(self) -> None:
+        func = FunctionModel(
+            name="catalog.schema.my_function",
+            on_behalf_of_user=True,
+        )
+        assert func.on_behalf_of_user is False
+
+    def test_obo_false_is_accepted(self) -> None:
+        func = FunctionModel(
+            name="catalog.schema.my_function",
+            on_behalf_of_user=False,
+        )
+        assert func.on_behalf_of_user is False
+
+    def test_obo_default_is_accepted(self) -> None:
+        func = FunctionModel(name="catalog.schema.my_function")
+        assert func.on_behalf_of_user is False
+
+    def test_obo_true_with_schema_warns_and_resets(self) -> None:
+        schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
+        func = FunctionModel(
+            schema=schema,
+            name="my_function",
+            on_behalf_of_user=True,
+        )
+        assert func.on_behalf_of_user is False

@@ -1119,7 +1119,7 @@
     },
     "DatabaseModel": {
       "additionalProperties": false,
-      "description": "Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Databricks Lakebase: Provide `instance_name` (authentication optional, supports ambient auth)\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nNote: For Lakebase connections, `name` is optional and defaults to `instance_name`.\nFor PostgreSQL connections, `name` is required.\n\nExample Databricks Lakebase (minimal):\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance  # name defaults to instance_name\n```\n\nExample Databricks Lakebase with Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n    service_principal:\n      client_id:\n        env: SERVICE_PRINCIPAL_CLIENT_ID\n      client_secret:\n        scope: my-scope\n        secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Databricks Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
+      "description": "Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Autoscaling Lakebase: Provide `project` (and optionally `branch`)\n- Provisioned Lakebase: Provide `instance_name`\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nNote: `project` and `instance_name` are mutually exclusive.\nFor Lakebase connections, `name` defaults to `project` or `instance_name`.\nFor PostgreSQL connections, `name` is required.\n\nExample Autoscaling Lakebase (minimal):\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project  # name defaults to project\n```\n\nExample Autoscaling Lakebase with branch and Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project\n    branch: main                  # optional, auto-resolved if omitted\n    client_id:\n      env: SERVICE_PRINCIPAL_CLIENT_ID\n    client_secret:\n      scope: my-scope\n      secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Provisioned Lakebase:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n```\n\nExample Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1292,8 +1292,21 @@
             }
           ],
           "default": null,
-          "description": "Logical database name. For Lakebase, defaults to instance_name.",
+          "description": "Logical database name. For Lakebase, defaults to project or instance_name.",
           "title": "Name"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Autoscaling Lakebase project name. Mutually exclusive with instance_name.",
+          "title": "Project"
         },
         "instance_name": {
           "anyOf": [
@@ -1305,25 +1318,8 @@
             }
           ],
           "default": null,
-          "description": "Databricks Lakebase instance name. Mutually exclusive with host (standard PostgreSQL).",
+          "description": "Provisioned Lakebase instance name. Mutually exclusive with project.",
           "title": "Instance Name"
-        },
-        "lakebase_type": {
-          "anyOf": [
-            {
-              "enum": [
-                "provisioned",
-                "autoscaling"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "autoscaling",
-          "description": "Lakebase deployment type. 'autoscaling' uses the Postgres API (projects/branches/endpoints). 'provisioned' uses the legacy Database Instances API. Only applies when instance_name is set.",
-          "title": "Lakebase Type"
         },
         "description": {
           "anyOf": [
@@ -1479,22 +1475,18 @@
           "description": "Connection timeout in seconds.",
           "title": "Timeout Seconds"
         },
-        "capacity": {
+        "branch": {
           "anyOf": [
             {
-              "enum": [
-                "CU_1",
-                "CU_2"
-              ],
               "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": "CU_2",
-          "description": "Lakebase compute capacity tier (CU_1 or CU_2). Only used for provisioned Lakebase.",
-          "title": "Capacity"
+          "default": null,
+          "description": "Autoscaling Lakebase branch name. If omitted, the default branch is auto-resolved.",
+          "title": "Branch"
         },
         "autoscaling_min_cu": {
           "anyOf": [
@@ -1522,6 +1514,23 @@
           "description": "Maximum compute units for autoscaling Lakebase.",
           "title": "Autoscaling Max Cu"
         },
+        "capacity": {
+          "anyOf": [
+            {
+              "enum": [
+                "CU_1",
+                "CU_2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "CU_2",
+          "description": "Lakebase compute capacity tier (CU_1 or CU_2).",
+          "title": "Capacity"
+        },
         "node_count": {
           "anyOf": [
             {
@@ -1532,7 +1541,7 @@
             }
           ],
           "default": null,
-          "description": "Number of Lakebase compute nodes for horizontal scaling. Only used for provisioned Lakebase.",
+          "description": "Number of Lakebase compute nodes for horizontal scaling.",
           "title": "Node Count"
         },
         "user": {
@@ -1971,7 +1980,8 @@
       "description": "Target platform for agent deployment.",
       "enum": [
         "model_serving",
-        "apps"
+        "apps",
+        "both"
       ],
       "title": "DeploymentTarget",
       "type": "string"
@@ -2841,7 +2851,7 @@
             }
           ],
           "default": null,
-          "description": "Databricks Genie space ID. If omitted, looked up by name.",
+          "description": "Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
           "title": "Space Id"
         }
       },
@@ -4117,6 +4127,12 @@
           "description": "Maximum number of memories to inject into the prompt.",
           "title": "Auto Inject Limit",
           "type": "integer"
+        },
+        "supervisor_auto_inject": {
+          "default": false,
+          "description": "Whether to inject memories into the supervisor's context. Disabled by default since the supervisor only routes requests and does not need memory context.",
+          "title": "Supervisor Auto Inject",
+          "type": "boolean"
         },
         "background_extraction": {
           "default": true,
@@ -6622,7 +6638,7 @@
             }
           ],
           "default": null,
-          "description": "SQL warehouse ID. If omitted, looked up by name.",
+          "description": "SQL warehouse ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
           "title": "Warehouse Id"
         }
       },

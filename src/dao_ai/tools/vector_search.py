@@ -394,13 +394,14 @@ def create_vector_search_tool(
         query: str,
         base_filters: dict[str, Any],
         previous_feedback: str | None = None,
+        context: Context | None = None,
     ) -> list[Document]:
         """Execute instructed retrieval with query decomposition and RRF merging."""
         logger.trace(
             "Executing instructed retrieval", query=query, base_filters=base_filters
         )
         try:
-            decomposition_llm = _get_cached_llm(decomposition_config.model)
+            decomposition_llm = _get_cached_llm(decomposition_config.model, context)
 
             subqueries: list[SearchQuery] = decompose_query(
                 llm=decomposition_llm,
@@ -550,6 +551,7 @@ def create_vector_search_tool(
         query: str,
         mode: Literal["standard", "instructed"],
         auto_bypass: bool,
+        context: Context | None = None,
     ) -> list[Document]:
         """Apply instruction-aware reranking and verification based on mode and bypass settings."""
         # Skip post-processing for standard mode when auto_bypass is enabled
@@ -562,7 +564,7 @@ def create_vector_search_tool(
         # Apply instruction-aware reranking if configured
         if instruction_rerank_config and instructed_config:
             instruction_llm = (
-                _get_cached_llm(instruction_rerank_config.model)
+                _get_cached_llm(instruction_rerank_config.model, context)
                 if instruction_rerank_config.model
                 else None
             )
@@ -580,7 +582,7 @@ def create_vector_search_tool(
         # Apply verification if configured (verifier is always under instructed)
         if verifier_config and instructed_config:
             verifier_llm = (
-                _get_cached_llm(verifier_config.model)
+                _get_cached_llm(verifier_config.model, context)
                 if verifier_config.model
                 else None
             )
@@ -678,7 +680,9 @@ def create_vector_search_tool(
 
         if router_config:
             router_llm = (
-                _get_cached_llm(router_config.model) if router_config.model else None
+                _get_cached_llm(router_config.model, context)
+                if router_config.model
+                else None
             )
             auto_bypass = router_config.auto_bypass
 
@@ -712,7 +716,9 @@ def create_vector_search_tool(
 
         # Execute search based on mode
         if mode == "instructed" and instructed_config and decomposition_config:
-            documents = _execute_instructed_retrieval(vs, query, base_filters)
+            documents = _execute_instructed_retrieval(
+                vs, query, base_filters, context=context
+            )
         else:
             documents = _execute_standard_search(vs, query, base_filters)
 
@@ -722,7 +728,9 @@ def create_vector_search_tool(
             documents = _rerank_documents(query, documents, ranker, rerank_config)
 
         # Apply post-processing (instruction reranking + verification)
-        documents = _apply_post_processing(documents, query, mode, auto_bypass)
+        documents = _apply_post_processing(
+            documents, query, mode, auto_bypass, context=context
+        )
 
         # Serialize documents to JSON format for LLM consumption
         serialized_docs: list[dict[str, Any]] = []

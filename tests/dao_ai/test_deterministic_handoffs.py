@@ -455,9 +455,7 @@ class TestDeterministicHandler:
         mock_state: dict = {"messages": []}
         mock_runtime = MagicMock()
 
-        result: dict = asyncio.get_event_loop().run_until_complete(
-            handler(mock_state, mock_runtime)
-        )
+        result: dict = asyncio.run(handler(mock_state, mock_runtime))
 
         assert result["active_agent"] == "target_agent"
         inner_handler.assert_awaited_once_with(mock_state, mock_runtime)
@@ -476,9 +474,7 @@ class TestDeterministicHandler:
         inner_handler = AsyncMock(return_value=inner_result)
 
         handler = _create_deterministic_handler(inner_handler, "target_agent")
-        result: dict = asyncio.get_event_loop().run_until_complete(
-            handler({"messages": []}, MagicMock())
-        )
+        result: dict = asyncio.run(handler({"messages": []}, MagicMock()))
 
         assert result["messages"] == [{"role": "assistant", "content": "hello"}]
         assert result["custom_field"] == "preserved"
