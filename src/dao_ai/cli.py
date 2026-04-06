@@ -307,6 +307,43 @@ Examples:
         "or defaults to 'model_serving'. Passed to the deploy notebook.",
     )
 
+    # Generate bundle command
+    generate_bundle_parser: ArgumentParser = subparsers.add_parser(
+        "generate-bundle",
+        help="Generate Databricks App bundle files from a config",
+        description="""
+Generate a complete, deployable Databricks Apps bundle directory from a dao-ai config file.
+Creates databricks.yaml, app.yaml, pyproject.toml, and scaffolding files.
+        """,
+        epilog="""
+Examples:
+  dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle
+  dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --force
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    generate_bundle_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the dao-ai configuration file",
+    )
+    generate_bundle_parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=str,
+        default=".",
+        metavar="DIR",
+        help="Directory to write the generated bundle files to (default: current directory)",
+    )
+    generate_bundle_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing files in the output directory",
+    )
+
     # Deploy command
     deploy_parser: ArgumentParser = subparsers.add_parser(
         "deploy",
@@ -1456,6 +1493,22 @@ def handle_bundle_command(options: Namespace) -> None:
         logger.warning("No action specified. Use --deploy, --run or --destroy flags.")
 
 
+def handle_generate_bundle_command(options: Namespace) -> None:
+    logger.debug("Generating bundle...")
+    config_path: str = options.config
+    output_dir: str = options.output_dir
+    force: bool = options.force
+
+    config: AppConfig = AppConfig.from_file(config_path)
+    if config.app is None:
+        logger.error("Config must have an 'app' section to generate a bundle")
+        sys.exit(1)
+
+    from dao_ai.apps.bundle import write_bundle
+
+    write_bundle(config, Path(output_dir), force=force)
+
+
 def main() -> None:
     options: argparse.Namespace = parse_args(sys.argv[1:])
     setup_logging(options.verbose)
@@ -1468,6 +1521,8 @@ def main() -> None:
             handle_graph_command(options)
         case "bundle":
             handle_bundle_command(options)
+        case "generate-bundle":
+            handle_generate_bundle_command(options)
         case "deploy":
             handle_deploy_command(options)
         case "monitor":
