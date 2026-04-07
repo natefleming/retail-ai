@@ -523,30 +523,76 @@ def test_deploy_agent_sets_endpoint_tag():
     mock_config.app = mock_app
 
     # Mock the agents module functions
-    with patch("dao_ai.providers.databricks.agents.get_deployments") as mock_get:
-        with patch("dao_ai.providers.databricks.agents.deploy") as mock_deploy:
+    with patch.object(DatabricksProvider, "_serving_endpoint_exists", return_value=False):
+        with patch(
+            "dao_ai.providers.databricks.agents.get_deployments", return_value=[]
+        ):
+            with patch("dao_ai.providers.databricks.agents.deploy") as mock_deploy:
+                with patch(
+                    "dao_ai.providers.databricks.get_latest_model_version"
+                ) as mock_version:
+                    with patch("dao_ai.providers.databricks.mlflow.set_registry_uri"):
+                        mock_version.return_value = 1
+
+                        # Create provider and call deploy_agent
+                        provider = DatabricksProvider()
+                        provider.deploy_agent(config=mock_config)
+
+                        # Verify deploy was called with the dao_ai tag
+                        mock_deploy.assert_called_once()
+                        call_kwargs = mock_deploy.call_args.kwargs
+
+                        assert "tags" in call_kwargs
+                        assert call_kwargs["tags"] is not None
+                        assert "dao_ai" in call_kwargs["tags"]
+                        assert call_kwargs["tags"]["dao_ai"] == dao_ai_version()
+                        # Verify custom tag is preserved
+                        assert call_kwargs["tags"]["custom_tag"] == "custom_value"
+
+
+@pytest.mark.unit
+def test_deploy_model_serving_omits_tags_when_serving_endpoint_exists():
+    """Existing serving endpoints skip tag dict to avoid patch+update_config races."""
+    from unittest.mock import MagicMock, patch
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_registered_model = MagicMock()
+    mock_app.endpoint_name = "ep1"
+    mock_registered_model.full_name = "cat.sch.model"
+    mock_app.registered_model = mock_registered_model
+    mock_app.scale_to_zero = True
+    mock_app.environment_vars = {}
+    mock_app.workload_size = "Small"
+    mock_app.tags = {"custom_tag": "x"}
+    mock_app.permissions = []
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_config.app = mock_app
+
+    with patch.object(DatabricksProvider, "_serving_endpoint_exists", return_value=True):
+        with patch.object(DatabricksProvider, "_wait_serving_endpoint_config_idle"):
             with patch(
-                "dao_ai.providers.databricks.get_latest_model_version"
-            ) as mock_version:
-                with patch("dao_ai.providers.databricks.mlflow.set_registry_uri"):
-                    # Simulate endpoint doesn't exist (new deployment)
-                    mock_get.side_effect = Exception("Not found")
-                    mock_version.return_value = 1
+                "dao_ai.providers.databricks.agents.get_deployments", return_value=[]
+            ):
+                with patch("dao_ai.providers.databricks.agents.deploy") as mock_deploy:
+                    with patch(
+                        "dao_ai.providers.databricks.get_latest_model_version",
+                        return_value=2,
+                    ):
+                        with patch("dao_ai.providers.databricks.mlflow.set_registry_uri"):
+                            with patch.object(
+                                DatabricksProvider, "__init__", return_value=None
+                            ):
+                                provider = DatabricksProvider()
+                                provider.w = MagicMock()
+                                provider.deploy_model_serving_agent(mock_config)
 
-                    # Create provider and call deploy_agent
-                    provider = DatabricksProvider()
-                    provider.deploy_agent(config=mock_config)
-
-                    # Verify deploy was called with the dao_ai tag
-                    mock_deploy.assert_called_once()
-                    call_kwargs = mock_deploy.call_args.kwargs
-
-                    assert "tags" in call_kwargs
-                    assert call_kwargs["tags"] is not None
-                    assert "dao_ai" in call_kwargs["tags"]
-                    assert call_kwargs["tags"]["dao_ai"] == dao_ai_version()
-                    # Verify custom tag is preserved
-                    assert call_kwargs["tags"]["custom_tag"] == "custom_value"
+                                mock_deploy.assert_called_once()
+                                assert mock_deploy.call_args.kwargs.get("tags") is None
 
 
 # ==================== Deployment Target Tests ====================
@@ -651,7 +697,12 @@ def test_deploy_apps_agent_creates_new_app():
     from unittest.mock import MagicMock, patch
 
     from databricks.sdk.errors.platform import NotFound
-    from databricks.sdk.service.apps import App, AppDeployment, AppDeploymentState
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
     from databricks.sdk.service.iam import User
 
     from dao_ai.config import AppConfig, AppModel
@@ -674,6 +725,8 @@ def test_deploy_apps_agent_creates_new_app():
     mock_created_app = MagicMock(spec=App)
     mock_created_app.name = "test_app"
     mock_created_app.url = "https://test_app.databricks.com"
+    mock_created_app.app_status = MagicMock()
+    mock_created_app.app_status.state = ApplicationState.RUNNING
 
     mock_deployment = MagicMock(spec=AppDeployment)
     mock_deployment.deployment_id = "dep-123"
@@ -698,8 +751,11 @@ def test_deploy_apps_agent_creates_new_app():
         with patch.object(
             provider, "get_or_create_experiment", return_value=mock_experiment
         ):
-            # Simulate app doesn't exist
-            provider.w.apps.get.side_effect = NotFound("App not found")
+            # First get: not found; then fresh get before deploy returns created app
+            provider.w.apps.get.side_effect = [
+                NotFound("App not found"),
+                mock_created_app,
+            ]
             provider.w.api_client.do.return_value = {"name": "test-app"}
             provider.w.apps.wait_get_app_active.return_value = mock_created_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
@@ -723,7 +779,12 @@ def test_deploy_apps_agent_updates_existing_app():
     """Test that deploy_apps_agent updates an existing app."""
     from unittest.mock import MagicMock, patch
 
-    from databricks.sdk.service.apps import App, AppDeployment, AppDeploymentState
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
     from databricks.sdk.service.iam import User
 
     from dao_ai.config import AppConfig, AppModel
@@ -746,6 +807,8 @@ def test_deploy_apps_agent_updates_existing_app():
     mock_existing_app = MagicMock(spec=App)
     mock_existing_app.name = "test_app"
     mock_existing_app.url = "https://test_app.databricks.com"
+    mock_existing_app.app_status = MagicMock()
+    mock_existing_app.app_status.state = ApplicationState.RUNNING
 
     mock_deployment = MagicMock(spec=AppDeployment)
     mock_deployment.deployment_id = "dep-123"
@@ -2859,9 +2922,10 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
     mock_experiment.experiment_id = "exp123"
 
     with (
+        patch.object(DatabricksProvider, "_serving_endpoint_exists", return_value=False),
         patch(
             "dao_ai.providers.databricks.agents.get_deployments",
-            side_effect=Exception("Not found"),
+            return_value=[],
         ),
         patch("dao_ai.providers.databricks.agents.deploy"),
         patch("dao_ai.providers.databricks.get_latest_model_version", return_value=1),
