@@ -174,6 +174,7 @@ def get_installed_packages() -> list[str]:
         f"langchain-tavily=={version('langchain-tavily')}",
         f"langgraph=={version('langgraph')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
+        f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
         f"langmem=={version('langmem')}",
         f"loguru=={version('loguru')}",
         f"mcp=={version('mcp')}",

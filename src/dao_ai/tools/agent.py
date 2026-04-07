@@ -10,6 +10,7 @@ from loguru import logger
 
 from dao_ai.config import LLMModel
 from dao_ai.state import Context
+from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
 
 def create_agent_endpoint_tool(
@@ -46,6 +47,10 @@ def create_agent_endpoint_tool(
         runtime: Annotated[ToolRuntime[Context], InjectedToolArg] = None,
     ) -> AIMessage:
         context: Context | None = runtime.context if runtime else None
+
+        set_resource_attributes(
+            ResourceInfo("agent_endpoint", llm.on_behalf_of_user, llm.name)
+        )
 
         if llm.on_behalf_of_user:
             from databricks.sdk import WorkspaceClient

@@ -1,13 +1,24 @@
+import json as json_module
 from typing import Any, Callable, Optional
 
-from databricks.sdk.service.serving import ExternalFunctionRequestHttpMethod
+from databricks.sdk.service.serving import (
+    ExternalFunctionRequestHttpMethod,
+    HttpRequestResponse,
+)
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from loguru import logger
-from requests import Response
 
 from dao_ai.config import ConnectionModel
 from dao_ai.state import Context
+from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
+
+
+def _read_response_body(response: HttpRequestResponse) -> str:
+    """Read the body text from an HttpRequestResponse."""
+    if response.contents:
+        return response.contents.read().decode("utf-8")
+    return ""
 
 
 def _find_channel_id_by_name(
@@ -25,35 +36,26 @@ def _find_channel_id_by_name(
     Returns:
         Channel ID if found, None otherwise
     """
-    # Remove '#' prefix if present
     clean_name = channel_name.lstrip("#")
 
     logger.trace("Looking up Slack channel ID", channel_name=clean_name)
 
     try:
-        # Call Slack API to list conversations
-        response: Response = connection.workspace_client.serving_endpoints.http_request(
-            conn=connection.name,
-            method=ExternalFunctionRequestHttpMethod.GET,
-            path="/api/conversations.list",
+        response: HttpRequestResponse = (
+            connection.workspace_client.serving_endpoints.http_request(
+                connection_name=connection.name,
+                method=ExternalFunctionRequestHttpMethod.GET,
+                path="/api/conversations.list",
+            )
         )
 
-        if response.status_code != 200:
-            logger.error(
-                "Failed to list Slack channels",
-                status_code=response.status_code,
-                response=response.text,
-            )
-            return None
-
-        # Parse response
-        data = response.json()
+        body_text: str = _read_response_body(response)
+        data: dict[str, Any] = json_module.loads(body_text) if body_text else {}
 
         if not data.get("ok"):
             logger.error("Slack API returned error", error=data.get("error"))
             return None
 
-        # Search for channel by name
         channels = data.get("channels", [])
         for channel in channels:
             if channel.get("name") == clean_name:
@@ -99,15 +101,12 @@ def create_send_slack_message_tool(
     """
     logger.trace("Creating send Slack message tool")
 
-    # Validate inputs
     if channel_id is None and channel_name is None:
         raise ValueError("Either channel_id or channel_name must be provided")
 
-    # Convert connection dict to ConnectionModel if needed
     if isinstance(connection, dict):
         connection = ConnectionModel(**connection)
 
-    # Look up channel_id from channel_name if needed
     if channel_id is None and channel_name is not None:
         if connection.on_behalf_of_user:
             raise ValueError(
@@ -142,23 +141,28 @@ def create_send_slack_message_tool(
     ) -> str:
         from databricks.sdk import WorkspaceClient
 
-        # Get workspace client with OBO support via context
+        set_resource_attributes(
+            ResourceInfo("slack", connection.on_behalf_of_user, connection.name)
+        )
+
         context: Context | None = runtime.context if runtime else None
         workspace_client: WorkspaceClient = connection.workspace_client_from(context)
 
-        response: Response = workspace_client.serving_endpoints.http_request(
-            conn=connection.name,
-            method=ExternalFunctionRequestHttpMethod.POST,
-            path="/api/chat.postMessage",
-            json={"channel": channel_id, "text": text},
-        )
-
-        if response.status_code == 200:
-            return "Successful request sent to Slack: " + response.text
-        else:
+        try:
+            response: HttpRequestResponse = (
+                workspace_client.serving_endpoints.http_request(
+                    connection_name=connection.name,
+                    method=ExternalFunctionRequestHttpMethod.POST,
+                    path="/api/chat.postMessage",
+                    json=json_module.dumps({"channel": channel_id, "text": text}),
+                )
+            )
+            body_text: str = _read_response_body(response)
+            return "Successful request sent to Slack: " + body_text
+        except Exception as e:
             return (
                 "Encountered failure when executing request. Message from Call: "
-                + response.text
+                + str(e)
             )
 
     return send_slack_message

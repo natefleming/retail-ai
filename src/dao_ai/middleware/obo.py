@@ -29,6 +29,7 @@ from loguru import logger
 from dao_ai.config import LLMModel
 from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.state import AgentState, Context
+from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
 
 class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
@@ -71,6 +72,9 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
     ) -> ModelResponse:
         context: Context | None = request.runtime.context if request.runtime else None
         obo_model: ChatDatabricks = self._create_obo_model(context)
+        set_resource_attributes(
+            ResourceInfo("model_serving", True, self.llm_model.name)
+        )
         return handler(request.override(model=obo_model))
 
     # -- async ---------------------------------------------------------
@@ -82,4 +86,7 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
     ) -> ModelResponse:
         context: Context | None = request.runtime.context if request.runtime else None
         obo_model: ChatDatabricks = self._create_obo_model(context)
+        set_resource_attributes(
+            ResourceInfo("model_serving", True, self.llm_model.name)
+        )
         return await handler(request.override(model=obo_model))

@@ -39,6 +39,7 @@ from dao_ai.genie.cache import (
 )
 from dao_ai.genie.core import Genie, GenieResponse
 from dao_ai.state import AgentState, Context, SessionState
+from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
 
 class GenieToolInput(BaseModel):
@@ -231,6 +232,10 @@ GenieResponse: A response object containing the conversation ID and result from 
         state: AgentState = runtime.state
         tool_call_id: str = runtime.tool_call_id
         context: Context | None = runtime.context
+
+        set_resource_attributes(
+            ResourceInfo("genie", genie_room.on_behalf_of_user, str(space_id))
+        )
 
         # Get genie service with OBO support via context
         genie_service: GenieServiceBase = _get_genie_service(context)

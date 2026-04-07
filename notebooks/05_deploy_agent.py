@@ -65,6 +65,7 @@ pip_requirements: Sequence[str] = [
     f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
     f"langgraph=={version('langgraph')}",
     f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
+    f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
     f"langmem=={version('langmem')}",
     f"loguru=={version('loguru')}",
     f"mlflow=={version('mlflow')}",

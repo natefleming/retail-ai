@@ -755,6 +755,10 @@ class LLMModel(IsDatabricksResource):
         default=False,
         description="Use Responses API for ResponsesAgent endpoints",
     )
+    disable_streaming: bool = Field(
+        default=False,
+        description="Disable streaming for this model. Required when the Foundation Model endpoint has output guardrails enabled.",
+    )
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -779,6 +783,7 @@ class LLMModel(IsDatabricksResource):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             use_responses_api=self.use_responses_api,
+            disable_streaming=self.disable_streaming,
         )
 
         fallbacks: Sequence[LanguageModelLike] = []
@@ -1809,6 +1814,14 @@ class DatabaseModel(IsDatabricksResource):
     autoscaling_max_cu: Optional[int] = Field(
         default=4,
         description="Maximum compute units for autoscaling Lakebase.",
+    )
+    suspend_timeout_seconds: Optional[int] = Field(
+        default=600,
+        description=(
+            "Seconds of inactivity before the autoscaling Lakebase endpoint suspends. "
+            "Valid range is 60-604800 (1 min to 1 week). "
+            "Set to 0 or negative to disable suspension (always on)."
+        ),
     )
     # --- Provisioned Lakebase fields (only valid with instance_name) ---
     capacity: Optional[Literal["CU_1", "CU_2"]] = Field(
