@@ -526,6 +526,13 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         This avoids the previous CTE approach which materialized all filtered rows
         before ranking, defeating the ivfflat index optimization.
         """
+        from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
+
+        set_resource_attributes(
+            ResourceInfo(
+                "database", self.database.on_behalf_of_user, self.database.name
+            )
+        )
         ttl_seconds = self.time_to_live_seconds
         ttl_disabled = ttl_seconds is None or ttl_seconds < 0
 
@@ -689,6 +696,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                 )
                 return entry, best_combined_sim
 
+    @mlflow.trace(name="genie_cache_store")
     def _store_entry(
         self,
         question: str,
@@ -699,6 +707,13 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         message_id: str | None = None,
     ) -> None:
         """Store a new cache entry with dual embeddings and message_id."""
+        from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
+
+        set_resource_attributes(
+            ResourceInfo(
+                "database", self.database.on_behalf_of_user, self.database.name
+            )
+        )
         insert_sql = sql.SQL("""
             INSERT INTO {} 
             (genie_space_id, question, conversation_context, context_string, 

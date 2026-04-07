@@ -16,6 +16,11 @@ from loguru import logger
 from mlflow.entities import SpanType
 
 from dao_ai.config import ColumnInfo, RankingResult
+from dao_ai.tools.tracing import (
+    ATTR_RERANKER_AVG_SCORE,
+    ResourceInfo,
+    set_resource_attributes,
+)
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "instruction_reranker.yaml"
@@ -66,6 +71,7 @@ def instruction_aware_rerank(
     instructions: str | None = None,
     columns: list[ColumnInfo] | None = None,
     top_n: int | None = None,
+    resource_info: ResourceInfo | None = None,
 ) -> list[Document]:
     """
     Rerank documents based on user instructions and constraints.
@@ -81,6 +87,9 @@ def instruction_aware_rerank(
     Returns:
         Reranked documents with instruction_rerank_score in metadata
     """
+    if resource_info:
+        set_resource_attributes(resource_info)
+
     if not documents:
         return []
 
@@ -191,7 +200,7 @@ def instruction_aware_rerank(
         ) / len(reranked)
         span = mlflow.get_current_active_span()
         if span:
-            span.set_attribute("reranker.instruction_avg_score", f"{avg_score:.3f}")
+            span.set_attribute(ATTR_RERANKER_AVG_SCORE, avg_score)
 
     logger.debug(
         "Instruction reranking complete",

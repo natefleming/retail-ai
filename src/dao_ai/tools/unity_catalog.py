@@ -29,6 +29,7 @@ from dao_ai.config import (
     value_of,
 )
 from dao_ai.state import Context
+from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 from dao_ai.utils import normalize_host
 
 
@@ -460,6 +461,13 @@ def _create_obo_uc_tool(
         runtime: Annotated[ToolRuntime[Context], InjectedToolArg] = None,
         **kwargs: Any,
     ) -> str:
+        set_resource_attributes(
+            ResourceInfo(
+                "uc_function",
+                uc_function.resource.on_behalf_of_user,
+                function_name,
+            )
+        )
         context: Context | None = runtime.context if runtime else None
         workspace_client: WorkspaceClient = uc_function.resource.workspace_client_from(
             context
@@ -618,6 +626,13 @@ def with_partial_args(
         **kwargs: Any,
     ) -> str:
         """Wrapper function that executes Unity Catalog function with partial args."""
+        set_resource_attributes(
+            ResourceInfo(
+                "uc_function",
+                uc_function.resource.on_behalf_of_user,
+                function_name,
+            )
+        )
         # Get workspace client with OBO support via context
         context: Context | None = runtime.context if runtime else None
         workspace_client: WorkspaceClient = uc_function.resource.workspace_client_from(

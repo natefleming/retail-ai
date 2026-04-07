@@ -10,6 +10,7 @@ from dao_ai.tools.instruction_reranker import (
     _format_documents,
     instruction_aware_rerank,
 )
+from dao_ai.tools.tracing import ATTR_RERANKER_AVG_SCORE
 
 
 @pytest.mark.unit
@@ -327,9 +328,7 @@ class TestInstructionAwareRerank:
         assert len(result) == 2
         # Average score should be (0.8 + 0.6) / 2 = 0.7
         mock_span = mock_mlflow.get_current_active_span.return_value
-        mock_span.set_attribute.assert_called_with(
-            "reranker.instruction_avg_score", "0.700"
-        )
+        mock_span.set_attribute.assert_called_with(ATTR_RERANKER_AVG_SCORE, 0.7)
 
     @patch("dao_ai.tools.instruction_reranker._load_prompt_template")
     @patch("dao_ai.tools.instruction_reranker.mlflow")
