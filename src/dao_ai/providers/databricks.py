@@ -1,4 +1,5 @@
 import base64
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Final, Sequence
@@ -15,6 +16,7 @@ from databricks.sdk.errors.platform import (
     NotFound,
     PermissionDenied,
 )
+from databricks.sdk.service.serving import EndpointStateConfigUpdate
 from databricks.sdk.service.catalog import (
     CatalogInfo,
     ColumnInfo,
@@ -542,6 +544,42 @@ class DatabricksProvider(ServiceProvider):
                 version=aliased_model.version,
             )
 
+    def _serving_endpoint_exists(self, endpoint_name: str) -> bool:
+        try:
+            self.w.serving_endpoints.get(endpoint_name)
+            return True
+        except NotFound:
+            return False
+
+    def _wait_serving_endpoint_config_idle(
+        self,
+        endpoint_name: str,
+        *,
+        timeout_seconds: float = 600.0,
+        poll_interval_seconds: float = 5.0,
+    ) -> None:
+        """Block until serving endpoint has no IN_PROGRESS config update, or endpoint is missing."""
+        deadline: float = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                ep = self.w.serving_endpoints.get(endpoint_name)
+            except NotFound:
+                return
+            state = ep.state
+            config_update = state.config_update if state else None
+            if config_update != EndpointStateConfigUpdate.IN_PROGRESS:
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Serving endpoint {endpoint_name!r} config update still IN_PROGRESS "
+                    f"after {timeout_seconds}s"
+                )
+            logger.info(
+                "Waiting for serving endpoint config update to finish",
+                endpoint_name=endpoint_name,
+            )
+            time.sleep(poll_interval_seconds)
+
     def deploy_model_serving_agent(self, config: AppConfig) -> None:
         """
         Deploy agent to Databricks Model Serving endpoint.
@@ -569,29 +607,64 @@ class DatabricksProvider(ServiceProvider):
 
         latest_version: int = get_latest_model_version(registered_model_name)
 
-        # Check if endpoint exists to determine deployment strategy
-        endpoint_exists: bool = False
         try:
-            agents.get_deployments(endpoint_name)
-            endpoint_exists = True
+            chain_deployments = agents.get_deployments(registered_model_name)
             logger.debug(
-                "Endpoint already exists, updating", endpoint_name=endpoint_name
+                "Agent chain deployments for registered model",
+                model_name=registered_model_name,
+                count=len(chain_deployments),
             )
-        except Exception:
-            logger.debug("Creating new endpoint", endpoint_name=endpoint_name)
+        except Exception as e:
+            logger.debug(
+                "get_deployments failed (non-fatal)",
+                model_name=registered_model_name,
+                error=str(e),
+            )
 
-        # Deploy - skip tags for existing endpoints to avoid conflicts
-        agents.deploy(
-            endpoint_name=endpoint_name,
-            model_name=registered_model_name,
-            model_version=latest_version,
-            scale_to_zero=scale_to_zero,
-            environment_vars=environment_vars,
-            workload_size=workload_size,
-            tags=tags if not endpoint_exists else None,
-        )
+        serving_exists: bool = self._serving_endpoint_exists(endpoint_name)
+        if serving_exists:
+            logger.debug(
+                "Serving endpoint exists; skipping user tags on deploy to reduce patch+update races",
+                endpoint_name=endpoint_name,
+            )
+            self._wait_serving_endpoint_config_idle(endpoint_name)
 
-        registered_model_name: str = config.app.registered_model.full_name
+        tags_kw: dict[str, str] | None = None if serving_exists else tags
+
+        max_attempts: int = 6
+        for attempt in range(1, max_attempts + 1):
+            try:
+                agents.deploy(
+                    endpoint_name=endpoint_name,
+                    model_name=registered_model_name,
+                    model_version=latest_version,
+                    scale_to_zero=scale_to_zero,
+                    environment_vars=environment_vars,
+                    workload_size=workload_size,
+                    tags=tags_kw,
+                )
+                break
+            except ValueError as e:
+                err_msg: str = str(e)
+                if (
+                    "currently updating" in err_msg.lower()
+                    and attempt < max_attempts
+                ):
+                    wait_s: float = min(30.0, 5.0 * attempt)
+                    logger.warning(
+                        "Serving endpoint busy, retrying agents.deploy",
+                        endpoint_name=endpoint_name,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                        wait_seconds=wait_s,
+                        error=err_msg,
+                    )
+                    time.sleep(wait_s)
+                    self._wait_serving_endpoint_config_idle(
+                        endpoint_name, timeout_seconds=120.0
+                    )
+                    continue
+                raise
         permissions: Sequence[dict[str, Any]] = config.app.permissions
 
         logger.debug(
@@ -769,6 +842,7 @@ class DatabricksProvider(ServiceProvider):
             AppDeployment,
             AppDeploymentMode,
             AppDeploymentState,
+            ApplicationState,
         )
 
         # Normalize app name: lowercase, replace underscores with dashes
@@ -1025,6 +1099,26 @@ class DatabricksProvider(ServiceProvider):
                 _set_app_resources("PATCH", f"/api/2.0/apps/{app_name}", app_body)
                 app = self.w.apps.get(name=app_name)
                 logger.info("App resources and scopes updated", app_name=app_name)
+
+        # Deploy requires app compute in RUNNING state (API error otherwise).
+        fresh_app: App = self.w.apps.get(name=app_name)
+        app_status = fresh_app.app_status
+        if (
+            app_status is None
+            or app_status.state != ApplicationState.RUNNING
+        ):
+            logger.info(
+                "Databricks App not in RUNNING state; starting before deploy",
+                app_name=app_name,
+                state=(
+                    app_status.state.value
+                    if app_status is not None and app_status.state is not None
+                    else None
+                ),
+            )
+            self.w.apps.start_and_wait(name=app_name)
+            fresh_app = self.w.apps.get(name=app_name)
+        app = fresh_app
 
         # Deploy the app with source code
         # The app will use the dao_ai.apps.server module as the entry point

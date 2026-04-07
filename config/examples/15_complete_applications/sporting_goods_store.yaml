@@ -130,7 +130,7 @@ resources:
       # name: "Shared Endpoint"
       name: "Shared Unity Catalog Serverless"
       warehouse_id: 4b9b953939869799
-      on_behalf_of_user: true
+      on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
   # GENIE ROOMS
@@ -139,13 +139,13 @@ resources:
     merchandising_analytics_room: &merchandising_analytics_room
       name: "Merchandising Analytics - Sporting Goods"
       description: "Genie room for merchandising analytics including assortment planning, demand forecasting, purchase order tracking, category performance, and seasonal trend analysis"
-      on_behalf_of_user: true
+      on_behalf_of_user: false
       space_id: 01f124c2646f1ed4846cae3f8b36df02
 
     sales_pricing_room: &sales_pricing_room
       name: "Sales and Pricing Analytics - Sporting Goods"
       description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
-      on_behalf_of_user: true
+      on_behalf_of_user: false
       space_id: 01f124c2690f1dcb93a15057c2a74339
 
   # ---------------------------------------------------------------------------

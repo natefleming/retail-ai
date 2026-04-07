@@ -24,7 +24,6 @@ resources:
       name: __APP_NAME__-job
       tags:
         app_name: __APP_NAME__
-        config_path: ${var.config_path}
       environments:
         - environment_key: dao-ai-env
           spec:
