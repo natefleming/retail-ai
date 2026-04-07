@@ -12,6 +12,7 @@ from dao_ai.tools.memory import (
     create_search_user_profile_tool,
 )
 from dao_ai.tools.python import create_factory_tool, create_python_tool
+from dao_ai.tools.rest_api import create_rest_api_tool
 from dao_ai.tools.search import create_search_tool
 from dao_ai.tools.slack import create_send_slack_message_tool
 from dao_ai.tools.sql import create_execute_statement_tool
@@ -40,6 +41,7 @@ __all__ = [
     "list_mcp_tools",
     "MCPToolInfo",
     "create_python_tool",
+    "create_rest_api_tool",
     "create_manage_memory_tool",
     "create_search_memory_tool",
     "create_search_user_profile_tool",

@@ -12,6 +12,7 @@ from loguru import logger
 
 from dao_ai.config import WarehouseModel, value_of
 from dao_ai.state import Context
+from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
 
 def create_execute_statement_tool(
@@ -90,6 +91,10 @@ def create_execute_statement_tool(
             tool_name=name,
             warehouse_id=warehouse_id,
             sql_preview=statement[:100] + "..." if len(statement) > 100 else statement,
+        )
+
+        set_resource_attributes(
+            ResourceInfo("sql_warehouse", warehouse.on_behalf_of_user, warehouse.name)
         )
 
         # Get workspace client with OBO support via context

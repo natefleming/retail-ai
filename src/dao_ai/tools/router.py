@@ -18,6 +18,7 @@ from mlflow.entities import SpanType
 from pydantic import BaseModel, ConfigDict, Field
 
 from dao_ai.config import ColumnInfo
+from dao_ai.tools.tracing import ATTR_ROUTER_MODE, ResourceInfo, set_resource_attributes
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "router.yaml"
@@ -52,6 +53,7 @@ def route_query(
     llm: BaseChatModel,
     query: str,
     columns: list[ColumnInfo],
+    resource_info: ResourceInfo | None = None,
 ) -> Literal["standard", "instructed"]:
     """
     Determine the execution mode for a search query.
@@ -64,6 +66,9 @@ def route_query(
     Returns:
         "standard" for simple queries, "instructed" for constrained queries
     """
+    if resource_info:
+        set_resource_attributes(resource_info)
+
     from dao_ai.tools.instructed_retriever import format_columns_for_routing
 
     prompt_config = _load_prompt_template()
@@ -90,6 +95,6 @@ def route_query(
     logger.debug("Router decision", mode=decision.mode, query=query[:50])
     span = mlflow.get_current_active_span()
     if span:
-        span.set_attribute("router.mode", decision.mode)
+        span.set_attribute(ATTR_ROUTER_MODE, decision.mode)
 
     return decision.mode

@@ -1514,6 +1514,19 @@
           "description": "Maximum compute units for autoscaling Lakebase.",
           "title": "Autoscaling Max Cu"
         },
+        "suspend_timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 600,
+          "description": "Seconds of inactivity before the autoscaling Lakebase endpoint suspends. Valid range is 60-604800 (1 min to 1 week). Set to 0 or negative to disable suspension (always on).",
+          "title": "Suspend Timeout Seconds"
+        },
         "capacity": {
           "anyOf": [
             {
@@ -3672,6 +3685,12 @@
           "default": false,
           "description": "Use Responses API for ResponsesAgent endpoints",
           "title": "Use Responses Api"
+        },
+        "disable_streaming": {
+          "default": false,
+          "description": "Disable streaming for this model. Required when the Foundation Model endpoint has output guardrails enabled.",
+          "title": "Disable Streaming",
+          "type": "boolean"
         }
       },
       "required": [

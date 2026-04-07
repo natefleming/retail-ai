@@ -26,6 +26,12 @@ from dao_ai.config import (
     LLMModel,
     SearchQuery,
 )
+from dao_ai.tools.tracing import (
+    ATTR_DECOMPOSITION_COUNT,
+    ATTR_DECOMPOSITION_DETAIL,
+    ResourceInfo,
+    set_resource_attributes,
+)
 
 if TYPE_CHECKING:
     from dao_ai.state import Context
@@ -244,6 +250,7 @@ def decompose_query(
     max_subqueries: int = 3,
     examples: list[dict[str, Any]] | None = None,
     previous_feedback: str | None = None,
+    resource_info: ResourceInfo | None = None,
 ) -> list[SearchQuery]:
     """
     Decompose a user query into multiple search queries with filters.
@@ -265,6 +272,9 @@ def decompose_query(
     Returns:
         List of SearchQuery objects with text and optional filters
     """
+    if resource_info:
+        set_resource_attributes(resource_info)
+
     current_time = datetime.now().isoformat()
 
     # Load and format prompt
@@ -320,9 +330,9 @@ def decompose_query(
     # Log for observability
     span = mlflow.get_current_active_span()
     if span:
-        span.set_attribute("num_subqueries", len(subqueries))
+        span.set_attribute(ATTR_DECOMPOSITION_COUNT, len(subqueries))
         span.set_attribute(
-            "decomposition",
+            ATTR_DECOMPOSITION_DETAIL,
             json.dumps([sq.model_dump() for sq in subqueries], indent=2),
         )
 

@@ -47,6 +47,15 @@ from dao_ai.tools.instructed_retriever import (
 )
 from dao_ai.tools.instruction_reranker import instruction_aware_rerank
 from dao_ai.tools.router import route_query
+from dao_ai.tools.tracing import (
+    ATTR_ROUTER_BYPASSED,
+    ATTR_ROUTER_FALLBACK,
+    ATTR_ROUTER_MODE,
+    ATTR_VERIFIER_OUTCOME,
+    ATTR_VERIFIER_RETRIES,
+    ResourceInfo,
+    set_resource_attributes,
+)
 from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import is_in_model_serving, normalize_host
 
@@ -411,6 +420,11 @@ def create_vector_search_tool(
                 max_subqueries=decomposition_config.max_subqueries,
                 examples=decomposition_config.examples,
                 previous_feedback=previous_feedback,
+                resource_info=ResourceInfo(
+                    "model_serving",
+                    decomposition_config.model.on_behalf_of_user,
+                    decomposition_config.model.name,
+                ),
             )
 
             if not subqueries:
@@ -558,7 +572,7 @@ def create_vector_search_tool(
         if mode == "standard" and auto_bypass:
             span = mlflow.get_current_active_span()
             if span:
-                span.set_attribute("router.bypassed_stages", "true")
+                span.set_attribute(ATTR_ROUTER_BYPASSED, True)
             return documents
 
         # Apply instruction-aware reranking if configured
@@ -577,6 +591,13 @@ def create_vector_search_tool(
                     instructions=instruction_rerank_config.instructions,
                     columns=instructed_columns,
                     top_n=instruction_rerank_config.top_n,
+                    resource_info=ResourceInfo(
+                        "model_serving",
+                        instruction_rerank_config.model.on_behalf_of_user,
+                        instruction_rerank_config.model.name,
+                    )
+                    if instruction_rerank_config.model
+                    else None,
                 )
 
         # Apply verification if configured (verifier is always under instructed)
@@ -601,19 +622,26 @@ def create_vector_search_tool(
                         columns=instructed_columns,
                         constraints=constraints,
                         previous_feedback=previous_feedback,
+                        resource_info=ResourceInfo(
+                            "model_serving",
+                            verifier_config.model.on_behalf_of_user,
+                            verifier_config.model.name,
+                        )
+                        if verifier_config.model
+                        else None,
                     )
 
                     _span = mlflow.get_current_active_span()
                     if verification_result.passed:
                         if _span:
-                            _span.set_attribute("verifier.outcome", "passed")
-                            _span.set_attribute("verifier.retries", str(retry_count))
+                            _span.set_attribute(ATTR_VERIFIER_OUTCOME, "passed")
+                            _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
                         break
 
                     # Handle failure based on configuration
                     if verifier_config.on_failure == "warn":
                         if _span:
-                            _span.set_attribute("verifier.outcome", "warned")
+                            _span.set_attribute(ATTR_VERIFIER_OUTCOME, "warned")
                         documents = add_verification_metadata(
                             documents, verification_result
                         )
@@ -621,8 +649,8 @@ def create_vector_search_tool(
 
                     if retry_count >= verifier_config.max_retries:
                         if _span:
-                            _span.set_attribute("verifier.outcome", "exhausted")
-                            _span.set_attribute("verifier.retries", str(retry_count))
+                            _span.set_attribute(ATTR_VERIFIER_OUTCOME, "exhausted")
+                            _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
                         documents = add_verification_metadata(
                             documents, verification_result, exhausted=True
                         )
@@ -630,7 +658,7 @@ def create_vector_search_tool(
 
                     # Retry with feedback
                     if _span:
-                        _span.set_attribute("verifier.outcome", "retried")
+                        _span.set_attribute(ATTR_VERIFIER_OUTCOME, "retried")
                     previous_feedback = verification_result.feedback
                     retry_count += 1
                     logger.debug(
@@ -656,6 +684,10 @@ def create_vector_search_tool(
         """Search for relevant documents using vector similarity."""
         context: Context | None = runtime.context if runtime else None
         vs: DatabricksVectorSearch = _get_vector_search(context)
+
+        set_resource_attributes(
+            ResourceInfo("vector_search", vector_store.on_behalf_of_user, index_name)
+        )
 
         filters_dict: dict[str, Any] = {}
         if filters:
@@ -692,6 +724,11 @@ def create_vector_search_tool(
                         llm=router_llm,
                         query=query,
                         columns=instructed_columns,
+                        resource_info=ResourceInfo(
+                            "model_serving",
+                            router_config.model.on_behalf_of_user,
+                            router_config.model.name,
+                        ),
                     )
                 except Exception as e:
                     # Router fail-safe: default to standard mode
@@ -700,7 +737,7 @@ def create_vector_search_tool(
                     )
                     span = mlflow.get_current_active_span()
                     if span:
-                        span.set_attribute("router.fallback", "true")
+                        span.set_attribute(ATTR_ROUTER_FALLBACK, True)
                     mode = router_config.default_mode
             else:
                 mode = router_config.default_mode
@@ -712,7 +749,7 @@ def create_vector_search_tool(
         logger.trace("Routing mode", mode=mode, auto_bypass=auto_bypass)
         span = mlflow.get_current_active_span()
         if span:
-            span.set_attribute("router.mode", mode)
+            span.set_attribute(ATTR_ROUTER_MODE, mode)
 
         # Execute search based on mode
         if mode == "instructed" and instructed_config and decomposition_config:

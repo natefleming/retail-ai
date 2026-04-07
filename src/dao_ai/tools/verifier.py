@@ -17,6 +17,11 @@ from loguru import logger
 from mlflow.entities import SpanType
 
 from dao_ai.config import ColumnInfo, VerificationResult
+from dao_ai.tools.tracing import (
+    ATTR_VERIFIER_DETAIL,
+    ResourceInfo,
+    set_resource_attributes,
+)
 
 # Load prompt template
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "verifier.yaml"
@@ -65,6 +70,7 @@ def verify_results(
     columns: list[ColumnInfo],
     constraints: list[str] | None = None,
     previous_feedback: str | None = None,
+    resource_info: ResourceInfo | None = None,
 ) -> VerificationResult:
     """
     Verify that search results satisfy user constraints.
@@ -80,6 +86,9 @@ def verify_results(
     Returns:
         VerificationResult with pass/fail status and structured feedback
     """
+    if resource_info:
+        set_resource_attributes(resource_info)
+
     from dao_ai.tools.instructed_retriever import format_columns_for_verification
 
     prompt_config = _load_prompt_template()
@@ -117,7 +126,7 @@ def verify_results(
     span = mlflow.get_current_active_span()
     if span:
         span.set_attribute(
-            "verification_result",
+            ATTR_VERIFIER_DETAIL,
             json.dumps(result.model_dump(), indent=2),
         )
 
