@@ -1,0 +1,88 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Example configuration demonstrating the generic REST API tool.
+# Two mutually exclusive modes are shown:
+#   1. UC Connection mode  – calls go through a Unity Catalog connection
+#      (supports on-behalf-of-user authentication).
+#   2. Traditional HTTP mode – calls go directly to an external URL
+#      with optional Bearer token authentication.
+
+schemas:
+  default_schema: &default_schema
+    catalog_name: main
+    schema_name: default
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  # UC Connection for the external API (used in Mode 1)
+  connections:
+    external_api_connection: &external_api_connection
+      name: my_external_api                         # UC Connection name
+      on_behalf_of_user: true                       # Use calling user's identity
+
+# ──────────────────────────────────────────────────────────────────────
+# Mode 1 – UC Connection
+# ──────────────────────────────────────────────────────────────────────
+# tools:
+#   call_api: &call_api
+#     name: call_external_api
+#     function:
+#       type: factory
+#       name: dao_ai.tools.create_rest_api_tool
+#       args:
+#         connection: *external_api_connection
+#         name: call_external_api
+#         description: |
+#           Make HTTP requests to the external API via a UC Connection.
+#           Use this tool to query or submit data to the external service.
+
+# ──────────────────────────────────────────────────────────────────────
+# Mode 2 – Traditional HTTP (active by default in this example)
+# ──────────────────────────────────────────────────────────────────────
+tools:
+  call_api: &call_api
+    name: call_external_api
+    function:
+      type: factory
+      name: dao_ai.tools.create_rest_api_tool
+      args:
+        base_url: "https://api.example.com/v1"
+        auth_token: ${API_TOKEN}                    # Bearer token from env var
+        name: call_external_api
+        description: |
+          Make HTTP requests to the external REST API.
+          Use this tool to query or submit data to the service.
+
+agents:
+  api_agent: &api_agent
+    name: api_agent
+    description: "Agent that interacts with an external REST API"
+    model: *default_llm
+    tools:
+      - *call_api
+    prompt: |
+      You are a helpful assistant that can interact with an external REST API.
+
+      When the user asks you to retrieve or send data, use the call_external_api
+      tool. You can specify the HTTP method (GET, POST, PUT, PATCH, DELETE),
+      the endpoint path, and optionally a JSON body or query parameters.
+
+      Always confirm actions that modify data (POST, PUT, PATCH, DELETE) before
+      executing them.
+
+app:
+  name: rest_api_tool_example
+  log_level: INFO
+  registered_model:
+    schema: *default_schema
+    name: rest_api_tool_example_dao
+  agents:
+    - *api_agent
+  orchestration:
+    swarm:
+      default_agent: *api_agent

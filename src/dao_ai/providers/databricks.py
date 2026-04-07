@@ -1999,12 +1999,27 @@ class DatabricksProvider(ServiceProvider):
                 min_cu = database.autoscaling_min_cu or 2
                 max_cu = database.autoscaling_max_cu or 4
 
+                endpoint_kwargs: dict[str, Any] = {
+                    "autoscaling_limit_min_cu": min_cu,
+                    "autoscaling_limit_max_cu": max_cu,
+                }
+
+                suspend_seconds = database.suspend_timeout_seconds
+                if suspend_seconds is not None and suspend_seconds <= 0:
+                    endpoint_kwargs["no_suspension"] = True
+                elif suspend_seconds is not None and suspend_seconds >= 60:
+                    from google.protobuf.duration_pb2 import (
+                        Duration as ProtobufDuration,
+                    )
+
+                    dur = ProtobufDuration()
+                    dur.FromJsonString(f"{suspend_seconds}s")
+                    endpoint_kwargs["suspend_timeout_duration"] = dur
+
                 project = Project(
                     spec=ProjectSpec(
                         default_endpoint_settings=ProjectDefaultEndpointSettings(
-                            autoscaling_limit_min_cu=min_cu,
-                            autoscaling_limit_max_cu=max_cu,
-                            suspend_timeout_duration="0s",
+                            **endpoint_kwargs
                         ),
                     ),
                 )

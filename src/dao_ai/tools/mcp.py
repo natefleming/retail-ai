@@ -39,6 +39,7 @@ from dao_ai.config import (
     TransportType,
 )
 from dao_ai.state import Context
+from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
 
 @dataclass
@@ -573,6 +574,11 @@ async def acreate_mcp_tools(
             """Execute MCP tool with fresh session."""
             logger.trace("Invoking MCP tool", tool_name=mcp_tool.name, args=kwargs)
 
+            auth_resource = _get_auth_resource(function)
+            set_resource_attributes(
+                ResourceInfo("mcp", auth_resource.on_behalf_of_user, mcp_tool.name)
+            )
+
             # Get context for OBO support
             context: Context | None = runtime.context if runtime else None
 
@@ -696,6 +702,11 @@ def create_mcp_tools(
         ) -> str:
             """Execute MCP tool with fresh session."""
             logger.trace("Invoking MCP tool", tool_name=mcp_tool.name, args=kwargs)
+
+            auth_resource = _get_auth_resource(function)
+            set_resource_attributes(
+                ResourceInfo("mcp", auth_resource.on_behalf_of_user, mcp_tool.name)
+            )
 
             # Get context for OBO support
             context: Context | None = runtime.context if runtime else None

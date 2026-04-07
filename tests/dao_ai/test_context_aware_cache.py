@@ -274,6 +274,8 @@ class TestPostgresContextAwareCacheContext:
         params.ivfflat_probes = 10
         params.ivfflat_candidates = 20
         params.database = Mock(spec=DatabaseModel)
+        params.database.on_behalf_of_user = False
+        params.database.name = "test_db"
         params.warehouse = Mock(spec=WarehouseModel)
         return params
 
@@ -732,6 +734,8 @@ class TestPostgresContextAwareCacheGetEntries:
         params = Mock(spec=GenieContextAwareCacheParametersModel)
         params.database = Mock(spec=DatabaseModel)
         params.database.connection_string = "postgresql://test:test@localhost/test"
+        params.database.on_behalf_of_user = False
+        params.database.name = "test_db"
         params.warehouse = Mock(spec=WarehouseModel)
         params.embedding_model = "databricks-gte-large-en"
         params.embedding_dims = None

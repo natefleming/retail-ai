@@ -6,6 +6,7 @@ import pytest
 
 from dao_ai.config import ColumnInfo, RouterModel
 from dao_ai.tools.router import RouterDecision, route_query
+from dao_ai.tools.tracing import ATTR_ROUTER_MODE
 
 # -- Shared test column fixtures ------------------------------------------------
 
@@ -98,7 +99,7 @@ class TestRouteQuery:
 
         assert result == "standard"
         mock_span = mock_mlflow.get_current_active_span.return_value
-        mock_span.set_attribute.assert_called_with("router.mode", "standard")
+        mock_span.set_attribute.assert_called_with(ATTR_ROUTER_MODE, "standard")
 
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
@@ -119,7 +120,7 @@ class TestRouteQuery:
 
         assert result == "instructed"
         mock_span = mock_mlflow.get_current_active_span.return_value
-        mock_span.set_attribute.assert_called_with("router.mode", "instructed")
+        mock_span.set_attribute.assert_called_with(ATTR_ROUTER_MODE, "instructed")
 
     @patch("dao_ai.tools.router._load_prompt_template")
     @patch("dao_ai.tools.router.mlflow")
