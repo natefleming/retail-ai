@@ -11,14 +11,8 @@ from loguru import logger
 
 from dao_ai.config import ConnectionModel
 from dao_ai.state import Context
+from dao_ai.tools.rest_api import _read_response_body
 from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
-
-
-def _read_response_body(response: HttpRequestResponse) -> str:
-    """Read the body text from an HttpRequestResponse."""
-    if response.contents:
-        return response.contents.read().decode("utf-8")
-    return ""
 
 
 def _find_channel_id_by_name(

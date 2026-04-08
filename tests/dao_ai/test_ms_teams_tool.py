@@ -1,6 +1,11 @@
 """Tests for Microsoft Teams tool validation."""
 
+import json
+from io import BytesIO
+from unittest.mock import MagicMock, patch
+
 import pytest
+from databricks.sdk.service.serving import HttpRequestResponse
 
 from dao_ai.config import ConnectionModel
 from dao_ai.tools.ms_teams import create_send_teams_message_tool
@@ -101,3 +106,35 @@ def test_teams_tool_custom_name_and_description(
 
     assert tool.name == "notify_teams"
     assert tool.description == "Send notifications to Teams"
+
+
+@pytest.mark.unit
+def test_teams_tool_sends_content_type_in_body() -> None:
+    """The Graph API message body must include contentType field."""
+    connection = ConnectionModel(
+        name="teams-connection", on_behalf_of_user=True
+    )
+    tool = create_send_teams_message_tool(
+        connection=connection,
+        team_id="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        channel_id="19:channel-id@thread.tacv2",
+    )
+
+    mock_response = MagicMock(spec=HttpRequestResponse)
+    mock_response.contents = BytesIO(b'{"id": "msg-123"}')
+
+    mock_ws = MagicMock()
+    mock_ws.serving_endpoints.http_request.return_value = mock_response
+
+    with patch(
+        "dao_ai.tools.ms_teams.ConnectionModel.workspace_client_from",
+        return_value=mock_ws,
+    ):
+        result = tool.invoke({"text": "Hello Teams"})
+
+    call_kwargs = mock_ws.serving_endpoints.http_request.call_args
+    sent_json = json.loads(call_kwargs.kwargs["json"])
+
+    assert sent_json["body"]["contentType"] == "text"
+    assert sent_json["body"]["content"] == "Hello Teams"
+    assert "Successful" in result
