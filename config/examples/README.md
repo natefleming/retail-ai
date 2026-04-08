@@ -203,12 +203,12 @@ dao-ai validate -c config/examples/01_getting_started/minimal.yaml
 
 ### Visualize the Agent Workflow
 ```bash
-dao-ai graph -c config/examples/02_mcp/slack_integration.yaml -o agent_graph.png
+dao-ai graph -c config/examples/14_basic_tools/slack_integration.yaml -o agent_graph.png
 ```
 
 ### Chat with an Agent
 ```bash
-dao-ai chat -c config/examples/02_mcp/slack_integration.yaml
+dao-ai chat -c config/examples/14_basic_tools/slack_integration.yaml
 ```
 
 ### Deploy to Databricks

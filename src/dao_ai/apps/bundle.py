@@ -44,7 +44,10 @@ _DEDUP_KEY_EXTRACTORS: dict[str, Any] = {
     "serving_endpoint": lambda r: r["serving_endpoint"]["name"],
     "sql_warehouse": lambda r: r["sql_warehouse"]["id"],
     "genie_space": lambda r: r["genie_space"]["space_id"],
-    "database": lambda r: (r["database"]["instance_name"], r["database"]["database_name"]),
+    "database": lambda r: (
+        r["database"]["instance_name"],
+        r["database"]["database_name"],
+    ),
     "secret": lambda r: (r["secret"]["scope"], r["secret"]["key"]),
     "uc_securable": lambda r: r["uc_securable"]["securable_full_name"],
 }
@@ -120,7 +123,9 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
     elif resource_type == "database":
         result["database"] = {
             "instance_name": resource["database_instance_name"],
-            "database_name": resource.get("database_name", resource["database_instance_name"]),
+            "database_name": resource.get(
+                "database_name", resource["database_instance_name"]
+            ),
             "permission": permission,
         }
     elif resource_type == "secret":
@@ -130,7 +135,9 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
             "permission": permission,
         }
     elif resource_type in ("volume", "function"):
-        full_name: str = resource.get("volume_name") or resource.get("function_name", "")
+        full_name: str = resource.get("volume_name") or resource.get(
+            "function_name", ""
+        )
         securable_type: str = "VOLUME" if resource_type == "volume" else "FUNCTION"
         bundle_permission: str = _BUNDLE_PERMISSION_MAP.get(permission, permission)
         result["uc_securable"] = {
@@ -142,7 +149,9 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
     return result
 
 
-def _convert_to_bundle_resources(app_resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _convert_to_bundle_resources(
+    app_resources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Convert flat app.yaml resource dicts to bundle nested format with deduplication.
 
     Deduplicates by the underlying Databricks resource identity, keeping only
@@ -169,13 +178,17 @@ def _convert_to_bundle_resources(app_resources: list[dict[str, Any]]) -> list[di
         if extractor:
             dedup_key = (bundle_key, extractor(converted))
             if dedup_key in seen:
-                logger.debug(f"Skipping duplicate resource: {converted['name']} ({dedup_key})")
+                logger.debug(
+                    f"Skipping duplicate resource: {converted['name']} ({dedup_key})"
+                )
                 continue
             seen.add(dedup_key)
 
         result.append(converted)
 
-    logger.info(f"Converted {len(result)} bundle resources (from {len(app_resources)} app resources)")
+    logger.info(
+        f"Converted {len(result)} bundle resources (from {len(app_resources)} app resources)"
+    )
     return result
 
 
@@ -196,7 +209,9 @@ def generate_databricks_yaml(config: AppConfig) -> str:
     ]
 
     config_env_vars = _extract_env_vars_from_config(config)
-    config_env_vars = [e for e in config_env_vars if e["name"] not in _PLATFORM_PROVIDED_ENV_VARS]
+    config_env_vars = [
+        e for e in config_env_vars if e["name"] not in _PLATFORM_PROVIDED_ENV_VARS
+    ]
     base_env_names: set[str] = {e["name"] for e in env_vars}
     for config_env in config_env_vars:
         if config_env["name"] not in base_env_names:
@@ -269,7 +284,9 @@ def generate_databricks_yaml(config: AppConfig) -> str:
 def _write_file(path: Path, content: str, force: bool) -> bool:
     """Write content to a file, respecting the force flag. Returns True if written."""
     if path.exists() and not force:
-        print(f"  WARNING: Skipping {path.name} (already exists, use --force to overwrite)")
+        print(
+            f"  WARNING: Skipping {path.name} (already exists, use --force to overwrite)"
+        )
         return False
     path.write_text(content)
     logger.info(f"Wrote {path.name}")
@@ -299,7 +316,9 @@ def write_bundle(config: AppConfig, output_dir: Path, force: bool = False) -> No
     if source_config:
         dest = output_dir / "dao_ai.yaml"
         if dest.exists() and not force:
-            print("  WARNING: Skipping dao_ai.yaml (already exists, use --force to overwrite)")
+            print(
+                "  WARNING: Skipping dao_ai.yaml (already exists, use --force to overwrite)"
+            )
             skipped.append("dao_ai.yaml")
         else:
             shutil.copy2(source_config, dest)
@@ -322,11 +341,11 @@ def write_bundle(config: AppConfig, output_dir: Path, force: bool = False) -> No
         print(f"  {name:<20s} (skipped, already exists)")
 
     if skipped:
-        print(f"\n  Re-run with --force to overwrite existing files.")
+        print("\n  Re-run with --force to overwrite existing files.")
 
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"  cd {output_dir}")
-    print(f"  uv sync")
-    print(f"  databricks bundle deploy --target dev")
+    print("  uv sync")
+    print("  databricks bundle deploy --target dev")
     print(f"  databricks bundle run {app_name} --target dev")
     print()

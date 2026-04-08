@@ -61,6 +61,8 @@ flowchart TB
 | [`sql_tools.yaml`](./sql_tools.yaml) | SQL warehouse query tools |
 | [`python_tools.yaml`](./python_tools.yaml) | Custom Python function tools |
 | [`factory_tools.yaml`](./factory_tools.yaml) | Pre-built factory tools |
+| [`slack_integration.yaml`](./slack_integration.yaml) | Slack messaging via factory tool + UC Connection |
+| [`teams_integration.yaml`](./teams_integration.yaml) | Microsoft Teams messaging via factory tool + UC Connection |
 
 ## Tool Types
 
