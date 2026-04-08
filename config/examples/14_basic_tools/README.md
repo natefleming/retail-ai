@@ -58,9 +58,8 @@ flowchart TB
 
 | File | Description |
 |------|-------------|
-| [`sql_tools.yaml`](./sql_tools.yaml) | SQL warehouse query tools |
-| [`python_tools.yaml`](./python_tools.yaml) | Custom Python function tools |
-| [`factory_tools.yaml`](./factory_tools.yaml) | Pre-built factory tools |
+| [`sql_tool_example.yaml`](./sql_tool_example.yaml) | SQL warehouse query tools |
+| [`rest_api_tool.yaml`](./rest_api_tool.yaml) | Generic REST API tool (UC Connection or HTTP) |
 | [`slack_integration.yaml`](./slack_integration.yaml) | Slack messaging via factory tool + UC Connection |
 | [`teams_integration.yaml`](./teams_integration.yaml) | Microsoft Teams messaging via factory tool + UC Connection |
 
@@ -278,6 +277,7 @@ graph TB
         UC["<b>create_uc_function_tool</b><br/><i>Unity Catalog functions</i>"]
         HO["<b>create_handoff_tool</b><br/><i>Agent handoffs</i>"]
         SL["<b>create_send_slack_message_tool</b><br/><i>Slack messaging</i>"]
+        TM["<b>create_send_teams_message_tool</b><br/><i>Teams messaging</i>"]
     end
 
     style Factories fill:#e3f2fd,stroke:#1565c0
@@ -344,13 +344,16 @@ graph TB
 
 ```bash
 # SQL tools
-dao-ai chat -c config/examples/14_basic_tools/sql_tools.yaml
+dao-ai chat -c config/examples/14_basic_tools/sql_tool_example.yaml
 
-# Python tools
-dao-ai chat -c config/examples/14_basic_tools/python_tools.yaml
+# REST API tools
+dao-ai chat -c config/examples/14_basic_tools/rest_api_tool.yaml
 
-# Factory tools
-dao-ai chat -c config/examples/14_basic_tools/factory_tools.yaml
+# Slack integration
+dao-ai chat -c config/examples/14_basic_tools/slack_integration.yaml
+
+# Teams integration
+dao-ai chat -c config/examples/14_basic_tools/teams_integration.yaml
 ```
 
 ## Best Practices
