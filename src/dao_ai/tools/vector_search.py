@@ -464,6 +464,11 @@ def create_vector_search_tool(
                         normalized[key] = value
                 return normalized
 
+            # Normalize base_filters once for consistent case matching
+            normalized_base_filters = normalize_filter_values(
+                base_filters, decomposition_config.normalize_filter_case
+            )
+
             def execute_search(sq: SearchQuery) -> list[Document]:
                 logger.trace("Executing search", query=sq.text, filters=sq.filters)
                 # Convert FilterItem list to dict
@@ -477,7 +482,7 @@ def create_vector_search_tool(
                 k: int = search_parameters.num_results or 5
                 query_type: str = search_parameters.query_type or "ANN"
                 # Decomposed filters take precedence over base filters
-                combined_filters: dict[str, Any] = {**base_filters, **sq_filters}
+                combined_filters: dict[str, Any] = {**normalized_base_filters, **sq_filters}
                 logger.trace(
                     "Executing search",
                     query=sq.text,
@@ -568,7 +573,7 @@ def create_vector_search_tool(
         auto_bypass: bool,
         context: Context | None = None,
     ) -> list[Document]:
-        """Apply instruction-aware reranking and verification based on mode and bypass settings."""
+        """Apply instruction-aware reranking based on mode and bypass settings."""
         # Skip post-processing for standard mode when auto_bypass is enabled
         if mode == "standard" and auto_bypass:
             span = mlflow.get_current_active_span()
@@ -600,71 +605,6 @@ def create_vector_search_tool(
                     if instruction_rerank_config.model
                     else None,
                 )
-
-        # Apply verification if configured (verifier is always under instructed)
-        if verifier_config and instructed_config:
-            verifier_llm = (
-                _get_cached_llm(verifier_config.model, context)
-                if verifier_config.model
-                else None
-            )
-
-            if verifier_llm:
-                constraints = instructed_config.constraints
-                retry_count = 0
-                verification_result: VerificationResult | None = None
-                previous_feedback: str | None = None
-
-                while retry_count <= verifier_config.max_retries:
-                    verification_result = verify_results(
-                        llm=verifier_llm,
-                        query=query,
-                        documents=documents,
-                        columns=instructed_columns,
-                        constraints=constraints,
-                        previous_feedback=previous_feedback,
-                        resource_info=ResourceInfo(
-                            "model_serving",
-                            verifier_config.model.on_behalf_of_user,
-                            verifier_config.model.name,
-                        )
-                        if verifier_config.model
-                        else None,
-                    )
-
-                    _span = mlflow.get_current_active_span()
-                    if verification_result.passed:
-                        if _span:
-                            _span.set_attribute(ATTR_VERIFIER_OUTCOME, "passed")
-                            _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
-                        break
-
-                    # Handle failure based on configuration
-                    if verifier_config.on_failure == "warn":
-                        if _span:
-                            _span.set_attribute(ATTR_VERIFIER_OUTCOME, "warned")
-                        documents = add_verification_metadata(
-                            documents, verification_result
-                        )
-                        break
-
-                    if retry_count >= verifier_config.max_retries:
-                        if _span:
-                            _span.set_attribute(ATTR_VERIFIER_OUTCOME, "exhausted")
-                            _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
-                        documents = add_verification_metadata(
-                            documents, verification_result, exhausted=True
-                        )
-                        break
-
-                    # Retry with feedback
-                    if _span:
-                        _span.set_attribute(ATTR_VERIFIER_OUTCOME, "retried")
-                    previous_feedback = verification_result.feedback
-                    retry_count += 1
-                    logger.debug(
-                        "Retrying search with verification feedback", retry=retry_count
-                    )
 
         return documents
 
@@ -752,23 +692,102 @@ def create_vector_search_tool(
         if span:
             span.set_attribute(ATTR_ROUTER_MODE, mode)
 
-        # Execute search based on mode
-        if mode == "instructed" and instructed_config and decomposition_config:
-            documents = _execute_instructed_retrieval(
-                vs, query, base_filters, context=context
+        # Search + verify loop: re-executes search with feedback on verification failure
+        retry_count = 0
+        max_retries = verifier_config.max_retries if verifier_config else 0
+        previous_feedback: str | None = None
+
+        while True:
+            # Execute search based on mode
+            if mode == "instructed" and instructed_config and decomposition_config:
+                documents = _execute_instructed_retrieval(
+                    vs, query, base_filters, previous_feedback, context=context
+                )
+            else:
+                documents = _execute_standard_search(vs, query, base_filters)
+
+            # Apply FlashRank reranking if configured
+            if ranker and rerank_config and documents:
+                logger.debug("Applying FlashRank reranking")
+                documents = _rerank_documents(query, documents, ranker, rerank_config)
+
+            # Apply instruction-aware reranking
+            documents = _apply_post_processing(
+                documents, query, mode, auto_bypass, context=context
             )
-        else:
-            documents = _execute_standard_search(vs, query, base_filters)
 
-        # Apply FlashRank reranking if configured
-        if ranker and rerank_config:
-            logger.debug("Applying FlashRank reranking")
-            documents = _rerank_documents(query, documents, ranker, rerank_config)
+            # Verification (if configured)
+            if not verifier_config:
+                break
 
-        # Apply post-processing (instruction reranking + verification)
-        documents = _apply_post_processing(
-            documents, query, mode, auto_bypass, context=context
-        )
+            # Skip verification for standard mode when auto_bypass is enabled
+            if mode == "standard" and auto_bypass:
+                break
+
+            verifier_llm = (
+                _get_cached_llm(verifier_config.model, context)
+                if verifier_config.model
+                else None
+            )
+            if not verifier_llm:
+                break
+
+            constraints = instructed_config.constraints if instructed_config else None
+
+            verification_result = verify_results(
+                llm=verifier_llm,
+                query=query,
+                documents=documents,
+                columns=instructed_columns,
+                constraints=constraints,
+                previous_feedback=previous_feedback,
+                resource_info=ResourceInfo(
+                    "model_serving",
+                    verifier_config.model.on_behalf_of_user,
+                    verifier_config.model.name,
+                )
+                if verifier_config.model
+                else None,
+            )
+
+            _span = mlflow.get_current_active_span()
+            if verification_result.passed:
+                if _span:
+                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "passed")
+                    _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
+                break
+
+            # Warn-only: annotate and stop
+            if verifier_config.on_failure == "warn":
+                if _span:
+                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "warned")
+                documents = add_verification_metadata(documents, verification_result)
+                break
+
+            # Retries exhausted
+            if retry_count >= max_retries:
+                if _span:
+                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "exhausted")
+                    _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
+                documents = add_verification_metadata(
+                    documents, verification_result, exhausted=True
+                )
+                break
+
+            # Standard mode can't meaningfully retry (no decomposition to adjust)
+            if mode != "instructed":
+                if _span:
+                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "warned")
+                documents = add_verification_metadata(documents, verification_result)
+                break
+
+            # Retry: re-execute search with verifier feedback
+            retry_count += 1
+            previous_feedback = verification_result.feedback
+            logger.debug(
+                "Retrying search with verification feedback",
+                retry=retry_count,
+            )
 
         # Serialize documents to JSON format for LLM consumption
         serialized_docs: list[dict[str, Any]] = []
