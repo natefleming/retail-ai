@@ -55,7 +55,7 @@ resources:
   # UC FUNCTIONS
   # ---------------------------------------------------------------------------
   # Define UC functions that will be used by agents
-  # Note: Functions don't have OBO setting - it's inherited from the workspace client
+  # Set on_behalf_of_user on each FunctionModel so UC tool execution uses the end-user identity
   functions:
     find_product_sku: &find_product_sku
       schema: *demo_schema
