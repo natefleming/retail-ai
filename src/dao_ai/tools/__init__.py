@@ -11,6 +11,7 @@ from dao_ai.tools.memory import (
     create_search_memory_tool,
     create_search_user_profile_tool,
 )
+from dao_ai.tools.ms_teams import create_send_teams_message_tool
 from dao_ai.tools.python import create_factory_tool, create_python_tool
 from dao_ai.tools.rest_api import create_rest_api_tool
 from dao_ai.tools.search import create_search_tool
@@ -48,6 +49,7 @@ __all__ = [
     "create_search_tool",
     "create_send_email_tool",
     "create_send_slack_message_tool",
+    "create_send_teams_message_tool",
     "create_tools",
     "create_uc_tools",
     "create_vector_search_tool",

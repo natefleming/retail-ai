@@ -47,7 +47,6 @@ flowchart TB
         direction TB
         GitHub["🐙 GitHub<br/><i>UC Connection OAuth</i>"]
         JIRA["📋 JIRA<br/><i>Databricks App</i>"]
-        Slack["💬 Slack<br/><i>Factory Tool</i>"]
     end
 
     MCPClient --> Managed
@@ -61,7 +60,6 @@ flowchart TB
     
     UC --> GitHub
     URL --> JIRA
-    URL --> Slack
 
     style Agent fill:#1565c0,stroke:#0d47a1,color:#fff
     style Managed fill:#e3f2fd,stroke:#1565c0
@@ -79,7 +77,6 @@ flowchart TB
 | [`external_mcp.yaml`](./external_mcp.yaml) | 🔗 External | UC Connection-based MCP (GitHub example) |
 | [`custom_mcp.yaml`](./custom_mcp.yaml) | 🛠️ Custom URL | Self-hosted MCP App (JIRA example) |
 | [`filtered_mcp.yaml`](./filtered_mcp.yaml) | 🔒 Filtered | Tool filtering with include/exclude patterns |
-| [`slack_integration.yaml`](./slack_integration.yaml) | 🏭 Factory | UC Connection-based Slack messaging |
 
 ---
 
@@ -394,56 +391,6 @@ graph TB
     end
 
     style Patterns fill:#f5f5f5,stroke:#424242
-```
-
----
-
-## Pattern 5: Factory Tool with UC Connection
-
-Create tools using factory functions with UC Connection for authentication (non-MCP).
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart LR
-    subgraph Config["📄 Configuration"]
-        Factory["<code>type: factory</code><br/><code>name: dao_ai.tools.create_send_slack_message_tool</code>"]
-        Args["<code>args:</code><br/>  <code>connection: *slack</code><br/>  <code>channel_name: general</code>"]
-    end
-
-    subgraph UC["🔐 Unity Catalog"]
-        Conn["Slack UC Connection<br/>━━━━━━━━━━━━━━━━<br/>🔑 Bot Token"]
-    end
-
-    subgraph Tool["🛠️ Generated Tool"]
-        Slack["💬 send_slack_message<br/>━━━━━━━━━━━━━━━━<br/>📤 Post to #general"]
-    end
-
-    Factory --> Tool
-    Args --> Conn
-    Conn --> Tool
-
-    style Config fill:#e3f2fd,stroke:#1565c0
-    style UC fill:#fff3e0,stroke:#e65100
-    style Tool fill:#e8f5e9,stroke:#2e7d32
-```
-
-### Configuration Example
-
-```yaml
-resources:
-  connections:
-    slack_connection: &slack_connection
-      name: slack_bot_connection
-
-tools:
-  slack_tool: &slack_tool
-    name: send_slack_message
-    function:
-      type: factory
-      name: dao_ai.tools.create_send_slack_message_tool
-      args:
-        connection: *slack_connection
-        channel_name: "general"
 ```
 
 ---

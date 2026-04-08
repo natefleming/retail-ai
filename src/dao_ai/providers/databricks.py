@@ -16,7 +16,6 @@ from databricks.sdk.errors.platform import (
     NotFound,
     PermissionDenied,
 )
-from databricks.sdk.service.serving import EndpointStateConfigUpdate
 from databricks.sdk.service.catalog import (
     CatalogInfo,
     ColumnInfo,
@@ -30,6 +29,7 @@ from databricks.sdk.service.catalog import (
 )
 from databricks.sdk.service.database import DatabaseCredential
 from databricks.sdk.service.iam import User
+from databricks.sdk.service.serving import EndpointStateConfigUpdate
 from databricks.sdk.service.workspace import GetSecretResponse, ImportFormat
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
@@ -646,10 +646,7 @@ class DatabricksProvider(ServiceProvider):
                 break
             except ValueError as e:
                 err_msg: str = str(e)
-                if (
-                    "currently updating" in err_msg.lower()
-                    and attempt < max_attempts
-                ):
+                if "currently updating" in err_msg.lower() and attempt < max_attempts:
                     wait_s: float = min(30.0, 5.0 * attempt)
                     logger.warning(
                         "Serving endpoint busy, retrying agents.deploy",
@@ -1103,10 +1100,7 @@ class DatabricksProvider(ServiceProvider):
         # Deploy requires app compute in RUNNING state (API error otherwise).
         fresh_app: App = self.w.apps.get(name=app_name)
         app_status = fresh_app.app_status
-        if (
-            app_status is None
-            or app_status.state != ApplicationState.RUNNING
-        ):
+        if app_status is None or app_status.state != ApplicationState.RUNNING:
             logger.info(
                 "Databricks App not in RUNNING state; starting before deploy",
                 app_name=app_name,

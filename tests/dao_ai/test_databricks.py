@@ -523,7 +523,9 @@ def test_deploy_agent_sets_endpoint_tag():
     mock_config.app = mock_app
 
     # Mock the agents module functions
-    with patch.object(DatabricksProvider, "_serving_endpoint_exists", return_value=False):
+    with patch.object(
+        DatabricksProvider, "_serving_endpoint_exists", return_value=False
+    ):
         with patch(
             "dao_ai.providers.databricks.agents.get_deployments", return_value=[]
         ):
@@ -573,7 +575,9 @@ def test_deploy_model_serving_omits_tags_when_serving_endpoint_exists():
     mock_app.monitoring = None
     mock_config.app = mock_app
 
-    with patch.object(DatabricksProvider, "_serving_endpoint_exists", return_value=True):
+    with patch.object(
+        DatabricksProvider, "_serving_endpoint_exists", return_value=True
+    ):
         with patch.object(DatabricksProvider, "_wait_serving_endpoint_config_idle"):
             with patch(
                 "dao_ai.providers.databricks.agents.get_deployments", return_value=[]
@@ -583,7 +587,9 @@ def test_deploy_model_serving_omits_tags_when_serving_endpoint_exists():
                         "dao_ai.providers.databricks.get_latest_model_version",
                         return_value=2,
                     ):
-                        with patch("dao_ai.providers.databricks.mlflow.set_registry_uri"):
+                        with patch(
+                            "dao_ai.providers.databricks.mlflow.set_registry_uri"
+                        ):
                             with patch.object(
                                 DatabricksProvider, "__init__", return_value=None
                             ):
@@ -2922,7 +2928,9 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
     mock_experiment.experiment_id = "exp123"
 
     with (
-        patch.object(DatabricksProvider, "_serving_endpoint_exists", return_value=False),
+        patch.object(
+            DatabricksProvider, "_serving_endpoint_exists", return_value=False
+        ),
         patch(
             "dao_ai.providers.databricks.agents.get_deployments",
             return_value=[],

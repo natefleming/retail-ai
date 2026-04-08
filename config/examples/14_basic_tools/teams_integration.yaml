@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+schemas:
+  default_schema: &default_schema                   # Unity Catalog schema configuration
+    catalog_name: main                              # Unity Catalog name
+    schema_name: default                            # Schema within the catalog
+
+resources:
+  llms:
+    # Primary LLM for Teams agent
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+      temperature: 0.7                              # Temperature for more natural responses
+      max_tokens: 4096                              # Maximum tokens per response
+      on_behalf_of_user: false
+
+  connections:
+    # Unity Catalog HTTP connection to Microsoft Graph API
+    teams_connection: &teams_connection
+      name: teams_bot_connection                    # UC Connection name (configured for https://graph.microsoft.com/v1.0)
+      on_behalf_of_user: false                      # Use service principal auth
+
+tools:
+  # Teams messaging tool using factory function
+  teams_tool: &teams_tool
+    name: send_teams_message                        # Tool name for agent reference
+    function:
+      type: factory                                 # Tool type: factory function
+      name: dao_ai.tools.create_send_teams_message_tool  # Factory function path
+      args:                                         # Arguments passed to factory
+        connection: *teams_connection               # Reference to Teams UC connection
+        team_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # Microsoft Teams team ID (GUID)
+        channel_name: "General"                     # Teams channel name (can also use channel_id)
+        name: send_teams_message
+        description: Send a message to the General Microsoft Teams channel
+
+agents:
+  # Teams notification agent
+  teams_agent: &teams_agent
+    name: teams_agent                               # Agent identifier
+    description: "Agent that can send notifications to Microsoft Teams"
+    model: *default_llm                             # Reference to LLM configuration
+    tools:                                          # Tools available to this agent
+      - *teams_tool
+    prompt: |                                       # System prompt defining agent behavior
+      You are a helpful assistant that can send notifications to Microsoft Teams.
+      When asked to notify someone or send a message, use the send_teams_message tool
+      to post to the General channel. Keep messages concise and professional.
+
+app:
+  name: teams_integration_dao                         # Application name
+  description: "Agent system that can send notifications to Microsoft Teams"
+  log_level: INFO                                   # Logging level for the application
+  registered_model:                                 # MLflow registered model configuration
+    schema: *default_schema                         # Schema where model will be registered
+    name: teams_notification_agent_dao              # Model name in MLflow registry
+  endpoint_name: teams_notification_agent_dao       # Model serving endpoint name
+  tags:                                             # Tags for resource organization
+    integration: teams                              # Integration type
+    notification: true                              # Indicates notification capabilities
+  permissions:                                      # Model serving permissions
+    - principals: [users]                           # Grant access to all users
+      entitlements:
+        - CAN_QUERY                                 # Query permissions
+  agents:                                           # List of agents included in the system
+    - *teams_agent                                  # Teams notification agent
+  orchestration:                                    # Agent orchestration configuration
+    swarm:                                          # Swarm orchestration pattern
+      default_agent: *teams_agent                   # Default agent for routing
