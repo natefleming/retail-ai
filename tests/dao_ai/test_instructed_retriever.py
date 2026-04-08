@@ -754,6 +754,84 @@ class TestLLMCaching:
         assert result1 is mock_chat_model
 
 
+@pytest.mark.unit
+class TestRRFMergeEmptyFallback:
+    """Tests for RRF merge edge cases not covered by TestRRFMerge."""
+
+    def test_single_empty_list(self) -> None:
+        """Test that rrf_merge handles a single empty list (vs empty input)."""
+        result = rrf_merge([[]])
+        assert result == []
+
+
+@pytest.mark.unit
+class TestDecomposeQueryFeedback:
+    """Tests for feedback propagation in query decomposition (retry support)."""
+
+    def _create_mock_llm(self, result: DecomposedQueries) -> MagicMock:
+        mock_llm = MagicMock()
+        mock_structured_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+        mock_structured_llm.invoke.return_value = result
+        return mock_llm
+
+    @patch("dao_ai.tools.instructed_retriever._load_prompt_template")
+    @patch("dao_ai.tools.instructed_retriever.mlflow")
+    def test_previous_feedback_appended_to_prompt(
+        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    ) -> None:
+        """Test that previous_feedback is appended to the decomposition prompt."""
+        mock_load_prompt.return_value = {
+            "template": "{current_time} {constraints} {examples} {max_subqueries} {query}"
+        }
+
+        decomposed = DecomposedQueries(
+            queries=[SearchQuery(text="adjusted query")]
+        )
+        mock_llm = self._create_mock_llm(decomposed)
+
+        decompose_query(
+            llm=mock_llm,
+            query="test query",
+            columns=[ColumnInfo(name="brand", type="string")],
+            previous_feedback="Brand filter was too restrictive",
+        )
+
+        # Verify the LLM was called with a prompt containing the feedback
+        structured_llm = mock_llm.with_structured_output.return_value
+        call_args = structured_llm.invoke.call_args
+        prompt_sent = call_args[0][0]
+        assert "Previous Attempt Feedback" in prompt_sent
+        assert "Brand filter was too restrictive" in prompt_sent
+
+    @patch("dao_ai.tools.instructed_retriever._load_prompt_template")
+    @patch("dao_ai.tools.instructed_retriever.mlflow")
+    def test_no_feedback_section_when_none(
+        self, mock_mlflow: MagicMock, mock_load_prompt: MagicMock
+    ) -> None:
+        """Test that no feedback section is added when previous_feedback is None."""
+        mock_load_prompt.return_value = {
+            "template": "{current_time} {constraints} {examples} {max_subqueries} {query}"
+        }
+
+        decomposed = DecomposedQueries(
+            queries=[SearchQuery(text="test")]
+        )
+        mock_llm = self._create_mock_llm(decomposed)
+
+        decompose_query(
+            llm=mock_llm,
+            query="test query",
+            columns=[ColumnInfo(name="brand", type="string")],
+            previous_feedback=None,
+        )
+
+        structured_llm = mock_llm.with_structured_output.return_value
+        call_args = structured_llm.invoke.call_args
+        prompt_sent = call_args[0][0]
+        assert "Previous Attempt Feedback" not in prompt_sent
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(True, reason="Requires Databricks workspace and LLM endpoint")
 class TestInstructedRetrieverIntegration:
