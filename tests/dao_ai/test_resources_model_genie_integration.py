@@ -330,10 +330,9 @@ class TestResourcesModelGenieIntegration:
                 assert table.service_principal == service_principal
                 assert table.workspace_host == "https://test.databricks.com"
 
-            # Verify functions inherit authentication (except on_behalf_of_user which is
-            # not supported for UC functions and gets reset to False with a warning)
+            # Verify functions inherit authentication including OBO (UC serverless uses user identity)
             for function_key, function in resources.functions.items():
-                assert not function.on_behalf_of_user
+                assert function.on_behalf_of_user
                 assert function.service_principal == service_principal
                 assert function.workspace_host == "https://test.databricks.com"
 

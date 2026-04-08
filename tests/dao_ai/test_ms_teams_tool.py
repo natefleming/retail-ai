@@ -111,9 +111,7 @@ def test_teams_tool_custom_name_and_description(
 @pytest.mark.unit
 def test_teams_tool_sends_content_type_in_body() -> None:
     """The Graph API message body must include contentType field."""
-    connection = ConnectionModel(
-        name="teams-connection", on_behalf_of_user=True
-    )
+    connection = ConnectionModel(name="teams-connection", on_behalf_of_user=True)
     tool = create_send_teams_message_tool(
         connection=connection,
         team_id="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",

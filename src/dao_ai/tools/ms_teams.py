@@ -158,7 +158,9 @@ def create_send_teams_message_tool(
                     connection_name=connection.name,
                     method=ExternalFunctionRequestHttpMethod.POST,
                     path=f"/teams/{team_id}/channels/{channel_id}/messages",
-                    json=json_module.dumps({"body": {"contentType": "text", "content": text}}),
+                    json=json_module.dumps(
+                        {"body": {"contentType": "text", "content": text}}
+                    ),
                 )
             )
             body_text: str = _read_response_body(response)

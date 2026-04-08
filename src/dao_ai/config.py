@@ -918,19 +918,6 @@ class FunctionModel(IsDatabricksResource, HasFullName):
             )
         return self
 
-    @model_validator(mode="after")
-    def reject_obo(self) -> Self:
-        if self.on_behalf_of_user:
-            logger.warning(
-                f"on_behalf_of_user is not supported for Unity Catalog functions "
-                f"('{self.full_name}'). UC function execution uses serverless compute "
-                f"via DatabricksFunctionClient. Ignoring on_behalf_of_user. "
-                f"See https://docs.unitycatalog.io/ai/client/#databricks-function-client "
-                f"for more details."
-            )
-            self.on_behalf_of_user = False
-        return self
-
     @property
     def full_name(self) -> str:
         if self.schema_model:
