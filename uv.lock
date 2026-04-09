@@ -899,7 +899,7 @@ wheels = [
 
 [[package]]
 name = "dao-ai"
-version = "0.1.49"
+version = "0.1.50"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-agents" },
