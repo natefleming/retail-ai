@@ -88,26 +88,18 @@ class StoreManager:
                     store_manager = InMemoryStoreManager(store_model)
                     cls.store_managers[store_model.name] = store_manager
             case StorageType.POSTGRES:
-                # Route based on database configuration:
-                # - Lakebase (provisioned or autoscaling) -> DatabricksStoreManager (uses LakebasePool)
-                # - Standard PostgreSQL (host) -> PostgresStoreManager
-                if store_model.database.is_lakebase:
-                    # Lakebase connection (uses LakebasePool with token rotation)
+                cache_key = store_model.database.name
+                if store_model.database.is_lakebase_provisioned:
                     from dao_ai.memory.databricks import DatabricksStoreManager
 
-                    store_manager = cls.store_managers.get(
-                        store_model.database.instance_name
-                    )
+                    store_manager = cls.store_managers.get(cache_key)
                     if store_manager is None:
                         store_manager = DatabricksStoreManager(store_model)
-                        cls.store_managers[store_model.database.instance_name] = (
-                            store_manager
-                        )
+                        cls.store_managers[cache_key] = store_manager
                 else:
-                    # Standard PostgreSQL connection
+                    # Autoscaling Lakebase and standard PostgreSQL use connection_params
                     from dao_ai.memory.postgres import PostgresStoreManager
 
-                    cache_key = f"{store_model.database.name}"
                     store_manager = cls.store_managers.get(cache_key)
                     if store_manager is None:
                         store_manager = PostgresStoreManager(store_model)
@@ -137,28 +129,20 @@ class CheckpointManager:
                         checkpointer_manager
                     )
             case StorageType.POSTGRES:
-                # Route based on database configuration:
-                # - Lakebase (provisioned or autoscaling) -> DatabricksCheckpointerManager (uses LakebasePool)
-                # - Standard PostgreSQL -> AsyncPostgresCheckpointerManager
-                if checkpointer_model.database.is_lakebase:
-                    # Lakebase connection (uses LakebasePool with token rotation)
+                cache_key = checkpointer_model.database.name
+                if checkpointer_model.database.is_lakebase_provisioned:
                     from dao_ai.memory.databricks import DatabricksCheckpointerManager
 
-                    checkpointer_manager = cls.checkpoint_managers.get(
-                        checkpointer_model.database.instance_name
-                    )
+                    checkpointer_manager = cls.checkpoint_managers.get(cache_key)
                     if checkpointer_manager is None:
                         checkpointer_manager = DatabricksCheckpointerManager(
                             checkpointer_model
                         )
-                        cls.checkpoint_managers[
-                            checkpointer_model.database.instance_name
-                        ] = checkpointer_manager
+                        cls.checkpoint_managers[cache_key] = checkpointer_manager
                 else:
-                    # Standard PostgreSQL connection
+                    # Autoscaling Lakebase and standard PostgreSQL use connection_params
                     from dao_ai.memory.postgres import AsyncPostgresCheckpointerManager
 
-                    cache_key = f"{checkpointer_model.database.name}"
                     checkpointer_manager = cls.checkpoint_managers.get(cache_key)
                     if checkpointer_manager is None:
                         checkpointer_manager = AsyncPostgresCheckpointerManager(

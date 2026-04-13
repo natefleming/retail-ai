@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors import PermissionDenied
 
 from dao_ai.config import (
     FunctionModel,
@@ -198,6 +199,8 @@ class TestOBOUCFunctionServerlessIntegration:
     Uses two distinct identities — a user PAT and a service principal — to
     confirm that current_user() returns different results depending on the
     WorkspaceClient credentials.
+
+    NOTE: Must be run in isolation due to Spark Connect gRPC session hangs.
     """
 
     @pytest.fixture(scope="class")
@@ -237,6 +240,19 @@ class TestOBOUCFunctionServerlessIntegration:
                 pytest.skip(
                     f"UC function '{fn}' not found — skipping integration tests"
                 )
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_spark(self) -> None:
+        """Stop Spark Connect sessions after each test to prevent gRPC hangs."""
+        yield
+        try:
+            from pyspark.sql import SparkSession
+
+            active = SparkSession.getActiveSession()
+            if active is not None:
+                active.stop()
+        except Exception:
+            pass
 
     @pytest.fixture(scope="class")
     def user_identity(self, user_ws: WorkspaceClient) -> str:
@@ -413,11 +429,14 @@ class TestOBOUCFunctionServerlessIntegration:
             pytest.skip("DATABRICKS_WAREHOUSE_ID not set")
 
         def _run_current_user(ws: WorkspaceClient) -> str:
-            resp = ws.statement_execution.execute_statement(
-                warehouse_id=warehouse_id,
-                statement="SELECT current_user()",
-                wait_timeout="30s",
-            )
+            try:
+                resp = ws.statement_execution.execute_statement(
+                    warehouse_id=warehouse_id,
+                    statement="SELECT current_user()",
+                    wait_timeout="30s",
+                )
+            except PermissionDenied as e:
+                pytest.skip(f"Caller lacks CAN_USE on warehouse {warehouse_id}: {e}")
             assert resp.status and resp.status.state.value == "SUCCEEDED"
             assert resp.result and resp.result.data_array
             return resp.result.data_array[0][0].strip()

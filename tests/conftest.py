@@ -57,6 +57,22 @@ def pytest_configure(config):
         config.addinivalue_line("markers", marker)
 
 
+def pytest_sessionfinish(session, exitstatus):
+    """Clean up Spark Connect / Databricks Connect sessions to prevent gRPC hangs.
+
+    DatabricksFunctionClient creates a SparkSession with a gRPC channel that
+    blocks process exit if not explicitly stopped.
+    """
+    try:
+        from pyspark.sql import SparkSession
+
+        active = SparkSession.getActiveSession()
+        if active is not None:
+            active.stop()
+    except Exception:
+        pass
+
+
 def has_databricks_env() -> bool:
     required_vars: Sequence[str] = [
         "DATABRICKS_TOKEN",
