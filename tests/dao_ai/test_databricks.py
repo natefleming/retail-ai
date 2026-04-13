@@ -355,7 +355,7 @@ def test_create_agent_sets_experiment():
         patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
         patch.object(mlflow, "register_model"),
         patch("dao_ai.providers.databricks.MlflowClient"),
-        patch("dao_ai.providers.databricks.is_installed", return_value=True),
+        patch("dao_ai.providers.databricks.is_published", return_value=True),
         patch(
             "dao_ai.providers.databricks.is_lib_provided",
             return_value=True,
@@ -464,7 +464,7 @@ def test_create_agent_uses_configured_python_version():
         patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
         patch.object(mlflow, "register_model"),
         patch("dao_ai.providers.databricks.MlflowClient"),
-        patch("dao_ai.providers.databricks.is_installed", return_value=True),
+        patch("dao_ai.providers.databricks.is_published", return_value=True),
         patch(
             "dao_ai.providers.databricks.is_lib_provided",
             return_value=True,
@@ -2305,6 +2305,7 @@ def test_vector_store_model_provisioning_mode():
             source_table=table,
             embedding_source_column="description",
         )
+        vector_store.ensure_resolved()
 
         # Index should be auto-generated
         assert vector_store.index is not None
@@ -2644,8 +2645,8 @@ def test_vector_store_create_provisions_new_index():
 
         # Return different instances for each DatabricksProvider() call
         mock_provider_class.side_effect = [
-            mock_provider_for_primary_key,  # set_default_primary_key validator
-            mock_provider_for_endpoint,  # set_default_endpoint validator
+            mock_provider_for_endpoint,  # set_default_endpoint validator (during __init__)
+            mock_provider_for_primary_key,  # set_default_primary_key (during ensure_resolved)
             mock_provider_for_create,  # create() call
         ]
 
@@ -2653,6 +2654,7 @@ def test_vector_store_create_provisions_new_index():
             source_table=table,
             embedding_source_column="description",
         )
+        vector_store.ensure_resolved()
 
         # Call create() - this will use the third mock from side_effect
         vector_store.create()
@@ -2796,8 +2798,8 @@ def test_vector_store_create_mode_detection():
         mock_provider_for_create = MagicMock()
 
         mock_provider_class.side_effect = [
-            mock_provider_for_primary_key,
-            mock_provider_for_endpoint,
+            mock_provider_for_endpoint,  # set_default_endpoint validator (during __init__)
+            mock_provider_for_primary_key,  # set_default_primary_key (during ensure_resolved)
             mock_provider_for_create,
         ]
 
@@ -2805,6 +2807,7 @@ def test_vector_store_create_mode_detection():
             source_table=table,
             embedding_source_column="description",
         )
+        vector_store_provisioning.ensure_resolved()
 
         with patch.object(
             vector_store_provisioning, "_create_new_index"

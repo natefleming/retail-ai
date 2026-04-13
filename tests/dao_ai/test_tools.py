@@ -16,8 +16,10 @@ excluded_tools: Sequence[str] = [
 def test_create_tools(config: AppConfig) -> None:
     """Test that tools can be created from configuration."""
     tool_models: list[ToolModel] = config.find_tools(
-        lambda tool: not any(excluded in tool.name for excluded in excluded_tools)
-        and tool.function.type != FunctionType.UNITY_CATALOG
+        lambda tool: (
+            not any(excluded in tool.name for excluded in excluded_tools)
+            and tool.function.type != FunctionType.UNITY_CATALOG
+        )
     )
 
     tools = create_tools(tool_models)

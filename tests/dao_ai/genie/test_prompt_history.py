@@ -280,6 +280,8 @@ class TestPromptHistoryContextBuilding:
             name="test_db",
             host="localhost",
             port=5432,
+            user="test",
+            password="test",
         )
         with patch("databricks.sdk.WorkspaceClient"):
             warehouse = WarehouseModel(warehouse_id="test_warehouse")
@@ -374,12 +376,9 @@ class TestPromptHistoryIntegration:
 
     @pytest.fixture
     def lakebase_database(self) -> DatabaseModel:
-        """Create DatabaseModel for retail-consumer-goods Lakebase instance."""
-        # For Lakebase, only instance_name is needed
-        # workspace_client is created automatically from environment
+        """Create DatabaseModel for retail-consumer-goods Lakebase project."""
         return DatabaseModel(
-            name="retail-consumer-goods",
-            instance_name="retail-consumer-goods",
+            project="retail-consumer-goods",
         )
 
     @pytest.fixture
@@ -524,6 +523,8 @@ def test_configuration_validation() -> None:
     database = DatabaseModel(
         name="test_db",
         host="localhost",
+        user="test",
+        password="test",
     )
     with patch("databricks.sdk.WorkspaceClient"):
         warehouse = WarehouseModel(warehouse_id="test_warehouse")

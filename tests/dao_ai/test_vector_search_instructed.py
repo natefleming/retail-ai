@@ -20,9 +20,9 @@ from dao_ai.config import (
     RetrieverModel,
     RouterModel,
     SearchQuery,
+    VectorStoreModel,
     VerificationResult,
     VerifierModel,
-    VectorStoreModel,
 )
 
 # Shared test column definitions
@@ -105,7 +105,9 @@ class TestEmptyResultFallback:
 
         # decompose returns subqueries, but rrf_merge returns empty
         mock_decompose.return_value = [
-            SearchQuery(text="subquery1", filters=[FilterItem(key="brand", value="ACME")]),
+            SearchQuery(
+                text="subquery1", filters=[FilterItem(key="brand", value="ACME")]
+            ),
         ]
         mock_rrf.return_value = []  # Empty merge result
 
@@ -130,7 +132,9 @@ class TestEmptyResultFallback:
         # Last call is the fallback — should use base_filters (empty), not decomposed filters
         fallback_call = calls[-1]
         # filter should be None or empty dict (no decomposed filters)
-        fallback_filter = fallback_call.kwargs.get("filter") or fallback_call[1].get("filter")
+        fallback_filter = fallback_call.kwargs.get("filter") or fallback_call[1].get(
+            "filter"
+        )
         assert fallback_filter is None or fallback_filter == {}
 
     @patch("dao_ai.tools.vector_search.rrf_merge")
@@ -158,11 +162,17 @@ class TestEmptyResultFallback:
         mock_get_llm.return_value = MagicMock()
 
         mock_decompose.return_value = [SearchQuery(text="subquery1")]
-        merged_docs = [Document(page_content="merged result", metadata={"id": "1", "rrf_score": 0.5})]
+        merged_docs = [
+            Document(
+                page_content="merged result", metadata={"id": "1", "rrf_score": 0.5}
+            )
+        ]
         mock_rrf.return_value = merged_docs
 
         # This should NOT be called as fallback
-        mock_vs.similarity_search.return_value = [Document(page_content="standard", metadata={})]
+        mock_vs.similarity_search.return_value = [
+            Document(page_content="standard", metadata={})
+        ]
 
         from dao_ai.tools.vector_search import create_vector_search_tool
 
@@ -249,7 +259,10 @@ class TestVerificationRetryLoop:
 
         # Second decompose call should include previous_feedback
         second_call_kwargs = mock_decompose.call_args_list[1]
-        assert second_call_kwargs.kwargs.get("previous_feedback") == "Brand filter was too restrictive"
+        assert (
+            second_call_kwargs.kwargs.get("previous_feedback")
+            == "Brand filter was too restrictive"
+        )
 
         # verify_results should have been called twice
         assert mock_verify.call_count == 2

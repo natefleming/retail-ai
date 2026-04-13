@@ -93,14 +93,14 @@ class TestResourcesModelGenieIntegration:
             mock_warehouse_response.name = "Test Warehouse"
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
-            # Create ResourcesModel with a genie room
-            resources = ResourcesModel(
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room", space_id="test-space-123"
-                    )
-                }
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room", space_id="test-space-123"
             )
+            genie_model.ensure_resolved()
+
+            # Create ResourcesModel with a genie room
+            resources = ResourcesModel(genie_rooms={"my_genie": genie_model})
 
             # Verify tables were added
             assert len(resources.tables) == 3
@@ -151,14 +151,16 @@ class TestResourcesModelGenieIntegration:
             mock_warehouse_response.name = "Test Warehouse"
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room", space_id="test-space-123"
+            )
+            genie_model.ensure_resolved()
+
             # Create ResourcesModel with existing tables and a genie room
             resources = ResourcesModel(
                 tables={"manual_table": TableModel(name="catalog.schema.manual_table")},
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room", space_id="test-space-123"
-                    )
-                },
+                genie_rooms={"my_genie": genie_model},
             )
 
             # Verify manual table is preserved
@@ -185,16 +187,18 @@ class TestResourcesModelGenieIntegration:
             mock_warehouse_response.name = "Test Warehouse"
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room", space_id="test-space-123"
+            )
+            genie_model.ensure_resolved()
+
             # Create ResourcesModel with a table that matches one from Genie
             resources = ResourcesModel(
                 tables={
                     "existing_customers": TableModel(name="catalog.schema.customers")
                 },
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room", space_id="test-space-123"
-                    )
-                },
+                genie_rooms={"my_genie": genie_model},
             )
 
             # Verify the manually-defined table is kept
@@ -239,15 +243,21 @@ class TestResourcesModelGenieIntegration:
             mock_warehouse_response.name = "Test Warehouse"
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
+            # Create GenieRoomModels and resolve before passing to ResourcesModel
+            genie_model_1 = GenieRoomModel(
+                name="genie-room-1", space_id="test-space-123"
+            )
+            genie_model_1.ensure_resolved()
+            genie_model_2 = GenieRoomModel(
+                name="genie-room-2", space_id="test-space-456"
+            )
+            genie_model_2.ensure_resolved()
+
             # Create ResourcesModel with multiple genie rooms
             resources = ResourcesModel(
                 genie_rooms={
-                    "genie_room_1": GenieRoomModel(
-                        name="genie-room-1", space_id="test-space-123"
-                    ),
-                    "genie_room_2": GenieRoomModel(
-                        name="genie-room-2", space_id="test-space-456"
-                    ),
+                    "genie_room_1": genie_model_1,
+                    "genie_room_2": genie_model_2,
                 }
             )
 
@@ -311,18 +321,18 @@ class TestResourcesModelGenieIntegration:
                 client_id="test-client-id", client_secret="test-client-secret"
             )
 
-            # Create ResourcesModel with authenticated genie room
-            resources = ResourcesModel(
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room",
-                        space_id="test-space-123",
-                        on_behalf_of_user=True,
-                        service_principal=service_principal,
-                        workspace_host="https://test.databricks.com",
-                    )
-                }
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room",
+                space_id="test-space-123",
+                on_behalf_of_user=True,
+                service_principal=service_principal,
+                workspace_host="https://test.databricks.com",
             )
+            genie_model.ensure_resolved()
+
+            # Create ResourcesModel with authenticated genie room
+            resources = ResourcesModel(genie_rooms={"my_genie": genie_model})
 
             # Verify tables inherit authentication
             for table_key, table in resources.tables.items():
@@ -359,13 +369,13 @@ class TestResourcesModelGenieIntegration:
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             mock_workspace_client.genie.get_space.return_value = mock_space
 
-            resources = ResourcesModel(
-                genie_rooms={
-                    "empty_genie": GenieRoomModel(
-                        name="empty-genie-room", space_id="test-space-empty"
-                    )
-                }
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="empty-genie-room", space_id="test-space-empty"
             )
+            genie_model.ensure_resolved()
+
+            resources = ResourcesModel(genie_rooms={"empty_genie": genie_model})
 
             # Should have no tables or functions
             assert len(resources.tables) == 0
@@ -385,14 +395,14 @@ class TestResourcesModelGenieIntegration:
             mock_warehouse_response.name = "Test Warehouse"
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
-            # Create ResourcesModel with a genie room
-            resources = ResourcesModel(
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room", space_id="test-space-123"
-                    )
-                }
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room", space_id="test-space-123"
             )
+            genie_model.ensure_resolved()
+
+            # Create ResourcesModel with a genie room
+            resources = ResourcesModel(genie_rooms={"my_genie": genie_model})
 
             # Verify warehouse was added
             assert len(resources.warehouses) == 1
@@ -419,6 +429,12 @@ class TestResourcesModelGenieIntegration:
             mock_warehouse_response.name = "Genie Warehouse"
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room", space_id="test-space-123"
+            )
+            genie_model.ensure_resolved()
+
             # Create ResourcesModel with existing warehouse and a genie room
             resources = ResourcesModel(
                 warehouses={
@@ -426,11 +442,7 @@ class TestResourcesModelGenieIntegration:
                         name="manual-warehouse", warehouse_id="manual-wh-123"
                     )
                 },
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room", space_id="test-space-123"
-                    )
-                },
+                genie_rooms={"my_genie": genie_model},
             )
 
             # Verify manual warehouse is preserved
@@ -459,6 +471,12 @@ class TestResourcesModelGenieIntegration:
             mock_warehouse_response.name = "Test Warehouse"
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room", space_id="test-space-123"
+            )
+            genie_model.ensure_resolved()
+
             # Create ResourcesModel with a warehouse that matches the Genie warehouse_id
             resources = ResourcesModel(
                 warehouses={
@@ -466,11 +484,7 @@ class TestResourcesModelGenieIntegration:
                         name="existing-warehouse", warehouse_id="test-warehouse"
                     )
                 },
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room", space_id="test-space-123"
-                    )
-                },
+                genie_rooms={"my_genie": genie_model},
             )
 
             # Verify the manually-defined warehouse is kept
@@ -511,15 +525,21 @@ class TestResourcesModelGenieIntegration:
 
             mock_workspace_client.warehouses.get.side_effect = get_warehouse_side_effect
 
+            # Create GenieRoomModels and resolve before passing to ResourcesModel
+            genie_model_1 = GenieRoomModel(
+                name="genie-room-1", space_id="test-space-123"
+            )
+            genie_model_1.ensure_resolved()
+            genie_model_2 = GenieRoomModel(
+                name="genie-room-2", space_id="test-space-456"
+            )
+            genie_model_2.ensure_resolved()
+
             # Create ResourcesModel with multiple genie rooms
             resources = ResourcesModel(
                 genie_rooms={
-                    "genie_room_1": GenieRoomModel(
-                        name="genie-room-1", space_id="test-space-123"
-                    ),
-                    "genie_room_2": GenieRoomModel(
-                        name="genie-room-2", space_id="test-space-456"
-                    ),
+                    "genie_room_1": genie_model_1,
+                    "genie_room_2": genie_model_2,
                 }
             )
 
@@ -547,18 +567,18 @@ class TestResourcesModelGenieIntegration:
                 client_id="test-client-id", client_secret="test-client-secret"
             )
 
-            # Create ResourcesModel with authenticated genie room
-            resources = ResourcesModel(
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room",
-                        space_id="test-space-123",
-                        on_behalf_of_user=True,
-                        service_principal=service_principal,
-                        workspace_host="https://test.databricks.com",
-                    )
-                }
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room",
+                space_id="test-space-123",
+                on_behalf_of_user=True,
+                service_principal=service_principal,
+                workspace_host="https://test.databricks.com",
             )
+            genie_model.ensure_resolved()
+
+            # Create ResourcesModel with authenticated genie room
+            resources = ResourcesModel(genie_rooms={"my_genie": genie_model})
 
             # Verify warehouses inherit authentication
             for warehouse_key, warehouse in resources.warehouses.items():
@@ -578,13 +598,13 @@ class TestResourcesModelGenieIntegration:
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             mock_workspace_client.genie.get_space.return_value = mock_space
 
-            resources = ResourcesModel(
-                genie_rooms={
-                    "no_warehouse_genie": GenieRoomModel(
-                        name="no-warehouse-room", space_id="test-space-no-wh"
-                    )
-                }
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="no-warehouse-room", space_id="test-space-no-wh"
             )
+            genie_model.ensure_resolved()
+
+            resources = ResourcesModel(genie_rooms={"no_warehouse_genie": genie_model})
 
             # Should have no warehouses
             assert len(resources.warehouses) == 0
@@ -603,14 +623,14 @@ class TestResourcesModelGenieIntegration:
                 "Warehouse API error"
             )
 
-            # Should not raise an exception
-            resources = ResourcesModel(
-                genie_rooms={
-                    "my_genie": GenieRoomModel(
-                        name="my-genie-room", space_id="test-space-123"
-                    )
-                }
+            # Create GenieRoomModel and resolve before passing to ResourcesModel
+            genie_model = GenieRoomModel(
+                name="my-genie-room", space_id="test-space-123"
             )
+            genie_model.ensure_resolved()
+
+            # Should not raise an exception
+            resources = ResourcesModel(genie_rooms={"my_genie": genie_model})
 
             # No warehouses should be added due to API error
             assert len(resources.warehouses) == 0

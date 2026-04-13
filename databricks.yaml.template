@@ -9,6 +9,19 @@ artifacts:
     build: uv build
     path: .
 
+sync:
+  include:
+    - requirements.txt
+    - config/**
+    - data/**
+    - dist/*.whl
+    - examples/**
+    - functions/**
+    - functions/**/*.sql
+    - notebooks/*.py
+    - src/**
+    - tests/**
+
 variables:
   config_path:
     description: Path to the configuration file for the job.
@@ -27,7 +40,7 @@ resources:
       environments:
         - environment_key: dao-ai-env
           spec:
-            environment_version: "4"
+            environment_version: "5"
             dependencies:
               - -r ${workspace.file_path}/requirements.txt
       tasks:

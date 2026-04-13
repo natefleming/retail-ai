@@ -343,6 +343,17 @@ Examples:
         action="store_true",
         help="Overwrite existing files in the output directory",
     )
+    generate_bundle_parser.add_argument(
+        "--development",
+        action="store_true",
+        help="Include local dao-ai source code in the bundle for development testing",
+    )
+    generate_bundle_parser.add_argument(
+        "-p",
+        "--profile",
+        type=str,
+        help="The Databricks profile to use for config loading",
+    )
 
     # Deploy command
     deploy_parser: ArgumentParser = subparsers.add_parser(
@@ -899,7 +910,10 @@ def handle_deploy_command(options: Namespace) -> None:
         else:
             logger.info("No deployment target specified, defaulting to model_serving")
 
-        config.create_agent()
+        # Only log/register the MLflow model for Model Serving deployments.
+        # Apps deploy directly from the config + wheel/PyPI package.
+        if target != DeploymentTarget.APPS:
+            config.create_agent()
         config.deploy_agent(target=target)
         sys.exit(0)
     except Exception as e:
@@ -1468,7 +1482,6 @@ def handle_bundle_command(options: Namespace) -> None:
         )
     if options.run:
         logger.info("Running DAO AI system with current configuration...")
-        # Use static job resource key that matches databricks.yaml (resources.jobs.deploy_job)
         run_databricks_command(
             ["bundle", "run", "deploy_job"],
             profile=profile,
@@ -1489,7 +1502,7 @@ def handle_bundle_command(options: Namespace) -> None:
             dry_run=dry_run,
             deployment_target=deployment_target,
         )
-    else:
+    if not any([options.deploy, options.run, options.destroy]):
         logger.warning("No action specified. Use --deploy, --run or --destroy flags.")
 
 
@@ -1498,15 +1511,20 @@ def handle_generate_bundle_command(options: Namespace) -> None:
     config_path: str = options.config
     output_dir: str = options.output_dir
     force: bool = options.force
+    development: bool = options.development
+    profile: str | None = options.profile
 
-    config: AppConfig = AppConfig.from_file(config_path)
+    if profile:
+        os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+
+    config: AppConfig = AppConfig.from_file(config_path, initialize=False)
     if config.app is None:
         logger.error("Config must have an 'app' section to generate a bundle")
         sys.exit(1)
 
     from dao_ai.apps.bundle import write_bundle
 
-    write_bundle(config, Path(output_dir), force=force)
+    write_bundle(config, Path(output_dir), force=force, development=development)
 
 
 def main() -> None:
