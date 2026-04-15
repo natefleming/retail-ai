@@ -90,7 +90,7 @@ The command creates a self-contained bundle directory with everything needed to 
 | File | Description |
 |------|-------------|
 | `databricks.yaml` | Bundle definition with app config, resources, and scopes |
-| `dao_ai.yaml` | Copy of your dao-ai agent configuration |
+| `<config>.yaml` | Copy of your dao-ai agent configuration (retains its original filename) |
 | `pyproject.toml` | Python project with dao-ai dependency |
 | `uv.lock` | Locked dependency resolution |
 | `.gitignore` | Ignore patterns for build artifacts |
