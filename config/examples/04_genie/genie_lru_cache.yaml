@@ -56,7 +56,7 @@ tools:
     name: genie
     function:
       type: factory                                 # Tool type: factory function
-      name: dao_ai.tools.create_genie_tool       # Factory function path
+      name: dao_ai.tools.create_genie_toolkit    # Factory function path (toolkit bundles query + feedback tools)
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: Answers questions about retail products and inventory

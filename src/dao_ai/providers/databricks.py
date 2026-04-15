@@ -376,7 +376,18 @@ class DatabricksProvider(ServiceProvider):
         genie_rooms: Sequence[GenieRoomModel] = list(
             config.resources.genie_rooms.values()
         )
-        tables: Sequence[TableModel] = list(config.resources.tables.values())
+        # config.resources.tables may be empty if the update_genie_tables
+        # validator ran before Genie rooms were resolved.  Collect tables
+        # directly from resolved Genie rooms as a fallback so they are
+        # included in the SystemAuthPolicy for Model Serving.
+        tables_list: list[TableModel] = list(config.resources.tables.values())
+        existing_table_names: set[str] = {t.full_name for t in tables_list}
+        for genie_room in config.resources.genie_rooms.values():
+            for table in genie_room.tables:
+                if table.full_name not in existing_table_names:
+                    tables_list.append(table)
+                    existing_table_names.add(table.full_name)
+        tables: Sequence[TableModel] = tables_list
         functions: Sequence[FunctionModel] = list(config.resources.functions.values())
         connections: Sequence[ConnectionModel] = list(
             config.resources.connections.values()
@@ -581,6 +592,12 @@ class DatabricksProvider(ServiceProvider):
             )
             raise
 
+        if config.app.registered_model is None:
+            raise ValueError(
+                "registered_model is required in app config for model registration. "
+                "Please add a registered_model section to your config."
+            )
+
         registered_model_name: str = config.app.registered_model.full_name
 
         model_version: ModelVersion = mlflow.register_model(
@@ -677,6 +694,11 @@ class DatabricksProvider(ServiceProvider):
         mlflow.set_registry_uri("databricks-uc")
 
         endpoint_name: str = config.app.endpoint_name
+        if config.app.registered_model is None:
+            raise ValueError(
+                "registered_model is required in app config for deployment. "
+                "Please add a registered_model section to your config."
+            )
         registered_model_name: str = config.app.registered_model.full_name
         scale_to_zero: bool = config.app.scale_to_zero
         environment_vars: dict[str, str] = config.app.environment_vars

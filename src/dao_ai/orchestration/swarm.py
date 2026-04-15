@@ -328,6 +328,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # Create agent subgraphs with their specific handoff tools
     # Each agent gets handoff tools only for agents they're allowed to hand off to
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
+    agent_recursion_limits: dict[str, int | None] = {}
     deterministic_targets: dict[str, str] = {}
     memory: MemoryModel | None = orchestration.memory
 
@@ -433,6 +434,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             checkpointer=checkpointer,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
+        agent_recursion_limits[registered_agent.name] = registered_agent.recursion_limit
         logger.debug(
             "Created swarm agent subgraph",
             agent=registered_agent.name,
@@ -460,6 +462,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             agent=agent_subgraph,
             output_mode="last_message",
             reflection_executor=reflection_executor,
+            recursion_limit=agent_recursion_limits.get(agent_name),
         )
 
         # Wrap the handler for deterministic routing:

@@ -162,6 +162,21 @@ class GenieServiceBase(ABC):
         """
         pass
 
+    def invalidate(self, question: str, conversation_id: str | None = None) -> bool:
+        """Invalidate a cache entry by question text.
+
+        Non-caching implementations return False (no-op). Caching implementations
+        should remove matching entries and cascade to any wrapped services.
+
+        Args:
+            question: The question text to match and invalidate.
+            conversation_id: Optional conversation ID for more specific matching.
+
+        Returns:
+            True if an entry was found and removed, False otherwise.
+        """
+        return False
+
 
 @dataclass
 class SQLCacheEntry:

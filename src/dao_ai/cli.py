@@ -21,6 +21,14 @@ from dao_ai.utils import normalize_name
 
 configure_logging(level="ERROR")
 
+DATABRICKS_AUTH_ENV_VARS: list[str] = [
+    "DATABRICKS_TOKEN",
+    "DATABRICKS_CLIENT_ID",
+    "DATABRICKS_CLIENT_SECRET",
+    "DATABRICKS_HOST",
+    "DATABRICKS_AUTH_TYPE",
+]
+
 
 def get_default_user_id() -> str:
     """
@@ -63,16 +71,16 @@ def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
     Returns:
         Cloud provider string ('azure', 'aws', 'gcp') or None if detection fails
     """
+    saved_vars: dict[str, str] = {}
     try:
         import os
 
         from databricks.sdk import WorkspaceClient
 
-        # Check for environment variables that might override profile
-        if profile and os.environ.get("DATABRICKS_HOST"):
-            logger.warning(
-                f"DATABRICKS_HOST environment variable is set, which may override --profile {profile}"
-            )
+        if profile:
+            for var in DATABRICKS_AUTH_ENV_VARS:
+                if var in os.environ:
+                    saved_vars[var] = os.environ.pop(var)
 
         # Create workspace client with optional profile
         if profile:
@@ -98,7 +106,6 @@ def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
             logger.debug(f"Detected GCP cloud from workspace URL: {host}")
             return "gcp"
         elif ".cloud.databricks.com" in host_lower or "databricks.com" in host_lower:
-            # AWS uses *.cloud.databricks.com or regional patterns
             logger.debug(f"Detected AWS cloud from workspace URL: {host}")
             return "aws"
         else:
@@ -108,6 +115,8 @@ def detect_cloud_provider(profile: Optional[str] = None) -> Optional[str]:
     except Exception as e:
         logger.warning(f"Could not detect cloud provider: {e}")
         return None
+    finally:
+        os.environ.update(saved_vars)
 
 
 env_path: str = find_dotenv()
@@ -145,6 +154,13 @@ Examples:
         required=True,
         help="Available commands for managing the DAO AI system",
         metavar="COMMAND",
+    )
+
+    # Version command
+    _version_parser: ArgumentParser = subparsers.add_parser(
+        "version",
+        help="Show dao-ai version and environment information",
+        description="Display the dao-ai version along with Python, key dependency versions, and platform details.",
     )
 
     # Schema command
@@ -1268,6 +1284,56 @@ def handle_list_mcp_tools_command(options: Namespace) -> None:
         sys.exit(1)
 
 
+def handle_version_command(options: Namespace) -> None:
+    """Display dao-ai version and environment information."""
+    import platform
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as pkg_version
+
+    from dao_ai.utils import dao_ai_version, is_published
+
+    print(f"dao-ai {dao_ai_version()}")
+    print(f"  Published: {is_published()}")
+    print(f"  Python:    {platform.python_version()}")
+    print(f"  Platform:  {platform.platform()}")
+
+    deps = [
+        "mlflow",
+        "langchain-core",
+        "langgraph",
+        "langchain",
+        "databricks-sdk",
+        "databricks-langchain",
+        "databricks-ai-bridge",
+        "pydantic",
+    ]
+    print("  Dependencies:")
+    for dep in deps:
+        try:
+            v = pkg_version(dep)
+            print(f"    {dep}: {v}")
+        except PackageNotFoundError:
+            print(f"    {dep}: not installed")
+
+    # Databricks auth info
+    host = os.environ.get("DATABRICKS_HOST")
+    profile = os.environ.get("DATABRICKS_CONFIG_PROFILE")
+    if host:
+        print(f"  Databricks Host:    {host}")
+    if profile:
+        print(f"  Databricks Profile: {profile}")
+    if not host:
+        try:
+            from databricks.sdk import WorkspaceClient
+
+            w = WorkspaceClient()
+            print(f"  Databricks Host:    {w.config.host}")
+            if w.config.auth_type:
+                print(f"  Auth Type:          {w.config.auth_type}")
+        except Exception:
+            pass
+
+
 def setup_logging(verbosity: int) -> None:
     levels: dict[int, str] = {
         0: "ERROR",
@@ -1431,6 +1497,11 @@ def run_databricks_command(
         logger.info(f"[DRY RUN] Would execute: {' '.join(cmd)}")
         return
 
+    env = os.environ.copy()
+    if profile:
+        for var in DATABRICKS_AUTH_ENV_VARS:
+            env.pop(var, None)
+
     try:
         process = subprocess.Popen(
             cmd,
@@ -1439,6 +1510,7 @@ def run_databricks_command(
             text=True,
             bufsize=1,
             universal_newlines=True,
+            env=env,
         )
 
         for line in iter(process.stdout.readline, ""):
@@ -1522,6 +1594,9 @@ def handle_generate_bundle_command(options: Namespace) -> None:
         logger.error("Config must have an 'app' section to generate a bundle")
         sys.exit(1)
 
+    # Resolve resources so Genie room tables and warehouses can be discovered
+    config._resolve_all_resources()
+
     from dao_ai.apps.bundle import write_bundle
 
     write_bundle(config, Path(output_dir), force=force, development=development)
@@ -1531,6 +1606,8 @@ def main() -> None:
     options: argparse.Namespace = parse_args(sys.argv[1:])
     setup_logging(options.verbose)
     match options.command:
+        case "version":
+            handle_version_command(options)
         case "schema":
             handle_schema_command(options)
         case "validate":

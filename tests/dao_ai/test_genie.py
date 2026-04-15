@@ -29,7 +29,7 @@ from dao_ai.genie.cache import (
     PostgresContextAwareGenieService,
     SQLCacheEntry,
 )
-from dao_ai.tools.genie import create_genie_tool
+from dao_ai.tools.genie import GenieToolkit, create_genie_tool, create_genie_toolkit
 
 
 @pytest.mark.slow
@@ -1781,11 +1781,9 @@ class TestLRUCacheServiceIntegration:
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
 def test_create_genie_tool_with_cache_parameters() -> None:
-    """Test creating a genie tool with LRU cache parameters."""
+    """Test creating a genie toolkit with LRU cache parameters."""
     from dao_ai.config import WarehouseModel
 
-    # Create a mock warehouse model for testing
-    # In real integration, you would use actual Databricks credentials
     with patch("dao_ai.tools.genie.Genie") as mock_genie_class:
         mock_genie_instance = Mock()
         mock_genie_instance.ask_question = Mock(
@@ -1803,7 +1801,6 @@ def test_create_genie_tool_with_cache_parameters() -> None:
             space_id=os.environ.get("RETAIL_AI_GENIE_SPACE_ID"),
         )
 
-        # Create mock warehouse with IsDatabricksResource attrs
         mock_warehouse = Mock(spec=WarehouseModel)
         mock_warehouse.name = "Test Warehouse"
         mock_warehouse.warehouse_id = "test-warehouse"
@@ -1816,14 +1813,15 @@ def test_create_genie_tool_with_cache_parameters() -> None:
             time_to_live_seconds=7200,
         )
 
-        tool = create_genie_tool(
+        toolkit = create_genie_toolkit(
             genie_room=genie_room,
             name="cached_genie_tool",
             lru_cache_parameters=cache_params,
         )
 
-        assert isinstance(tool, StructuredTool)
-        assert tool.name == "cached_genie_tool"
+        assert isinstance(toolkit, GenieToolkit)
+        tools = toolkit.get_tools()
+        assert any(t.name == "cached_genie_tool" for t in tools)
 
 
 # =============================================================================
@@ -2210,6 +2208,7 @@ class TestPostgresContextAwareCacheOperations:
         params.ivfflat_lists = 100
         params.ivfflat_probes = 10
         params.ivfflat_candidates = 20
+        params.invalidate_on_empty_result = False
 
         # Query results order during initialization:
         # 1. dimension check - table doesn't exist (None)
@@ -2853,6 +2852,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.ivfflat_lists = 100
         semantic_params.ivfflat_probes = 10
         semantic_params.ivfflat_candidates = 20
+        semantic_params.invalidate_on_empty_result = False
 
         mock_pool.set_query_results([None, None])
 
@@ -2866,6 +2866,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         lru_params.warehouse = mock_warehouse
         lru_params.capacity = 100
         lru_params.time_to_live_seconds = 3600
+        lru_params.invalidate_on_empty_result = False
 
         lru_cache = LRUCacheService(
             impl=context_aware_cache,
@@ -2948,6 +2949,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.ivfflat_lists = 100
         semantic_params.ivfflat_probes = 10
         semantic_params.ivfflat_candidates = 20
+        semantic_params.invalidate_on_empty_result = False
 
         cached_time = datetime.now(timezone.utc)
 
@@ -3004,6 +3006,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         lru_params.warehouse = mock_warehouse
         lru_params.capacity = 100
         lru_params.time_to_live_seconds = 3600
+        lru_params.invalidate_on_empty_result = False
 
         lru_cache = LRUCacheService(
             impl=context_aware_cache,
@@ -3087,6 +3090,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         semantic_params.ivfflat_lists = 100
         semantic_params.ivfflat_probes = 10
         semantic_params.ivfflat_candidates = 20
+        semantic_params.invalidate_on_empty_result = False
 
         cached_time = datetime.now(timezone.utc)
 
@@ -3132,6 +3136,7 @@ class TestLRUPlusContextAwareCacheIntegration:
         lru_params.warehouse = mock_warehouse
         lru_params.capacity = 100
         lru_params.time_to_live_seconds = 3600
+        lru_params.invalidate_on_empty_result = False
 
         lru_cache = LRUCacheService(
             impl=context_aware_cache,

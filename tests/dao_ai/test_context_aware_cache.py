@@ -273,6 +273,7 @@ class TestPostgresContextAwareCacheContext:
         params.ivfflat_lists = 100
         params.ivfflat_probes = 10
         params.ivfflat_candidates = 20
+        params.invalidate_on_empty_result = False
         params.database = Mock(spec=DatabaseModel)
         params.database.on_behalf_of_user = False
         params.database.name = "test_db"
@@ -749,6 +750,7 @@ class TestPostgresContextAwareCacheGetEntries:
         params.table_name = "genie_context_aware_cache"
         params.prompt_history_table = "genie_prompt_history"
         params.max_prompt_history_length = 50
+        params.invalidate_on_empty_result = False
         return params
 
     def _create_mock_pool(self) -> Mock:

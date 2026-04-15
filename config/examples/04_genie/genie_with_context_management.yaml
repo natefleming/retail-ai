@@ -1,0 +1,97 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Sales & Pricing Analytics - Sporting Goods (Genie Agent)
+# =============================================================================
+# A Genie agent for sales performance analysis, pricing strategy, margin
+# analytics, promotional effectiveness, and revenue tracking across stores
+# and channels. Uses Claude Sonnet 4.5 with:
+# - Conversation summarization (auto-summarize long conversations)
+# - Context editing middleware (clear older tool outputs)
+#
+# Uses the aws-field-eng Databricks CLI profile:
+#   export DATABRICKS_CONFIG_PROFILE=aws-field-eng
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+      temperature: 0.1
+      max_tokens: 8192
+      on_behalf_of_user: false
+
+    summarization_llm: &summarization_llm
+      name: databricks-gpt-5-4-mini
+      temperature: 0.1
+      max_tokens: 1024
+
+  genie_rooms:
+    genie_room: &genie_room
+      name: "Sales and Pricing Analytics - Sporting Goods"
+      description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
+      space_id: 01f124c2690f1dcb93a15057c2a74339
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
+        name: sporting_goods_analytics
+        description: Analyze sales performance, pricing strategies, margins, promotions, and revenue across stores and channels for sporting goods
+        genie_room: *genie_room
+
+middleware:
+  context_editor: &context_editor
+    name: dao_ai.middleware.create_context_editing_middleware
+    args:
+      trigger: 80000              # Clear old tool outputs when context exceeds ~80k tokens
+      keep: 6                     # Preserve last 6 tool outputs (2 full rounds of 3 data sources)
+      placeholder: "[cleared - re-run query if needed]"
+
+agents:
+  genie_agent: &genie_agent
+    name: genie_agent
+    description: "Sales & Pricing Analytics Agent for Sporting Goods"
+    model: *default_llm
+    tools:
+      - *genie_tool
+    middleware:
+      - *context_editor
+    prompt: |
+      You are a sales and pricing analytics assistant for a sporting goods retailer.
+      You help users explore sales performance, pricing strategies, profit margins,
+      promotional effectiveness, and revenue trends across stores and channels.
+
+      Use the sporting_goods_analytics tool to query data. When presenting results:
+      - Highlight key trends, outliers, and actionable insights
+      - Compare metrics across stores, channels, or time periods when relevant
+      - Format currency values and percentages clearly
+      - Proactively suggest follow-up analyses that could deepen understanding
+
+      If you see "[cleared - re-run query if needed]" in previous tool outputs,
+      those results have been removed for context management. You can re-run
+      queries if needed.
+
+app:
+  name: genie_context_managed
+  description: "Sales & pricing analytics agent for sporting goods with summarization and context management"
+  log_level: DEBUG
+  deployment_target: apps
+  agents:
+    - *genie_agent
+
+  chat_history:
+    model: *summarization_llm
+    max_tokens: 4096                               # Tokens to keep after summarization
+    max_tokens_before_summary: 12000               # Trigger summarization at ~12k tokens
+
+  input_example:
+    messages:
+      - role: user
+        content: What were our top-selling product categories last quarter?
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+      session: {}

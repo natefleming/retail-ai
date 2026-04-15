@@ -60,9 +60,21 @@ import dao_ai.memory.databricks
 
 # COMMAND ----------
 
-# DBTITLE 1,Enable Nest Asyncio for Compatibility
-import nest_asyncio
-nest_asyncio.apply()
+# DBTITLE 1,Set Up Dedicated Async Event Loop Thread
+import asyncio
+import threading
+
+_eval_loop = asyncio.new_event_loop()
+_eval_thread = threading.Thread(target=_eval_loop.run_forever, daemon=True)
+_eval_thread.start()
+
+def run_async(coro):
+    """Run an async coroutine on the dedicated event loop thread.
+    
+    All async operations (agent predictions) must run on the same event loop
+    to avoid asyncio.Lock cross-loop errors with nest_asyncio.
+    """
+    return asyncio.run_coroutine_threadsafe(coro, _eval_loop).result()
 
 # COMMAND ----------
 
@@ -152,16 +164,16 @@ def _extract_output_text(response: ResponsesAgentResponse) -> str:
     return "".join(texts) if texts else str(response.output)
 
 
-def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any] | None) -> str:
-    import asyncio
+_predict_lock = threading.Lock()
 
-    request = ResponsesAgentRequest(
-        input=[{"role": m["role"], "content": m["content"]} for m in messages],
-        custom_inputs=custom_inputs,
-    )
-    loop = asyncio.get_event_loop()
-    response: ResponsesAgentResponse = loop.run_until_complete(app.apredict(request))
-    return _extract_output_text(response)
+def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any] | None) -> str:
+    with _predict_lock:
+        request = ResponsesAgentRequest(
+            input=[{"role": m["role"], "content": m["content"]} for m in messages],
+            custom_inputs=custom_inputs,
+        )
+        response: ResponsesAgentResponse = run_async(app.apredict(request))
+        return _extract_output_text(response)
 
 
 @mlflow.trace(name="evaluation", span_type="CHAIN")
