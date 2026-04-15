@@ -359,6 +359,9 @@ dao-ai bundle --deploy --run -c config/my_config.yaml
 dao-ai bundle --deploy -c config/my_config.yaml --profile aws-field-eng
 dao-ai bundle --deploy -c config/my_config.yaml --profile azure-retail
 
+# Generate a deployable Databricks Apps bundle
+dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
+
 # Interactive chat with agent
 dao-ai chat -c config/my_config.yaml
 ```

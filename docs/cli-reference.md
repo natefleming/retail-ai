@@ -73,6 +73,72 @@ Preview commands without executing:
 dao-ai bundle --deploy -c config/my_config.yaml --profile aws-field-eng --dry-run
 ```
 
+## Generate Bundle
+
+Generate a complete, deployable Databricks Apps bundle directory from a dao-ai config file. This is distinct from the `bundle` command -- while `bundle` wraps `databricks bundle deploy/run/destroy`, `generate-bundle` **creates** the bundle project itself.
+
+### Basic Usage
+
+```bash
+dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle
+```
+
+### What Gets Generated
+
+The command creates a self-contained bundle directory with everything needed to deploy a Databricks App:
+
+| File | Description |
+|------|-------------|
+| `databricks.yaml` | Bundle definition with app config, resources, and scopes |
+| `dao_ai.yaml` | Copy of your dao-ai agent configuration |
+| `pyproject.toml` | Python project with dao-ai dependency |
+| `uv.lock` | Locked dependency resolution |
+| `.gitignore` | Ignore patterns for build artifacts |
+| `.python-version` | Python version pin (3.11) |
+| `src/<package>/` | Stub package for custom code |
+
+### Overwriting Existing Files
+
+If the output directory already contains generated files, they are skipped by default. Use `--force` to overwrite:
+
+```bash
+dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --force
+```
+
+### Using a Databricks Profile
+
+If your config references workspace resources (Genie rooms, warehouses, etc.), specify a profile so they can be resolved during generation:
+
+```bash
+dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --profile my-workspace
+```
+
+### Development Mode
+
+Use `--development` to bundle a local build of dao-ai instead of pulling from PyPI. This is useful when testing unreleased dao-ai changes in a deployed app.
+
+```bash
+dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --development
+```
+
+Development mode changes the generated bundle in several ways:
+
+- **Local wheel**: Copies the dao-ai wheel from `dist/` into the bundle. If no wheel exists, one is built automatically via `uv build --wheel`.
+- **Path dependency**: The generated `pyproject.toml` uses a `[tool.uv.sources]` path dependency pointing at the local wheel instead of pinning a PyPI version.
+- **No artifacts block**: The `databricks.yaml` omits the `artifacts` section so the wheel uploads as a regular source file rather than being intercepted by the artifact system.
+- **Adjusted .gitignore**: The `dist/` directory is not ignored, since the wheel must be included in the bundle.
+
+### Next Steps
+
+After generating the bundle, the command prints the next steps:
+
+```bash
+cd ./my-bundle
+uv sync
+databricks bundle deploy --target dev
+databricks bundle run <app-name> --target dev
+```
+
 ## Interactive Chat
 
 Start an interactive chat session with your agent:
@@ -236,6 +302,20 @@ dao-ai bundle -c config/my_config.yaml [OPTIONS]
 | `--cloud {azure,aws,gcp}` | Cloud provider (auto-detected if not specified) |
 | `-t, --target NAME` | Bundle target name (auto-generated if not specified) |
 | `--dry-run` | Preview commands without executing |
+
+### Generate Bundle Options
+
+```bash
+dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle [OPTIONS]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-c, --config FILE` | Path to the dao-ai configuration file (required) |
+| `-o, --output-dir DIR` | Output directory for generated files (default: `.`) |
+| `--force` | Overwrite existing files in the output directory |
+| `--development` | Bundle a local dao-ai wheel instead of a PyPI dependency |
+| `-p, --profile NAME` | Databricks profile for config loading and resource resolution |
 
 ### Chat Options
 
