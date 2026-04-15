@@ -256,7 +256,11 @@ def _convert_to_bundle_resources(
     return result
 
 
-def generate_databricks_yaml(config: AppConfig, development: bool = False) -> str:
+def generate_databricks_yaml(
+    config: AppConfig,
+    development: bool = False,
+    config_filename: str = "dao_ai.yaml",
+) -> str:
     """Generate a complete databricks.yaml bundle definition from an AppConfig.
 
     Reuses generate_app_resources(), _extract_env_vars_from_config(), and
@@ -279,7 +283,7 @@ def generate_databricks_yaml(config: AppConfig, development: bool = False) -> st
         {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
         {"name": "MLFLOW_REGISTRY_URI", "value": "databricks-uc"},
         {"name": "MLFLOW_EXPERIMENT_ID", "value_from": "experiment"},
-        {"name": "DAO_AI_CONFIG_PATH", "value": "dao_ai.yaml"},
+        {"name": "DAO_AI_CONFIG_PATH", "value": config_filename},
     ]
 
     if enable_chat_proxy:
@@ -413,25 +417,31 @@ def write_bundle(
         else:
             skipped.append(path.name)
 
-    _track(
-        output_dir / "databricks.yaml",
-        generate_databricks_yaml(config, development=development),
+    source_config: str | None = getattr(config, "_source_config_path", None)
+    config_filename: str = (
+        Path(source_config).name if source_config else "dao_ai.yaml"
     )
 
-    source_config: str | None = getattr(config, "_source_config_path", None)
+    _track(
+        output_dir / "databricks.yaml",
+        generate_databricks_yaml(
+            config, development=development, config_filename=config_filename
+        ),
+    )
+
     if source_config:
-        dest = output_dir / "dao_ai.yaml"
+        dest = output_dir / config_filename
         if dest.exists() and not force:
             print(
-                "  WARNING: Skipping dao_ai.yaml (already exists, use --force to overwrite)"
+                f"  WARNING: Skipping {config_filename} (already exists, use --force to overwrite)"
             )
-            skipped.append("dao_ai.yaml")
+            skipped.append(config_filename)
         else:
             shutil.copy2(source_config, dest)
-            logger.info("Copied config as dao_ai.yaml")
-            written.append("dao_ai.yaml")
+            logger.info(f"Copied config as {config_filename}")
+            written.append(config_filename)
     else:
-        logger.warning("No source config path found -- skipping dao_ai.yaml copy")
+        logger.warning("No source config path found -- skipping config copy")
 
     package_name = app_name.replace("-", "_")
 
