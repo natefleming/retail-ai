@@ -56,26 +56,26 @@ print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
 # COMMAND ----------
 
-import os, glob
+import sys, os, glob, subprocess
 
 _wheels = sorted(glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl"))
 if _wheels:
-    _dao_ai_install = f"--force-reinstall {_wheels[-1]}"
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[-1]])
     print(f"dao-ai source: local wheel ({os.path.basename(_wheels[-1])})")
+elif os.path.isdir("../src/dao_ai"):
+    sys.path.insert(0, "../src")
+    print("dao-ai source: source path")
 else:
-    _dao_ai_install = "dao-ai"
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "dao-ai"])
     print("dao-ai source: PyPI")
 
 # COMMAND ----------
 
-# MAGIC %pip install --quiet {_dao_ai_install}
-# MAGIC %restart_python
-
-# COMMAND ----------
-
-from importlib.metadata import version as _meta_version
-
-print(f"dao-ai version: {_meta_version('dao-ai')}")
+try:
+    from importlib.metadata import version as _meta_version
+    print(f"dao-ai version: {_meta_version('dao-ai')}")
+except Exception:
+    print("dao-ai version: dev (source path)")
 
 # COMMAND ----------
 

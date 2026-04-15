@@ -94,6 +94,19 @@
           "default": null,
           "description": "Structured output format (Pydantic type, JSON schema, or ResponseFormatModel).",
           "title": "Response Format"
+        },
+        "recursion_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of graph supersteps (LLM call + tool execution cycles) allowed per agent invocation. Prevents runaway iteration loops in tool-calling agents. When null, uses LangGraph's default (25).",
+          "title": "Recursion Limit"
         }
       },
       "required": [
@@ -152,8 +165,16 @@
           "description": "Logging verbosity level (TRACE, DEBUG, INFO, WARNING, ERROR)."
         },
         "registered_model": {
-          "$ref": "#/$defs/RegisteredModelModel",
-          "description": "Unity Catalog registered model where the agent is logged."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegisteredModelModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unity Catalog registered model where the agent is logged. Required for model registration and deployment."
         },
         "endpoint_name": {
           "anyOf": [
@@ -193,6 +214,19 @@
           "default": true,
           "description": "Whether the serving endpoint scales to zero when idle.",
           "title": "Scale To Zero"
+        },
+        "enable_chat_proxy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": true,
+          "description": "Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
+          "title": "Enable Chat Proxy"
         },
         "environment_vars": {
           "anyOf": [
@@ -466,8 +500,7 @@
         }
       },
       "required": [
-        "name",
-        "registered_model"
+        "name"
       ],
       "title": "AppModel",
       "type": "object"
@@ -1471,8 +1504,8 @@
               "type": "null"
             }
           ],
-          "default": 10,
-          "description": "Connection timeout in seconds.",
+          "default": null,
+          "description": "Connection timeout in seconds. Defaults to 120 for autoscaling Lakebase (to allow endpoint wake-up) and 30 for other database types.",
           "title": "Timeout Seconds"
         },
         "branch": {

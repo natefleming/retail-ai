@@ -1,7 +1,7 @@
 -- Function to find store-specific inventory details by SKU
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_store_inventory_by_sku(
   store STRING COMMENT 'Store identifier to filter inventory by specific store location',
-  sku ARRAY<STRING> COMMENT 'One or more SKU identifiers to retrieve inventory for. SKU format is typically 3 letters, a dash, 3 letters, a dash, and 3 digits (e.g., NKE-RUN-001)'
+  sku ARRAY<STRING> COMMENT 'REQUIRED list of one or more SKU identifiers to look up. Must contain at least one value — do NOT pass NULL or an empty array. Use product_vector_search to find SKUs first if you only know product descriptions. SKU format: 3 letters-3 letters-3 digits (e.g., NKE-RUN-001)'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -24,7 +24,7 @@ RETURNS TABLE(
   ,trend_direction STRING COMMENT 'Current sales trend (increasing, stable, decreasing)'
 )
 READS SQL DATA
-COMMENT 'Retrieves detailed inventory information for sporting goods products by SKU at a specific store location. Use for store-level stock checks and availability.'
+COMMENT 'Retrieves detailed inventory information for specific products by SKU at a specific store location. Both store and sku are required. For broad inventory queries without specific SKUs, use the Genie analytics tool instead.'
 RETURN 
 SELECT 
   inventory_id

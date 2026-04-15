@@ -295,7 +295,7 @@ def test_resource_models_on_behalf_of_user():
 def test_table_model_api_scopes():
     """Test TableModel API scopes."""
     table = TableModel(name="my_table")
-    assert table.api_scopes == []
+    assert table.api_scopes == ["sql.statement-execution"]
 
 
 @pytest.mark.unit

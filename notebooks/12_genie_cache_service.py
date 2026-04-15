@@ -24,12 +24,19 @@
 
 # COMMAND ----------
 
-import sys
-from importlib.metadata import version
+import sys, os, glob, subprocess
 
-sys.path.insert(0, "../src")
+_wheels = glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl")
+if _wheels:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[0]])
+elif os.path.isdir("../src/dao_ai"):
+    sys.path.insert(0, "../src")
 
-print(f"dao-ai=={version('dao-ai')}")
+try:
+    from importlib.metadata import version
+    print(f"dao-ai=={version('dao-ai')}")
+except Exception:
+    print("dao-ai==dev (source path)")
 
 # COMMAND ----------
 

@@ -98,7 +98,7 @@ graph TB
 genie_tool:
   function:
     type: factory
-    name: dao_ai.tools.create_genie_tool
+    name: dao_ai.tools.create_genie_toolkit
     args:
       genie_room: *retail_genie_room
       
@@ -128,7 +128,7 @@ genie_tool:
 genie_tool:
   function:
     type: factory
-    name: dao_ai.tools.create_genie_tool
+    name: dao_ai.tools.create_genie_toolkit
     args:
       genie_room: *retail_genie_room
       

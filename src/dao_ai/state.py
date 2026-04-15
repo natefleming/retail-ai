@@ -40,6 +40,9 @@ class GenieSpaceState(BaseModel):
     last_query_time: Optional[datetime] = Field(
         default=None, description="When the last query was made"
     )
+    message_id: Optional[str] = Field(
+        default=None, description="Message ID from the last Genie response"
+    )
 
 
 class GenieState(BaseModel):
@@ -66,6 +69,7 @@ class GenieState(BaseModel):
         cache_key: Optional[str] = None,
         follow_up_questions: Optional[list[str]] = None,
         last_query: Optional[str] = None,
+        message_id: Optional[str] = None,
     ) -> None:
         """Update or create state for a Genie space."""
         self.spaces[space_id] = GenieSpaceState(
@@ -75,6 +79,7 @@ class GenieState(BaseModel):
             follow_up_questions=follow_up_questions or [],
             last_query=last_query,
             last_query_time=datetime.now() if last_query else None,
+            message_id=message_id,
         )
 
 

@@ -234,126 +234,131 @@ class AsyncPostgresPoolManager:
 
     _pools: dict[str, AsyncConnectionPool] = {}
     _lakebase_pools: dict[str, AsyncLakebasePool] = {}
-    _lock: asyncio.Lock = asyncio.Lock()
+    _creating: set[str] = set()
+    _lock: threading.Lock = threading.Lock()
 
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
         connection_key: str = database.name
 
-        async with cls._lock:
+        with cls._lock:
             if connection_key in cls._pools:
                 logger.trace(
                     "Reusing existing async PostgreSQL pool", database=database.name
                 )
                 return cls._pools[connection_key]
 
-            logger.debug("Creating new async PostgreSQL pool", database=database.name)
+        logger.debug("Creating new async PostgreSQL pool", database=database.name)
 
-            if database.is_lakebase_provisioned:
-                # AsyncLakebasePool handles token rotation and host resolution
-                lakebase_pool = _create_async_lakebase_pool(
-                    database,
-                    min_size=1,
-                    max_size=database.max_pool_size,
-                    timeout=float(database.timeout_seconds),
-                )
-                await lakebase_pool.open()
+        if database.is_lakebase_provisioned:
+            lakebase_pool = _create_async_lakebase_pool(
+                database,
+                min_size=1,
+                max_size=database.max_pool_size,
+                timeout=float(database.timeout_seconds),
+            )
+            await lakebase_pool.open()
+            with cls._lock:
                 cls._lakebase_pools[connection_key] = lakebase_pool
-                pool = lakebase_pool.pool
+            pool = lakebase_pool.pool
+            logger.success(
+                "Async Lakebase provisioned pool created",
+                database=database.name,
+                instance=database.instance_name,
+                pool_size=database.max_pool_size,
+            )
+        else:
+            connection_params: dict[str, Any] = database.connection_params
+            kwargs: dict[str, Any] = {
+                "row_factory": dict_row,
+                "autocommit": True,
+            } | database.connection_kwargs or {}
+
+            pool = await _create_async_pool(
+                connection_params=connection_params,
+                database_name=database.name,
+                max_pool_size=database.max_pool_size,
+                timeout_seconds=database.timeout_seconds,
+                kwargs=kwargs,
+            )
+            if database.is_lakebase_autoscaling:
                 logger.success(
-                    "Async Lakebase provisioned pool created",
+                    "Async Lakebase autoscaling pool created",
                     database=database.name,
-                    instance=database.instance_name,
+                    project=database.project,
                     pool_size=database.max_pool_size,
                 )
-            else:
-                # Autoscaling Lakebase and standard PostgreSQL use connection_params
-                connection_params: dict[str, Any] = database.connection_params
-                kwargs: dict[str, Any] = {
-                    "row_factory": dict_row,
-                    "autocommit": True,
-                } | database.connection_kwargs or {}
 
-                pool = await _create_async_pool(
-                    connection_params=connection_params,
-                    database_name=database.name,
-                    max_pool_size=database.max_pool_size,
-                    timeout_seconds=database.timeout_seconds,
-                    kwargs=kwargs,
-                )
-                if database.is_lakebase_autoscaling:
-                    logger.success(
-                        "Async Lakebase autoscaling pool created",
-                        database=database.name,
-                        project=database.project,
-                        pool_size=database.max_pool_size,
-                    )
-
+        with cls._lock:
             cls._pools[connection_key] = pool
-            return pool
+        return pool
 
     @classmethod
     async def close_pool(cls, database: DatabaseModel):
         connection_key: str = database.name
 
-        async with cls._lock:
-            # Close AsyncLakebasePool if it exists (handles underlying pool cleanup)
-            if connection_key in cls._lakebase_pools:
-                lakebase_pool = cls._lakebase_pools.pop(connection_key)
-                await lakebase_pool.close()
+        with cls._lock:
+            lakebase_pool = cls._lakebase_pools.pop(connection_key, None)
+            pool = cls._pools.pop(connection_key, None) if not lakebase_pool else None
+            if lakebase_pool:
                 cls._pools.pop(connection_key, None)
-                logger.debug("Async Lakebase pool closed", database=database.name)
-            elif connection_key in cls._pools:
-                pool = cls._pools.pop(connection_key)
-                await pool.close()
-                logger.debug("Async PostgreSQL pool closed", database=database.name)
+
+        if lakebase_pool:
+            await lakebase_pool.close()
+            logger.debug("Async Lakebase pool closed", database=database.name)
+        elif pool:
+            await pool.close()
+            logger.debug("Async PostgreSQL pool closed", database=database.name)
 
     @classmethod
     async def close_all_pools(cls):
-        async with cls._lock:
-            # Close all AsyncLakebasePool instances first
-            for connection_key, lakebase_pool in cls._lakebase_pools.items():
-                try:
-                    await asyncio.wait_for(lakebase_pool.close(), timeout=2.0)
-                    logger.debug("Async Lakebase pool closed", pool=connection_key)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Timeout closing async Lakebase pool, forcing closure",
-                        pool=connection_key,
-                    )
-                except asyncio.CancelledError:
-                    logger.warning(
-                        "Async Lakebase pool closure cancelled (shutdown in progress)",
-                        pool=connection_key,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Error closing async Lakebase pool",
-                        pool=connection_key,
-                        error=str(e),
-                    )
+        with cls._lock:
+            lakebase_snapshot = dict(cls._lakebase_pools)
+            pool_snapshot = dict(cls._pools)
             cls._lakebase_pools.clear()
-
-            # Close any remaining standard async PostgreSQL pools
-            for connection_key, pool in cls._pools.items():
-                try:
-                    await asyncio.wait_for(pool.close(), timeout=2.0)
-                    logger.debug("Async PostgreSQL pool closed", pool=connection_key)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Timeout closing async pool, forcing closure",
-                        pool=connection_key,
-                    )
-                except asyncio.CancelledError:
-                    logger.warning(
-                        "Async pool closure cancelled (shutdown in progress)",
-                        pool=connection_key,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Error closing async pool", pool=connection_key, error=str(e)
-                    )
             cls._pools.clear()
+
+        for connection_key, lakebase_pool in lakebase_snapshot.items():
+            try:
+                await asyncio.wait_for(lakebase_pool.close(), timeout=2.0)
+                logger.debug("Async Lakebase pool closed", pool=connection_key)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout closing async Lakebase pool, forcing closure",
+                    pool=connection_key,
+                )
+            except asyncio.CancelledError:
+                logger.warning(
+                    "Async Lakebase pool closure cancelled (shutdown in progress)",
+                    pool=connection_key,
+                )
+            except Exception as e:
+                logger.error(
+                    "Error closing async Lakebase pool",
+                    pool=connection_key,
+                    error=str(e),
+                )
+
+        for connection_key, pool in pool_snapshot.items():
+            if connection_key in lakebase_snapshot:
+                continue
+            try:
+                await asyncio.wait_for(pool.close(), timeout=2.0)
+                logger.debug("Async PostgreSQL pool closed", pool=connection_key)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout closing async pool, forcing closure",
+                    pool=connection_key,
+                )
+            except asyncio.CancelledError:
+                logger.warning(
+                    "Async pool closure cancelled (shutdown in progress)",
+                    pool=connection_key,
+                )
+            except Exception as e:
+                logger.error(
+                    "Error closing async pool", pool=connection_key, error=str(e)
+                )
 
 
 class AsyncPostgresStoreManager(StoreManagerBase):

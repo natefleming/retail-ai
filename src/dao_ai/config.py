@@ -678,7 +678,7 @@ class TableModel(IsDatabricksResource, HasFullName):
 
     @property
     def api_scopes(self) -> Sequence[str]:
-        return []
+        return ["sql.statement-execution"]
 
     def exists(self) -> bool:
         """Check if the table exists in Unity Catalog.
@@ -1812,9 +1812,18 @@ class DatabaseModel(IsDatabricksResource):
     timeout_seconds: Optional[int] = Field(
         default=None,
         description=(
-            "Connection timeout in seconds. "
+            "Pool-level timeout in seconds (how long to wait for a free connection). "
             "Defaults to 120 for autoscaling Lakebase (to allow endpoint wake-up) "
             "and 30 for other database types."
+        ),
+    )
+    connect_timeout: Optional[int] = Field(
+        default=None,
+        description=(
+            "TCP-level connection timeout in seconds passed to libpq via psycopg. "
+            "Limits how long a new connection attempt waits for the database to respond. "
+            "Defaults to 30 for autoscaling Lakebase (suspended endpoints need wake-up time) "
+            "and 10 for other database types."
         ),
     )
     # --- Autoscaling Lakebase fields (only valid with project) ---
@@ -1920,6 +1929,18 @@ class DatabaseModel(IsDatabricksResource):
         """
         if self.timeout_seconds is None:
             self.timeout_seconds = 120 if self.is_lakebase_autoscaling else 30
+        return self
+
+    @model_validator(mode="after")
+    def resolve_connect_timeout(self) -> Self:
+        """Set default connect_timeout based on database type.
+
+        This is the TCP-level timeout (libpq ``connect_timeout``), distinct
+        from the pool-level ``timeout_seconds``.  Autoscaling endpoints may
+        be suspended and need extra time to accept the TCP handshake.
+        """
+        if self.connect_timeout is None:
+            self.connect_timeout = 30 if self.is_lakebase_autoscaling else 10
         return self
 
     @model_validator(mode="after")
@@ -2186,17 +2207,18 @@ class DatabaseModel(IsDatabricksResource):
             "port": port,
             "password": password_value,
             "sslmode": "require",
+            "connect_timeout": self.connect_timeout,
         }
 
         # Only include user if explicitly configured
         if username:
             params["user"] = username
             logger.debug(
-                f"Connection params: dbname={database} user={username} host={host} port={port} password=******** sslmode=require"
+                f"Connection params: dbname={database} user={username} host={host} port={port} password=******** sslmode=require connect_timeout={self.connect_timeout}"
             )
         else:
             logger.debug(
-                f"Connection params: dbname={database} host={host} port={port} password=******** sslmode=require (using token identity)"
+                f"Connection params: dbname={database} host={host} port={port} password=******** sslmode=require connect_timeout={self.connect_timeout} (using token identity)"
             )
 
         return params
@@ -2241,6 +2263,15 @@ class GenieLRUCacheParametersModel(BaseModel):
     )
     warehouse: WarehouseModel = Field(
         description="SQL warehouse used by the Genie API for query execution.",
+    )
+    invalidate_on_empty_result: bool = Field(
+        default=False,
+        description=(
+            "When true, cached SQL that returns an empty result set is treated as stale: "
+            "the cache entry is invalidated and the question is re-sent to Genie. "
+            "Useful when cached queries contain date-relative expressions like CURRENT_DATE() "
+            "that become invalid as underlying data ages."
+        ),
     )
 
 
@@ -2292,6 +2323,15 @@ class GenieContextAwareCacheParametersBase(BaseModel):
     max_context_tokens: int = Field(
         default=2000,
         description="Maximum token length for context to prevent oversized embeddings.",
+    )
+    invalidate_on_empty_result: bool = Field(
+        default=False,
+        description=(
+            "When true, cached SQL that returns an empty result set is treated as stale: "
+            "the cache entry is invalidated and the question is re-sent to Genie. "
+            "Useful when cached queries contain date-relative expressions like CURRENT_DATE() "
+            "that become invalid as underlying data ages."
+        ),
     )
 
     @model_validator(mode="after")
@@ -3072,7 +3112,10 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_factory_tool
 
-        return [create_factory_tool(self, **kwargs)]
+        result = create_factory_tool(self, **kwargs)
+        if isinstance(result, (list, tuple)):
+            return list(result)
+        return [result]
 
     @model_validator(mode="after")
     def update_args(self) -> Self:
@@ -4181,6 +4224,14 @@ class AgentModel(BaseModel):
         default=None,
         description="Structured output format (Pydantic type, JSON schema, or ResponseFormatModel).",
     )
+    recursion_limit: Optional[int] = Field(
+        default=None,
+        description=(
+            "Maximum number of graph supersteps (LLM call + tool execution cycles) "
+            "allowed per agent invocation. Prevents runaway iteration loops in tool-calling "
+            "agents. When None, uses LangGraph's default (25)."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_response_format(self) -> Self:
@@ -4704,8 +4755,9 @@ class AppModel(BaseModel):
         default="WARNING",
         description="Logging verbosity level (TRACE, DEBUG, INFO, WARNING, ERROR).",
     )
-    registered_model: RegisteredModelModel = Field(
-        description="Unity Catalog registered model where the agent is logged.",
+    registered_model: Optional[RegisteredModelModel] = Field(
+        default=None,
+        description="Unity Catalog registered model where the agent is logged. Required for model registration and deployment.",
     )
     endpoint_name: Optional[str] = Field(
         default=None,
@@ -4718,6 +4770,10 @@ class AppModel(BaseModel):
     scale_to_zero: Optional[bool] = Field(
         default=True,
         description="Whether the serving endpoint scales to zero when idle.",
+    )
+    enable_chat_proxy: Optional[bool] = Field(
+        default=True,
+        description="Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
     )
     environment_vars: Optional[dict[str, AnyVariable]] = Field(
         default_factory=dict,
@@ -4841,6 +4897,19 @@ class AppModel(BaseModel):
     def validate_agents_not_empty(self) -> Self:
         if not self.agents:
             raise ValueError("At least one agent must be specified")
+        return self
+
+    @model_validator(mode="after")
+    def validate_registered_model_required_for_serving(self) -> Self:
+        """Ensure registered_model is provided when deployment target is not apps."""
+        if (
+            self.registered_model is None
+            and self.deployment_target != DeploymentTarget.APPS
+        ):
+            raise ValueError(
+                "registered_model is required when deployment_target is not 'apps'. "
+                "Either add a registered_model section or set deployment_target to 'apps'."
+            )
         return self
 
     @staticmethod

@@ -37,8 +37,11 @@ _BUNDLE_RESOURCE_CONVERTERS: dict[str, str] = {
     "genie-space": "genie_space",
     "database": "database",
     "secret": "secret",
+    "table": "uc_securable",
     "volume": "uc_securable",
     "function": "uc_securable",
+    "connection": "uc_securable",
+    "vector-search-index": "uc_securable",
 }
 
 _DEDUP_KEY_EXTRACTORS: dict[str, Any] = {
@@ -176,11 +179,30 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
             "key": resource["key"],
             "permission": permission,
         }
-    elif resource_type in ("volume", "function"):
-        full_name: str = resource.get("volume_name") or resource.get(
-            "function_name", ""
+    elif resource_type in (
+        "table",
+        "volume",
+        "function",
+        "connection",
+        "vector-search-index",
+    ):
+        full_name: str = (
+            resource.get("table_name")
+            or resource.get("volume_name")
+            or resource.get("function_name")
+            or resource.get("connection_name")
+            or resource.get("vector_search_index_name", "")
         )
-        securable_type: str = "VOLUME" if resource_type == "volume" else "FUNCTION"
+        # Vector search indexes are UC tables (TABLE_ONLINE_VECTOR_INDEX_*)
+        # and work as TABLE securables for maximum workspace compatibility.
+        securable_type_map: dict[str, str] = {
+            "table": "TABLE",
+            "volume": "VOLUME",
+            "function": "FUNCTION",
+            "connection": "CONNECTION",
+            "vector-search-index": "TABLE",
+        }
+        securable_type: str = securable_type_map[resource_type]
         bundle_permission: str = _BUNDLE_PERMISSION_MAP.get(permission, permission)
         result["uc_securable"] = {
             "securable_full_name": full_name,
@@ -247,12 +269,27 @@ def generate_databricks_yaml(config: AppConfig, development: bool = False) -> st
     """
     app_name: str = config.app.name.lower().replace("_", "-")
 
+    enable_chat_proxy: bool = (
+        config.app.enable_chat_proxy
+        if config.app.enable_chat_proxy is not None
+        else True
+    )
+
     env_vars: list[dict[str, str]] = [
         {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
         {"name": "MLFLOW_REGISTRY_URI", "value": "databricks-uc"},
         {"name": "MLFLOW_EXPERIMENT_ID", "value_from": "experiment"},
         {"name": "DAO_AI_CONFIG_PATH", "value": "dao_ai.yaml"},
     ]
+
+    if enable_chat_proxy:
+        env_vars.extend(
+            [
+                {"name": "API_PROXY", "value": "http://localhost:8000/invocations"},
+                {"name": "CHAT_APP_PORT", "value": "3000"},
+                {"name": "CHAT_PROXY_TIMEOUT_SECONDS", "value": "300"},
+            ]
+        )
 
     config_env_vars = _extract_env_vars_from_config(config)
     config_env_vars = [
@@ -280,12 +317,18 @@ def generate_databricks_yaml(config: AppConfig, development: bool = False) -> st
 
     user_api_scopes = generate_user_api_scopes(config)
 
+    app_command: list[str] = (
+        ["python", "-m", "dao_ai.apps.start_app"]
+        if enable_chat_proxy
+        else ["python", "-m", "dao_ai.apps.server"]
+    )
+
     app_def: dict[str, Any] = {
         "name": app_name,
         "description": config.app.description or f"DAO AI Agent: {app_name}",
         "source_code_path": "${workspace.file_path}",
         "config": {
-            "command": ["python", "-m", "dao_ai.apps.server"],
+            "command": app_command,
             "env": env_vars,
         },
         "resources": bundle_resources,

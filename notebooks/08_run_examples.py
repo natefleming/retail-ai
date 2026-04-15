@@ -16,9 +16,13 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-import sys
+import sys, os, glob, subprocess
 
-sys.path.insert(0, "../src")
+_wheels = glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl")
+if _wheels:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[0]])
+elif os.path.isdir("../src/dao_ai"):
+    sys.path.insert(0, "../src")
 
 # COMMAND ----------
 
