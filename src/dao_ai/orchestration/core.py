@@ -147,6 +147,7 @@ def create_agent_node_handler(
     agent: CompiledStateGraph,
     output_mode: OutputMode = "last_message",
     reflection_executor: Any | None = None,
+    recursion_limit: int | None = None,
 ) -> Callable[[AgentState, Runtime[Context]], Awaitable[AgentState]]:
     """
     Create a handler that wraps an agent subgraph with message filtering.
@@ -193,6 +194,8 @@ def create_agent_node_handler(
         config: dict[str, Any] = {}
         if runtime.context:
             config = {"configurable": runtime.context.model_dump()}
+        if recursion_limit is not None:
+            config["recursion_limit"] = recursion_limit
 
         # --- HITL interrupt propagation & state-scoped sub-thread_id ---
         #

@@ -1,16 +1,19 @@
 # Databricks notebook source
 # MAGIC %pip install --quiet --upgrade -r ../requirements.txt
-# MAGIC %pip uninstall --quiet -y databricks-connect pyspark pyspark-connect
-# MAGIC %pip install --quiet --upgrade databricks-connect
+# MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
 
-import sys
+import sys, os, glob, subprocess
 from typing import Sequence
 from importlib.metadata import version
 
-sys.path.insert(0, "../src")
+_wheels = glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl")
+if _wheels:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[0]])
+elif os.path.isdir("../src/dao_ai"):
+    sys.path.insert(0, "../src")
 
 pip_requirements: Sequence[str] = (
     f"databricks-agents=={version('databricks-agents')}",

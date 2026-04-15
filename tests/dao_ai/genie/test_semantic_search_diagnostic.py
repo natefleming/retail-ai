@@ -41,7 +41,7 @@ pytestmark = [
 @pytest.fixture
 def database_model() -> DatabaseModel:
     """Lakebase database model."""
-    return DatabaseModel(instance_name="retail-consumer-goods")
+    return DatabaseModel(project="retail-consumer-goods")
 
 
 @pytest.fixture

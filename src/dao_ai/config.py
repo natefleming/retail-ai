@@ -318,12 +318,23 @@ class IsDatabricksResource(ABC, BaseModel):
         description="Personal access token for PAT-based authentication.",
     )
 
+    _resolved: bool = PrivateAttr(default=False)
+
     @abstractmethod
     def as_resources(self) -> Sequence[DatabricksResource]: ...
 
     @property
     @abstractmethod
     def api_scopes(self) -> Sequence[str]: ...
+
+    def ensure_resolved(self) -> None:
+        """Perform deferred API calls (e.g., name resolution, detail fetching).
+
+        Called during AppConfig.initialize(), not during config parsing.
+        Subclasses should call super().ensure_resolved() first to set the
+        _resolved flag before making API calls that depend on it.
+        """
+        self._resolved = True
 
     @model_validator(mode="after")
     def _expand_service_principal(self) -> Self:
@@ -667,7 +678,7 @@ class TableModel(IsDatabricksResource, HasFullName):
 
     @property
     def api_scopes(self) -> Sequence[str]:
-        return []
+        return ["sql.statement-execution"]
 
     def exists(self) -> bool:
         """Check if the table exists in Unity Catalog.
@@ -997,8 +1008,10 @@ class WarehouseModel(IsDatabricksResource):
 
     _warehouse_details: Optional[GetWarehouseResponse] = PrivateAttr(default=None)
 
-    def _get_warehouse_details(self) -> GetWarehouseResponse:
+    def _get_warehouse_details(self) -> GetWarehouseResponse | None:
         if self._warehouse_details is None:
+            if not self._resolved:
+                return None
             self._warehouse_details = self.workspace_client.warehouses.get(
                 id=value_of(self.warehouse_id)
             )
@@ -1034,7 +1047,7 @@ class WarehouseModel(IsDatabricksResource):
 
     @model_validator(mode="after")
     def resolve_warehouse_by_name(self) -> Self:
-        """Resolve warehouse_id from name when only name is provided."""
+        """Validate warehouse config. Actual name→ID resolution deferred to ensure_resolved()."""
         if self.warehouse_id:
             self.warehouse_id = value_of(self.warehouse_id)
             return self
@@ -1043,24 +1056,28 @@ class WarehouseModel(IsDatabricksResource):
                 "warehouse_id is required when on_behalf_of_user is True. "
                 "Name-based lookup cannot authenticate in Model Serving at startup."
             )
-        if self.name:
-            self.warehouse_id = self._resolve_warehouse_id_by_name(self.name)
-            return self
-        raise ValueError(
-            "Either 'warehouse_id' or 'name' must be provided for WarehouseModel."
-        )
+        if not self.name:
+            raise ValueError(
+                "Either 'warehouse_id' or 'name' must be provided for WarehouseModel."
+            )
+        return self
 
-    @model_validator(mode="after")
-    def populate_name(self) -> Self:
-        """Populate name from warehouse details if not provided."""
+    def ensure_resolved(self) -> None:
+        """Resolve warehouse name→ID and populate details via API."""
+        if self._resolved:
+            return
+        super().ensure_resolved()
+        # Resolve name → warehouse_id if needed
+        if not self.warehouse_id and self.name:
+            self.warehouse_id = self._resolve_warehouse_id_by_name(self.name)
+        # Populate name from warehouse details if missing
         if self.warehouse_id and not self.name:
             try:
                 warehouse_details = self._get_warehouse_details()
-                if warehouse_details.name:
+                if warehouse_details and warehouse_details.name:
                     self.name = warehouse_details.name
             except Exception as e:
                 logger.debug(f"Could not fetch details from warehouse: {e}")
-        return self
 
 
 class GenieRoomModel(IsDatabricksResource):
@@ -1086,10 +1103,12 @@ class GenieRoomModel(IsDatabricksResource):
         """Fetch Genie space details from the API.
 
         Returns:
-            GenieSpace if successful, None if the API call fails (e.g., due to
-            permission issues in model serving environments).
+            GenieSpace if successful, None if not yet resolved or if the API
+            call fails (e.g., due to permission issues in model serving).
         """
         if self._space_details is None:
+            if not self._resolved:
+                return None
             try:
                 self._space_details = self.workspace_client.genie.get_space(
                     space_id=self.space_id, include_serialized_space=True
@@ -1308,7 +1327,7 @@ class GenieRoomModel(IsDatabricksResource):
 
     @model_validator(mode="after")
     def resolve_space_by_name(self) -> Self:
-        """Resolve space_id from name when only name is provided."""
+        """Validate genie config. Actual name→ID resolution deferred to ensure_resolved()."""
         if self.space_id:
             self.space_id = value_of(self.space_id)
             return self
@@ -1317,26 +1336,31 @@ class GenieRoomModel(IsDatabricksResource):
                 "space_id is required when on_behalf_of_user is True. "
                 "Name-based lookup cannot authenticate in Model Serving at startup."
             )
-        if self.name:
-            self.space_id = self._resolve_space_id_by_name(self.name)
-            return self
-        raise ValueError(
-            "Either 'space_id' or 'name' must be provided for GenieRoomModel."
-        )
+        if not self.name:
+            raise ValueError(
+                "Either 'space_id' or 'name' must be provided for GenieRoomModel."
+            )
+        return self
 
-    @model_validator(mode="after")
-    def populate_name_and_description(self) -> Self:
-        """Populate name and description from GenieSpace if not provided."""
+    def ensure_resolved(self) -> None:
+        """Resolve space name→ID and populate details via API."""
+        if self._resolved:
+            return
+        super().ensure_resolved()
+        # Resolve name → space_id if needed
+        if not self.space_id and self.name:
+            self.space_id = self._resolve_space_id_by_name(self.name)
+        # Populate name and description from space details if missing
         if self.space_id and (not self.name or not self.description):
             try:
                 space_details = self._get_space_details()
-                if not self.name and space_details.title:
-                    self.name = space_details.title
-                if not self.description and space_details.description:
-                    self.description = space_details.description
+                if space_details:
+                    if not self.name and space_details.title:
+                        self.name = space_details.title
+                    if not self.description and space_details.description:
+                        self.description = space_details.description
             except Exception as e:
                 logger.debug(f"Could not fetch details from Genie space: {e}")
-        return self
 
 
 class VolumeModel(IsDatabricksResource, HasFullName):
@@ -1525,9 +1549,11 @@ class VectorStoreModel(IsDatabricksResource):
             self.embedding_model = LLMModel(name="databricks-gte-large-en")
         return self
 
-    @model_validator(mode="after")
-    def set_default_primary_key(self) -> Self:
-        # Only auto-discover primary key in provisioning mode
+    def ensure_resolved(self) -> None:
+        """Auto-discover primary key in provisioning mode via API."""
+        if self._resolved:
+            return
+        super().ensure_resolved()
         if self.primary_key is None and self.source_table is not None:
             from dao_ai.providers.databricks import DatabricksProvider
 
@@ -1544,8 +1570,6 @@ class VectorStoreModel(IsDatabricksResource):
                     f"Table {self.source_table.full_name} has more than one primary key: {primary_key}"
                 )
             self.primary_key = primary_key[0] if primary_key else None
-
-        return self
 
     @model_validator(mode="after")
     def set_default_index(self) -> Self:
@@ -1786,8 +1810,21 @@ class DatabaseModel(IsDatabricksResource):
         description="Maximum number of connections in the pool.",
     )
     timeout_seconds: Optional[int] = Field(
-        default=10,
-        description="Connection timeout in seconds.",
+        default=None,
+        description=(
+            "Pool-level timeout in seconds (how long to wait for a free connection). "
+            "Defaults to 120 for autoscaling Lakebase (to allow endpoint wake-up) "
+            "and 30 for other database types."
+        ),
+    )
+    connect_timeout: Optional[int] = Field(
+        default=None,
+        description=(
+            "TCP-level connection timeout in seconds passed to libpq via psycopg. "
+            "Limits how long a new connection attempt waits for the database to respond. "
+            "Defaults to 30 for autoscaling Lakebase (suspended endpoints need wake-up time) "
+            "and 10 for other database types."
+        ),
     )
     # --- Autoscaling Lakebase fields (only valid with project) ---
     branch: Optional[str] = Field(
@@ -1884,6 +1921,29 @@ class DatabaseModel(IsDatabricksResource):
         return self
 
     @model_validator(mode="after")
+    def resolve_timeout_seconds(self) -> Self:
+        """Set default timeout_seconds based on database type.
+
+        Autoscaling Lakebase endpoints may be suspended and need 30-60s
+        to wake up, so they get a longer default timeout (120s).
+        """
+        if self.timeout_seconds is None:
+            self.timeout_seconds = 120 if self.is_lakebase_autoscaling else 30
+        return self
+
+    @model_validator(mode="after")
+    def resolve_connect_timeout(self) -> Self:
+        """Set default connect_timeout based on database type.
+
+        This is the TCP-level timeout (libpq ``connect_timeout``), distinct
+        from the pool-level ``timeout_seconds``.  Autoscaling endpoints may
+        be suspended and need extra time to accept the TCP handshake.
+        """
+        if self.connect_timeout is None:
+            self.connect_timeout = 30 if self.is_lakebase_autoscaling else 10
+        return self
+
+    @model_validator(mode="after")
     def populate_name(self) -> Self:
         """Populate name from project or instance_name if not provided."""
         if self.name is None and self.project:
@@ -1896,11 +1956,11 @@ class DatabaseModel(IsDatabricksResource):
             )
         return self
 
-    @model_validator(mode="after")
-    def update_user(self) -> Self:
+    def _resolve_user(self) -> None:
+        """Resolve current user via API. Called from ensure_resolved()."""
         # Skip if using OBO (passive auth), explicit credentials, or explicit user
         if self.on_behalf_of_user or self.client_id or self.user or self.pat:
-            return self
+            return
 
         # For standard PostgreSQL, we need explicit user credentials
         # For Lakebase with no auth, ambient auth is allowed
@@ -1922,7 +1982,12 @@ class DatabaseModel(IsDatabricksResource):
                 # for Lakebase with ambient auth - credentials will be injected at runtime
                 pass
 
-        return self
+    def ensure_resolved(self) -> None:
+        """Resolve user via API."""
+        if self._resolved:
+            return
+        super().ensure_resolved()
+        self._resolve_user()
 
     @model_validator(mode="after")
     def update_host(self) -> Self:
@@ -2090,6 +2155,12 @@ class DatabaseModel(IsDatabricksResource):
                 username = value_of(self.client_id)
             elif self.user:
                 username = value_of(self.user)
+            else:
+                # Infer from workspace identity (mirrors LakebasePool._infer_username)
+                w_user = self.workspace_client
+                me = w_user.current_user.me()
+                if me and me.user_name:
+                    username = me.user_name
 
             w: WorkspaceClient = self.workspace_client
             # Resolve endpoint name if not already resolved (e.g., when host was provided explicitly)
@@ -2136,17 +2207,18 @@ class DatabaseModel(IsDatabricksResource):
             "port": port,
             "password": password_value,
             "sslmode": "require",
+            "connect_timeout": self.connect_timeout,
         }
 
         # Only include user if explicitly configured
         if username:
             params["user"] = username
             logger.debug(
-                f"Connection params: dbname={database} user={username} host={host} port={port} password=******** sslmode=require"
+                f"Connection params: dbname={database} user={username} host={host} port={port} password=******** sslmode=require connect_timeout={self.connect_timeout}"
             )
         else:
             logger.debug(
-                f"Connection params: dbname={database} host={host} port={port} password=******** sslmode=require (using token identity)"
+                f"Connection params: dbname={database} host={host} port={port} password=******** sslmode=require connect_timeout={self.connect_timeout} (using token identity)"
             )
 
         return params
@@ -2191,6 +2263,15 @@ class GenieLRUCacheParametersModel(BaseModel):
     )
     warehouse: WarehouseModel = Field(
         description="SQL warehouse used by the Genie API for query execution.",
+    )
+    invalidate_on_empty_result: bool = Field(
+        default=False,
+        description=(
+            "When true, cached SQL that returns an empty result set is treated as stale: "
+            "the cache entry is invalidated and the question is re-sent to Genie. "
+            "Useful when cached queries contain date-relative expressions like CURRENT_DATE() "
+            "that become invalid as underlying data ages."
+        ),
     )
 
 
@@ -2242,6 +2323,15 @@ class GenieContextAwareCacheParametersBase(BaseModel):
     max_context_tokens: int = Field(
         default=2000,
         description="Maximum token length for context to prevent oversized embeddings.",
+    )
+    invalidate_on_empty_result: bool = Field(
+        default=False,
+        description=(
+            "When true, cached SQL that returns an empty result set is treated as stale: "
+            "the cache entry is invalidated and the question is re-sent to Genie. "
+            "Useful when cached queries contain date-relative expressions like CURRENT_DATE() "
+            "that become invalid as underlying data ages."
+        ),
     )
 
     @model_validator(mode="after")
@@ -3022,7 +3112,10 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         from dao_ai.tools import create_factory_tool
 
-        return [create_factory_tool(self, **kwargs)]
+        result = create_factory_tool(self, **kwargs)
+        if isinstance(result, (list, tuple)):
+            return list(result)
+        return [result]
 
     @model_validator(mode="after")
     def update_args(self) -> Self:
@@ -4131,6 +4224,14 @@ class AgentModel(BaseModel):
         default=None,
         description="Structured output format (Pydantic type, JSON schema, or ResponseFormatModel).",
     )
+    recursion_limit: Optional[int] = Field(
+        default=None,
+        description=(
+            "Maximum number of graph supersteps (LLM call + tool execution cycles) "
+            "allowed per agent invocation. Prevents runaway iteration loops in tool-calling "
+            "agents. When None, uses LangGraph's default (25)."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_response_format(self) -> Self:
@@ -4654,8 +4755,9 @@ class AppModel(BaseModel):
         default="WARNING",
         description="Logging verbosity level (TRACE, DEBUG, INFO, WARNING, ERROR).",
     )
-    registered_model: RegisteredModelModel = Field(
-        description="Unity Catalog registered model where the agent is logged.",
+    registered_model: Optional[RegisteredModelModel] = Field(
+        default=None,
+        description="Unity Catalog registered model where the agent is logged. Required for model registration and deployment.",
     )
     endpoint_name: Optional[str] = Field(
         default=None,
@@ -4668,6 +4770,10 @@ class AppModel(BaseModel):
     scale_to_zero: Optional[bool] = Field(
         default=True,
         description="Whether the serving endpoint scales to zero when idle.",
+    )
+    enable_chat_proxy: Optional[bool] = Field(
+        default=True,
+        description="Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
     )
     environment_vars: Optional[dict[str, AnyVariable]] = Field(
         default_factory=dict,
@@ -4791,6 +4897,19 @@ class AppModel(BaseModel):
     def validate_agents_not_empty(self) -> Self:
         if not self.agents:
             raise ValueError("At least one agent must be specified")
+        return self
+
+    @model_validator(mode="after")
+    def validate_registered_model_required_for_serving(self) -> Self:
+        """Ensure registered_model is provided when deployment target is not apps."""
+        if (
+            self.registered_model is None
+            and self.deployment_target != DeploymentTarget.APPS
+        ):
+            raise ValueError(
+                "registered_model is required when deployment_target is not 'apps'. "
+                "Either add a registered_model section or set deployment_target to 'apps'."
+            )
         return self
 
     @staticmethod
@@ -5733,9 +5852,10 @@ class AppConfig(BaseModel):
 
     # Private attribute to track the source config file path (set by from_file)
     _source_config_path: str | None = None
+    _initialized: bool = False
 
     @classmethod
-    def from_file(cls, path: PathLike) -> "AppConfig":
+    def from_file(cls, path: PathLike, *, initialize: bool = True) -> "AppConfig":
         path = Path(path).as_posix()
         logger.debug(f"Loading config from {path}")
         model_config: ModelConfig = ModelConfig(development_config=path)
@@ -5744,9 +5864,8 @@ class AppConfig(BaseModel):
         # Store the source config path for later use (e.g., Apps deployment)
         config._source_config_path = path
 
-        config.initialize()
-
-        atexit.register(config.shutdown)
+        if initialize:
+            config.initialize()
 
         return config
 
@@ -5755,13 +5874,40 @@ class AppConfig(BaseModel):
         """Get the source config file path if loaded via from_file."""
         return self._source_config_path
 
+    def _resolve_all_resources(self) -> None:
+        """Walk the config tree and call ensure_resolved() on all IsDatabricksResource instances."""
+
+        def _walk(obj: Any) -> None:
+            if isinstance(obj, IsDatabricksResource):
+                obj.ensure_resolved()
+            if isinstance(obj, BaseModel):
+                for field_name in obj.model_fields:
+                    value = getattr(obj, field_name, None)
+                    if value is None:
+                        continue
+                    if isinstance(value, list):
+                        for item in value:
+                            _walk(item)
+                    elif isinstance(value, dict):
+                        for item in value.values():
+                            _walk(item)
+                    else:
+                        _walk(value)
+
+        _walk(self)
+
     def initialize(self) -> None:
+        if self._initialized:
+            return
+
         from dao_ai.guardrails_hub import ensure_guardrails_hub
         from dao_ai.hooks.core import create_hooks
         from dao_ai.logging import configure_logging
 
         if self.app and self.app.log_level:
             configure_logging(level=self.app.log_level)
+
+        self._resolve_all_resources()
 
         ensure_guardrails_hub(self)
 
@@ -5774,6 +5920,9 @@ class AppConfig(BaseModel):
                 f"Running initialization hook: {initialization_function.__name__}"
             )
             initialization_function(self)
+
+        self._initialized = True
+        atexit.register(self.shutdown)
 
     def shutdown(self) -> None:
         from dao_ai.hooks.core import create_hooks

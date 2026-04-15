@@ -75,9 +75,11 @@ from dao_ai.models import get_latest_model_version
 from dao_ai.providers.base import ServiceProvider
 from dao_ai.utils import (
     dao_ai_version,
+    find_dev_wheel,
     get_installed_packages,
-    is_installed,
     is_lib_provided,
+    is_published,
+    is_source_layout,
     normalize_host,
     normalize_name,
 )
@@ -146,6 +148,59 @@ def _vector_search_client(
 
 def _function_client(w: WorkspaceClient | None = None) -> DatabricksFunctionClient:
     return DatabricksFunctionClient(w=w)
+
+
+def _build_wheel(project_root: Path) -> Path:
+    """Build a dao-ai wheel from source using uv."""
+    import subprocess
+
+    dist_dir = project_root / "dist"
+    dist_dir.mkdir(exist_ok=True)
+
+    result = subprocess.run(
+        ["uv", "build", "--wheel"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Wheel build failed: {result.stderr.strip()}")
+
+    wheels = sorted(dist_dir.glob("dao_ai-*.whl"), key=lambda p: p.stat().st_mtime)
+    if not wheels:
+        raise RuntimeError(f"No wheel found in {dist_dir} after build")
+    return wheels[-1]
+
+
+def _generate_uv_lock(
+    pyproject_content: str,
+    wheel_path: Path,
+    package_name: str,
+) -> bytes:
+    """Generate a uv.lock file for app deployment."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        (tmp_path / "pyproject.toml").write_text(pyproject_content)
+        (tmp_path / "dist").mkdir()
+        shutil.copy2(wheel_path, tmp_path / "dist" / wheel_path.name)
+        (tmp_path / "src" / package_name).mkdir(parents=True)
+        (tmp_path / "src" / package_name / "__init__.py").write_text("")
+        (tmp_path / ".python-version").write_text("3.11\n")
+
+        result = subprocess.run(
+            ["uv", "lock"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"uv lock failed: {result.stderr.strip()}")
+
+        return (tmp_path / "uv.lock").read_bytes()
 
 
 class DatabricksProvider(ServiceProvider):
@@ -321,7 +376,18 @@ class DatabricksProvider(ServiceProvider):
         genie_rooms: Sequence[GenieRoomModel] = list(
             config.resources.genie_rooms.values()
         )
-        tables: Sequence[TableModel] = list(config.resources.tables.values())
+        # config.resources.tables may be empty if the update_genie_tables
+        # validator ran before Genie rooms were resolved.  Collect tables
+        # directly from resolved Genie rooms as a fallback so they are
+        # included in the SystemAuthPolicy for Model Serving.
+        tables_list: list[TableModel] = list(config.resources.tables.values())
+        existing_table_names: set[str] = {t.full_name for t in tables_list}
+        for genie_room in config.resources.genie_rooms.values():
+            for table in genie_room.tables:
+                if table.full_name not in existing_table_names:
+                    tables_list.append(table)
+                    existing_table_names.add(table.full_name)
+        tables: Sequence[TableModel] = tables_list
         functions: Sequence[FunctionModel] = list(config.resources.functions.values())
         connections: Sequence[ConnectionModel] = list(
             config.resources.connections.values()
@@ -410,17 +476,43 @@ class DatabricksProvider(ServiceProvider):
 
         pip_requirements: Sequence[str] = config.app.pip_requirements
 
-        if is_installed():
+        if is_published():
             if not is_lib_provided("dao-ai", pip_requirements):
                 pip_requirements += [
                     f"dao-ai=={dao_ai_version()}",
                 ]
+            logger.info(
+                "dao-ai source: PyPI package",
+                version=dao_ai_version(),
+            )
         else:
-            src_path: Path = model_root_path.parent
-            directories: Sequence[Path] = [d for d in src_path.iterdir() if d.is_dir()]
-            for directory in directories:
-                directory: Path
-                code_paths.append(directory.as_posix())
+            dev_wheel: Path | None = find_dev_wheel()
+            if dev_wheel:
+                code_paths.append(dev_wheel.as_posix())
+                pip_requirements += [f"code/{dev_wheel.name}"]
+                logger.info(
+                    "dao-ai source: local wheel bundled via code_paths",
+                    wheel=dev_wheel.name,
+                    path=str(dev_wheel),
+                )
+            else:
+                src_path: Path = model_root_path.parent
+                if is_source_layout(model_root_path):
+                    directories: list[Path] = [
+                        d for d in src_path.iterdir() if d.is_dir()
+                    ]
+                    for directory in directories:
+                        code_paths.append(directory.as_posix())
+                    logger.info(
+                        "dao-ai source: local source directories via code_paths",
+                        source_root=str(src_path),
+                        directories=[d.name for d in directories],
+                    )
+                else:
+                    logger.warning(
+                        "No dev wheel found and dao-ai is in site-packages. "
+                        "Build a wheel with 'uv build --wheel' for reliable deployment.",
+                    )
 
             pip_requirements += get_installed_packages()
 
@@ -499,6 +591,12 @@ class DatabricksProvider(ServiceProvider):
                 error=str(e),
             )
             raise
+
+        if config.app.registered_model is None:
+            raise ValueError(
+                "registered_model is required in app config for model registration. "
+                "Please add a registered_model section to your config."
+            )
 
         registered_model_name: str = config.app.registered_model.full_name
 
@@ -596,6 +694,11 @@ class DatabricksProvider(ServiceProvider):
         mlflow.set_registry_uri("databricks-uc")
 
         endpoint_name: str = config.app.endpoint_name
+        if config.app.registered_model is None:
+            raise ValueError(
+                "registered_model is required in app config for deployment. "
+                "Please add a registered_model section to your config."
+            )
         registered_model_name: str = config.app.registered_model.full_name
         scale_to_zero: bool = config.app.scale_to_zero
         environment_vars: dict[str, str] = config.app.environment_vars
@@ -940,7 +1043,12 @@ class DatabricksProvider(ServiceProvider):
             with open(source_config_path, "rb") as f:
                 config_content: bytes = f.read()
 
-            # Create the directory if it doesn't exist and upload the file
+            # Clean the workspace directory to remove stale artifacts
+            # from previous deployments (old wheels, leftover src/, etc.)
+            try:
+                self.w.workspace.delete(source_path, recursive=True)
+            except Exception:
+                pass  # Directory may not exist yet
             try:
                 self.w.workspace.mkdirs(source_path)
             except Exception as e:
@@ -961,16 +1069,105 @@ class DatabricksProvider(ServiceProvider):
                 "dao_ai.yaml exists in the app source directory."
             )
 
+        # Determine install command based on dev vs published mode
+        if is_published():
+            app_command = [
+                "/bin/bash",
+                "-c",
+                "uv pip install dao-ai && python -m dao_ai.apps.server",
+            ]
+            logger.info(
+                "dao-ai source for app: PyPI package",
+                version=dao_ai_version(),
+            )
+        else:
+            dev_wheel: Path | None = find_dev_wheel()
+
+            if not dev_wheel:
+                # No pre-built wheel -- build from source
+                project_root = Path(__file__).parents[3]
+                if not (project_root / "pyproject.toml").exists():
+                    raise RuntimeError(
+                        "No dao-ai wheel found and project source not available. "
+                        "Build a wheel first with: uv build --wheel"
+                    )
+                logger.info(
+                    "No dev wheel found, building from source",
+                    project_root=str(project_root),
+                )
+                dev_wheel = _build_wheel(project_root)
+
+            wheel_path: Path = dev_wheel
+            logger.info("Using dev wheel for app deployment", wheel=wheel_path.name)
+
+            # Upload wheel to workspace source path under dist/
+            try:
+                self.w.workspace.mkdirs(f"{source_path}/dist")
+            except Exception:
+                pass
+            workspace_wheel_path = f"{source_path}/dist/{wheel_path.name}"
+            with open(wheel_path, "rb") as f:
+                self.w.workspace.upload(
+                    path=workspace_wheel_path,
+                    content=io.BytesIO(f.read()),
+                    format=ImportFormat.AUTO,
+                    overwrite=True,
+                )
+            logger.info("Dev wheel uploaded", path=workspace_wheel_path)
+
+            # Upload pyproject.toml so the app runtime installs dao-ai
+            # from the local wheel
+            from dao_ai.apps.bundle import _PYPROJECT_DEV_TEMPLATE
+
+            app_name_normalized = raw_name.lower().replace("_", "-")
+            package_name = app_name_normalized.replace("-", "_")
+            pyproject_content = _PYPROJECT_DEV_TEMPLATE.format(
+                name=app_name_normalized,
+                package_name=package_name,
+                wheel_filename=wheel_path.name,
+            )
+            self.w.workspace.upload(
+                path=f"{source_path}/pyproject.toml",
+                content=io.BytesIO(pyproject_content.encode("utf-8")),
+                format=ImportFormat.AUTO,
+                overwrite=True,
+            )
+
+            # Create stub package __init__.py
+            try:
+                self.w.workspace.mkdirs(f"{source_path}/src/{package_name}")
+            except Exception:
+                pass
+            self.w.workspace.upload(
+                path=f"{source_path}/src/{package_name}/__init__.py",
+                content=io.BytesIO(b""),
+                format=ImportFormat.AUTO,
+                overwrite=True,
+            )
+
+            uv_lock_bytes = _generate_uv_lock(
+                pyproject_content=pyproject_content,
+                wheel_path=wheel_path,
+                package_name=package_name,
+            )
+            self.w.workspace.upload(
+                path=f"{source_path}/uv.lock",
+                content=io.BytesIO(uv_lock_bytes),
+                format=ImportFormat.AUTO,
+                overwrite=True,
+            )
+            logger.info(
+                "dao-ai source for app: dev wheel (uv)",
+                wheel=wheel_path.name,
+            )
+            app_command = ["python", "-m", "dao_ai.apps.server"]
+
         # Generate and upload app.yaml with dynamically discovered resources
         from dao_ai.apps.resources import generate_app_yaml
 
         app_yaml_content: str = generate_app_yaml(
             config,
-            command=[
-                "/bin/bash",
-                "-c",
-                "pip install dao-ai && python -m dao_ai.apps.server",
-            ],
+            command=app_command,
             include_resources=True,
         )
 
@@ -1030,36 +1227,51 @@ class DatabricksProvider(ServiceProvider):
             app_body["user_api_scopes"] = user_api_scopes
 
         def _set_app_resources(method: str, path: str, body: dict) -> None:
-            """Create or update app via REST API with fallback.
+            """Create or update app via REST API with progressive fallback.
 
             If the workspace doesn't support VECTOR_SEARCH_INDEX as a UC
             securable type, or if the resource limit is exceeded, retries
-            without those resources. The source TABLE resources still
-            provide catalog/schema permissions as a fallback.
+            without those resources. If that still fails due to permission
+            issues, retries without any resources.
             """
+            _retryable_patterns = (
+                "permission to grant",
+                "less than or equal to",
+                "MANAGE permission on the resource",
+                "Can View",
+            )
+
             try:
                 self.w.api_client.do(method, path, body=body)
             except (BadRequest, InvalidParameterValue, PermissionDenied) as e:
                 err_msg = str(e)
-                if (
-                    "permission to grant" in err_msg
-                    or "less than or equal to" in err_msg
-                    or "MANAGE permission on the resource" in err_msg
-                ):
-                    body["resources"] = [
-                        r
-                        for r in body.get("resources", [])
-                        if r.get("uc_securable", {}).get("securable_type")
-                        != "VECTOR_SEARCH_INDEX"
-                    ]
+                if not any(p in err_msg for p in _retryable_patterns):
+                    raise
+
+                body["resources"] = [
+                    r
+                    for r in body.get("resources", [])
+                    if r.get("uc_securable", {}).get("securable_type")
+                    != "VECTOR_SEARCH_INDEX"
+                ]
+                logger.warning(
+                    "Retrying without VECTOR_SEARCH_INDEX resources",
+                    error=err_msg,
+                    remaining_resources=len(body.get("resources", [])),
+                )
+                try:
+                    self.w.api_client.do(method, path, body=body)
+                except (BadRequest, InvalidParameterValue, PermissionDenied) as e2:
+                    err_msg2 = str(e2)
+                    if not any(p in err_msg2 for p in _retryable_patterns):
+                        raise
+
+                    body.pop("resources", None)
                     logger.warning(
-                        "Retrying without VECTOR_SEARCH_INDEX resources",
-                        error=err_msg,
-                        remaining_resources=len(body.get("resources", [])),
+                        "Retrying without any UC resources",
+                        error=err_msg2,
                     )
                     self.w.api_client.do(method, path, body=body)
-                else:
-                    raise
 
         if not app_exists:
             logger.info("Creating Databricks App", app_name=app_name)

@@ -50,6 +50,7 @@ class TestWarehouseModelNamePopulation:
 
             # Create without name
             warehouse = WarehouseModel(warehouse_id="abc123")
+            warehouse.ensure_resolved()
 
             # Name should be populated from the warehouse API
             assert warehouse.name == "Production Warehouse"
@@ -118,8 +119,9 @@ class TestWarehouseModelNamePopulation:
             mock_workspace_client.warehouses.get.return_value = mock_warehouse_response
 
             warehouse = WarehouseModel(warehouse_id="abc123")
+            warehouse.ensure_resolved()
 
-            # First call already happened in the validator
+            # First call happened in ensure_resolved
             assert mock_workspace_client.warehouses.get.call_count == 1
 
             # Call _get_warehouse_details again
@@ -165,6 +167,7 @@ class TestWarehouseModelNamePopulation:
             warehouse = WarehouseModel(
                 warehouse_id="abc123", description="My custom description"
             )
+            warehouse.ensure_resolved()
 
             # Description should be preserved, name auto-populated
             assert warehouse.name == "Production Warehouse"
@@ -187,6 +190,7 @@ class TestWarehouseModelNameResolution:
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             warehouse = WarehouseModel(name="Production Warehouse")
+            warehouse.ensure_resolved()
 
             assert warehouse.warehouse_id == "prod_id"
             assert warehouse.name == "Production Warehouse"
@@ -209,6 +213,7 @@ class TestWarehouseModelNameResolution:
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             warehouse = WarehouseModel(name="Target Warehouse")
+            warehouse.ensure_resolved()
 
             assert warehouse.warehouse_id == "target_id"
             assert call_count == 1
@@ -222,16 +227,18 @@ class TestWarehouseModelNameResolution:
         )
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            warehouse = WarehouseModel(name="Nonexistent Warehouse")
             with pytest.raises(ValueError, match="No warehouse found with name"):
-                WarehouseModel(name="Nonexistent Warehouse")
+                warehouse.ensure_resolved()
 
     def test_resolve_warehouse_by_name_empty_list(self, mock_workspace_client):
         """Test that ValueError is raised when warehouse list is empty."""
         mock_workspace_client.warehouses.list.return_value = iter([])
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            warehouse = WarehouseModel(name="Any Warehouse")
             with pytest.raises(ValueError, match="No warehouse found with name"):
-                WarehouseModel(name="Any Warehouse")
+                warehouse.ensure_resolved()
 
     def test_neither_name_nor_id_raises_error(self, mock_workspace_client):
         """Test that ValueError is raised when neither name nor warehouse_id is provided."""

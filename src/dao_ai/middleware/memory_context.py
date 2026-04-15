@@ -115,6 +115,13 @@ class MemoryContextMiddleware(AgentMiddleware):
         if runtime.context:
             config = {"configurable": runtime.context.model_dump()}
 
+        # Memory namespaces typically include {user_id}.  If user_id is
+        # None the namespace will contain a None element which crashes
+        # PostgresStore's ".".join(namespace).  Skip gracefully.
+        if runtime.context and not runtime.context.user_id:
+            logger.debug("Skipping memory search: user_id not available in context")
+            return None
+
         try:
             memories = await self._manager.asearch(
                 query=query,

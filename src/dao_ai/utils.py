@@ -38,6 +38,86 @@ def is_installed() -> bool:
     return found
 
 
+def is_published() -> bool:
+    """Check if dao-ai was installed from PyPI (not from a local file or editable install).
+
+    Returns True only if the package was installed from a package index.
+    Returns False if installed from a local wheel, editable install, or source path.
+    Used by create_agent() to decide whether to pin to a PyPI version or use code_paths.
+    """
+    if not is_installed():
+        return False
+    try:
+        from importlib.metadata import distribution
+
+        dist = distribution("dao-ai")
+        direct_url = dist.read_text("direct_url.json")
+        if direct_url:
+            import json
+
+            data = json.loads(direct_url)
+            url = data.get("url", "")
+            # file:// URLs indicate local installs (editable or wheel)
+            if url.startswith("file://"):
+                logger.trace("dao-ai installed from local file, not PyPI", url=url)
+                return False
+    except Exception:
+        pass
+    logger.trace("dao-ai appears to be installed from PyPI")
+    return True
+
+
+def find_dev_wheel() -> Path | None:
+    """Find an existing dao-ai wheel in known locations.
+
+    Returns the most recently modified wheel, or None if dao-ai was installed
+    from PyPI or no wheel is found. Does NOT build a wheel -- callers decide
+    what to do when None is returned.
+
+    Search order:
+        1. Project dist/ (local dev: relative to this source file)
+        2. Bundle artifact paths (job cluster: ../dist/, ../../artifacts/.internal/)
+        3. CWD dist/ (fallback)
+    """
+    if is_published():
+        return None
+
+    search_dirs: list[Path] = [
+        Path(__file__).parents[2] / "dist",
+        Path("../dist").resolve(),
+        Path("../../artifacts/.internal").resolve(),
+        Path("dist").resolve(),
+    ]
+
+    for search_dir in search_dirs:
+        if not search_dir.is_dir():
+            continue
+        wheels = sorted(
+            search_dir.glob("dao_ai-*.whl"),
+            key=lambda p: p.stat().st_mtime,
+        )
+        if wheels:
+            logger.debug("Found dev wheel", path=str(wheels[-1]))
+            return wheels[-1]
+
+    logger.debug("No dev wheel found in any search path")
+    return None
+
+
+def is_source_layout(package_dir: Path) -> bool:
+    """Check if a package directory is part of a source tree (not site-packages).
+
+    Used to guard against iterating site-packages when adding code_paths
+    for MLflow model logging.
+    """
+    site_packages_dirs = [os.path.abspath(p) for p in site.getsitepackages()]
+    user_site = site.getusersitepackages()
+    if user_site:
+        site_packages_dirs.append(os.path.abspath(user_site))
+    abs_dir = os.path.abspath(package_dir)
+    return not any(abs_dir.startswith(sp) for sp in site_packages_dirs)
+
+
 def normalize_name(name: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_]", "_", name).lower()
     normalized = re.sub(r"_+", "_", normalized)

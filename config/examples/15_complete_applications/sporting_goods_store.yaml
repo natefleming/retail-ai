@@ -97,7 +97,7 @@ resources:
   vector_stores:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
-      on_behalf_of_user: true
+      on_behalf_of_user: false
       endpoint:
         name: dbdemos_vs_endpoint
         type: STANDARD
@@ -339,7 +339,7 @@ tools:
     name: merchandising_analytics
     function:
       type: factory
-      name: dao_ai.tools.create_genie_tool
+      name: dao_ai.tools.create_genie_toolkit
       args:
         name: query_merchandising_analytics
         description: "Query merchandising analytics for assortment planning, demand forecasting, purchase order status, category performance, seasonal trends, and vendor analysis"
@@ -348,19 +348,21 @@ tools:
           warehouse: *shared_warehouse
           capacity: 100
           time_to_live_seconds: 3600
+          invalidate_on_empty_result: true
         context_aware_cache_parameters:
           database: *retail_database
           warehouse: *shared_warehouse
           embedding_model: *embedding_model
           similarity_threshold: 0.85
           time_to_live_seconds: 86400
+          invalidate_on_empty_result: true
         persist_conversation: true
 
   sales_pricing_analytics_tool: &sales_pricing_analytics_tool
     name: sales_pricing_analytics
     function:
       type: factory
-      name: dao_ai.tools.create_genie_tool
+      name: dao_ai.tools.create_genie_toolkit
       args:
         name: query_sales_pricing
         description: "Query sales performance, pricing analytics, margin analysis, promotional effectiveness, revenue by store/channel, and competitive pricing intelligence"
@@ -369,12 +371,14 @@ tools:
           warehouse: *shared_warehouse
           capacity: 100
           time_to_live_seconds: 3600
+          invalidate_on_empty_result: true
         context_aware_cache_parameters:
           database: *retail_database
           warehouse: *shared_warehouse
           embedding_model: *embedding_model
           similarity_threshold: 0.85
           time_to_live_seconds: 86400
+          invalidate_on_empty_result: true
         persist_conversation: true
 
   # Utility tools
@@ -654,6 +658,13 @@ prompts:
       - Use `find_inventory_by_sku_uc` to correlate sales performance with current stock levels
       - Use `product_vector_search` to research products mentioned in sales queries
 
+      ## IMPORTANT: Efficiency Guidelines
+      - Formulate ONE comprehensive query to `query_sales_pricing` that covers all aspects of the user's question rather than making multiple sequential calls
+      - Avoid iterative refinement loops — gather all needed data in as few tool calls as possible (ideally 1-3 calls total)
+      - If the first query result is sufficient to answer the question, respond immediately without making additional calls
+      - Do NOT make separate calls for each sub-aspect of a question; combine them into a single well-formed query
+      - If a query result is wrong, empty, or missing expected columns, call `query_sales_pricing_feedback` with rating 'negative' before retrying — this clears the cached result so your next query gets fresh data
+
       ## Response Style
       - Present data in clear, actionable formats with specific numbers
       - Compare metrics against relevant benchmarks (plan, LY, chain average)
@@ -865,6 +876,7 @@ agents:
       - *find_product_details_by_description_tool
     guardrails: []
     prompt: *sales_prompt
+    recursion_limit: 12
     handoff_prompt: "Sales performance, revenue tracking, store comparisons, department sales, top sellers, return rates, or sales trends."
 
   inventory: &inventory

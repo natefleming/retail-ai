@@ -35,7 +35,6 @@ from dao_ai.config import (
     SearchParametersModel,
     SearchQuery,
     VectorStoreModel,
-    VerificationResult,
     VerifierModel,
     value_of,
 )
@@ -482,7 +481,10 @@ def create_vector_search_tool(
                 k: int = search_parameters.num_results or 5
                 query_type: str = search_parameters.query_type or "ANN"
                 # Decomposed filters take precedence over base filters
-                combined_filters: dict[str, Any] = {**normalized_base_filters, **sq_filters}
+                combined_filters: dict[str, Any] = {
+                    **normalized_base_filters,
+                    **sq_filters,
+                }
                 logger.trace(
                     "Executing search",
                     query=sq.text,

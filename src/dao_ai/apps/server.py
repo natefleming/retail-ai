@@ -22,9 +22,11 @@ from mlflow.genai.agent_server import AgentServer
 # Import the agent handlers to register the invoke and stream decorators
 # This MUST happen before creating the AgentServer instance
 import dao_ai.apps.handlers  # noqa: E402, F401
+from dao_ai.apps.handlers import config as _config
 
 # Create the AgentServer instance
-agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=True)
+_enable_chat_proxy = _config.app.enable_chat_proxy if _config.app else True
+agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=_enable_chat_proxy)
 
 # Define the app as a module level variable to enable multiple workers
 app = agent_server.app

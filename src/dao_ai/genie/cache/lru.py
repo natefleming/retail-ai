@@ -277,6 +277,40 @@ class LRUCacheService(GenieServiceBase):
                 # Re-execute the cached SQL to get fresh data
                 result: pd.DataFrame | str = self._execute_sql(cached.query)
 
+                # Check if cached SQL returned empty results and invalidation is enabled
+                if (
+                    self.parameters.invalidate_on_empty_result
+                    and isinstance(result, pd.DataFrame)
+                    and result.empty
+                ):
+                    logger.warning(
+                        "Cached SQL returned empty results, invalidating and falling back to Genie",
+                        layer=self.name,
+                        question=question[:80],
+                        conversation_id=conversation_id,
+                        cached_sql=cached.query[:80],
+                        cache_key=key[:50],
+                    )
+                    with self._lock:
+                        if key in self._cache:
+                            del self._cache[key]
+                    fallback_result: CacheResult = self.impl.ask_question(
+                        question, conversation_id
+                    )
+                    if fallback_result.response.query:
+                        with self._lock:
+                            self._put(
+                                key,
+                                fallback_result.response,
+                                message_id=fallback_result.message_id,
+                            )
+                    return CacheResult(
+                        response=fallback_result.response,
+                        cache_hit=False,
+                        served_by=None,
+                        message_id=fallback_result.message_id,
+                    )
+
                 # Check if SQL execution failed (returns error string instead of DataFrame)
                 if isinstance(result, str):
                     logger.warning(
@@ -401,21 +435,23 @@ class LRUCacheService(GenieServiceBase):
 
     def invalidate(self, question: str, conversation_id: str | None = None) -> bool:
         """
-        Remove a specific entry from the cache.
+        Remove a specific entry from the LRU cache and cascade to wrapped services.
 
         Args:
             question: The question text
             conversation_id: Optional conversation ID to match
 
         Returns:
-            True if the entry was found and removed, False otherwise
+            True if an entry was found and removed in any layer, False otherwise
         """
         key: str = self._normalize_key(question, conversation_id)
+        lru_removed: bool = False
         with self._lock:
             if key in self._cache:
                 del self._cache[key]
-                return True
-            return False
+                lru_removed = True
+        impl_removed: bool = self.impl.invalidate(question, conversation_id)
+        return lru_removed or impl_removed
 
     def clear(self) -> int:
         """Clear all entries from the cache."""
