@@ -1,7 +1,6 @@
 # Databricks notebook source
 # MAGIC %pip install --quiet --upgrade -r ../requirements.txt
-# MAGIC %pip uninstall --quiet -y databricks-connect pyspark pyspark-connect
-# MAGIC %pip install --quiet databricks-connect
+# MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -48,33 +47,35 @@ print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
 # COMMAND ----------
 
-import sys
-from typing import Sequence
-from importlib.metadata import version
-from pkg_resources import get_distribution
+# MAGIC %sh
+# MAGIC # Build a dao-ai wheel from source if no pre-built wheel exists
+# MAGIC if [ -z "$(ls ../dist/dao_ai-*.whl 2>/dev/null)" ] && [ -d "../src/dao_ai" ] && [ -f "../pyproject.toml" ]; then
+# MAGIC   echo "dao-ai source: building wheel from source..."
+# MAGIC   uv build --wheel --out-dir ../dist ..
+# MAGIC fi
 
-sys.path.insert(0, "../src")
+# COMMAND ----------
 
-pip_requirements: Sequence[str] = [
-    f"databricks-agents=={version('databricks-agents')}",
-    f"databricks-connect=={get_distribution('databricks-connect').version}",
-    f"databricks-langchain=={version('databricks-langchain')}",
-    f"databricks-sdk=={version('databricks-sdk')}",
-    f"ddgs=={version('ddgs')}",
-    f"langchain=={version('langchain')}",
-    f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
-    f"langgraph=={version('langgraph')}",
-    f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
-    f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
-    f"langmem=={version('langmem')}",
-    f"loguru=={version('loguru')}",
-    f"mlflow=={version('mlflow')}",
-    f"psycopg[binary,pool]=={version('psycopg')}",
-    f"pydantic=={version('pydantic')}",
-    f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
-    f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
-]
-print("\n".join(pip_requirements))
+import sys, os, glob, subprocess
+
+_wheels = sorted(glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl"))
+if _wheels:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[-1]])
+    print(f"dao-ai source: local wheel ({os.path.basename(_wheels[-1])})")
+elif os.path.isdir("../src/dao_ai"):
+    sys.path.insert(0, "../src")
+    print("dao-ai source: source path")
+else:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "dao-ai"])
+    print("dao-ai source: PyPI")
+
+# COMMAND ----------
+
+try:
+    from importlib.metadata import version as _meta_version
+    print(f"dao-ai version: {_meta_version('dao-ai')}")
+except Exception:
+    print("dao-ai version: dev (source path)")
 
 # COMMAND ----------
 
@@ -100,12 +101,17 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
+from typing import Sequence
 from dao_ai.config import AppConfig, DeploymentTarget
+
+config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
+deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
+
+print(f"Config path: {config_path}")
+print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 
-# Resolve deployment target fully so it is always a DeploymentTarget value.
-# Priority: 1) widget parameter, 2) config file, 3) default MODEL_SERVING
 deployment_target: DeploymentTarget
 if deployment_target_str:
     deployment_target = DeploymentTarget(deployment_target_str)

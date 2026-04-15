@@ -181,6 +181,10 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         return self.parameters.similarity_threshold
 
     @property
+    def invalidate_on_empty_result(self) -> bool:
+        return self.parameters.invalidate_on_empty_result
+
+    @property
     def context_similarity_threshold(self) -> float:
         """Minimum similarity for context matching."""
         return self.parameters.context_similarity_threshold

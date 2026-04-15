@@ -39,7 +39,7 @@ pytestmark = [
 @pytest.fixture
 def embedding_service() -> PostgresContextAwareGenieService:
     """Create a service just to access the embedding model."""
-    database = DatabaseModel(instance_name="retail-consumer-goods")
+    database = DatabaseModel(project="retail-consumer-goods")
     wh_id = os.getenv("DATABRICKS_WAREHOUSE_ID")
     assert wh_id
     warehouse = WarehouseModel(warehouse_id=wh_id)

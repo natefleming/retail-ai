@@ -1,7 +1,7 @@
 -- Function to find store-specific inventory details by UPC
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.find_store_inventory_by_upc(
   store STRING COMMENT 'Store identifier to filter inventory by specific store location',
-  upc ARRAY<STRING> COMMENT 'One or more UPC identifiers to retrieve inventory for. UPC values are 12 numeric characters'
+  upc ARRAY<STRING> COMMENT 'REQUIRED list of one or more UPC identifiers to look up. Must contain at least one value — do NOT pass NULL or an empty array. UPC values are 12 numeric characters'
 )
 RETURNS TABLE(
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record'
@@ -24,7 +24,7 @@ RETURNS TABLE(
   ,trend_direction STRING COMMENT 'Current sales trend (increasing, stable, decreasing)'
 )
 READS SQL DATA
-COMMENT 'Retrieves detailed inventory information for sporting goods products by UPC at a specific store location. Use for store-level stock checks and barcode-based availability.'
+COMMENT 'Retrieves detailed inventory information for specific products by UPC at a specific store location. Both store and upc are required. For broad inventory queries without specific UPCs, use the Genie analytics tool instead.'
 RETURN 
 SELECT 
   inventory_id

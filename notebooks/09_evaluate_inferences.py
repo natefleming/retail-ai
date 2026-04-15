@@ -1,7 +1,6 @@
 # Databricks notebook source
 # MAGIC %pip install --quiet --upgrade -r ../requirements.txt
-# MAGIC %pip uninstall --quiet -y databricks-connect pyspark pyspark-connect
-# MAGIC %pip install --quiet databricks-connect
+# MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -41,9 +40,13 @@ print(config_path)
 
 # COMMAND ----------
 
-import sys
+import sys, os, glob, subprocess
 
-sys.path.insert(0, "../src")
+_wheels = glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl")
+if _wheels:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[0]])
+elif os.path.isdir("../src/dao_ai"):
+    sys.path.insert(0, "../src")
 
 # COMMAND ----------
 

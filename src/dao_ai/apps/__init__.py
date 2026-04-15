@@ -7,6 +7,7 @@ as Databricks Apps or Model Serving endpoints.
 Modules:
     handlers: MLflow AgentServer request handlers (@invoke, @stream)
     server: Entry point for Databricks Apps deployment
+    start_app: Process manager that starts both the chat UI frontend and agent backend
     resources: Databricks App resource configuration generation
     model_serving: Entry point for Databricks Model Serving deployment
 """

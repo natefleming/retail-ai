@@ -785,9 +785,7 @@ class TestDecomposeQueryFeedback:
             "template": "{current_time} {constraints} {examples} {max_subqueries} {query}"
         }
 
-        decomposed = DecomposedQueries(
-            queries=[SearchQuery(text="adjusted query")]
-        )
+        decomposed = DecomposedQueries(queries=[SearchQuery(text="adjusted query")])
         mock_llm = self._create_mock_llm(decomposed)
 
         decompose_query(
@@ -814,9 +812,7 @@ class TestDecomposeQueryFeedback:
             "template": "{current_time} {constraints} {examples} {max_subqueries} {query}"
         }
 
-        decomposed = DecomposedQueries(
-            queries=[SearchQuery(text="test")]
-        )
+        decomposed = DecomposedQueries(queries=[SearchQuery(text="test")])
         mock_llm = self._create_mock_llm(decomposed)
 
         decompose_query(

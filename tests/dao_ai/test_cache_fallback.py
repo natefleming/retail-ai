@@ -31,6 +31,7 @@ class TestLRUCacheFallback:
         params.capacity = 100
         params.time_to_live_seconds = 86400
         params.warehouse = Mock(spec=WarehouseModel)
+        params.invalidate_on_empty_result = False
         return params
 
     def test_fallback_on_sql_execution_failure(self, mock_parameters: Mock) -> None:
@@ -113,6 +114,7 @@ class TestPostgresContextAwareCacheFallback:
         params.table_name = "test_context_aware_cache"
         params.warehouse = Mock(spec=WarehouseModel)
         params.database = Mock()
+        params.invalidate_on_empty_result = False
         return params
 
     def test_fallback_on_sql_execution_failure(self, mock_parameters: Mock) -> None:
@@ -210,6 +212,7 @@ class TestInMemoryContextAwareCacheFallback:
         params.embedding_dims = 3
         params.capacity = 100
         params.warehouse = Mock(spec=WarehouseModel)
+        params.invalidate_on_empty_result = False
         return params
 
     def test_fallback_on_sql_execution_failure(self, mock_parameters: Mock) -> None:

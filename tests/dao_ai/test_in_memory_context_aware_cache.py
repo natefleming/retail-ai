@@ -155,6 +155,7 @@ class TestInMemoryContextAwareCacheContext:
         params.question_weight = 0.6
         params.context_weight = 0.4
         params.capacity = None
+        params.invalidate_on_empty_result = False
         params.warehouse = Mock(spec=WarehouseModel)
         return params
 
@@ -1141,6 +1142,7 @@ class TestInMemoryCacheGetEntries:
         params.question_weight = 0.6
         params.context_weight = 0.4
         params.capacity = None
+        params.invalidate_on_empty_result = False
         params.warehouse = Mock(spec=WarehouseModel)
         return params
 

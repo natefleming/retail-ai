@@ -1,6 +1,7 @@
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from langchain_core.runnables.base import RunnableLike
+from langchain_core.tools import BaseToolkit
 from loguru import logger
 
 from dao_ai.config import (
@@ -12,21 +13,27 @@ from dao_ai.utils import load_function
 
 def create_factory_tool(
     function: FactoryFunctionModel,
-) -> RunnableLike:
+) -> RunnableLike | Sequence[RunnableLike]:
     """
-    Create a factory tool from a FactoryFunctionModel.
-    This factory function dynamically loads a Python function and returns it as a callable tool.
+    Create tool(s) from a FactoryFunctionModel.
+
+    The factory function may return a single tool, a list of tools, or a
+    :class:`BaseToolkit` whose ``get_tools()`` is expanded.
+
     Args:
         function: FactoryFunctionModel instance containing the function details
+
     Returns:
-        A callable tool function that wraps the specified factory function
+        A single tool or a sequence of tools produced by the factory.
     """
     logger.trace("Creating factory tool", function=function.full_name)
 
     factory: Callable[..., Any] = load_function(function_name=function.full_name)
-    tool: RunnableLike = factory(**function.args)
-    # HITL is now handled at middleware level via HumanInTheLoopMiddleware
-    return tool
+    result: Any = factory(**function.args)
+
+    if isinstance(result, BaseToolkit):
+        return result.get_tools()
+    return result
 
 
 def create_python_tool(

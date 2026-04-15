@@ -16,6 +16,7 @@ Usage:
 """
 
 import shutil
+import subprocess
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any
@@ -36,8 +37,11 @@ _BUNDLE_RESOURCE_CONVERTERS: dict[str, str] = {
     "genie-space": "genie_space",
     "database": "database",
     "secret": "secret",
+    "table": "uc_securable",
     "volume": "uc_securable",
     "function": "uc_securable",
+    "connection": "uc_securable",
+    "vector-search-index": "uc_securable",
 }
 
 _DEDUP_KEY_EXTRACTORS: dict[str, Any] = {
@@ -73,7 +77,22 @@ bundle_config_schema.json
 dao_ai_schema.json
 """
 
+_GITIGNORE_DEV_CONTENT = """\
+.venv/
+.databricks/
+*.egg-info/
+__pycache__/
+*.pyc
+.vscode/
+bundle_config_schema.json
+dao_ai_schema.json
+"""
+
 _PYPROJECT_TEMPLATE = """\
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "{name}"
 version = "0.1.0"
@@ -82,6 +101,32 @@ requires-python = ">=3.11"
 dependencies = [
     "dao-ai>={dao_ai_version}",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/{package_name}"]
+sources = ["src"]
+"""
+
+_PYPROJECT_DEV_TEMPLATE = """\
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "{name}"
+version = "0.1.0"
+description = "DAO AI Agent: {name} (development build)"
+requires-python = ">=3.11"
+dependencies = [
+    "dao-ai",
+]
+
+[tool.uv.sources]
+dao-ai = {{ path = "dist/{wheel_filename}" }}
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/{package_name}"]
+sources = ["src"]
 """
 
 
@@ -134,11 +179,30 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
             "key": resource["key"],
             "permission": permission,
         }
-    elif resource_type in ("volume", "function"):
-        full_name: str = resource.get("volume_name") or resource.get(
-            "function_name", ""
+    elif resource_type in (
+        "table",
+        "volume",
+        "function",
+        "connection",
+        "vector-search-index",
+    ):
+        full_name: str = (
+            resource.get("table_name")
+            or resource.get("volume_name")
+            or resource.get("function_name")
+            or resource.get("connection_name")
+            or resource.get("vector_search_index_name", "")
         )
-        securable_type: str = "VOLUME" if resource_type == "volume" else "FUNCTION"
+        # Vector search indexes are UC tables (TABLE_ONLINE_VECTOR_INDEX_*)
+        # and work as TABLE securables for maximum workspace compatibility.
+        securable_type_map: dict[str, str] = {
+            "table": "TABLE",
+            "volume": "VOLUME",
+            "function": "FUNCTION",
+            "connection": "CONNECTION",
+            "vector-search-index": "TABLE",
+        }
+        securable_type: str = securable_type_map[resource_type]
         bundle_permission: str = _BUNDLE_PERMISSION_MAP.get(permission, permission)
         result["uc_securable"] = {
             "securable_full_name": full_name,
@@ -192,14 +256,24 @@ def _convert_to_bundle_resources(
     return result
 
 
-def generate_databricks_yaml(config: AppConfig) -> str:
+def generate_databricks_yaml(config: AppConfig, development: bool = False) -> str:
     """Generate a complete databricks.yaml bundle definition from an AppConfig.
 
     Reuses generate_app_resources(), _extract_env_vars_from_config(), and
     generate_user_api_scopes() from resources.py -- only the format translation
     to the bundle schema is new.
+
+    When development=True, omits the artifacts section so the pre-built
+    dao-ai wheel is uploaded as a regular source file (not intercepted as
+    an artifact).
     """
     app_name: str = config.app.name.lower().replace("_", "-")
+
+    enable_chat_proxy: bool = (
+        config.app.enable_chat_proxy
+        if config.app.enable_chat_proxy is not None
+        else True
+    )
 
     env_vars: list[dict[str, str]] = [
         {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
@@ -207,6 +281,15 @@ def generate_databricks_yaml(config: AppConfig) -> str:
         {"name": "MLFLOW_EXPERIMENT_ID", "value_from": "experiment"},
         {"name": "DAO_AI_CONFIG_PATH", "value": "dao_ai.yaml"},
     ]
+
+    if enable_chat_proxy:
+        env_vars.extend(
+            [
+                {"name": "API_PROXY", "value": "http://localhost:8000/invocations"},
+                {"name": "CHAT_APP_PORT", "value": "3000"},
+                {"name": "CHAT_PROXY_TIMEOUT_SECONDS", "value": "300"},
+            ]
+        )
 
     config_env_vars = _extract_env_vars_from_config(config)
     config_env_vars = [
@@ -234,12 +317,18 @@ def generate_databricks_yaml(config: AppConfig) -> str:
 
     user_api_scopes = generate_user_api_scopes(config)
 
+    app_command: list[str] = (
+        ["python", "-m", "dao_ai.apps.start_app"]
+        if enable_chat_proxy
+        else ["python", "-m", "dao_ai.apps.server"]
+    )
+
     app_def: dict[str, Any] = {
         "name": app_name,
         "description": config.app.description or f"DAO AI Agent: {app_name}",
         "source_code_path": "${workspace.file_path}",
         "config": {
-            "command": ["python", "-m", "dao_ai.apps.server"],
+            "command": app_command,
             "env": env_vars,
         },
         "resources": bundle_resources,
@@ -252,13 +341,6 @@ def generate_databricks_yaml(config: AppConfig) -> str:
         "bundle": {
             "name": app_name,
             "engine": "direct",
-        },
-        "artifacts": {
-            "default": {
-                "type": "whl",
-                "build": "uv build",
-                "path": ".",
-            },
         },
         "resources": {
             "experiments": {
@@ -278,6 +360,18 @@ def generate_databricks_yaml(config: AppConfig) -> str:
         },
     }
 
+    # Only include artifacts for non-dev bundles. In dev mode the pre-built
+    # dao-ai wheel lives in dist/ and must be uploaded as a regular source
+    # file, not intercepted by the artifact system.
+    if not development:
+        bundle["artifacts"] = {
+            "default": {
+                "type": "whl",
+                "build": "uv build",
+                "path": ".",
+            },
+        }
+
     return yaml.dump(bundle, default_flow_style=False, sort_keys=False)
 
 
@@ -293,11 +387,20 @@ def _write_file(path: Path, content: str, force: bool) -> bool:
     return True
 
 
-def write_bundle(config: AppConfig, output_dir: Path, force: bool = False) -> None:
+def write_bundle(
+    config: AppConfig,
+    output_dir: Path,
+    force: bool = False,
+    development: bool = False,
+) -> None:
     """Write a complete, deployable Databricks Apps bundle directory.
 
     Generates databricks.yaml, copies the dao-ai config, and creates
     scaffolding files (pyproject.toml, .gitignore, .python-version).
+
+    When development=True, copies the local dao-ai source into the bundle
+    and generates a pyproject.toml that builds from local source instead of
+    pulling dao-ai from PyPI.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     app_name: str = config.app.name.lower().replace("_", "-")
@@ -310,7 +413,10 @@ def write_bundle(config: AppConfig, output_dir: Path, force: bool = False) -> No
         else:
             skipped.append(path.name)
 
-    _track(output_dir / "databricks.yaml", generate_databricks_yaml(config))
+    _track(
+        output_dir / "databricks.yaml",
+        generate_databricks_yaml(config, development=development),
+    )
 
     source_config: str | None = getattr(config, "_source_config_path", None)
     if source_config:
@@ -327,11 +433,108 @@ def write_bundle(config: AppConfig, output_dir: Path, force: bool = False) -> No
     else:
         logger.warning("No source config path found -- skipping dao_ai.yaml copy")
 
-    _track(
-        output_dir / "pyproject.toml",
-        _PYPROJECT_TEMPLATE.format(name=app_name, dao_ai_version=_get_dao_ai_version()),
+    package_name = app_name.replace("-", "_")
+
+    if development:
+        from dao_ai.utils import find_dev_wheel
+
+        wheel_path: Path | None = find_dev_wheel()
+
+        if not wheel_path:
+            # No pre-built wheel found -- build from source
+            project_root = Path(__file__).parents[3]
+            logger.info(
+                "No dev wheel found, building from source",
+                project_root=str(project_root),
+            )
+            result = subprocess.run(
+                ["uv", "build", "--wheel"],
+                cwd=project_root,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Wheel build failed: {result.stderr}")
+
+            wheels = sorted(
+                (project_root / "dist").glob("dao_ai-*.whl"),
+                key=lambda p: p.stat().st_mtime,
+            )
+            if not wheels:
+                raise RuntimeError(
+                    f"No wheel found in {project_root / 'dist'} after build"
+                )
+            wheel_path = wheels[-1]
+        else:
+            logger.info("Using existing dev wheel", wheel=wheel_path.name)
+
+        # Copy wheel into bundle's dist/ directory
+        dist_dir = output_dir / "dist"
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        dest_wheel = dist_dir / wheel_path.name
+        shutil.copy2(wheel_path, dest_wheel)
+        logger.info("Copied dao-ai wheel for development build", wheel=wheel_path.name)
+        written.append(f"dist/{wheel_path.name}")
+
+        # Write dev pyproject.toml referencing local wheel
+        _track(
+            output_dir / "pyproject.toml",
+            _PYPROJECT_DEV_TEMPLATE.format(
+                name=app_name,
+                package_name=package_name,
+                wheel_filename=wheel_path.name,
+            ),
+        )
+
+        # Create stub package for user's custom code additions
+        stub_dir = output_dir / "src" / package_name
+        stub_init = stub_dir / "__init__.py"
+        if not stub_init.exists() or force:
+            stub_dir.mkdir(parents=True, exist_ok=True)
+            stub_init.write_text("")
+            logger.info(f"Created stub package src/{package_name}/")
+            written.append(f"src/{package_name}/__init__.py")
+    else:
+        _track(
+            output_dir / "pyproject.toml",
+            _PYPROJECT_TEMPLATE.format(
+                name=app_name,
+                package_name=package_name,
+                dao_ai_version=_get_dao_ai_version(),
+            ),
+        )
+
+        # Create stub package so the wheel builds and users can add custom code
+        stub_dir = output_dir / "src" / package_name
+        stub_init = stub_dir / "__init__.py"
+        if not stub_init.exists() or force:
+            stub_dir.mkdir(parents=True, exist_ok=True)
+            stub_init.write_text("")
+            logger.info(f"Created stub package src/{package_name}/")
+            written.append(f"src/{package_name}/__init__.py")
+
+    # Generate uv.lock so the app runtime uses uv to install from pyproject.toml
+    logger.info("Resolving dependencies with uv lock...")
+    result = subprocess.run(
+        ["uv", "lock"],
+        cwd=output_dir,
+        capture_output=True,
+        text=True,
     )
-    _track(output_dir / ".gitignore", _GITIGNORE_CONTENT)
+    if result.returncode == 0:
+        written.append("uv.lock")
+        logger.info("Generated uv.lock")
+    else:
+        logger.error(f"Failed to generate uv.lock: {result.stderr.strip()}")
+        print(
+            f"  ERROR: uv lock failed. The app will not install dependencies correctly.\n"
+            f"         {result.stderr.strip()}"
+        )
+
+    _track(
+        output_dir / ".gitignore",
+        _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
+    )
     _track(output_dir / ".python-version", "3.11\n")
 
     print(f"\nBundle generated in {output_dir}/\n")

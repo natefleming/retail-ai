@@ -93,6 +93,7 @@ DEFAULT_PERMISSIONS: dict[str, list[str]] = {
     "vector-search-index": ["CAN_SELECT"],
     "sql-warehouse": ["CAN_USE"],
     "genie-space": ["CAN_RUN"],
+    "table": ["CAN_SELECT"],
     "volume": ["CAN_READ"],
     "function": ["CAN_EXECUTE"],
     "connection": ["USE_CONNECTION"],
@@ -206,6 +207,61 @@ def _extract_genie_resources(
         }
         resources.append(resource)
         logger.debug(f"Extracted Genie space resource: {key} -> {space_id}")
+    return resources
+
+
+def _extract_table_resources(
+    tables: dict[str, TableModel],
+) -> list[dict[str, Any]]:
+    """Extract UC Table resources from TableModels.
+
+    Produces flat app.yaml-format dicts with type 'table'. When converted to
+    bundle format, these become uc_securable resources with TABLE type and
+    SELECT permission, which automatically grants USE CATALOG and USE SCHEMA.
+    """
+    resources: list[dict[str, Any]] = []
+    for key, table in tables.items():
+        if table.on_behalf_of_user:
+            continue
+        resource: dict[str, Any] = {
+            "name": key,
+            "type": "table",
+            "table_name": table.full_name,
+            "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["table"]],
+        }
+        resources.append(resource)
+        logger.debug(f"Extracted table resource: {key} -> {table.full_name}")
+    return resources
+
+
+def _extract_genie_warehouse_resources(
+    genie_rooms: dict[str, GenieRoomModel],
+    existing_warehouse_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Extract SQL warehouse resources from Genie rooms.
+
+    Each Genie space is backed by a SQL warehouse. The app's service principal
+    needs CAN_USE on that warehouse to execute queries through Genie.
+    Skips warehouses already declared in resources.warehouses.
+    """
+    resources: list[dict[str, Any]] = []
+    seen_ids: set[str] = set(existing_warehouse_ids)
+    for key, genie in genie_rooms.items():
+        warehouse = genie.warehouse
+        if warehouse is None:
+            continue
+        wh_id = value_of(warehouse.warehouse_id)
+        if wh_id in seen_ids:
+            continue
+        seen_ids.add(wh_id)
+        resource: dict[str, Any] = {
+            "name": f"{key}_warehouse",
+            "type": "sql-warehouse",
+            "sql_warehouse_id": wh_id,
+            "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["sql-warehouse"]],
+        }
+        resources.append(resource)
+        logger.debug(f"Extracted Genie warehouse resource: {key}_warehouse -> {wh_id}")
     return resources
 
 
@@ -413,10 +469,37 @@ def generate_app_resources(config: AppConfig) -> list[dict[str, Any]]:
     resources.extend(_extract_warehouse_resources(config.resources.warehouses))
     resources.extend(_extract_genie_resources(config.resources.genie_rooms))
     resources.extend(_extract_volume_resources(config.resources.volumes))
-    resources.extend(_extract_function_resources(config.resources.functions))
     resources.extend(_extract_connection_resources(config.resources.connections))
     resources.extend(_extract_database_resources(config.resources.databases))
     resources.extend(_extract_app_resources(config.resources.apps))
+
+    # Genie room dependencies: tables, functions, and warehouses.
+    # The update_genie_tables/functions validators run before resolution,
+    # so we also pull directly from resolved Genie rooms as a fallback.
+    all_tables: dict[str, TableModel] = dict(config.resources.tables)
+    all_functions: dict[str, FunctionModel] = dict(config.resources.functions)
+    for _room_key, genie_room in config.resources.genie_rooms.items():
+        for table in genie_room.tables:
+            short_name: str = table.full_name.rsplit(".", 1)[-1]
+            table_key: str = f"tbl_{short_name}"
+            if table.full_name not in {t.full_name for t in all_tables.values()}:
+                all_tables[table_key] = table
+        for func in genie_room.functions:
+            short_name = func.full_name.rsplit(".", 1)[-1]
+            func_key: str = f"fn_{short_name}"
+            if func.full_name not in {f.full_name for f in all_functions.values()}:
+                all_functions[func_key] = func
+    resources.extend(_extract_table_resources(all_tables))
+    resources.extend(_extract_function_resources(all_functions))
+
+    existing_wh_ids: set[str] = {
+        value_of(w.warehouse_id) for w in config.resources.warehouses.values()
+    }
+    resources.extend(
+        _extract_genie_warehouse_resources(
+            config.resources.genie_rooms, existing_wh_ids
+        )
+    )
 
     # Extract secrets from the entire config
     resources.extend(_extract_secrets_from_config(config))
@@ -1077,22 +1160,25 @@ def generate_deployment_resources(
             _extract_raw_vector_search_resources(config.resources.vector_stores)
         )
         resources.extend(_extract_raw_function_resources(config.resources.functions))
-        # Only add tables that are NOT auto-populated from Genie rooms.
-        # Genie space resources already grant the app SP access to their
-        # tables, so adding them as separate UC securables is redundant
-        # and wastes the 20-resource limit.
-        genie_table_names: set[str] = set()
-        for genie_room in config.resources.genie_rooms.values():
-            for table in getattr(genie_room, "tables", []):
-                genie_table_names.add(table.full_name)
-
-        non_genie_tables = {
-            key: table
-            for key, table in config.resources.tables.items()
-            if table.full_name not in genie_table_names
-        }
-        if non_genie_tables:
-            resources.extend(_extract_raw_table_resources(non_genie_tables))
+        # Include all tables as UC securable app resources.  Genie space
+        # resources only grant CAN_RUN on the space — not SELECT on the
+        # underlying tables.  Per-table uc_securable resources are the
+        # sanctioned way to grant the auto-created Apps SP access.
+        # The progressive fallback in _set_app_resources handles the
+        # 20-resource limit.
+        #
+        # Note: config.resources.tables may be empty if the
+        # update_genie_tables validator ran before Genie rooms were
+        # resolved.  Collect tables directly from resolved rooms as a
+        # fallback.
+        all_tables: dict[str, TableModel] = dict(config.resources.tables)
+        for room_key, genie_room in config.resources.genie_rooms.items():
+            for table in genie_room.tables:
+                table_key = f"{room_key}_{table.full_name}".replace(".", "_")
+                if table.full_name not in {t.full_name for t in all_tables.values()}:
+                    all_tables[table_key] = table
+        if all_tables:
+            resources.extend(_extract_raw_table_resources(all_tables))
         resources.extend(
             _extract_raw_connection_resources(config.resources.connections)
         )

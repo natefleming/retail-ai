@@ -536,6 +536,12 @@ class LanggraphChatModel(ChatModel):
 
         # Extract known Context fields
         user_id: str | None = configurable.pop("user_id", None)
+
+        # Fall back to x-forwarded-user header (set by Databricks Apps OBO)
+        if not user_id:
+            headers = configurable.get("headers") or {}
+            user_id = headers.get("x-forwarded-user") or headers.get("X-Forwarded-User")
+
         if user_id:
             user_id = user_id.replace(".", "_")
 
@@ -1858,6 +1864,15 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
         # Extract known Context fields
         user_id_value: str | None = configurable.pop("user_id", None)
+
+        # Fall back to x-forwarded-user header (set by Databricks Apps OBO)
+        # when user_id is not explicitly provided in the request.
+        if not user_id_value:
+            headers = configurable.get("headers") or {}
+            user_id_value = headers.get("x-forwarded-user") or headers.get(
+                "X-Forwarded-User"
+            )
+
         if user_id_value:
             # Normalize user_id for memory namespace (replace . with _)
             user_id_value = user_id_value.replace(".", "_")

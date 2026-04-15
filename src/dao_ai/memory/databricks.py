@@ -351,7 +351,12 @@ class DatabricksCheckpointerManager(CheckpointManagerBase):
             lakebase_name = database.project or database.instance_name
 
             t0 = time.monotonic()
-            pool = _create_lakebase_pool(database)
+            pool = _create_lakebase_pool(
+                database,
+                min_size=1,
+                max_size=database.max_pool_size,
+                timeout=float(database.timeout_seconds),
+            )
             t1 = time.monotonic()
 
             checkpointer = AsyncDatabricksCheckpointSaver(pool=pool)

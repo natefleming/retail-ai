@@ -464,6 +464,12 @@ class ContextAwareGenieService(GenieServiceBase):
         pass
 
     @property
+    @abstractmethod
+    def invalidate_on_empty_result(self) -> bool:
+        """Whether to invalidate cache entries that return empty result sets."""
+        pass
+
+    @property
     def embedding_dims(self) -> int:
         """Dimension size for embeddings (auto-detected if not configured)."""
         if self._embedding_dims is None:
@@ -917,6 +923,40 @@ class ContextAwareGenieService(GenieServiceBase):
         # Re-execute the cached SQL to get fresh data
         result: pd.DataFrame | str = self._execute_sql(cached.query)
 
+        # Check if cached SQL returned empty results and invalidation is enabled
+        if (
+            self.invalidate_on_empty_result
+            and isinstance(result, pd.DataFrame)
+            and result.empty
+        ):
+            logger.warning(
+                "Cached SQL returned empty results, invalidating and falling back to Genie",
+                layer=self.name,
+                question=question[:80],
+                conversation_id=conversation_id,
+                cached_sql=cached.query[:80],
+                space_id=self.space_id,
+            )
+            self._on_stale_cache_entry(question)
+            fallback_result: CacheResult = self.impl.ask_question(
+                question, conversation_id
+            )
+            if fallback_result.response.query:
+                self._store_entry(
+                    question,
+                    conversation_context,
+                    question_embedding,
+                    context_embedding,
+                    fallback_result.response,
+                    message_id=fallback_result.message_id,
+                )
+            return CacheResult(
+                response=fallback_result.response,
+                cache_hit=False,
+                served_by=None,
+                message_id=fallback_result.message_id,
+            )
+
         # Check if SQL execution failed (returns error string instead of DataFrame)
         if isinstance(result, str):
             logger.warning(
@@ -1075,6 +1115,13 @@ class ContextAwareGenieService(GenieServiceBase):
             True if an entry was found and invalidated, False otherwise
         """
         pass
+
+    def invalidate(self, question: str, conversation_id: str | None = None) -> bool:
+        """Invalidate a cache entry by question text and cascade to wrapped services."""
+        self._setup()
+        local_removed: bool = self._invalidate_by_question(question)
+        impl_removed: bool = self.impl.invalidate(question, conversation_id)
+        return local_removed or impl_removed
 
     @mlflow.trace(name="genie_context_aware_send_feedback")
     def send_feedback(

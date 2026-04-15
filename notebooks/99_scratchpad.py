@@ -5,7 +5,8 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install --quiet -r ../requirements.txt
+# MAGIC %pip install --quiet --upgrade -r ../requirements.txt
+# MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -58,7 +59,7 @@ from importlib.metadata import version
 
 pip_requirements: Sequence[str] = (
   f"langgraph=={version('langgraph')}",
-  f"langchain=={version('langchain')}"
+  f"langchain=={version('langchain')}",
   f"databricks-langchain=={version('databricks-langchain')}",
   f"databricks-sdk=={version('databricks-sdk')}",
   f"mlflow=={version('mlflow')}",
@@ -86,7 +87,7 @@ search_tool = DuckDuckGoSearchRun()
 def hook(state, config):
 
   prompt = state["messages"][-1].content
-  response = AI(content=search_tool.invoke(input={"query": prompt}))
+  response = AIMessage(content=search_tool.invoke(input={"query": prompt}))
   messages = [RemoveMessage(id=m.id) for m in state["messages"]]
   messages += [response]
   return  {"messages": messages}

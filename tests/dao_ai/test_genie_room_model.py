@@ -210,6 +210,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Test tables extraction
             tables = genie_room.tables
@@ -238,6 +239,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-456"
             )
+            genie_room.ensure_resolved()
 
             # Test tables extraction with name fallback
             tables = genie_room.tables
@@ -262,6 +264,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-789"
             )
+            genie_room.ensure_resolved()
 
             # Test tables extraction
             tables = genie_room.tables
@@ -285,6 +288,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-empty"
             )
+            genie_room.ensure_resolved()
 
             # Should return empty lists
             tables = genie_room.tables
@@ -307,6 +311,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-no-data"
             )
+            genie_room.ensure_resolved()
 
             # Should return empty lists without errors
             tables = genie_room.tables
@@ -330,6 +335,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-invalid"
             )
+            genie_room.ensure_resolved()
 
             # Should handle gracefully and return empty lists
             tables = genie_room.tables
@@ -350,6 +356,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-sql-funcs"
             )
+            genie_room.ensure_resolved()
 
             # Test tables extraction
             tables = genie_room.tables
@@ -383,6 +390,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # First call should fetch from API
             tables1 = genie_room.tables
@@ -436,6 +444,7 @@ class TestGenieRoomModelSerialization:
 
             # Create without name
             genie_room = GenieRoomModel(space_id="test-space-123")
+            genie_room.ensure_resolved()
 
             # Name should be populated from the space title
             assert genie_room.name == "My Retail Analytics Space"
@@ -456,6 +465,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="My Custom Name", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Custom name should be preserved
             assert genie_room.name == "My Custom Name"
@@ -474,6 +484,7 @@ class TestGenieRoomModelSerialization:
 
             # Create without name
             genie_room = GenieRoomModel(space_id="test-space-123")
+            genie_room.ensure_resolved()
 
             # Name should remain None
             assert genie_room.name is None
@@ -494,6 +505,7 @@ class TestGenieRoomModelSerialization:
 
             # Create without description
             genie_room = GenieRoomModel(space_id="test-space-123")
+            genie_room.ensure_resolved()
 
             # Description should be populated from the space
             assert genie_room.description == "This is a test Genie space description"
@@ -515,6 +527,7 @@ class TestGenieRoomModelSerialization:
 
             # Create without name or description
             genie_room = GenieRoomModel(space_id="test-space-123")
+            genie_room.ensure_resolved()
 
             # Both should be populated from the space
             assert genie_room.name == "Production Analytics"
@@ -538,6 +551,7 @@ class TestGenieRoomModelSerialization:
                 space_id="test-space-123",
                 description="My custom description",
             )
+            genie_room.ensure_resolved()
 
             # Custom description should be preserved
             assert genie_room.description == "My custom description"
@@ -558,6 +572,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Description should remain None
             assert genie_room.description is None
@@ -577,6 +592,7 @@ class TestGenieRoomModelSerialization:
 
             # Create with name but without description
             genie_room = GenieRoomModel(name="Custom Name", space_id="test-space-123")
+            genie_room.ensure_resolved()
 
             # Custom name should be preserved, description should be auto-populated
             assert genie_room.name == "Custom Name"
@@ -599,6 +615,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 description="Custom Description", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Custom description should be preserved, name should be auto-populated
             assert genie_room.name == "API Space Title"
@@ -616,6 +633,7 @@ class TestGenieRoomModelSerialization:
 
             # Create without name or description - should not raise exception
             genie_room = GenieRoomModel(space_id="test-space-123")
+            genie_room.ensure_resolved()
 
             # Name and description should remain None (not populated due to API error)
             assert genie_room.name is None
@@ -632,6 +650,7 @@ class TestGenieRoomModelSerialization:
                 description="Custom Description",
                 space_id="test-space-123",
             )
+            genie_room.ensure_resolved()
 
             # API should not have been called
             mock_workspace_client.genie.get_space.assert_not_called()
@@ -663,6 +682,7 @@ class TestGenieRoomModelSerialization:
                 service_principal=service_principal,
                 workspace_host="https://test.databricks.com",
             )
+            genie_room.ensure_resolved()
 
             # Get tables and functions
             tables = genie_room.tables
@@ -701,6 +721,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Get warehouse
             warehouse = genie_room.warehouse
@@ -744,6 +765,7 @@ class TestGenieRoomModelSerialization:
                 service_principal=service_principal,
                 workspace_host="https://test.databricks.com",
             )
+            genie_room.ensure_resolved()
 
             # Get warehouse
             warehouse = genie_room.warehouse
@@ -769,6 +791,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Get warehouse - should return None
             warehouse = genie_room.warehouse
@@ -794,6 +817,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Get warehouse - should return None on error
             warehouse = genie_room.warehouse
@@ -817,6 +841,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Get warehouse
             warehouse = genie_room.warehouse
@@ -848,6 +873,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Test tables extraction - should exclude the non-existent table
             tables = genie_room.tables
@@ -881,6 +907,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Test functions extraction - should exclude the non-existent function
             functions = genie_room.functions
@@ -908,6 +935,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             tables = genie_room.tables
             assert len(tables) == 0
@@ -931,6 +959,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             functions = genie_room.functions
             assert len(functions) == 0
@@ -955,6 +984,7 @@ class TestGenieRoomModelSerialization:
             genie_room = GenieRoomModel(
                 name="test-genie-room", space_id="test-space-123"
             )
+            genie_room.ensure_resolved()
 
             # Should exclude the table with API error
             tables = genie_room.tables
@@ -981,6 +1011,7 @@ class TestGenieRoomModelNameResolution:
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             genie_room = GenieRoomModel(name="Sales Analytics")
+            genie_room.ensure_resolved()
 
             assert genie_room.space_id == "sales_id"
             assert genie_room.name == "Sales Analytics"
@@ -999,6 +1030,7 @@ class TestGenieRoomModelNameResolution:
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             genie_room = GenieRoomModel(name="Target Space")
+            genie_room.ensure_resolved()
 
             assert genie_room.space_id == "target_id"
             assert mock_workspace_client.genie.list_spaces.call_count == 2
@@ -1013,6 +1045,7 @@ class TestGenieRoomModelNameResolution:
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             genie_room = GenieRoomModel(name="Target Space")
+            genie_room.ensure_resolved()
 
             assert genie_room.space_id == "target_id"
             assert mock_workspace_client.genie.list_spaces.call_count == 1
@@ -1028,8 +1061,9 @@ class TestGenieRoomModelNameResolution:
         )
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            model = GenieRoomModel(name="Nonexistent Space")
             with pytest.raises(ValueError, match="No Genie space found with title"):
-                GenieRoomModel(name="Nonexistent Space")
+                model.ensure_resolved()
 
     def test_resolve_space_by_name_empty_list(self, mock_workspace_client):
         """Test that ValueError is raised when space list is empty."""
@@ -1038,8 +1072,9 @@ class TestGenieRoomModelNameResolution:
         )
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            model = GenieRoomModel(name="Any Space")
             with pytest.raises(ValueError, match="No Genie space found with title"):
-                GenieRoomModel(name="Any Space")
+                model.ensure_resolved()
 
     def test_neither_name_nor_space_id_raises_error(self, mock_workspace_client):
         """Test that ValueError is raised when neither name nor space_id is provided."""
@@ -1053,6 +1088,7 @@ class TestGenieRoomModelNameResolution:
         """Test that space_id is used directly when both name and space_id are provided."""
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             genie_room = GenieRoomModel(name="Custom Label", space_id="explicit_id")
+            genie_room.ensure_resolved()
 
             assert genie_room.space_id == "explicit_id"
             assert genie_room.name == "Custom Label"
@@ -1075,6 +1111,7 @@ class TestGenieRoomModelRealAPI:
         genie_room = GenieRoomModel(
             name="test-real-genie-room", space_id="01f01c91f1f414d59daaefd2b7ec82ea"
         )
+        genie_room.ensure_resolved()
 
         # Test that we can fetch space details
         space_details = genie_room._get_space_details()
@@ -1134,6 +1171,7 @@ class TestGenieRoomModelRealAPI:
         genie_room = GenieRoomModel(
             name="test-real-genie-room", space_id="01f01c91f1f414d59daaefd2b7ec82ea"
         )
+        genie_room.ensure_resolved()
 
         # First access - fetches from API and caches
         tables1 = genie_room.tables
@@ -1163,6 +1201,7 @@ class TestGenieRoomModelRealAPI:
         genie_room = GenieRoomModel(
             name="test-real-genie-room", space_id="01f01c91f1f414d59daaefd2b7ec82ea"
         )
+        genie_room.ensure_resolved()
 
         # Test as_resources
         resources = genie_room.as_resources()
@@ -1181,6 +1220,7 @@ class TestGenieRoomModelRealAPI:
         genie_room = GenieRoomModel(
             name="test-real-genie-room", space_id="01f01c91f1f414d59daaefd2b7ec82ea"
         )
+        genie_room.ensure_resolved()
 
         # Test warehouse extraction
         warehouse = genie_room.warehouse
