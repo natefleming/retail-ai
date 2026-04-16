@@ -73,6 +73,10 @@ def load_gcp_credentials(
 ) -> Credentials:
     """Resolve GCP service-account credentials from any supported source.
 
+    Not instrumented with ``@mlflow.trace`` — the input may contain an
+    inline JSON service-account key and MLflow's auto input-capture would
+    persist the private key inside the trace.
+
     Args:
         credentials: Raw string or ``AnyVariable`` (env, secret, composite)
             that resolves to a filesystem path, Databricks volume path, or
@@ -103,7 +107,6 @@ def load_gcp_credentials(
         return service_account.Credentials.from_service_account_info(
             info, scopes=scope_list
         )
-
     if resolved.startswith("/Volumes/"):
         logger.debug(f"Loading GCP credentials from Databricks Volume: {resolved}")
         return _load_from_volume(resolved, scope_list)
@@ -115,7 +118,12 @@ def load_gcp_credentials(
 
 
 def mint_gcp_access_token(credentials: Credentials) -> str:
-    """Return a valid access token, refreshing if expired."""
+    """Return a valid access token, refreshing if expired.
+
+    Not instrumented with ``@mlflow.trace`` — the return value is the
+    access token itself, and MLflow's auto output-capture would write the
+    token into trace storage.
+    """
     if not credentials.valid:
         credentials.refresh(Request())
     return credentials.token

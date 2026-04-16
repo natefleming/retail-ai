@@ -60,6 +60,28 @@ ATTR_RERANKER_AVG_SCORE = "dao_ai.reranker.avg_score"
 ATTR_DECOMPOSITION_COUNT = "dao_ai.decomposition.subquery_count"
 ATTR_DECOMPOSITION_DETAIL = "dao_ai.decomposition.detail"
 
+# Vertex AI Agent Engine tool
+ATTR_VERTEX_ENDPOINT_URL = "dao_ai.vertex.endpoint_url"
+ATTR_VERTEX_CLASS_METHOD = "dao_ai.vertex.class_method"
+ATTR_VERTEX_HTTP_METHOD = "dao_ai.vertex.http_method"
+ATTR_VERTEX_USER_ID = "dao_ai.vertex.user_id"
+ATTR_VERTEX_SESSION_ID = "dao_ai.vertex.session_id"
+ATTR_VERTEX_SESSION_PASSED = "dao_ai.vertex.session_id_passed"
+ATTR_VERTEX_RETRIED_WITHOUT_SESSION = "dao_ai.vertex.retried_without_session"
+ATTR_VERTEX_RETRY_REASON = "dao_ai.vertex.retry_reason"
+ATTR_VERTEX_PROMPT_CHARS = "dao_ai.vertex.prompt_chars"
+ATTR_VERTEX_RESPONSE_CHARS = "dao_ai.vertex.response_chars"
+ATTR_VERTEX_STREAM_TOTAL_LINES = "dao_ai.vertex.stream.total_lines"
+ATTR_VERTEX_STREAM_MODEL_EVENTS = "dao_ai.vertex.stream.model_events"
+ATTR_VERTEX_STREAM_STATE_DELTA_EVENTS = "dao_ai.vertex.stream.state_delta_events"
+ATTR_VERTEX_STREAM_NONJSON_LINES = "dao_ai.vertex.stream.non_json_lines"
+
+# OpenTelemetry HTTP semantic conventions (used on the _post child span)
+ATTR_HTTP_METHOD = "http.method"
+ATTR_HTTP_URL = "http.url"
+ATTR_HTTP_STATUS = "http.status_code"
+ATTR_HTTP_RESP_LEN = "http.response_content_length"
+
 
 @dataclass(frozen=True)
 class ResourceInfo:

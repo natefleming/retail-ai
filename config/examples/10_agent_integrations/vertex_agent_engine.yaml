@@ -5,10 +5,9 @@
 # ==============================================================================
 # Two-agent system:
 #
-#   1. retail_analytics_agent — Databricks Genie specialist with THREE rooms:
-#        a. Logistics Operations and Tracking
-#        b. Unified Customer Loyalty Analytics
-#        c. Retail Customer Sales Analysis
+#   1. retail_analytics_agent — Databricks Genie specialist with TWO rooms:
+#        a. Retail Customer Sales Analysis
+#        b. Logistics Operations and Tracking
 #
 #   2. customer_service_agent — Google Cloud ADK agent exposed via Vertex AI
 #      Agent Engine's ``:streamQuery`` endpoint.
@@ -30,33 +29,6 @@ resources:
       max_tokens: 4096
 
   genie_rooms:
-    # Shipments, carriers, warehouses, package tracking.
-    logistics_genie_room: &logistics_genie_room
-      name: "Logistics Operations and Tracking"
-      description: >
-        Shipments, carriers, warehouse facilities, and package tracking events.
-        Use for carrier performance, transit times, delivery timelines,
-        shipment status, delay investigation, and warehouse network
-        capacity/geography. Does not cover order items, returns, damages,
-        inventory levels, or financials beyond shipping costs.
-      space_id:
-        env: LOGISTICS_GENIE_SPACE_ID
-        default_value: 01f139cf18d2194e8aa05ffec9c27b31
-
-    # Customer loyalty, acquisition, engagement.
-    loyalty_genie_room: &loyalty_genie_room
-      name: "Unified Customer Loyalty Analytics"
-      description: >
-        Customer loyalty metrics across brands, regions, and tiers. Use for
-        acquisition channels, AOV, transaction frequency, cross-brand shopping,
-        return rates, demographics (gender, state, tier), and engagement
-        (app installs, email opt-ins, points earned). Does not cover
-        transaction-level or product-level data, individual purchase history,
-        or external factors like marketing campaigns.
-      space_id:
-        env: LOYALTY_GENIE_SPACE_ID
-        default_value: 01f132035cc11fb299f98bf799348ab1
-
     # Customer + sales + product analytics (orders, products, inventory).
     sales_genie_room: &sales_genie_room
       name: "Retail Customer Sales Analysis"
@@ -71,15 +43,28 @@ resources:
         env: SALES_GENIE_SPACE_ID
         default_value: 01f139d55de31350b6195b771c24faac
 
+    # Shipments, carriers, warehouses, package tracking.
+    logistics_genie_room: &logistics_genie_room
+      name: "Logistics Operations and Tracking"
+      description: >
+        Shipments, carriers, warehouse facilities, and package tracking events.
+        Use for carrier performance, transit times, delivery timelines,
+        shipment status, delay investigation, and warehouse network
+        capacity/geography. Does not cover order items, returns, damages,
+        inventory levels, or financials beyond shipping costs.
+      space_id:
+        env: LOGISTICS_GENIE_SPACE_ID
+        default_value: 01f139cf18d2194e8aa05ffec9c27b31
+
 prompts:
   # -----------------------------------------------------------------------
-  # Retail Analytics Agent — wields all three Genie rooms
+  # Retail Analytics Agent — wields both Genie rooms
   # -----------------------------------------------------------------------
   retail_analytics_prompt: &retail_analytics_prompt
     name: vertex_agent_engine_retail_analytics_prompt
-    description: Retail analytics specialist prompt covering logistics, loyalty, and product/order sales analytics.
+    description: Retail analytics specialist prompt covering customer/sales/product analytics and logistics.
     default_template: |
-      You are a retail analytics specialist with access to three Databricks
+      You are a retail analytics specialist with access to two Databricks
       Genie rooms. Pick the right tool based on the question's intent:
 
       **sales_analytics** — customer, sales, and product analytics. Use for:
@@ -99,18 +84,9 @@ prompts:
       Does NOT cover: order items, returns/damages, inventory levels, or
       financials beyond shipping costs.
 
-      **loyalty_analytics** — aggregate customer loyalty metrics. Use for:
-      - Customer counts and revenue across brands, regions, loyalty tiers
-      - Acquisition channels and their effectiveness
-      - AOV, transaction frequency, cross-brand shopping, return rates
-      - Demographics (gender, state, tier)
-      - Engagement metrics (app installs, email opt-ins, points earned)
-      Does NOT cover: transaction- or product-level detail, individual
-      purchase history, or external factors like campaigns/seasonality.
-
-      If a question needs data from multiple domains, call the relevant
-      tools and synthesize. If a question is clearly outside all three rooms
-      (e.g. free-form customer service), hand off to the supervisor.
+      If a question needs data from both domains, call both tools and
+      synthesize. If a question is clearly outside both rooms (e.g.
+      free-form customer service), hand off to the supervisor.
 
       Always cite concrete figures from the tool output rather than
       paraphrasing.
@@ -137,14 +113,12 @@ prompts:
     default_template: |
       You coordinate two specialist agents for a retail organization:
 
-      - retail_analytics_agent: Answers analytics questions using three
+      - retail_analytics_agent: Answers analytics questions using two
         Databricks Genie rooms — "Retail Customer Sales Analysis"
-        (customers, orders, products, revenue, pricing), "Logistics
+        (customers, orders, products, revenue, pricing) and "Logistics
         Operations and Tracking" (shipments, carriers, warehouses,
-        tracking events), and "Unified Customer Loyalty Analytics"
-        (aggregate loyalty metrics, demographics, engagement). Route here
-        for any quantitative / analytical / "how are we doing" / trends /
-        segmentation / product-performance question.
+        tracking events). Route here for any quantitative / analytical /
+        "how are we doing" / trends / product-performance question.
 
       - customer_service_agent: Handles customer-facing service questions
         via a Google Cloud ADK agent on Vertex AI Agent Engine. Route here
@@ -219,26 +193,6 @@ tools:
           or financials beyond shipping costs — route those elsewhere.
         genie_room: *logistics_genie_room
 
-  # Genie — customer loyalty analytics.
-  loyalty_genie_tool: &loyalty_genie_tool
-    name: loyalty_analytics
-    function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: loyalty_analytics
-        description: |
-          Query unified customer loyalty analytics. Use for questions about
-          customer counts and revenue across brands/regions/tiers,
-          acquisition channels, average order value, transaction frequency,
-          cross-brand shopping, return rates, customer demographics (gender,
-          state, loyalty tier), and engagement (app installs, email opt-ins,
-          points earned).
-
-          Does NOT cover transaction-level or product-level detail, or
-          individual purchase history — route those elsewhere.
-        genie_room: *loyalty_genie_room
-
   # Vertex AI Agent Engine — customer service domain expertise.
   customer_service_tool: &customer_service_tool
     name: customer_service
@@ -261,19 +215,17 @@ tools:
         class_method: stream_query
 
 agents:
-  # Retail analytics worker — wields all three Genie rooms.
+  # Retail analytics worker — wields both Genie rooms.
   retail_analytics_agent: &retail_analytics_agent
     name: retail_analytics_agent
     description: >
       Retail analytics specialist covering customer/sales/product analytics
-      (orders, top products, revenue), logistics operations (shipments,
-      carriers, warehouses, tracking), and aggregate customer loyalty
-      metrics.
+      (orders, top products, revenue) and logistics operations (shipments,
+      carriers, warehouses, tracking).
     model: *default_llm
     tools:
       - *sales_genie_tool
       - *logistics_genie_tool
-      - *loyalty_genie_tool
     prompt: *retail_analytics_prompt
 
   # Customer service worker — backed by a Vertex AI Agent Engine ADK agent.
@@ -290,8 +242,8 @@ agents:
 app:
   name: vertex_agent_engine_dao
   description: >
-    Two-agent system: Genie-powered retail analytics (sales + logistics +
-    loyalty) + Vertex AI Agent Engine customer service agent.
+    Two-agent system: Genie-powered retail analytics (sales + logistics) +
+    Vertex AI Agent Engine customer service agent.
   log_level: INFO
   deployment_target: apps
   agents:
