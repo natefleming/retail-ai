@@ -11,11 +11,6 @@
 # GCP customer service agent based on the nature of the request.
 # ==============================================================================
 
-schemas:
-  sporting_goods_schema: &sporting_goods_schema
-    catalog_name: retail_consumer_goods
-    schema_name: sporting_goods_store
-
 resources:
   llms:
     default_llm: &default_llm
@@ -143,11 +138,7 @@ app:
     Two-agent system: Genie-powered sales/pricing analytics + GCP-hosted
     customer service agent via Vertex AI Reasoning Engine.
   log_level: INFO
-
-  registered_model:
-    schema: *sporting_goods_schema
-    name: gcp_agent_endpoint_dao
-
+  deployment_target: apps
   agents:
     - *sales_pricing_agent
     - *gcp_customer_service_agent
