@@ -44,6 +44,26 @@ flowchart TB
 |------|-------------|
 | [`nested_agents.yaml`](./nested_agents.yaml) | Main agent calling specialized sub-agents |
 | [`parallel_agents.yaml`](./parallel_agents.yaml) | Parallel agent execution pattern |
+| [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints |
+| [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents |
+| [`gcp_agent_endpoint.yaml`](./gcp_agent_endpoint.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
+
+## GCP Vertex AI Agent Engine (ADK)
+
+The `gcp_agent_endpoint.yaml` example shows how to delegate to a Google ADK
+agent deployed on Vertex AI Agent Engine. Key points:
+
+- **Endpoint protocol** — Vertex ADK agents are invoked via the proprietary
+  `:streamQuery` REST endpoint (not A2A). The tool aggregates the NDJSON
+  stream internally and returns a single synchronous string to the caller.
+- **Credentials** — service-account JSON can be supplied as a local file
+  path, a Databricks Volume path (`/Volumes/...`), or as inline JSON (e.g.
+  stored in a Databricks secret scope). The tool auto-detects the format.
+- **Session continuity** — `context.thread_id` is forwarded to ADK as the
+  `session_id` so conversation state (ADK `state_delta` events) persists
+  across turns. If ADK returns 404 or an empty-body 200 (both indicate the
+  `session_id` is unknown), the tool transparently retries without it so
+  ADK auto-creates a fresh session.
 
 ## Integration Patterns
 
