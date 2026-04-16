@@ -14,6 +14,7 @@ For the core Genie service and cache implementations, see:
 - dao_ai.genie.cache: LRUCacheService, PostgresContextAwareGenieService, InMemoryContextAwareGenieService
 """
 
+import hashlib
 import json
 import os
 from textwrap import dedent
@@ -72,6 +73,78 @@ class GenieToolkit(BaseToolkit):
 
 
 # ---------------------------------------------------------------------------
+# Cache hit tracker (Circuit Breaker pattern)
+# ---------------------------------------------------------------------------
+
+
+class _CacheHitTracker:
+    """Tracks consecutive identical cache hits per Genie space.
+
+    Implements the Circuit Breaker pattern: after N consecutive cache hits
+    returning the same SQL query, the caller can auto-invalidate and re-query
+    Genie directly, breaking out of stale cache loops.
+
+    The tracker is closure-scoped (not stored in session state) to avoid
+    serialization overhead and ``merge_session`` conflicts.
+    """
+
+    def __init__(self, max_history: int = 20) -> None:
+        self._history: dict[str, list[str | None]] = {}
+        self._max_history = max_history
+
+    def record(self, space_id: str, cache_hit: bool, sql_query: str | None) -> int:
+        """Record a query result and return the consecutive identical cache hit count.
+
+        Args:
+            space_id: The Genie space ID.
+            cache_hit: Whether the result was served from cache.
+            sql_query: The SQL query string from the response (used for hashing).
+
+        Returns:
+            Number of consecutive cache hits with the same SQL hash.
+            Returns 0 for cache misses.
+        """
+        sql_hash: str | None = (
+            hashlib.md5(sql_query.encode()).hexdigest() if sql_query else None
+        )
+        history: list[str | None] = self._history.setdefault(space_id, [])
+        entry: str | None = sql_hash if cache_hit else None
+        history.append(entry)
+
+        if len(history) > self._max_history:
+            history[:] = history[-self._max_history :]
+            logger.trace(
+                "Cache hit tracker history trimmed",
+                space_id=space_id,
+                trimmed_to=self._max_history,
+            )
+
+        count: int = self._consecutive_count(history)
+        logger.trace(
+            "Cache hit tracker recorded",
+            space_id=space_id,
+            cache_hit=cache_hit,
+            sql_hash=sql_hash[:12] if sql_hash else None,
+            consecutive=count,
+        )
+        return count
+
+    @staticmethod
+    def _consecutive_count(history: list[str | None]) -> int:
+        """Count consecutive identical entries from the end of the history."""
+        if not history or history[-1] is None:
+            return 0
+        target: str | None = history[-1]
+        count: int = 0
+        for entry in reversed(history):
+            if entry == target:
+                count += 1
+            else:
+                break
+        return count
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
@@ -93,9 +166,23 @@ def _response_to_json(response: GenieResponse) -> str:
 
 
 def _response_to_json_with_cache(
-    response: GenieResponse, cache_hit: bool = False
+    response: GenieResponse,
+    cache_hit: bool = False,
+    consecutive_cache_hits: int = 0,
+    feedback_tool_name: str | None = None,
+    auto_invalidated: bool = False,
 ) -> str:
-    """Convert GenieResponse to JSON string, including cache metadata."""
+    """Convert GenieResponse to JSON string, including cache metadata.
+
+    Args:
+        response: The GenieResponse to serialize.
+        cache_hit: Whether the result was served from cache.
+        consecutive_cache_hits: How many consecutive identical cache hits
+            have occurred. Included in response when > 1 to signal the LLM.
+        feedback_tool_name: Name of the feedback tool (for cache-hit hints).
+        auto_invalidated: Whether the result was auto-invalidated via
+            the circuit breaker and re-queried from Genie.
+    """
     result: str | pd.DataFrame = response.result
     if isinstance(result, pd.DataFrame):
         result = result.to_markdown()
@@ -108,6 +195,22 @@ def _response_to_json_with_cache(
         "statement_id": response.statement_id,
         "cache_hit": cache_hit,
     }
+
+    if cache_hit and feedback_tool_name:
+        data["_hint"] = (
+            "This result was served from cache. If it doesn't match your question, "
+            f"call {feedback_tool_name} with rating='negative' then re-ask."
+        )
+
+    if consecutive_cache_hits > 1:
+        data["consecutive_cache_hits"] = consecutive_cache_hits
+
+    if auto_invalidated:
+        data["auto_invalidated"] = True
+        data["auto_invalidation_reason"] = (
+            "Circuit breaker: consecutive identical cache hits exceeded threshold"
+        )
+
     return json.dumps(data)
 
 
@@ -278,6 +381,7 @@ def create_genie_toolkit(
     in_memory_context_aware_cache_parameters: (
         GenieInMemoryContextAwareCacheParametersModel | dict[str, Any] | None
     ) = None,
+    max_consecutive_cache_hits: int | None = None,
 ) -> GenieToolkit:
     """Create a cached Genie toolkit with query and implicit feedback tools.
 
@@ -291,6 +395,13 @@ def create_genie_toolkit(
     Both tools share one ``GenieServiceBase`` stack, so invalidation on the
     feedback tool directly clears the query tool's LRU cache.
 
+    When ``max_consecutive_cache_hits`` is set, the toolkit implements a
+    **Circuit Breaker** pattern: if the same cached SQL is returned N times
+    consecutively, the cache entry is automatically invalidated and a fresh
+    query is sent to Genie. This prevents the agent from getting stuck in a
+    loop where the LLM normalizes different user phrasings into the same
+    tool call, repeatedly hitting the same stale cache entry.
+
     Args:
         genie_room: GenieRoomModel or dict containing Genie configuration.
         name: Custom tool name visible to the LLM. Defaults to ``"genie_tool"``.
@@ -300,6 +411,9 @@ def create_genie_toolkit(
         lru_cache_parameters: LRU cache config for fast exact-match SQL caching.
         context_aware_cache_parameters: PostgreSQL/Lakebase context-aware cache config.
         in_memory_context_aware_cache_parameters: In-memory context-aware cache config.
+        max_consecutive_cache_hits: Auto-invalidate after this many consecutive
+            identical cache hits (Circuit Breaker). ``None`` disables (default).
+            Suggested value: ``3``.
 
     Returns:
         A GenieToolkit containing the query tool and feedback tool.
@@ -314,6 +428,7 @@ def create_genie_toolkit(
         has_context_aware_cache=context_aware_cache_parameters is not None,
         has_in_memory_context_aware_cache=in_memory_context_aware_cache_parameters
         is not None,
+        max_consecutive_cache_hits=max_consecutive_cache_hits,
     )
 
     genie_room_model, space_id_str = _resolve_genie_room(genie_room)
@@ -400,6 +515,15 @@ def create_genie_toolkit(
                 error=str(e)[:200],
             )
 
+    # ---- Cache hit tracker (Circuit Breaker) ----
+
+    tracker: _CacheHitTracker = _CacheHitTracker()
+    logger.debug(
+        "Cache hit tracker initialized",
+        tool=tool_name,
+        max_consecutive_cache_hits=max_consecutive_cache_hits,
+    )
+
     # ---- Query tool ----
 
     @tool(name_or_callable=tool_name, description=tool_description)
@@ -438,6 +562,50 @@ def create_genie_toolkit(
         genie_response: GenieResponse = cache_result.response
         cache_hit: bool = cache_result.cache_hit
         cache_key: str | None = cache_result.served_by
+        auto_invalidated: bool = False
+
+        # Track consecutive cache hits (Circuit Breaker)
+        consecutive: int = tracker.record(space_id_str, cache_hit, genie_response.query)
+
+        if (
+            max_consecutive_cache_hits is not None
+            and cache_hit
+            and consecutive >= max_consecutive_cache_hits
+        ):
+            logger.warning(
+                "Circuit breaker: auto-invalidating after consecutive identical cache hits",
+                space_id=space_id_str,
+                consecutive=consecutive,
+                threshold=max_consecutive_cache_hits,
+                sql=genie_response.query[:80] if genie_response.query else None,
+            )
+            invalidated: bool = genie_service.invalidate(
+                question, existing_conversation_id
+            )
+            logger.info(
+                "Circuit breaker invalidation result",
+                space_id=space_id_str,
+                invalidated=invalidated,
+                question=question[:80],
+            )
+            cache_result = genie_service.ask_question(
+                question, conversation_id=existing_conversation_id
+            )
+            genie_response = cache_result.response
+            cache_hit = False
+            cache_key = None
+            auto_invalidated = True
+            tracker.record(space_id_str, False, genie_response.query)
+            logger.info(
+                "Circuit breaker fresh query result",
+                space_id=space_id_str,
+                fresh_sql=genie_response.query[:80] if genie_response.query else None,
+                has_result=genie_response.result is not None,
+            )
+            logger.debug(
+                "Circuit breaker tracker reset",
+                space_id=space_id_str,
+            )
 
         current_conversation_id: str = genie_response.conversation_id
         logger.debug(
@@ -446,6 +614,7 @@ def create_genie_toolkit(
             conversation_id=current_conversation_id,
             cache_hit=cache_hit,
             cache_key=cache_key,
+            auto_invalidated=auto_invalidated,
         )
 
         result_preview: str = str(genie_response.result)
@@ -476,7 +645,13 @@ def create_genie_toolkit(
         update: dict[str, Any] = {
             "messages": [
                 ToolMessage(
-                    _response_to_json_with_cache(genie_response, cache_hit=cache_hit),
+                    _response_to_json_with_cache(
+                        genie_response,
+                        cache_hit=cache_hit,
+                        consecutive_cache_hits=consecutive,
+                        feedback_tool_name=feedback_name,
+                        auto_invalidated=auto_invalidated,
+                    ),
                     tool_call_id=tool_call_id,
                 )
             ],
@@ -491,9 +666,11 @@ def create_genie_toolkit(
     feedback_name: str = f"{tool_name}_feedback"
     feedback_desc: str = (
         f"Provide feedback on results from {tool_name}. "
-        "Call with rating 'negative' when results are wrong, empty, or missing "
-        "expected columns to invalidate the cached result so the next query "
-        "gets fresh data from Genie."
+        "You MUST call this tool with rating 'negative' when:\n"
+        "1. Results are wrong, empty, or missing expected columns\n"
+        "2. You received a cache_hit=true response that doesn't answer the question\n"
+        "3. You've asked similar questions multiple times and keep getting the same incorrect data\n"
+        "After calling with 'negative', re-ask your question to get fresh results from Genie."
     )
 
     from dao_ai.genie import GenieFeedbackRating

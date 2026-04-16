@@ -311,6 +311,62 @@ graph TB
     style Best fill:#e8f5e9,stroke:#2e7d32
 ```
 
+## Cache Invalidation and Auto-Recovery
+
+When using `create_genie_toolkit`, the toolkit automatically bundles a **feedback tool** alongside the query tool. The feedback tool lets the LLM (or the toolkit itself) invalidate stale cache entries.
+
+### Feedback Tool
+
+The feedback tool (`{name}_feedback`) invalidates cached results when called with `rating='negative'`:
+
+```yaml
+# The toolkit automatically creates both tools:
+# - query_retail_data (query tool)
+# - query_retail_data_feedback (feedback tool)
+genie_tool:
+  function:
+    type: factory
+    name: dao_ai.tools.create_genie_toolkit
+    args:
+      name: query_retail_data
+      genie_room: *retail_genie_room
+      lru_cache_parameters:
+        warehouse: *warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+```
+
+### Auto-Recovery (Circuit Breaker)
+
+Enable automatic recovery from stale cache loops with `max_consecutive_cache_hits`. When the same cached SQL is returned N times consecutively, it is automatically invalidated across all cache layers and a fresh query is sent to Genie.
+
+```yaml
+genie_tool:
+  function:
+    type: factory
+    name: dao_ai.tools.create_genie_toolkit
+    args:
+      genie_room: *retail_genie_room
+      lru_cache_parameters:
+        warehouse: *warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+      max_consecutive_cache_hits: 3   # Auto-invalidate after 3 identical cache hits
+```
+
+### Cache Monitoring
+
+```bash
+# Enable DEBUG/TRACE logging to see cache and auto-recovery behavior
+dao-ai chat -c config/examples/04_genie/genie_cached.yaml --log-level DEBUG
+```
+
+**Look for:**
+- `"Circuit breaker: auto-invalidating..."` — Auto-invalidation triggered
+- `"Circuit breaker invalidation result"` — Whether invalidation succeeded
+- `"Cache hit tracker recorded"` — Each cache hit/miss tracked (TRACE level)
+- `"Genie feedback sent"` — Manual feedback via the feedback tool
+
 ## Troubleshooting
 
 | Issue | Solution |
@@ -319,6 +375,7 @@ graph TB
 | Too many cache misses | Lower similarity_threshold |
 | Stale data | Reduce TTL |
 | Memory issues | Reduce maxsize |
+| Agent stuck on same result | Enable `max_consecutive_cache_hits: 3` or call `*_feedback` with `'negative'` |
 
 ## Next Steps
 
