@@ -46,11 +46,11 @@ flowchart TB
 | [`parallel_agents.yaml`](./parallel_agents.yaml) | Parallel agent execution pattern |
 | [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints |
 | [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents |
-| [`gcp_agent_endpoint.yaml`](./gcp_agent_endpoint.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
+| [`vertex_agent_engine.yaml`](./vertex_agent_engine.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
 
-## GCP Vertex AI Agent Engine (ADK)
+## Vertex AI Agent Engine (Google ADK)
 
-The `gcp_agent_endpoint.yaml` example shows how to delegate to a Google ADK
+The `vertex_agent_engine.yaml` example shows how to delegate to a Google ADK
 agent deployed on Vertex AI Agent Engine. Key points:
 
 - **Endpoint protocol** — Vertex ADK agents are invoked via the proprietary
