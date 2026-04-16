@@ -105,7 +105,7 @@
             }
           ],
           "default": null,
-          "description": "Maximum number of graph supersteps (LLM call + tool execution cycles) allowed per agent invocation. Prevents runaway iteration loops in tool-calling agents. When null, uses LangGraph's default (25).",
+          "description": "Maximum number of graph supersteps (LLM call + tool execution cycles) allowed per agent invocation. Prevents runaway iteration loops in tool-calling agents. When None, uses LangGraph's default (25).",
           "title": "Recursion Limit"
         }
       },
@@ -1505,8 +1505,21 @@
             }
           ],
           "default": null,
-          "description": "Connection timeout in seconds. Defaults to 120 for autoscaling Lakebase (to allow endpoint wake-up) and 30 for other database types.",
+          "description": "Pool-level timeout in seconds (how long to wait for a free connection). Defaults to 120 for autoscaling Lakebase (to allow endpoint wake-up) and 30 for other database types.",
           "title": "Timeout Seconds"
+        },
+        "connect_timeout": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "TCP-level connection timeout in seconds passed to libpq via psycopg. Limits how long a new connection attempt waits for the database to respond. Defaults to 30 for autoscaling Lakebase (suspended endpoints need wake-up time) and 10 for other database types.",
+          "title": "Connect Timeout"
         },
         "branch": {
           "anyOf": [
@@ -2593,6 +2606,12 @@
           "description": "Maximum token length for context to prevent oversized embeddings.",
           "title": "Max Context Tokens",
           "type": "integer"
+        },
+        "invalidate_on_empty_result": {
+          "default": false,
+          "description": "When true, cached SQL that returns an empty result set is treated as stale: the cache entry is invalidated and the question is re-sent to Genie. Useful when cached queries contain date-relative expressions like CURRENT_DATE() that become invalid as underlying data ages.",
+          "title": "Invalidate On Empty Result",
+          "type": "boolean"
         },
         "database": {
           "$ref": "#/$defs/DatabaseModel",

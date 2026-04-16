@@ -418,9 +418,7 @@ def write_bundle(
             skipped.append(path.name)
 
     source_config: str | None = getattr(config, "_source_config_path", None)
-    config_filename: str = (
-        Path(source_config).name if source_config else "dao_ai.yaml"
-    )
+    config_filename: str = Path(source_config).name if source_config else "dao_ai.yaml"
 
     _track(
         output_dir / "databricks.yaml",
@@ -448,15 +446,30 @@ def write_bundle(
     if development:
         from dao_ai.utils import find_dev_wheel
 
-        wheel_path: Path | None = find_dev_wheel()
+        # In development mode, always rebuild the wheel from local source
+        # when source is available. Reusing an existing pre-built wheel is
+        # a silent footgun: the deploy succeeds but runs stale code against
+        # the user's fresh edits. We only fall back to an existing wheel
+        # when source isn't present — e.g. when ``dao-ai`` is running from
+        # an installed package and there is no tree to rebuild from.
+        #
+        # Implementation note: we clear ``dist/dao_ai-*.whl`` before
+        # rebuilding so the globbed "latest" result is unambiguous, and the
+        # caller downstream won't accidentally pick up an orphan wheel from
+        # a previous build.
+        project_root: Path = Path(__file__).parents[3]
+        source_dir: Path = project_root / "src" / "dao_ai"
 
-        if not wheel_path:
-            # No pre-built wheel found -- build from source
-            project_root = Path(__file__).parents[3]
+        wheel_path: Path | None
+        if source_dir.is_dir():
             logger.info(
-                "No dev wheel found, building from source",
+                "Rebuilding dao-ai wheel from local source (development mode)",
                 project_root=str(project_root),
             )
+            # Clear existing wheels so the build result is unambiguous.
+            for stale in (project_root / "dist").glob("dao_ai-*.whl"):
+                stale.unlink()
+
             result = subprocess.run(
                 ["uv", "build", "--wheel"],
                 cwd=project_root,
@@ -476,6 +489,12 @@ def write_bundle(
                 )
             wheel_path = wheels[-1]
         else:
+            wheel_path = find_dev_wheel()
+            if not wheel_path:
+                raise RuntimeError(
+                    "No dao-ai source or pre-built wheel found; cannot "
+                    "generate a development bundle."
+                )
             logger.info("Using existing dev wheel", wheel=wheel_path.name)
 
         # Copy wheel into bundle's dist/ directory
@@ -523,7 +542,16 @@ def write_bundle(
             logger.info(f"Created stub package src/{package_name}/")
             written.append(f"src/{package_name}/__init__.py")
 
-    # Generate uv.lock so the app runtime uses uv to install from pyproject.toml
+    # Generate uv.lock so the app runtime uses uv to install from pyproject.toml.
+    # When force=True, delete any existing lock first. Otherwise `uv lock` is
+    # a no-op when pyproject.toml hasn't changed, even if the local wheel it
+    # points at has been rebuilt with a new hash — leading to hash-mismatch
+    # failures on deploy.
+    lock_path: Path = output_dir / "uv.lock"
+    if force and lock_path.exists():
+        lock_path.unlink()
+        logger.info("Removed existing uv.lock for regeneration (force)")
+
     logger.info("Resolving dependencies with uv lock...")
     result = subprocess.run(
         ["uv", "lock"],

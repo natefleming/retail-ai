@@ -377,6 +377,58 @@ The `question_weight` and `context_weight` parameters control how question vs co
 
 5. **Space ID Partitioning**: Cache entries are isolated per Genie space, preventing cross-space cache pollution.
 
+### Cache Invalidation and Auto-Recovery
+
+When using `create_genie_toolkit`, the toolkit includes a **feedback tool** (`{name}_feedback`) that the LLM can call to invalidate stale cache entries. This is critical because LLMs tend to normalize user questions into canonical forms before calling tools -- rephrasing a question rarely produces a different cache key.
+
+**Feedback tool:** Call with `rating='negative'` when results are wrong, empty, or don't match the question. This invalidates the cached SQL across all cache layers and sends feedback to the Genie API.
+
+**Auto-Recovery (Circuit Breaker):** The toolkit can automatically detect and recover from stale cache loops using the `max_consecutive_cache_hits` parameter. When the same cached SQL is returned N times consecutively, the cache entry is automatically invalidated across all layers and a fresh query is sent to Genie.
+
+```yaml
+genie_tool:
+  function:
+    type: factory
+    name: dao_ai.tools.create_genie_toolkit
+    args:
+      genie_room: *retail_genie_room
+      lru_cache_parameters:
+        warehouse: *warehouse
+        capacity: 1000
+        time_to_live_seconds: 86400
+      max_consecutive_cache_hits: 3   # Auto-invalidate after 3 identical cache hits
+```
+
+```mermaid
+graph LR
+    query[/"Query"/]
+    cache["Cache Lookup"]
+    track["Track SQL Hash"]
+    check{Under Threshold?}
+    serve[/"Serve Result"/]
+    invalidate["Invalidate All Layers"]
+    genie["Re-query Genie"]
+    fresh[/"Serve Fresh Result"/]
+
+    query --> cache
+    cache --> track
+    track --> check
+    check -->|Yes| serve
+    check -->|No| invalidate
+    invalidate --> genie
+    genie --> fresh
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_consecutive_cache_hits` | `None` (disabled) | Auto-invalidate after N consecutive identical cache hits. Suggested: `3`. |
+
+**Tool response enrichments:** When caching is active, the query tool response includes:
+- `cache_hit`: Whether the result was served from cache
+- `_hint`: Guidance for the LLM to call the feedback tool if the cached result is wrong
+- `consecutive_cache_hits`: How many times the same cached SQL has been returned consecutively (when > 1)
+- `auto_invalidated`: Set to `true` when the circuit breaker triggered auto-invalidation
+
 ## 5. Vector Search Reranking & Instructed Retrieval
 
 **The problem:** Vector search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.

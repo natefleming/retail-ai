@@ -664,6 +664,7 @@ prompts:
       - If the first query result is sufficient to answer the question, respond immediately without making additional calls
       - Do NOT make separate calls for each sub-aspect of a question; combine them into a single well-formed query
       - If a query result is wrong, empty, or missing expected columns, call `query_sales_pricing_feedback` with rating 'negative' before retrying — this clears the cached result so your next query gets fresh data
+      - Pay attention to `cache_hit` and `consecutive_cache_hits` in tool responses — if you keep getting the same cached result, call the feedback tool with 'negative' to break the loop
 
       ## Response Style
       - Present data in clear, actionable formats with specific numbers
