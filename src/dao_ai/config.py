@@ -1197,46 +1197,55 @@ class GenieRoomModel(IsDatabricksResource):
 
     @property
     def tables(self) -> list[TableModel]:
-        """Extract tables from the serialized Genie space.
+        """Extract UC table-like resources from the serialized Genie space.
 
-        Databricks Genie stores tables in: data_sources.tables[].identifier
-        Only includes tables that actually exist in Unity Catalog.
+        Genie stores table-like dependencies under ``data_sources``:
+
+        - ``data_sources.tables[].identifier`` — regular UC tables and views.
+        - ``data_sources.metric_views[].identifier`` — AI/BI Genie metric
+          views (semantic layer). These are UC-first-class objects and
+          accept the same ``SELECT`` grant as tables, so the bundle treats
+          them identically for permission purposes.
+
+        Only includes entries that actually exist in Unity Catalog so a
+        stale reference in ``serialized_space`` doesn't break bundle
+        generation.
         """
         parsed_space = self._parse_serialized_space()
         tables_list: list[TableModel] = []
 
-        # Primary structure: data_sources.tables with 'identifier' field
-        if "data_sources" in parsed_space:
-            data_sources = parsed_space["data_sources"]
-            if isinstance(data_sources, dict) and "tables" in data_sources:
-                tables_data = data_sources["tables"]
-                if isinstance(tables_data, list):
-                    for table_item in tables_data:
-                        table_name: str | None = None
-                        if isinstance(table_item, dict):
-                            # Standard Databricks structure uses 'identifier'
-                            table_name = table_item.get("identifier") or table_item.get(
-                                "name"
-                            )
-                        elif isinstance(table_item, str):
-                            table_name = table_item
+        data_sources = parsed_space.get("data_sources")
+        if not isinstance(data_sources, dict):
+            return tables_list
 
-                        if table_name:
-                            table_model = TableModel(
-                                name=table_name,
-                                on_behalf_of_user=self.on_behalf_of_user,
-                                service_principal=self.service_principal,
-                                client_id=self.client_id,
-                                client_secret=self.client_secret,
-                                workspace_host=self.workspace_host,
-                                pat=self.pat,
-                            )
+        # Both tables and metric_views follow the same [{identifier: ...}]
+        # shape and both are grantable as TABLE securables.
+        for ds_key in ("tables", "metric_views"):
+            items = data_sources.get(ds_key)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                table_name: str | None = None
+                if isinstance(item, dict):
+                    table_name = item.get("identifier") or item.get("name")
+                elif isinstance(item, str):
+                    table_name = item
 
-                            # Verify the table exists before adding
-                            if not table_model.exists():
-                                continue
+                if not table_name:
+                    continue
 
-                            tables_list.append(table_model)
+                table_model = TableModel(
+                    name=table_name,
+                    on_behalf_of_user=self.on_behalf_of_user,
+                    service_principal=self.service_principal,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    workspace_host=self.workspace_host,
+                    pat=self.pat,
+                )
+                if not table_model.exists():
+                    continue
+                tables_list.append(table_model)
 
         return tables_list
 

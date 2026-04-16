@@ -30,6 +30,24 @@ DATABRICKS_AUTH_ENV_VARS: list[str] = [
 ]
 
 
+def _apply_profile_context(profile: Optional[str]) -> None:
+    """When a --profile is specified, make it authoritative for this process.
+
+    A ``.env`` file (loaded at module import via ``load_dotenv``) or the user's
+    shell can inject ``DATABRICKS_TOKEN`` / ``DATABRICKS_HOST`` etc. that the
+    Databricks SDK treats as higher priority than ``DATABRICKS_CONFIG_PROFILE``.
+    When the operator explicitly picks a profile on the CLI, those injected
+    credentials silently hijack every subsequent SDK call — pointing
+    Genie/workspace API requests at the wrong host. Pop them so the profile
+    wins. No-op when ``profile`` is not set.
+    """
+    if not profile:
+        return
+    for var in DATABRICKS_AUTH_ENV_VARS:
+        os.environ.pop(var, None)
+    os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+
+
 def get_default_user_id() -> str:
     """
     Get the default user ID for the CLI session.
@@ -1416,10 +1434,10 @@ def run_databricks_command(
         logger.error(f"Configuration file {config_path} does not exist.")
         sys.exit(1)
 
-    # Set profile env var so WorkspaceClient instances created during config
-    # validation (e.g. warehouse name resolution) use the correct workspace.
-    if profile:
-        os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+    # Make --profile authoritative for this process: strip any DATABRICKS_*
+    # auth env vars that a .env or the shell may have injected, so SDK calls
+    # resolve against the profile instead of silently using the wrong host.
+    _apply_profile_context(profile)
 
     # Load app config
     app_config: AppConfig = AppConfig.from_file(config_path) if config_path else None
@@ -1586,8 +1604,7 @@ def handle_generate_bundle_command(options: Namespace) -> None:
     development: bool = options.development
     profile: str | None = options.profile
 
-    if profile:
-        os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+    _apply_profile_context(profile)
 
     config: AppConfig = AppConfig.from_file(config_path, initialize=False)
     if config.app is None:

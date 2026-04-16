@@ -4,7 +4,6 @@ from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.app_info import create_app_info_tool
 from dao_ai.tools.core import create_tools, say_hello_tool
 from dao_ai.tools.email import create_send_email_tool
-from dao_ai.tools.gcp_agent_endpoint import create_gcp_agent_endpoint_tool
 from dao_ai.tools.genie import GenieToolkit, create_genie_tool, create_genie_toolkit
 from dao_ai.tools.mcp import MCPToolInfo, create_mcp_tools, list_mcp_tools
 from dao_ai.tools.memory import (
@@ -29,6 +28,7 @@ from dao_ai.tools.time import (
 )
 from dao_ai.tools.unity_catalog import create_uc_tools
 from dao_ai.tools.vector_search import create_vector_search_tool
+from dao_ai.tools.vertex_agent_engine import create_vertex_agent_engine_tool
 from dao_ai.tools.visualization import create_visualization_tool
 
 __all__ = [
@@ -37,7 +37,7 @@ __all__ = [
     "create_app_info_tool",
     "create_execute_statement_tool",
     "create_factory_tool",
-    "create_gcp_agent_endpoint_tool",
+    "create_vertex_agent_engine_tool",
     "create_genie_tool",
     "create_genie_toolkit",
     "GenieToolkit",

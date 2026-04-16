@@ -1,8 +1,9 @@
-"""GCP Vertex AI Agent Engine (Reasoning Engine) tool.
+"""Vertex AI Agent Engine tool.
 
-Calls a Google ADK agent deployed on Vertex AI Agent Engine via the
-``:streamQuery`` REST endpoint, parses the NDJSON response stream, and
-returns the concatenated model reply as a **single string**.
+Calls a Google ADK agent deployed on Google Cloud's Vertex AI Agent Engine
+(formerly Reasoning Engine) via the ``:streamQuery`` REST endpoint, parses
+the NDJSON response stream, and returns the concatenated model reply as a
+**single string**.
 
 Why streaming? Vertex Agent Engine maps ADK methods whose ``api_mode`` is
 ``stream`` / ``async_stream`` to the ``:streamQuery`` HTTP endpoint. Typical
@@ -55,13 +56,13 @@ from dao_ai.tools._gcp_auth import (
 from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
 _DEFAULT_DESCRIPTION: str = dedent("""
-    Send a message to a GCP Vertex AI Agent Engine (ADK) agent and return the
-    assistant's reply. Use this tool to delegate questions to the remote GCP
-    agent. Pass the user's question or prompt as the 'prompt' argument.
+    Send a message to a Vertex AI Agent Engine (Google ADK) agent and return
+    the assistant's reply. Use this tool to delegate questions to the remote
+    Vertex agent. Pass the user's question or prompt as the 'prompt' argument.
 """).strip()
 
 
-def create_gcp_agent_endpoint_tool(
+def create_vertex_agent_engine_tool(
     endpoint: AnyVariable,
     credentials: AnyVariable,
     user_id: Optional[AnyVariable] = None,
@@ -71,7 +72,7 @@ def create_gcp_agent_endpoint_tool(
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> Callable[..., str]:
-    """Create a tool that calls a GCP Vertex AI Reasoning Engine.
+    """Create a tool that calls a Vertex AI Agent Engine endpoint.
 
     Args:
         endpoint: Full URL of the reasoning engine resource, e.g.
@@ -92,7 +93,7 @@ def create_gcp_agent_endpoint_tool(
             match ``api_mode: stream`` ADK methods. Use ``query`` only if
             the target ADK method has ``api_mode: ""`` (sync, non-stream).
         timeout_seconds: Socket timeout for the HTTP call.
-        name: Custom tool name. Defaults to ``gcp_agent_endpoint``.
+        name: Custom tool name. Defaults to ``vertex_agent_engine``.
         description: Custom tool description shown to the LLM.
 
     Returns:
@@ -106,7 +107,7 @@ def create_gcp_agent_endpoint_tool(
         once without ``session_id`` so ADK auto-creates a fresh session.
     """
     logger.debug(
-        "Creating GCP agent endpoint tool",
+        "Creating Vertex AI Agent Engine tool",
         name=name,
         class_method=class_method,
     )
@@ -119,11 +120,11 @@ def create_gcp_agent_endpoint_tool(
 
     creds: Credentials = load_gcp_credentials(credentials)
 
-    tool_name: str = name if name else "gcp_agent_endpoint"
+    tool_name: str = name if name else "vertex_agent_engine"
     doc_description: str = description if description else _DEFAULT_DESCRIPTION
     doc_signature: str = dedent("""
     Args:
-        prompt (str): Message to send to the GCP agent.
+        prompt (str): Message to send to the Vertex agent.
 
     Returns:
         str: The concatenated text response from the agent.
@@ -136,11 +137,11 @@ def create_gcp_agent_endpoint_tool(
         if context and context.user_id:
             return context.user_id
         raise ValueError(
-            "GCP agent endpoint requires user_id. Set it in the factory "
-            "config or ensure the DAO AI Context provides user_id."
+            "Vertex AI Agent Engine tool requires user_id. Set it in the "
+            "factory config or ensure the DAO AI Context provides user_id."
         )
 
-    def gcp_agent_endpoint(
+    def vertex_agent_engine(
         prompt: str,
         runtime: Annotated[ToolRuntime[Context], InjectedToolArg] = None,
     ) -> str:
@@ -148,7 +149,7 @@ def create_gcp_agent_endpoint_tool(
         resolved_user_id: str = _resolve_user_id(context)
         session_id: str | None = context.thread_id if context else None
 
-        set_resource_attributes(ResourceInfo("gcp_agent_endpoint", False, call_url))
+        set_resource_attributes(ResourceInfo("vertex_agent_engine", False, call_url))
 
         token: str = mint_gcp_access_token(creds)
         headers: dict[str, str] = {
@@ -173,7 +174,7 @@ def create_gcp_agent_endpoint_tool(
         # retrying without session_id so ADK auto-creates a fresh session.
         if response.status_code == 404 and session_id:
             logger.warning(
-                "GCP agent session not found; retrying without session_id",
+                "Vertex agent session not found; retrying without session_id",
                 session_id=session_id,
             )
             payload_input.pop("session_id", None)
@@ -184,16 +185,16 @@ def create_gcp_agent_endpoint_tool(
         if response.status_code != 200:
             error_text: str = response.text[:2000]
             logger.error(
-                "GCP agent endpoint call failed",
+                "Vertex AI Agent Engine call failed",
                 status=response.status_code,
                 body=error_text,
             )
-            return f"GCP agent call failed ({response.status_code}): {error_text}"
+            return f"Vertex agent call failed ({response.status_code}): {error_text}"
 
         reply: str = _extract_model_text(response)
         if reply == "(no model response)" and session_id:
             logger.warning(
-                "GCP agent returned empty stream; retrying without session_id",
+                "Vertex agent returned empty stream; retrying without session_id",
                 session_id=session_id,
             )
             payload_input.pop("session_id", None)
@@ -205,7 +206,7 @@ def create_gcp_agent_endpoint_tool(
         return reply
 
     structured_tool: StructuredTool = StructuredTool.from_function(
-        func=gcp_agent_endpoint,
+        func=vertex_agent_engine,
         name=tool_name,
         description=doc,
         parse_docstring=False,
