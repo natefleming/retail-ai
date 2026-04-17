@@ -633,6 +633,7 @@ def test_genie_tool_usage_pattern_with_state() -> None:
 
 @pytest.mark.slow
 @pytest.mark.integration
+@pytest.mark.timeout(600)
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
 @pytest.mark.flaky(reruns=2, reruns_delay=1)
 def test_genie_conversation_lifecycle_example() -> None:

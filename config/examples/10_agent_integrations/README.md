@@ -57,9 +57,14 @@ agent deployed on Vertex AI Agent Engine. Key points:
 - **Endpoint protocol** — Vertex ADK agents are invoked via the proprietary
   `:streamQuery` REST endpoint (not A2A). The tool aggregates the NDJSON
   stream internally and returns a single synchronous string to the caller.
-- **Credentials** — service-account JSON can be supplied as a local file
-  path, a Databricks Volume path (`/Volumes/...`), or as inline JSON (e.g.
-  stored in a Databricks secret scope). The tool auto-detects the format.
+- **Auth modes** — three supported via the `auth_type` discriminator:
+  `gcp_service_account` (default, backward-compatible — service-account
+  JSON as a local file path, Databricks Volume path `/Volumes/...`, or
+  inline JSON in a secret scope; the loader auto-detects), `bearer`
+  (pre-minted token for Workload Identity Federation, impersonation
+  chains, or on-behalf-of flows), and `adc` (Application Default
+  Credentials discovered from `GOOGLE_APPLICATION_CREDENTIALS`, gcloud
+  user login, or the GCE/GKE metadata server).
 - **Session continuity** — `context.thread_id` is forwarded to ADK as the
   `session_id` so conversation state (ADK `state_delta` events) persists
   across turns. If ADK returns 404 or an empty-body 200 (both indicate the
