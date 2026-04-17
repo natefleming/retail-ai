@@ -9,6 +9,23 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "a2a-sdk"
+version = "0.3.26"
+source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
+dependencies = [
+    { name = "google-api-core" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "protobuf", version = "5.29.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.14'" },
+    { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.14'" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/97/a6840e01795b182ce751ca165430d46459927cde9bfab838087cbb24aef7/a2a_sdk-0.3.26.tar.gz", hash = "sha256:44068e2d037afbb07ab899267439e9bc7eaa7ac2af94f1e8b239933c993ad52d", size = 274598, upload-time = "2026-04-09T15:21:13.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/d5/51f4ee1bf3b736add42a542d3c8a3fd3fa85f3d36c17972127defc46c26f/a2a_sdk-0.3.26-py3-none-any.whl", hash = "sha256:754e0573f6d33b225c1d8d51f640efa69cbbed7bdfb06ce9c3540ea9f58d4a91", size = 151016, upload-time = "2026-04-09T15:21:12.35Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -851,6 +868,7 @@ name = "dao-ai"
 version = "0.1.55"
 source = { editable = "." }
 dependencies = [
+    { name = "a2a-sdk" },
     { name = "databricks-agents" },
     { name = "databricks-langchain", extra = ["memory"] },
     { name = "databricks-mcp" },
@@ -955,6 +973,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "a2a-sdk", specifier = ">=0.3.0" },
     { name = "databricks-agents", specifier = ">=1.9.3" },
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=16.0.0" },
     { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.17.0" },
