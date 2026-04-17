@@ -42,7 +42,6 @@ from typing import Annotated, Any, Callable, Optional
 
 import mlflow
 import requests
-from google.oauth2.service_account import Credentials
 from langchain.tools import ToolRuntime
 from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
@@ -52,6 +51,7 @@ from dao_ai.config import AnyVariable, value_of
 from dao_ai.state import Context
 from dao_ai.tools._gcp_auth import (
     coerce_any_variable,
+    load_gcp_adc_credentials,
     load_gcp_credentials,
     mint_gcp_access_token,
 )
@@ -60,6 +60,7 @@ from dao_ai.tools.tracing import (
     ATTR_HTTP_RESP_LEN,
     ATTR_HTTP_STATUS,
     ATTR_HTTP_URL,
+    ATTR_VERTEX_AUTH_MODE,
     ATTR_VERTEX_CLASS_METHOD,
     ATTR_VERTEX_ENDPOINT_URL,
     ATTR_VERTEX_HTTP_METHOD,
@@ -78,6 +79,12 @@ from dao_ai.tools.tracing import (
     set_resource_attributes,
 )
 
+_VALID_VERTEX_AUTH_MODES: tuple[str, ...] = (
+    "gcp_service_account",
+    "bearer",
+    "adc",
+)
+
 _DEFAULT_DESCRIPTION: str = dedent("""
     Send a message to a Vertex AI Agent Engine (Google ADK) agent and return
     the assistant's reply. Use this tool to delegate questions to the remote
@@ -87,7 +94,8 @@ _DEFAULT_DESCRIPTION: str = dedent("""
 
 def create_vertex_agent_engine_tool(
     endpoint: AnyVariable,
-    credentials: AnyVariable,
+    credentials: Optional[AnyVariable] = None,
+    auth_type: AnyVariable = "gcp_service_account",
     user_id: Optional[AnyVariable] = None,
     class_method: str = "stream_query",
     http_method: str = "streamQuery",
@@ -102,10 +110,25 @@ def create_vertex_agent_engine_tool(
             ``https://us-central1-aiplatform.googleapis.com/v1/projects/<p>/locations/<r>/reasoningEngines/<id>``.
             A trailing ``:query`` or ``:streamQuery`` suffix, if present, is
             stripped — the effective suffix is controlled by ``http_method``.
-        credentials: Service-account credentials. Accepts a local file path,
-            a Databricks volume path (``/Volumes/...``), or an inline JSON
-            body. Any ``AnyVariable`` form is supported (env, secret,
-            composite).
+        credentials: Auth material resolved to a string. Interpretation
+            depends on ``auth_type``. Required for ``gcp_service_account``
+            and ``bearer`` modes; ignored for ``adc``. Any ``AnyVariable``
+            form is supported (env, secret, composite).
+        auth_type: One of ``"gcp_service_account"`` (default — backward
+            compatible), ``"bearer"``, or ``"adc"``.
+
+            - ``gcp_service_account``: ``credentials`` is passed through
+              :func:`load_gcp_credentials` (accepts file path, Databricks
+              Volume path, or inline JSON body); fresh OAuth tokens are
+              minted per call and refreshed on expiry.
+            - ``bearer``: ``credentials`` is used verbatim as the Bearer
+              token. Useful when tokens are minted elsewhere (Workload
+              Identity Federation, impersonation chains, short-lived
+              token sidecars, on-behalf-of flows).
+            - ``adc``: Credentials are discovered via Google's Application
+              Default Credentials chain (``GOOGLE_APPLICATION_CREDENTIALS``
+              env, gcloud user creds, GCE/GKE metadata server, WIF).
+              ``credentials`` is ignored.
         user_id: Static ``user_id`` sent to the ADK agent. If omitted, the
             tool uses ``runtime.context.user_id`` from the DAO AI request.
         class_method: ADK class method to invoke. Defaults to
@@ -129,19 +152,64 @@ def create_vertex_agent_engine_tool(
         body (both indicate the session_id is unknown), the tool retries
         once without ``session_id`` so ADK auto-creates a fresh session.
     """
-    logger.debug(
-        "Creating Vertex AI Agent Engine tool",
-        name=name,
-        class_method=class_method,
-    )
-
     resolved_endpoint: str = str(value_of(coerce_any_variable(endpoint))).rstrip("/")
     last_segment: str = resolved_endpoint.rsplit("/", 1)[-1]
     if ":" in last_segment:
         resolved_endpoint, _, _ = resolved_endpoint.rpartition(":")
     call_url: str = f"{resolved_endpoint}:{http_method}"
 
-    creds: Credentials = load_gcp_credentials(credentials)
+    resolved_auth_type: str = str(value_of(coerce_any_variable(auth_type))).lower()
+    if resolved_auth_type not in _VALID_VERTEX_AUTH_MODES:
+        raise ValueError(
+            f"create_vertex_agent_engine_tool: auth_type must be one of "
+            f"{_VALID_VERTEX_AUTH_MODES}, got {resolved_auth_type!r}"
+        )
+
+    logger.debug(
+        "Creating Vertex AI Agent Engine tool",
+        name=name,
+        class_method=class_method,
+        auth_type=resolved_auth_type,
+    )
+
+    # Resolve auth once at factory time. The resulting ``header_provider``
+    # is called per-invocation so expired GCP tokens refresh automatically;
+    # static bearer tokens are captured in the closure. No auth material
+    # is ever logged or stamped onto span inputs.
+    header_provider: Callable[[], dict[str, str]]
+    if resolved_auth_type == "bearer":
+        if credentials is None:
+            raise ValueError(
+                "create_vertex_agent_engine_tool: auth_type='bearer' "
+                "requires credentials to be set."
+            )
+        _bearer_token: str = str(value_of(coerce_any_variable(credentials)))
+        if not _bearer_token:
+            raise ValueError(
+                "create_vertex_agent_engine_tool: resolved bearer token is empty."
+            )
+        header_provider = lambda: {"Authorization": f"Bearer {_bearer_token}"}  # noqa: E731
+    elif resolved_auth_type == "adc":
+        _adc_creds = load_gcp_adc_credentials()
+        header_provider = lambda: {  # noqa: E731
+            "Authorization": f"Bearer {mint_gcp_access_token(_adc_creds)}"
+        }
+    else:  # gcp_service_account (default)
+        if credentials is None:
+            raise ValueError(
+                "create_vertex_agent_engine_tool: auth_type='gcp_service_account' "
+                "requires credentials to be set."
+            )
+        _sa_creds = load_gcp_credentials(credentials)
+        header_provider = lambda: {  # noqa: E731
+            "Authorization": f"Bearer {mint_gcp_access_token(_sa_creds)}"
+        }
+
+    logger.debug(
+        "Resolved Vertex auth mode",
+        auth_type=resolved_auth_type,
+        has_credentials=credentials is not None,
+    )
 
     tool_name: str = name if name else "vertex_agent_engine"
     doc_description: str = description if description else _DEFAULT_DESCRIPTION
@@ -179,15 +247,15 @@ def create_vertex_agent_engine_tool(
             tool_span.set_attribute(ATTR_VERTEX_ENDPOINT_URL, call_url)
             tool_span.set_attribute(ATTR_VERTEX_CLASS_METHOD, class_method)
             tool_span.set_attribute(ATTR_VERTEX_HTTP_METHOD, http_method)
+            tool_span.set_attribute(ATTR_VERTEX_AUTH_MODE, resolved_auth_type)
             tool_span.set_attribute(ATTR_VERTEX_USER_ID, resolved_user_id)
             if session_id:
                 tool_span.set_attribute(ATTR_VERTEX_SESSION_ID, session_id)
             tool_span.set_attribute(ATTR_VERTEX_SESSION_PASSED, session_id is not None)
             tool_span.set_attribute(ATTR_VERTEX_PROMPT_CHARS, len(prompt))
 
-        token: str = mint_gcp_access_token(creds)
         headers: dict[str, str] = {
-            "Authorization": f"Bearer {token}",
+            **header_provider(),
             "Content-Type": "application/json",
         }
 

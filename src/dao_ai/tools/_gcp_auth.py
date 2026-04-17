@@ -24,6 +24,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
+import google.auth
+from google.auth.credentials import Credentials as BaseCredentials
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from google.oauth2.service_account import Credentials
@@ -117,8 +119,12 @@ def load_gcp_credentials(
     )
 
 
-def mint_gcp_access_token(credentials: Credentials) -> str:
+def mint_gcp_access_token(credentials: BaseCredentials) -> str:
     """Return a valid access token, refreshing if expired.
+
+    Accepts any ``google.auth.credentials.Credentials`` subclass — service
+    account creds, ADC creds (user, metadata-server, WIF), or impersonated
+    creds — so the same helper works across all supported auth modes.
 
     Not instrumented with ``@mlflow.trace`` — the return value is the
     access token itself, and MLflow's auto output-capture would write the
@@ -127,6 +133,42 @@ def mint_gcp_access_token(credentials: Credentials) -> str:
     if not credentials.valid:
         credentials.refresh(Request())
     return credentials.token
+
+
+def load_gcp_adc_credentials(
+    scopes: Optional[list[str]] = None,
+) -> BaseCredentials:
+    """Discover credentials via Google's Application Default Credentials chain.
+
+    Delegates to :func:`google.auth.default`, which searches (in order):
+    ``GOOGLE_APPLICATION_CREDENTIALS`` env var, gcloud user credentials,
+    the GCE/Cloud Run/GKE metadata server, and Workload Identity
+    Federation configs. Useful for local development (``gcloud auth
+    application-default login``) and for workloads running on GCP where
+    a service-account file isn't mounted.
+
+    Not instrumented with ``@mlflow.trace`` — the returned credentials
+    may carry refresh tokens that MLflow's auto-capture would persist.
+
+    Args:
+        scopes: OAuth scopes to request. Defaults to ``cloud-platform``.
+
+    Returns:
+        Discovered ``Credentials``. Caller must refresh before use (or
+        call :func:`mint_gcp_access_token`).
+
+    Raises:
+        google.auth.exceptions.DefaultCredentialsError: If no credentials
+            can be discovered on this host.
+    """
+    scope_list: list[str] = scopes or DEFAULT_SCOPES
+    credentials, project_id = google.auth.default(scopes=scope_list)
+    logger.debug(
+        "Loaded GCP credentials via Application Default Credentials",
+        project_id=project_id,
+        credential_type=type(credentials).__name__,
+    )
+    return credentials
 
 
 def _load_from_volume(path: str, scopes: list[str]) -> Credentials:

@@ -208,6 +208,19 @@ tools:
           conversational customer service agent is appropriate.
         endpoint: *vertex_agent_endpoint
         credentials: *gcp_credentials
+        # auth_type defaults to ``gcp_service_account`` — the resolved
+        # ``credentials`` value is loaded via load_gcp_credentials and a
+        # fresh OAuth token is minted per call. Two other modes available:
+        #
+        #   auth_type: bearer
+        #     credentials: { env: VERTEX_BEARER_TOKEN }
+        #     (pre-minted token from WIF, impersonation, OBO, etc.)
+        #
+        #   auth_type: adc
+        #     # credentials omitted — Application Default Credentials are
+        #     # discovered from GOOGLE_APPLICATION_CREDENTIALS, gcloud user
+        #     # login, or the GCE/GKE metadata server.
+        #
         # user_id omitted → tool uses runtime.context.user_id so ADK can
         # scope sessions, memory, and personalization per end user.
         # session_id is always sourced from runtime.context.thread_id for
