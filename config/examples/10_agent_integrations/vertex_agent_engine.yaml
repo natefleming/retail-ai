@@ -21,6 +21,34 @@
 # the default_template below.
 # ==============================================================================
 
+variables:
+  # GCP service-account credentials. Three equally valid forms:
+  #
+  #   1. Local file path (GCP's ADC convention):
+  #        gcp_credentials: { env: GOOGLE_APPLICATION_CREDENTIALS }
+  #
+  #   2. Databricks Volume path (FUSE mount in-runtime, Files API outside):
+  #        gcp_credentials: "/Volumes/main/gcp/keys/sandbox-field-eng.json"
+  #
+  #   3. Inline JSON body from a secret scope:
+  #        gcp_credentials:
+  #          scope: retail_consumer_goods
+  #          secret: GOOGLE_APPLICATION_CREDENTIALS
+  #
+  # The loader inspects the resolved string and picks the right path
+  # automatically.
+  gcp_credentials: &gcp_credentials
+    options:
+      - env: GOOGLE_APPLICATION_CREDENTIALS
+      - scope: retail_consumer_goods
+        secret: GOOGLE_APPLICATION_CREDENTIALS
+
+  vertex_agent_endpoint: &vertex_agent_endpoint
+    options:
+      - env: GCP_REASONING_ENGINE_ENDPOINT
+      - scope: retail_consumer_goods
+        secret: GCP_REASONING_ENGINE_ENDPOINT
+
 resources:
   llms:
     default_llm: &default_llm
@@ -129,34 +157,6 @@ prompts:
       intent. If a request truly spans both (e.g. "show me my shipments
       and tell me your return policy"), route to retail_analytics_agent
       first, then customer_service_agent.
-
-variables:
-  # GCP service-account credentials. Three equally valid forms:
-  #
-  #   1. Local file path (GCP's ADC convention):
-  #        gcp_credentials: { env: GOOGLE_APPLICATION_CREDENTIALS }
-  #
-  #   2. Databricks Volume path (FUSE mount in-runtime, Files API outside):
-  #        gcp_credentials: "/Volumes/main/gcp/keys/sandbox-field-eng.json"
-  #
-  #   3. Inline JSON body from a secret scope:
-  #        gcp_credentials:
-  #          scope: retail_consumer_goods
-  #          secret: GOOGLE_APPLICATION_CREDENTIALS
-  #
-  # The loader inspects the resolved string and picks the right path
-  # automatically.
-  gcp_credentials: &gcp_credentials
-    options:
-      - env: GOOGLE_APPLICATION_CREDENTIALS
-      - scope: retail_consumer_goods
-        secret: GOOGLE_APPLICATION_CREDENTIALS
-
-  vertex_agent_endpoint: &vertex_agent_endpoint
-    options:
-      - env: GCP_REASONING_ENGINE_ENDPOINT
-      - scope: retail_consumer_goods
-        secret: GCP_REASONING_ENGINE_ENDPOINT
 
 tools:
   # Genie — customer/sales/product analytics (orders, top products, revenue).

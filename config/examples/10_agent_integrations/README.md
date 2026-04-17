@@ -47,6 +47,7 @@ flowchart TB
 | [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints |
 | [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents |
 | [`vertex_agent_engine.yaml`](./vertex_agent_engine.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
+| [`a2a_agent.yaml`](./a2a_agent.yaml) | Call any remote agent over Google's open A2A (Agent-to-Agent) protocol |
 
 ## Vertex AI Agent Engine (Google ADK)
 
@@ -64,6 +65,33 @@ agent deployed on Vertex AI Agent Engine. Key points:
   across turns. If ADK returns 404 or an empty-body 200 (both indicate the
   `session_id` is unknown), the tool transparently retries without it so
   ADK auto-creates a fresh session.
+
+## Google A2A Agents (Agent-to-Agent Protocol)
+
+The `a2a_agent.yaml` example shows how to delegate to any remote agent
+speaking Google's open [A2A protocol](https://a2a-protocol.org). A2A is a
+framework-agnostic JSON-RPC + SSE standard — the remote agent can be built
+with Google ADK, LangGraph, Crew.ai, or a custom toolkit. Key points:
+
+- **Protocol** — the tool uses the official `a2a-sdk` Python client. Agent
+  discovery hits `<endpoint>/.well-known/agent-card.json` (current spec)
+  with an automatic fallback to the pre-1.0 `/.well-known/agent.json`.
+  The streaming response is aggregated internally and returned as a single
+  string so the tool integrates as a standard synchronous LangChain tool.
+- **Auth modes** — three supported via the `auth_type` discriminator:
+  `bearer` (API key / static OAuth token), `gcp_service_account` (for
+  Vertex-AI-hosted A2A agents — refreshes tokens automatically from a
+  service-account key), and `none` (public agents). Auth material is
+  never logged or captured in MLflow spans.
+- **Session continuity** — `context.thread_id` is forwarded as the A2A
+  `Message.context_id` so multi-turn conversations persist server-side.
+  `context.user_id` is forwarded in `Message.metadata` under the
+  `dao_ai.user_id` key. If the remote server rejects the context id
+  (empty stream or failed Task), the tool retries once without it.
+- **Vertex A2A** — Vertex AI Agent Engine speaks A2A natively, so this
+  tool doubles as an alternative to `vertex_agent_engine` for Vertex-
+  hosted ADK agents. Switch `auth_type: gcp_service_account` and point
+  `endpoint` at the Vertex A2A URL.
 
 ## Integration Patterns
 
