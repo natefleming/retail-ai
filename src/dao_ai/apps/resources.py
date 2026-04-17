@@ -116,7 +116,18 @@ VALID_USER_API_SCOPES: set[str] = {
 }
 
 # Mapping from resource api_scopes to valid user_api_scopes
-# Some resource scopes map directly, others need translation
+# Some resource scopes map directly, others need translation.
+#
+# Resource-level api_scopes that have *no* corresponding user_api_scope
+# (Databricks Apps does not expose an OBO scope for them today) are
+# deliberately omitted and fall through to the no-op branch in
+# generate_user_api_scopes:
+#   - "apps.apps"                      (DatabricksAppModel — no cross-app OBO)
+#   - "postgres" / "database.database-instances"  (Lakebase — no OBO scope)
+#   - "mcp.genie" / "mcp.functions" / "mcp.vectorsearch" / "mcp.external"
+#     (MCP resource scopes; OBO falls back to the underlying Databricks
+#      scopes on the same resource, e.g. catalog.connections +
+#      serving.serving-endpoints on a ConnectionModel)
 API_SCOPE_TO_USER_SCOPE: dict[str, str] = {
     # Direct mappings
     "serving.serving-endpoints": "serving.serving-endpoints",
@@ -131,6 +142,12 @@ API_SCOPE_TO_USER_SCOPE: dict[str, str] = {
     "vectorsearch.vector-search-endpoints": "serving.serving-endpoints",
     # Catalog scopes
     "catalog.volumes": "files.files",
+    # MCP resource scopes: an OBO MCP server is reached via serving
+    # endpoints / UC connections, so surface the matching platform scopes.
+    "mcp.genie": "dashboards.genie",
+    "mcp.functions": "sql",
+    "mcp.vectorsearch": "vectorsearch.vector-search-indexes",
+    "mcp.external": "serving.serving-endpoints",
 }
 
 

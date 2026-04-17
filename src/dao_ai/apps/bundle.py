@@ -37,6 +37,7 @@ _BUNDLE_RESOURCE_CONVERTERS: dict[str, str] = {
     "genie-space": "genie_space",
     "database": "database",
     "secret": "secret",
+    "app": "app",
     "table": "uc_securable",
     "volume": "uc_securable",
     "function": "uc_securable",
@@ -53,6 +54,7 @@ _DEDUP_KEY_EXTRACTORS: dict[str, Any] = {
         r["database"]["database_name"],
     ),
     "secret": lambda r: (r["secret"]["scope"], r["secret"]["key"]),
+    "app": lambda r: r["app"]["name"],
     "uc_securable": lambda r: r["uc_securable"]["securable_full_name"],
 }
 
@@ -179,6 +181,13 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
             "key": resource["key"],
             "permission": permission,
         }
+    elif resource_type == "app":
+        # Grants the deployed app's service principal access to another
+        # Databricks App (e.g. an MCP server hosted as its own App).
+        result["app"] = {
+            "name": resource["app_name"],
+            "permission": permission,
+        }
     elif resource_type in (
         "table",
         "volume",
@@ -270,6 +279,25 @@ def generate_databricks_yaml(
     When development=True, omits the artifacts section so the pre-built
     dao-ai wheel is uploaded as a regular source file (not intercepted as
     an artifact).
+
+    Note on deployment_target:
+        The emitted bundle is always Databricks-Apps-shaped
+        (`resources.apps.<name>` with its `resources` list and optional
+        `user_api_scopes`). This bundle works regardless of
+        `app.deployment_target`:
+
+        - `apps`           → the App IS the deployment target.
+        - `model_serving`  → the App process registers the MLflow model
+                             and creates the serving endpoint at runtime
+                             (via `dao_ai.apps.server`). No separate
+                             bundle is needed; users who only want the
+                             serving endpoint typically use
+                             `dao-ai deploy-agent` instead of
+                             `generate-bundle` + `databricks bundle deploy`.
+
+        `generate-bundle` therefore intentionally ignores
+        `app.deployment_target`; the enum selects the runtime code path,
+        not the bundle layout.
     """
     app_name: str = config.app.name.lower().replace("_", "-")
 
