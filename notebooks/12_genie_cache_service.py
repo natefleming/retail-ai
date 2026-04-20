@@ -229,7 +229,7 @@ print(f"  Layer 3 (Genie): {type(genie_service.impl.impl).__name__}")
 # MAGIC The `CacheResult` includes:
 # MAGIC - `response`: The GenieResponse with SQL and description
 # MAGIC - `cache_hit`: Whether the result came from cache
-# MAGIC - `cache_type`: Which cache layer provided the result ("lru", "semantic", or None)
+# MAGIC - `served_by`: Which cache layer provided the result ("lru", "semantic", or None)
 
 # COMMAND ----------
 
@@ -237,7 +237,7 @@ print(f"  Layer 3 (Genie): {type(genie_service.impl.impl).__name__}")
 result: CacheResult = genie_service.ask_question("What tables are available?")
 
 print(f"Cache hit: {result.cache_hit}")
-print(f"Cache type: {result.cache_type}")
+print(f"Cache type: {result.served_by}")
 print(f"\nResponse: {result.response}")
 
 # COMMAND ----------
@@ -246,7 +246,7 @@ print(f"\nResponse: {result.response}")
 result2: CacheResult = genie_service.ask_question("What tables are available?")
 
 print(f"Cache hit: {result2.cache_hit}")
-print(f"Cache type: {result2.cache_type}")
+print(f"Cache type: {result2.served_by}")
 
 # COMMAND ----------
 
@@ -267,7 +267,7 @@ result: CacheResult = genie_service.ask_question(q1)
 conversation_id = result.response.conversation_id
 
 print(f"Q1: {q1}")
-print(f"  Cache hit: {result.cache_hit}, Type: {result.cache_type}")
+print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 print(f"  Conversation ID: {conversation_id}")
 
 # COMMAND ----------
@@ -277,7 +277,7 @@ q2 = "Which one has the most rows?"
 result: CacheResult = genie_service.ask_question(q2, conversation_id=conversation_id)
 
 print(f"Q2: {q2}")
-print(f"  Cache hit: {result.cache_hit}, Type: {result.cache_type}")
+print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 
 # COMMAND ----------
 
@@ -286,7 +286,7 @@ q3 = "Show me a sample of 5 rows"
 result: CacheResult = genie_service.ask_question(q3, conversation_id=conversation_id)
 
 print(f"Q3: {q3}")
-print(f"  Cache hit: {result.cache_hit}, Type: {result.cache_type}")
+print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 
 # COMMAND ----------
 
@@ -295,7 +295,7 @@ q4 = "What columns does it have?"
 result: CacheResult = genie_service.ask_question(q4, conversation_id=conversation_id)
 
 print(f"Q4: {q4}")
-print(f"  Cache hit: {result.cache_hit}, Type: {result.cache_type}")
+print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 
 # COMMAND ----------
 
@@ -304,7 +304,7 @@ q5 = "Are there any null values?"
 result: CacheResult = genie_service.ask_question(q5, conversation_id=conversation_id)
 
 print(f"Q5: {q5}")
-print(f"  Cache hit: {result.cache_hit}, Type: {result.cache_type}")
+print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 
 # COMMAND ----------
 
