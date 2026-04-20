@@ -230,20 +230,28 @@ print(f"  Layer 3 (Genie): {type(genie_service.impl.impl).__name__}")
 # MAGIC - `response`: The GenieResponse with SQL and description
 # MAGIC - `cache_hit`: Whether the result came from cache
 # MAGIC - `served_by`: Which cache layer provided the result ("lru", "semantic", or None)
+# MAGIC
+# MAGIC **Note:** The cache only stores responses that include a SQL `query` attachment.
+# MAGIC Pure narrative answers (e.g., "what tables are available?") are not cached because
+# MAGIC there is no SQL to re-execute on a hit. Use aggregation/sampling prompts that force
+# MAGIC Genie to generate SQL.
 
 # COMMAND ----------
 
 # First question - will be a cache miss (goes to Genie API)
-result: CacheResult = genie_service.ask_question("What tables are available?")
+# "Count the rows in each table" forces Genie to generate a SQL query
+# (typically a UNION ALL of COUNT(*) or a query against information_schema)
+result: CacheResult = genie_service.ask_question("Count the rows in each table.")
 
 print(f"Cache hit: {result.cache_hit}")
 print(f"Cache type: {result.served_by}")
+print(f"SQL query: {result.response.query[:200] if result.response.query else '(none)'}")
 print(f"\nResponse: {result.response}")
 
 # COMMAND ----------
 
 # Same question again - should be an LRU cache hit
-result2: CacheResult = genie_service.ask_question("What tables are available?")
+result2: CacheResult = genie_service.ask_question("Count the rows in each table.")
 
 print(f"Cache hit: {result2.cache_hit}")
 print(f"Cache type: {result2.served_by}")
@@ -255,14 +263,18 @@ print(f"Cache type: {result2.served_by}")
 # MAGIC
 # MAGIC The context-aware cache tracks conversation history. Questions in the same
 # MAGIC conversation share context, which affects cache matching.
+# MAGIC
+# MAGIC Follow-up prompts use relative references ("that table", "the largest one") so
+# MAGIC Genie must use the conversation context to resolve them — this exercises the
+# MAGIC context-aware cache's embeddings.
 
 # COMMAND ----------
 
 # Start a new conversation
 conversation_id: str | None = None
 
-# Question 1: Starting point
-q1 = "What tables are available?"
+# Question 1: Starting point - count rows per table (SQL required)
+q1 = "Count the rows in each table."
 result: CacheResult = genie_service.ask_question(q1)
 conversation_id = result.response.conversation_id
 
@@ -272,8 +284,8 @@ print(f"  Conversation ID: {conversation_id}")
 
 # COMMAND ----------
 
-# Question 2: Follow-up (has context from Q1)
-q2 = "Which one has the most rows?"
+# Question 2: Follow-up - identifies the largest table (SQL: ORDER BY + LIMIT)
+q2 = "Which table has the most rows?"
 result: CacheResult = genie_service.ask_question(q2, conversation_id=conversation_id)
 
 print(f"Q2: {q2}")
@@ -281,8 +293,8 @@ print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 
 # COMMAND ----------
 
-# Question 3: Another follow-up (has context from Q1 + Q2)
-q3 = "Show me a sample of 5 rows"
+# Question 3: Another follow-up - samples rows from the resolved table (SQL: SELECT ... LIMIT)
+q3 = "Show me the first 5 rows from that table."
 result: CacheResult = genie_service.ask_question(q3, conversation_id=conversation_id)
 
 print(f"Q3: {q3}")
@@ -290,8 +302,8 @@ print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 
 # COMMAND ----------
 
-# Question 4: Continues the conversation
-q4 = "What columns does it have?"
+# Question 4: Continues the conversation - aggregation on the same table
+q4 = "How many distinct rows does it have?"
 result: CacheResult = genie_service.ask_question(q4, conversation_id=conversation_id)
 
 print(f"Q4: {q4}")
@@ -299,8 +311,8 @@ print(f"  Cache hit: {result.cache_hit}, Type: {result.served_by}")
 
 # COMMAND ----------
 
-# Question 5: Context window may slide (if context_window_size=3)
-q5 = "Are there any null values?"
+# Question 5: Context window may slide (if context_window_size=3) - total across all tables
+q5 = "What is the total row count across all tables?"
 result: CacheResult = genie_service.ask_question(q5, conversation_id=conversation_id)
 
 print(f"Q5: {q5}")
