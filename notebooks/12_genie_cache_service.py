@@ -222,6 +222,31 @@ print(f"  Layer 3 (Genie): {type(genie_service.impl.impl).__name__}")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## (Optional) Clear Cache Before Re-Running
+# MAGIC
+# MAGIC Use this cell when you want to force fresh Genie calls on the next run —
+# MAGIC for demos, experiments, or after a schema change. Clears the LRU in-memory
+# MAGIC cache and deletes cached entries for this Genie space from the Postgres
+# MAGIC context-aware cache.
+# MAGIC
+# MAGIC Prompt history is left intact (for traceability). Use
+# MAGIC `context_aware_cache.clear_prompt_history()` if you also want to wipe it.
+
+# COMMAND ----------
+
+# Walk the service chain explicitly (clear() does not cascade today)
+lru_cache = genie_service                 # LRUCacheService
+context_aware_cache = genie_service.impl  # PostgresContextAwareGenieService
+
+lru_cleared = lru_cache.clear()
+context_aware_cleared = context_aware_cache.clear()
+
+print(f"LRU cache entries cleared: {lru_cleared}")
+print(f"Context-aware cache entries cleared: {context_aware_cleared}")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Ask Questions
 # MAGIC
 # MAGIC Now let's ask some questions and observe the caching behavior.
