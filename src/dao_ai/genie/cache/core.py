@@ -8,6 +8,7 @@ of common operations needed across cache types.
 
 from typing import Any
 
+import mlflow
 import pandas as pd
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementResponse, StatementState
@@ -16,6 +17,7 @@ from loguru import logger
 from dao_ai.config import WarehouseModel
 
 
+@mlflow.trace(name="genie_execute_sql")
 def execute_sql_via_warehouse(
     warehouse: WarehouseModel,
     sql: str,
@@ -35,6 +37,10 @@ def execute_sql_via_warehouse(
     Returns:
         DataFrame with results, or error message string
     """
+    if not sql or not sql.strip():
+        logger.error("SQL execution failed: empty query", layer=layer_name, sql=repr(sql))
+        return "Cannot execute empty SQL query"
+
     w: WorkspaceClient = warehouse.workspace_client
     warehouse_id: str = str(warehouse.warehouse_id)
 

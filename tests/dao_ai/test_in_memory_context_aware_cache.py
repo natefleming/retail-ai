@@ -866,7 +866,9 @@ class TestInMemoryContextAwareCacheContext:
         )
 
         # Mock SQL execution
-        with patch.object(service, "_execute_sql") as mock_execute:
+        with patch(
+            "dao_ai.genie.cache.context_aware.base.execute_sql_via_warehouse"
+        ) as mock_execute:
             mock_execute.return_value = pd.DataFrame({"count": [100]})
 
             result = service.ask_question_with_cache_info(

@@ -183,34 +183,6 @@ class LRUCacheService(GenieServiceBase):
             message_id=message_id,
         )
 
-    @mlflow.trace(name="genie_lru_cache_execute_sql")
-    def _execute_sql(self, sql: str) -> pd.DataFrame | str:
-        """
-        Execute SQL using the warehouse and return results as DataFrame.
-
-        Args:
-            sql: The SQL query to execute
-
-        Returns:
-            DataFrame with results, or error message string
-        """
-        # Validate SQL is not empty
-        if not sql or not sql.strip():
-            error_msg: str = "Cannot execute empty SQL query"
-            logger.error(
-                "SQL execution failed: empty query",
-                layer=self.name,
-                sql=repr(sql),
-            )
-            return error_msg
-
-        # Use shared utility function for SQL execution
-        return execute_sql_via_warehouse(
-            warehouse=self.warehouse,
-            sql=sql,
-            layer_name=self.name,
-        )
-
     @mlflow.trace(name="genie_lru_cache_ask_question")
     def ask_question(
         self, question: str, conversation_id: str | None = None
@@ -277,7 +249,11 @@ class LRUCacheService(GenieServiceBase):
                 )
 
                 # Re-execute the cached SQL to get fresh data
-                result: pd.DataFrame | str = self._execute_sql(cached.query)
+                result: pd.DataFrame | str = execute_sql_via_warehouse(
+                    warehouse=self.warehouse,
+                    sql=cached.query,
+                    layer_name=self.name,
+                )
 
                 # Check if cached SQL returned empty results and invalidation is enabled
                 if (

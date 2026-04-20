@@ -72,8 +72,8 @@ class TestLRUCacheFallback:
         # Verify cache has entry
         assert service.size == 1
 
-        # Mock _execute_sql to return error (simulating table doesn't exist)
-        with patch.object(service, "_execute_sql") as mock_execute:
+        # Mock execute_sql_via_warehouse to return error (simulating table doesn't exist)
+        with patch("dao_ai.genie.cache.lru.execute_sql_via_warehouse") as mock_execute:
             mock_execute.return_value = (
                 "SQL execution failed: Table 'old_table' not found"
             )
@@ -174,8 +174,10 @@ class TestPostgresContextAwareCacheFallback:
         with patch.object(service, "_find_similar") as mock_find:
             mock_find.return_value = (stale_entry, 0.95)  # High similarity
 
-            # Mock _execute_sql to return error (simulating permission denied)
-            with patch.object(service, "_execute_sql") as mock_execute:
+            # Mock execute_sql_via_warehouse to return error (simulating permission denied)
+            with patch(
+                "dao_ai.genie.cache.context_aware.base.execute_sql_via_warehouse"
+            ) as mock_execute:
                 mock_execute.return_value = "SQL execution failed: Permission denied on table 'restricted_table'"
 
                 # Mock _store_entry to avoid database operations
@@ -260,8 +262,10 @@ class TestInMemoryContextAwareCacheFallback:
         with patch.object(service, "_find_similar") as mock_find:
             mock_find.return_value = (stale_entry, 0.92)  # High similarity
 
-            # Mock _execute_sql to return error (simulating view doesn't exist)
-            with patch.object(service, "_execute_sql") as mock_execute:
+            # Mock execute_sql_via_warehouse to return error (simulating view doesn't exist)
+            with patch(
+                "dao_ai.genie.cache.context_aware.base.execute_sql_via_warehouse"
+            ) as mock_execute:
                 mock_execute.return_value = (
                     "SQL execution failed: View 'old_view' does not exist"
                 )
@@ -315,8 +319,10 @@ class TestInMemoryContextAwareCacheFallback:
         with patch.object(service, "_find_similar") as mock_find:
             mock_find.return_value = (valid_entry, 0.95)
 
-            # Mock _execute_sql to return successful result (DataFrame)
-            with patch.object(service, "_execute_sql") as mock_execute:
+            # Mock execute_sql_via_warehouse to return successful result (DataFrame)
+            with patch(
+                "dao_ai.genie.cache.context_aware.base.execute_sql_via_warehouse"
+            ) as mock_execute:
                 mock_execute.return_value = pd.DataFrame({"count": [100]})
 
                 # Ask question - should hit cache and succeed
