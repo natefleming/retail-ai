@@ -63,12 +63,12 @@ configure_logging(level="DEBUG")
 # MAGIC %md
 # MAGIC ## Configuration Widgets
 # MAGIC
-# MAGIC Configure the Genie space, Lakebase instance, and warehouse using the widgets below.
+# MAGIC Configure the Genie space, Lakebase project, and warehouse using the widgets below.
 
 # COMMAND ----------
 
 dbutils.widgets.text("space_id", "", "Genie Space ID")
-dbutils.widgets.text("lakebase_instance_name", "", "Lakebase Instance Name")
+dbutils.widgets.text("lakebase_project", "", "Lakebase Project")
 dbutils.widgets.text("warehouse_id", "", "Warehouse ID")
 dbutils.widgets.text("secret_scope", "retail_consumer_goods", "Secret Scope")
 dbutils.widgets.text("client_id_secret", "RETAIL_AI_DATABRICKS_CLIENT_ID", "Client ID Secret Name")
@@ -78,7 +78,7 @@ dbutils.widgets.text("client_secret_secret", "RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
 # Get widget values
 space_id: str = dbutils.widgets.get("space_id")
-lakebase_instance_name: str = dbutils.widgets.get("lakebase_instance_name")
+lakebase_project: str = dbutils.widgets.get("lakebase_project")
 warehouse_id: str = dbutils.widgets.get("warehouse_id")
 secret_scope: str = dbutils.widgets.get("secret_scope")
 client_id_secret: str = dbutils.widgets.get("client_id_secret")
@@ -87,13 +87,13 @@ client_secret_secret: str = dbutils.widgets.get("client_secret_secret")
 # Validate required parameters
 if not space_id:
     raise ValueError("space_id widget is required")
-if not lakebase_instance_name:
-    raise ValueError("lakebase_instance_name widget is required")
+if not lakebase_project:
+    raise ValueError("lakebase_project widget is required")
 if not warehouse_id:
     raise ValueError("warehouse_id widget is required")
 
 print(f"Space ID: {space_id}")
-print(f"Lakebase Instance: {lakebase_instance_name}")
+print(f"Lakebase Project: {lakebase_project}")
 print(f"Warehouse ID: {warehouse_id}")
 
 # COMMAND ----------
@@ -130,7 +130,7 @@ from dao_ai.genie.cache.context_aware import PostgresContextAwareGenieService
 
 # Configure database connection (Lakebase)
 database: DatabaseModel = DatabaseModel(
-    instance_name=lakebase_instance_name,
+    project=lakebase_project,
     client_id=client_id,
     client_secret=client_secret,
 )
