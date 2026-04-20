@@ -143,6 +143,7 @@ class LRUCacheService(GenieServiceBase):
         self._cache.move_to_end(key)
         return entry
 
+    @mlflow.trace(name="genie_lru_cache_store")
     def _put(
         self, key: str, response: GenieResponse, message_id: str | None = None
     ) -> None:
@@ -182,7 +183,7 @@ class LRUCacheService(GenieServiceBase):
             message_id=message_id,
         )
 
-    @mlflow.trace(name="execute_cached_sql")
+    @mlflow.trace(name="genie_lru_cache_execute_sql")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
         """
         Execute SQL using the warehouse and return results as DataFrame.
@@ -210,6 +211,7 @@ class LRUCacheService(GenieServiceBase):
             layer_name=self.name,
         )
 
+    @mlflow.trace(name="genie_lru_cache_ask_question")
     def ask_question(
         self, question: str, conversation_id: str | None = None
     ) -> CacheResult:
@@ -433,6 +435,7 @@ class LRUCacheService(GenieServiceBase):
         """Get workspace client by delegating to impl."""
         return self.impl.workspace_client
 
+    @mlflow.trace(name="genie_lru_cache_invalidate")
     def invalidate(self, question: str, conversation_id: str | None = None) -> bool:
         """
         Remove a specific entry from the LRU cache and cascade to wrapped services.

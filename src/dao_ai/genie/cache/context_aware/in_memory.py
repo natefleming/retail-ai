@@ -271,7 +271,7 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
             self.parameters.max_context_tokens,
         )
 
-    @mlflow.trace(name="semantic_search_in_memory")
+    @mlflow.trace(name="genie_context_aware_cache_lookup")
     def _find_similar(
         self,
         question: str,
@@ -299,6 +299,10 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         Returns:
             Tuple of (SQLCacheEntry, combined_similarity_score) if found, None otherwise
         """
+        from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
+
+        set_resource_attributes(ResourceInfo("in_memory_cache", False, None))
+
         ttl_seconds = self.parameters.time_to_live_seconds
         ttl_disabled = ttl_seconds is None or ttl_seconds < 0
 
@@ -454,6 +458,7 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         )
         return cache_entry, best_combined_sim
 
+    @mlflow.trace(name="genie_context_aware_cache_store")
     def _store_entry(
         self,
         question: str,
@@ -473,6 +478,10 @@ class InMemoryContextAwareGenieService(ContextAwareGenieService):
         If capacity is set and reached, evicts least recently used entries in a
         single O(n) pass instead of repeated scans.
         """
+        from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
+
+        set_resource_attributes(ResourceInfo("in_memory_cache", False, None))
+
         now = datetime.now()
         new_entry = InMemoryCacheEntry(
             genie_space_id=self.space_id,
