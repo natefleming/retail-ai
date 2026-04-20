@@ -73,6 +73,7 @@ dbutils.widgets.text("warehouse_id", "", "Warehouse ID")
 dbutils.widgets.text("secret_scope", "retail_consumer_goods", "Secret Scope")
 dbutils.widgets.text("client_id_secret", "RETAIL_AI_DATABRICKS_CLIENT_ID", "Client ID Secret Name")
 dbutils.widgets.text("client_secret_secret", "RETAIL_AI_DATABRICKS_CLIENT_SECRET", "Client Secret Name")
+dbutils.widgets.dropdown("clear_cache", "false", ["false", "true"], "Clear Cache Before Run")
 
 # COMMAND ----------
 
@@ -83,6 +84,7 @@ warehouse_id: str = dbutils.widgets.get("warehouse_id")
 secret_scope: str = dbutils.widgets.get("secret_scope")
 client_id_secret: str = dbutils.widgets.get("client_id_secret")
 client_secret_secret: str = dbutils.widgets.get("client_secret_secret")
+clear_cache: bool = dbutils.widgets.get("clear_cache").strip().lower() == "true"
 
 # Validate required parameters
 if not space_id:
@@ -224,10 +226,10 @@ print(f"  Layer 3 (Genie): {type(genie_service.impl.impl).__name__}")
 # MAGIC %md
 # MAGIC ## (Optional) Clear Cache Before Re-Running
 # MAGIC
-# MAGIC Use this cell when you want to force fresh Genie calls on the next run —
-# MAGIC for demos, experiments, or after a schema change. Clears the LRU in-memory
-# MAGIC cache and deletes cached entries for this Genie space from the Postgres
-# MAGIC context-aware cache.
+# MAGIC Controlled by the **`Clear Cache Before Run`** widget. When set to `true`, this
+# MAGIC cell wipes the LRU in-memory cache and deletes cached entries for this Genie
+# MAGIC space from the Postgres context-aware cache — forcing fresh Genie calls on the
+# MAGIC next run. Defaults to `false` so normal runs preserve the cache.
 # MAGIC
 # MAGIC Prompt history is left intact (for traceability). Use
 # MAGIC `context_aware_cache.clear_prompt_history()` if you also want to wipe it.
@@ -238,11 +240,13 @@ print(f"  Layer 3 (Genie): {type(genie_service.impl.impl).__name__}")
 lru_cache = genie_service                 # LRUCacheService
 context_aware_cache = genie_service.impl  # PostgresContextAwareGenieService
 
-lru_cleared = lru_cache.clear()
-context_aware_cleared = context_aware_cache.clear()
-
-print(f"LRU cache entries cleared: {lru_cleared}")
-print(f"Context-aware cache entries cleared: {context_aware_cleared}")
+if clear_cache:
+    lru_cleared = lru_cache.clear()
+    context_aware_cleared = context_aware_cache.clear()
+    print(f"LRU cache entries cleared: {lru_cleared}")
+    print(f"Context-aware cache entries cleared: {context_aware_cleared}")
+else:
+    print("Skipping cache clear (set the 'Clear Cache Before Run' widget to 'true' to enable)")
 
 # COMMAND ----------
 
