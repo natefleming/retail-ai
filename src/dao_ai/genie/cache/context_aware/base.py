@@ -674,23 +674,6 @@ class ContextAwareGenieService(GenieServiceBase):
 
         return question_embedding, context_embedding, conversation_context
 
-    @mlflow.trace(name="genie_context_aware_cache_execute_sql")
-    def _execute_sql(self, sql: str) -> pd.DataFrame | str:
-        """
-        Execute SQL using the warehouse and return results.
-
-        Args:
-            sql: The SQL query to execute
-
-        Returns:
-            DataFrame with results, or error message string if execution failed
-        """
-        return execute_sql_via_warehouse(
-            warehouse=self.warehouse,
-            sql=sql,
-            layer_name=self.name,
-        )
-
     def _build_cache_hit_response(
         self,
         cached: SQLCacheEntry,
@@ -922,7 +905,11 @@ class ContextAwareGenieService(GenieServiceBase):
         )
 
         # Re-execute the cached SQL to get fresh data
-        result: pd.DataFrame | str = self._execute_sql(cached.query)
+        result: pd.DataFrame | str = execute_sql_via_warehouse(
+            warehouse=self.warehouse,
+            sql=cached.query,
+            layer_name=self.name,
+        )
 
         # Check if cached SQL returned empty results and invalidation is enabled
         if (

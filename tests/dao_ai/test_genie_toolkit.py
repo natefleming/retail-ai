@@ -165,7 +165,7 @@ class TestLRUEmptyResultInvalidation:
         key = service._normalize_key("test question", None)
         service._put(key, stale_response)
 
-        with patch.object(service, "_execute_sql") as mock_exec:
+        with patch("dao_ai.genie.cache.lru.execute_sql_via_warehouse") as mock_exec:
             mock_exec.return_value = pd.DataFrame()
 
             result = service.ask_question("test question")
@@ -193,7 +193,7 @@ class TestLRUEmptyResultInvalidation:
         key = service._normalize_key("test question", None)
         service._put(key, stale_response)
 
-        with patch.object(service, "_execute_sql") as mock_exec:
+        with patch("dao_ai.genie.cache.lru.execute_sql_via_warehouse") as mock_exec:
             mock_exec.return_value = pd.DataFrame()
 
             result = service.ask_question("test question")
@@ -221,7 +221,7 @@ class TestLRUEmptyResultInvalidation:
         key = service._normalize_key("test question", None)
         service._put(key, cached_response)
 
-        with patch.object(service, "_execute_sql") as mock_exec:
+        with patch("dao_ai.genie.cache.lru.execute_sql_via_warehouse") as mock_exec:
             mock_exec.return_value = pd.DataFrame({"a": [42]})
 
             result = service.ask_question("test question")
