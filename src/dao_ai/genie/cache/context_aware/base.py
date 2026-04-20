@@ -674,7 +674,7 @@ class ContextAwareGenieService(GenieServiceBase):
 
         return question_embedding, context_embedding, conversation_context
 
-    @mlflow.trace(name="execute_cached_sql")
+    @mlflow.trace(name="genie_context_aware_cache_execute_sql")
     def _execute_sql(self, sql: str) -> pd.DataFrame | str:
         """
         Execute SQL using the warehouse and return results.
@@ -729,6 +729,7 @@ class ContextAwareGenieService(GenieServiceBase):
             cache_entry_id=cached.cache_entry_id,
         )
 
+    @mlflow.trace(name="genie_context_aware_cache_ask_question")
     def ask_question(
         self, question: str, conversation_id: str | None = None
     ) -> CacheResult:
@@ -1116,6 +1117,7 @@ class ContextAwareGenieService(GenieServiceBase):
         """
         pass
 
+    @mlflow.trace(name="genie_context_aware_cache_invalidate")
     def invalidate(self, question: str, conversation_id: str | None = None) -> bool:
         """Invalidate a cache entry by question text and cascade to wrapped services."""
         self._setup()
@@ -1123,7 +1125,7 @@ class ContextAwareGenieService(GenieServiceBase):
         impl_removed: bool = self.impl.invalidate(question, conversation_id)
         return local_removed or impl_removed
 
-    @mlflow.trace(name="genie_context_aware_send_feedback")
+    @mlflow.trace(name="genie_context_aware_cache_send_feedback")
     def send_feedback(
         self,
         conversation_id: str,

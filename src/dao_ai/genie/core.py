@@ -208,7 +208,7 @@ class GenieService(GenieServiceBase):
             self._workspace_client = WorkspaceClient()
         return self._workspace_client
 
-    @mlflow.trace(name="genie_ask_question")
+    @mlflow.trace(name="genie_core_ask_question")
     def ask_question(
         self, question: str, conversation_id: str | None = None
     ) -> CacheResult:
@@ -235,7 +235,7 @@ class GenieService(GenieServiceBase):
     def space_id(self) -> str:
         return self.genie.space_id
 
-    @mlflow.trace(name="genie_send_feedback")
+    @mlflow.trace(name="genie_core_send_feedback")
     def send_feedback(
         self,
         conversation_id: str,

@@ -508,7 +508,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
             "Prompt history table ready", layer=self.name, table=prompt_table_name
         )
 
-    @mlflow.trace(name="semantic_search_postgres")
+    @mlflow.trace(name="genie_context_aware_cache_lookup")
     def _find_similar(
         self,
         question: str,
@@ -700,7 +700,7 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
                 )
                 return entry, best_combined_sim
 
-    @mlflow.trace(name="genie_cache_store")
+    @mlflow.trace(name="genie_context_aware_cache_store")
     def _store_entry(
         self,
         question: str,
