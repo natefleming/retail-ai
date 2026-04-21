@@ -102,6 +102,40 @@ def _create_async_lakebase_pool(
 
 _POOL_MAX_RETRIES = 3
 _POOL_RETRY_DELAY_SECONDS = 5
+# Proactively recycle connections well before the Lakebase OAuth token's
+# typical 1-hour lifetime. psycopg_pool applies ±10% jitter around this so
+# workers don't all reconnect at the same instant.
+_POOL_MAX_LIFETIME_SECONDS = 45 * 60
+
+
+def _redacted(params: dict[str, Any]) -> dict[str, Any]:
+    return {k: (str(v) if k != "password" else "***") for k, v in params.items()}
+
+
+def _make_kwargs_provider(
+    database: "DatabaseModel | None",
+    static_kwargs: dict[str, Any],
+    fallback_params: dict[str, Any],
+) -> Any:
+    """Return a callable ``kwargs`` provider for psycopg_pool.
+
+    psycopg_pool (>=3.2) calls the provider each time it opens a new
+    connection, so credentials stay fresh. For Lakebase this is what lets us
+    survive the ~1-hour OAuth-token lifetime; for standard Postgres the
+    provider simply returns the same static dict every call.
+
+    ``fallback_params`` is used when no ``DatabaseModel`` reference is
+    available (defensive — should not happen via the manager paths).
+    """
+
+    def _provider() -> dict[str, Any]:
+        if database is not None:
+            params = database.connection_params
+        else:
+            params = fallback_params
+        return {**static_kwargs, **params}
+
+    return _provider
 
 
 def _create_pool(
@@ -110,21 +144,25 @@ def _create_pool(
     max_pool_size: int,
     timeout_seconds: int,
     kwargs: dict,
+    database: "DatabaseModel | None" = None,
 ) -> ConnectionPool:
-    """Create a connection pool with retry logic for transient failures."""
+    """Create a connection pool with retry logic for transient failures.
+
+    When a ``database`` is provided, connection credentials are re-resolved
+    from ``DatabaseModel.connection_params`` on every new connection (which
+    mints a fresh Lakebase OAuth token), so the pool stays usable past the
+    token's expiry window.
+    """
     import time
 
-    safe_params = {
-        k: (str(v) if k != "password" else "***") for k, v in connection_params.items()
-    }
     logger.debug(
         "Creating connection pool",
         database=database_name,
         timeout=timeout_seconds,
-        **safe_params,
+        **_redacted(connection_params),
     )
 
-    connection_kwargs = kwargs | connection_params
+    kwargs_provider = _make_kwargs_provider(database, kwargs, connection_params)
     last_error: Exception | None = None
 
     for attempt in range(1, _POOL_MAX_RETRIES + 1):
@@ -134,7 +172,14 @@ def _create_pool(
             max_size=max_pool_size,
             open=False,
             timeout=timeout_seconds,
-            kwargs=connection_kwargs,
+            max_lifetime=_POOL_MAX_LIFETIME_SECONDS,
+            # Validate every pooled connection before handing it to a caller.
+            # Catches server-side terminations (Lakebase admin shutdown,
+            # autoscaling restart) so the pool silently discards dead
+            # connections and re-opens with fresh credentials via
+            # kwargs_provider on the next request.
+            check=ConnectionPool.check_connection,
+            kwargs=kwargs_provider,
         )
         try:
             pool.open(wait=True, timeout=timeout_seconds)
@@ -143,6 +188,7 @@ def _create_pool(
                 database=database_name,
                 pool_size=max_pool_size,
                 attempt=attempt,
+                credential_refresh=database is not None,
             )
             return pool
         except Exception as e:
@@ -170,19 +216,21 @@ async def _create_async_pool(
     max_pool_size: int,
     timeout_seconds: int,
     kwargs: dict,
+    database: "DatabaseModel | None" = None,
 ) -> AsyncConnectionPool:
-    """Create an async connection pool with retry logic for transient failures."""
-    safe_params = {
-        k: (str(v) if k != "password" else "***") for k, v in connection_params.items()
-    }
+    """Async pool variant with per-connection credential refresh.
+
+    See :func:`_create_pool` for rationale. psycopg_pool's
+    ``AsyncConnectionPool`` accepts the same callable-kwargs contract.
+    """
     logger.debug(
         "Creating async connection pool",
         database=database_name,
         timeout=timeout_seconds,
-        **safe_params,
+        **_redacted(connection_params),
     )
 
-    connection_kwargs = kwargs | connection_params
+    kwargs_provider = _make_kwargs_provider(database, kwargs, connection_params)
     last_error: Exception | None = None
 
     for attempt in range(1, _POOL_MAX_RETRIES + 1):
@@ -191,7 +239,11 @@ async def _create_async_pool(
             max_size=max_pool_size,
             open=False,
             timeout=timeout_seconds,
-            kwargs=connection_kwargs,
+            max_lifetime=_POOL_MAX_LIFETIME_SECONDS,
+            # Validate every pooled connection before handing it to a caller.
+            # See the sync variant for rationale.
+            check=AsyncConnectionPool.check_connection,
+            kwargs=kwargs_provider,
         )
         try:
             await pool.open(wait=True, timeout=timeout_seconds)
@@ -200,6 +252,7 @@ async def _create_async_pool(
                 database=database_name,
                 pool_size=max_pool_size,
                 attempt=attempt,
+                credential_refresh=database is not None,
             )
             return pool
         except Exception as e:
@@ -239,12 +292,22 @@ class AsyncPostgresPoolManager:
 
     @classmethod
     async def get_pool(cls, database: DatabaseModel) -> AsyncConnectionPool:
-        connection_key: str = database.name
+        # Key pools by (database name, event loop id) so a loop-bound psycopg
+        # pool is never handed to a different loop. This matters for
+        # long-running agents: Model Serving uses a per-request asyncio.run,
+        # but the long-running background work runs on a dedicated persistent
+        # loop (see dao_ai.long_running.agent._BackgroundLoop). Sharing pools
+        # across those two loops raises "the pool is attached to a different
+        # event loop" errors.
+        loop_id: int = id(asyncio.get_running_loop())
+        connection_key: str = f"{database.name}::{loop_id}"
 
         with cls._lock:
             if connection_key in cls._pools:
                 logger.trace(
-                    "Reusing existing async PostgreSQL pool", database=database.name
+                    "Reusing existing async PostgreSQL pool",
+                    database=database.name,
+                    loop_id=loop_id,
                 )
                 return cls._pools[connection_key]
 
@@ -280,6 +343,7 @@ class AsyncPostgresPoolManager:
                 max_pool_size=database.max_pool_size,
                 timeout_seconds=database.timeout_seconds,
                 kwargs=kwargs,
+                database=database,
             )
             if database.is_lakebase_autoscaling:
                 logger.success(
@@ -563,6 +627,7 @@ class PostgresPoolManager:
                     max_pool_size=database.max_pool_size,
                     timeout_seconds=database.timeout_seconds,
                     kwargs=kwargs,
+                    database=database,
                 )
                 if database.is_lakebase_autoscaling:
                     logger.success(

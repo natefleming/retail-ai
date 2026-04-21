@@ -267,6 +267,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | Feature | Description |
 |---------|-------------|
 | **Dual Deployment Targets** | Deploy to Databricks Model Serving or Databricks Apps with a single config |
+| **Long-Running Agents** | OpenAI Responses API–compatible background kickoff + poll / stream retrieve backed by Lakebase; survives Model Serving's 5 min worker timeout and Databricks Apps' 120 s proxy timeout |
 | **Multi-Tool Support** | Python functions, Unity Catalog, MCP, Agent Endpoints |
 | **On-Behalf-Of User** | Per-user permissions and governance |
 | **Advanced Caching** | Two-tier (LRU + Semantic) caching for cost optimization |
