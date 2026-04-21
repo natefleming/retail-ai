@@ -1,8 +1,8 @@
 """Unit tests for LongRunningResponsesAgent routing and lifecycle.
 
-The store is mocked here so these tests don't require a live Lakebase/Postgres.
-Live DB tests live in ``test_store_integration.py`` and are gated on
-``has_postgres_env()`` like the rest of the dao-ai postgres suite.
+The store is mocked so these tests don't require a live Lakebase/Postgres
+instance. End-to-end coverage against real endpoints lives in
+``notebooks/14_long_running_agents_demo.py``.
 """
 
 from __future__ import annotations
