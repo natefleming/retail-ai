@@ -246,7 +246,15 @@ def test_retrieve_returns_output_when_completed(store):
     assert response.custom_outputs["long_running"]["status"] == "completed"
 
 
-def test_retrieve_unknown_id_raises(store):
+def test_retrieve_unknown_id_returns_structured_not_found(store):
+    """Both deployment targets surface not-found as a structured response.
+
+    Apps' /v1/responses routes inspect ``custom_outputs.long_running.error.type``
+    and translate to HTTP 404; Model Serving clients see HTTP 200 with the
+    same body shape. See ``is_not_found_response``.
+    """
+    from dao_ai.long_running import ERROR_TYPE_NOT_FOUND, is_not_found_response
+
     store.get.return_value = None
     agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
 
@@ -255,11 +263,44 @@ def test_retrieve_unknown_id_raises(store):
         custom_inputs={"operation": "retrieve", "response_id": "resp_missing"},
     )
 
-    with pytest.raises(KeyError):
-        _run(agent.apredict(request))
+    response = _run(agent.apredict(request))
+
+    assert response.id == "resp_missing"
+    assert response.status == "failed"
+    lr = response.custom_outputs["long_running"]
+    assert lr["status"] == "failed"
+    assert lr["error"]["type"] == ERROR_TYPE_NOT_FOUND
+    assert "resp_missing" in lr["error"]["message"]
+    assert is_not_found_response(response.model_dump(mode="json"))
 
 
 # ---------------------------------------------------------------------- cancel
+
+
+def test_cancel_unknown_id_returns_structured_not_found(store):
+    from dao_ai.long_running import ERROR_TYPE_NOT_FOUND, is_not_found_response
+
+    store.get.return_value = None
+    agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
+
+    response = _run(
+        agent.apredict(
+            ResponsesAgentRequest(
+                input=[],
+                custom_inputs={
+                    "operation": "cancel",
+                    "response_id": "resp_missing",
+                },
+            )
+        )
+    )
+
+    assert response.status == "failed"
+    lr = response.custom_outputs["long_running"]
+    assert lr["error"]["type"] == ERROR_TYPE_NOT_FOUND
+    assert is_not_found_response(response.model_dump(mode="json"))
+    # No UPDATE should have been issued for a non-existent response.
+    store.mark_cancelled.assert_not_awaited()
 
 
 def test_cancel_marks_cancelled_in_store(store):

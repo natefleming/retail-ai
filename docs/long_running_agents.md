@@ -5,8 +5,12 @@
 Long-running agents extend dao-ai with a **kickoff → poll → retrieve** flow so
 agent runs can exceed Databricks' synchronous-request limits. It's an
 opt-in, OpenAI Responses API–compatible layer that wraps any dao-ai
-`ResponsesAgent`, persists progress to Lakebase, and works identically on
-both Databricks Apps and Databricks Model Serving.
+`ResponsesAgent`, persists progress to Lakebase, and runs on both
+Databricks Apps and Databricks Model Serving with near-parity — the only
+difference is that **SSE retrieve is Apps-only**, because Model Serving
+can't mount custom streaming routes. Model Serving clients poll
+non-streaming retrieve instead; both targets use the same
+`LongRunningResponsesAgent` handler under the hood.
 
 ## Problem Solved
 

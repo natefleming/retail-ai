@@ -26,6 +26,7 @@ import math
 import threading
 import traceback
 import uuid
+import warnings
 from concurrent.futures import Future
 from enum import Enum
 from typing import Any, AsyncGenerator, Coroutine, Generator, Literal, Optional
@@ -45,12 +46,32 @@ from dao_ai.long_running.store import (
     ResponseStatus,
 )
 
+# MLflow's ``Response`` validator only accepts
+# {completed, failed, in_progress, incomplete} at the top level and warns on
+# anything else. We intentionally surface ``cancelled`` in the top-level
+# ``status`` field so existing clients (including the reference notebook)
+# can treat it as a terminal state without having to read
+# ``custom_outputs.long_running.status``. Mute the helper's warning so App /
+# Model Serving logs stay clean; the authoritative status still lives in
+# ``custom_outputs.long_running.status``.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Invalid status: cancelled\..*",
+    category=UserWarning,
+)
+
 CUSTOM_INPUT_OPERATION = "operation"
 CUSTOM_INPUT_RESPONSE_ID = "response_id"
 CUSTOM_INPUT_CURSOR = "cursor"
 
 OPERATION_RETRIEVE: Literal["retrieve"] = "retrieve"
 OPERATION_CANCEL: Literal["cancel"] = "cancel"
+
+# Clients (e.g. the Apps /v1/responses* routes) match on this to translate
+# a "not found" response into an HTTP 404. Model Serving, which has no route
+# layer, surfaces the same shape via the /invocations response body so both
+# targets behave identically at the contract level.
+ERROR_TYPE_NOT_FOUND: Literal["not_found"] = "not_found"
 
 _RESPONSE_ID_PREFIX = "resp_"
 
@@ -197,6 +218,57 @@ def _status_stream_event(
     )
 
 
+def _not_found_payload(response_id: str) -> dict[str, Any]:
+    """``custom_outputs`` body signalling an unknown ``response_id``.
+
+    Both deployment targets share this shape: Model Serving surfaces it in
+    the ``/invocations`` response body (HTTP 200), while the Apps routes
+    inspect it and return HTTP 404.
+    """
+    return {
+        "long_running": {
+            "response_id": response_id,
+            "status": ResponseStatus.FAILED.value,
+            "thread_id": None,
+            "error": {
+                "type": ERROR_TYPE_NOT_FOUND,
+                "message": f"Unknown response_id: {response_id}",
+            },
+        }
+    }
+
+
+def _not_found_response(response_id: str) -> ResponsesAgentResponse:
+    return ResponsesAgentResponse(
+        id=response_id,
+        status=ResponseStatus.FAILED.value,
+        output=[],  # type: ignore[arg-type]
+        custom_outputs=_not_found_payload(response_id),
+    )
+
+
+def _not_found_stream_event(response_id: str) -> ResponsesAgentStreamEvent:
+    return ResponsesAgentStreamEvent.model_validate(
+        {
+            "type": "response.failed",
+            "id": response_id,
+            "custom_outputs": _not_found_payload(response_id),
+        }
+    )
+
+
+def is_not_found_response(body: dict[str, Any]) -> bool:
+    """Return True iff ``body`` is a structured "unknown response_id" response.
+
+    Callers (Apps routes, test harnesses) use this to translate the body
+    into an HTTP 404 or equivalent. Model Serving clients can use it to
+    distinguish not-found from other failures.
+    """
+    lr = (body.get("custom_outputs") or {}).get("long_running") or {}
+    err = lr.get("error") or {}
+    return err.get("type") == ERROR_TYPE_NOT_FOUND
+
+
 class LongRunningResponsesAgent(ResponsesAgent):
     """Compose a :class:`LongRunningStore` over an inner ``ResponsesAgent``.
 
@@ -281,8 +353,14 @@ class LongRunningResponsesAgent(ResponsesAgent):
                 async for ev in self._retrieve_stream(request):
                     yield ev
             case _Operation.CANCEL:
-                record = await self._cancel_record(request)
-                yield _status_stream_event(record, event_type="response.in_progress")
+                response_id = self._required_response_id(request)
+                record = await self._cancel_record(response_id)
+                if record is None:
+                    yield _not_found_stream_event(response_id)
+                else:
+                    yield _status_stream_event(
+                        record, event_type="response.in_progress"
+                    )
             case _Operation.KICKOFF:
                 async for ev in self._kickoff_stream(request):
                     yield ev
@@ -364,7 +442,11 @@ class LongRunningResponsesAgent(ResponsesAgent):
         )
         await self._spawn_background_task(response_id, request)
         record = await self.store.get(response_id)
-        assert record is not None
+        if record is None:
+            raise RuntimeError(
+                f"Response {response_id} vanished from the store immediately "
+                "after create — check for concurrent admin deletion."
+            )
         return _status_response(record)
 
     async def _kickoff_stream(
@@ -379,7 +461,11 @@ class LongRunningResponsesAgent(ResponsesAgent):
         )
         await self._spawn_background_task(response_id, request)
         record = await self.store.get(response_id)
-        assert record is not None
+        if record is None:
+            raise RuntimeError(
+                f"Response {response_id} vanished from the store immediately "
+                "after create — check for concurrent admin deletion."
+            )
         yield _status_stream_event(record, event_type="response.created")
 
     async def _spawn_background_task(
@@ -479,7 +565,7 @@ class LongRunningResponsesAgent(ResponsesAgent):
         response_id = self._required_response_id(request)
         record = await self.store.get(response_id)
         if record is None:
-            raise KeyError(f"Unknown response_id: {response_id}")
+            return _not_found_response(response_id)
         output: list[dict[str, Any]] = []
         if record.status == ResponseStatus.COMPLETED:
             output = await self.store.get_output(response_id)
@@ -500,7 +586,8 @@ class LongRunningResponsesAgent(ResponsesAgent):
         for _ in range(max_iterations):
             record = await self.store.get(response_id)
             if record is None:
-                raise KeyError(f"Unknown response_id: {response_id}")
+                yield _not_found_stream_event(response_id)
+                return
 
             async for seq, event_payload in self.store.iter_events(
                 response_id, cursor=cursor
@@ -542,17 +629,27 @@ class LongRunningResponsesAgent(ResponsesAgent):
             },
         )
         final = await self.store.get(response_id)
-        assert final is not None
+        if final is None:
+            raise RuntimeError(
+                f"Response {response_id} vanished after set_status(FAILED) — "
+                "check for concurrent admin deletion."
+            )
         yield _status_stream_event(final, event_type="response.failed")
 
     # ----------------------------------------------------------------- cancel
 
     async def _cancel(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
-        record = await self._cancel_record(request)
+        response_id = self._required_response_id(request)
+        record = await self._cancel_record(response_id)
+        if record is None:
+            return _not_found_response(response_id)
         return _status_response(record)
 
-    async def _cancel_record(self, request: ResponsesAgentRequest) -> ResponseRecord:
-        response_id = self._required_response_id(request)
+    async def _cancel_record(self, response_id: str) -> Optional[ResponseRecord]:
+        # Short-circuit unknown ids so we don't UPDATE zero rows silently.
+        existing = await self.store.get(response_id)
+        if existing is None:
+            return None
         task = self._tasks.get(response_id)
         if task is not None and not task.done():
             task.cancel()
@@ -560,7 +657,9 @@ class LongRunningResponsesAgent(ResponsesAgent):
         await self.store.mark_cancelled(response_id)
         record = await self.store.get(response_id)
         if record is None:
-            raise KeyError(f"Unknown response_id: {response_id}")
+            # Raced with a delete between mark_cancelled and the re-read; treat
+            # as not-found so callers return the consistent structured error.
+            return None
         return record
 
 
