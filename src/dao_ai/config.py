@@ -4743,6 +4743,45 @@ class TraceLocationModel(BaseModel):
         ]
 
 
+class LongRunningModel(BaseModel):
+    """Opt-in long-running agent configuration.
+
+    Enables Responses-API-compatible kickoff/poll/cancel on top of any
+    dao-ai agent, persisted in the referenced Lakebase ``database``.
+    When present on ``AppModel``, requests can set ``background: true``
+    (or ``custom_inputs.operation: retrieve|cancel``) on ``/invocations``;
+    in Databricks Apps, strict ``/v1/responses*`` FastAPI routes are
+    additionally mounted and translate to the same contract.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    database: DatabaseModel = Field(
+        description="Lakebase (or PostgreSQL) database used to persist response rows and stream events. May be the same database used by the checkpointer.",
+    )
+    default_background: bool = Field(
+        default=False,
+        description="If True, requests are treated as long-running even when background is not explicitly set.",
+    )
+    max_duration_seconds: int = Field(
+        default=1800,
+        ge=1,
+        description="Hard cap on any single background run. Tasks exceeding this are marked failed.",
+    )
+    poll_interval_seconds: float = Field(
+        default=1.0,
+        gt=0.0,
+        description="Interval (seconds) used by streaming retrieve to poll the database for new events.",
+    )
+    responses_table_name: str = Field(
+        default="dao_ai_responses",
+        description="Name of the Lakebase table that stores one row per response.",
+    )
+    messages_table_name: str = Field(
+        default="dao_ai_response_messages",
+        description="Name of the Lakebase table that stores streamed events / final items.",
+    )
+
+
 class AppModel(BaseModel):
     """Application-level configuration for deployment, model registration, and orchestration."""
 
@@ -4861,6 +4900,14 @@ class AppModel(BaseModel):
         "registered to continuously evaluate production traces. Works with both "
         "experiment-based traces and UC OTEL trace tables. When trace_location is "
         "also configured, the SQL warehouse from trace_location is used for monitoring.",
+    )
+    long_running: Optional[LongRunningModel] = Field(
+        default=None,
+        description="Opt-in long-running agent configuration. When set, the ResponsesAgent "
+        "is wrapped so that requests with background=True or custom_inputs.operation are "
+        "persisted in the referenced Lakebase database. In Databricks Apps, strict "
+        "Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) "
+        "are additionally exposed. See config/examples/19_long_running_agents/.",
     )
 
     @model_validator(mode="after")
@@ -6124,4 +6171,25 @@ class AppConfig(BaseModel):
         app: ResponsesAgent = create_responses_agent(
             graph, prompt_versions=prompt_versions
         )
+
+        long_running = self.app.long_running if self.app else None
+        if long_running is not None:
+            from dao_ai.long_running import (
+                LongRunningResponsesAgent,
+                LongRunningStore,
+            )
+
+            store = LongRunningStore(
+                database=long_running.database,
+                responses_table_name=long_running.responses_table_name,
+                messages_table_name=long_running.messages_table_name,
+            )
+            app = LongRunningResponsesAgent(
+                inner=app,
+                store=store,
+                max_duration_seconds=long_running.max_duration_seconds,
+                poll_interval_seconds=long_running.poll_interval_seconds,
+                default_background=long_running.default_background,
+            )
+
         return app
