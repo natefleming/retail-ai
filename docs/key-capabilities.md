@@ -1954,6 +1954,95 @@ the spec using [vega-embed](https://github.com/vega/vega-embed).
 
 ---
 
+## 18. Long-Running Agents
+
+**What is this?** Agent runs that exceed Databricks' synchronous-request limits
+— Model Serving kills worker threads at ~5 min, Databricks Apps' DPAPI proxy
+cuts HTTP connections at ~120 s. Long-running agents flip the contract: the
+client kicks off work with `background: true`, gets an immediate response
+with a `resp_…` id, and polls for completion. The agent runs on a persistent
+daemon thread so it survives request-loop teardown.
+
+**Why this matters:**
+- **Deep-research / multi-tool workflows** routinely need 5–30 min
+- **OpenAI Responses API–compatible** on Apps — the stock `openai` Python
+  client (`client.responses.create(background=True)` +
+  `client.responses.retrieve(id)`) works unchanged
+- **Same semantics on both targets** — wire protocol differs only in URL
+  shape (Apps has strict routes; Model Serving encodes op in `custom_inputs`)
+- **Resilient to Lakebase token expiry** — the underlying pool refreshes
+  OAuth tokens per new connection + validates on checkout, so background
+  tasks keep running past the 1 h token window
+
+**Architecture at a glance:**
+
+```mermaid
+flowchart LR
+    Client -->|"POST /v1/responses<br/>background=true"| Route[Apps /v1/responses<br/>or MS /invocations]
+    Route --> Wrapper[LongRunningResponsesAgent]
+    Wrapper -->|spawn on persistent loop| BG[Background daemon thread]
+    Wrapper -->|INSERT| DB[(Lakebase:<br/>dao_ai_responses,<br/>dao_ai_response_messages)]
+    Wrapper -.->|"id=resp_…<br/>status=in_progress"| Client
+
+    BG -->|apredict_stream| Inner[LanggraphResponsesAgent]
+    Inner --> BG
+    BG -->|append events + final items| DB
+
+    Client -->|"GET /v1/responses/{id}"| Route2[Apps retrieve route]
+    Route2 --> Wrapper
+    Wrapper -->|SELECT| DB
+    Wrapper -.->|"status=completed<br/>output=[…]"| Client
+
+    style Wrapper fill:#C4CCD6,stroke:#1B3139,color:#1B3139
+    style BG fill:#1B5162,stroke:#143D4A,color:#fff
+    style DB fill:#E8F4F8,stroke:#1B3139,color:#1B3139
+```
+
+**Configuration:**
+
+```yaml
+app:
+  long_running:
+    database: *lakebase_db           # Lakebase to persist response state
+    default_background: false         # treat requests without explicit background flag as bg
+    max_duration_seconds: 1800        # 30 min hard cap per task
+    poll_interval_seconds: 1.0        # server-side poll cadence for streaming retrieve
+```
+
+**Inference payload (kickoff, Apps):**
+
+```bash
+curl -X POST "$APP_URL/v1/responses" \
+  -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+  -d '{
+    "input": [{"role":"user","content":"Research long-running agents."}],
+    "background": true,
+    "custom_inputs": {"configurable": {"thread_id": "demo"}}
+  }'
+# → {"id":"resp_…","status":"in_progress","output":[], ...}
+```
+
+**Inference payload (poll, Model Serving):**
+
+```bash
+curl -X POST "$DATABRICKS_HOST/serving-endpoints/$ENDPOINT/invocations" \
+  -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+  -d '{
+    "input": [],
+    "custom_inputs": {"operation":"retrieve","response_id":"resp_…"}
+  }'
+# → {"id":"resp_…","status":"completed","output":[{"type":"message", ...}]}
+```
+
+**See:** [Long-Running Agents — full documentation](long_running_agents.md)
+for architecture diagrams, Lakebase schema, streaming retrieve + cursor
+resumption, cancel semantics, connection-pool OAuth refresh, and the
+end-to-end demo notebook.
+
+**Example configuration:** See [`config/examples/19_long_running_agents/`](../config/examples/19_long_running_agents/)
+
+---
+
 ## Navigation
 
 - [← Previous: Architecture](architecture.md)

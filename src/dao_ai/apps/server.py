@@ -139,8 +139,8 @@ def _mount_long_running_routes() -> None:
 
         try:
             response = await non_streaming(request)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Response not found")
         return JSONResponse(response.model_dump(mode="json"))
 
     @app.post("/v1/responses/{response_id}/cancel")
@@ -155,8 +155,8 @@ def _mount_long_running_routes() -> None:
         )
         try:
             response = await non_streaming(request)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Response not found")
         return JSONResponse(response.model_dump(mode="json"))
 
     logger.info(

@@ -4907,7 +4907,7 @@ class AppModel(BaseModel):
         "is wrapped so that requests with background=True or custom_inputs.operation are "
         "persisted in the referenced Lakebase database. In Databricks Apps, strict "
         "Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) "
-        "are additionally exposed. See config/examples/16_long_running_agents/.",
+        "are additionally exposed. See config/examples/19_long_running_agents/.",
     )
 
     @model_validator(mode="after")

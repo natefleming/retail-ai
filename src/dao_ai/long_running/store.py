@@ -272,10 +272,13 @@ class LongRunningStore:
         """
         pool = await self._pool()
         async with pool.connection() as conn:
+            # The pool is configured with dict_row, so fetchone() returns a
+            # dict; access by column name rather than positional index.
             async with conn.cursor() as cur:
                 await cur.execute(sql, (response_id, response_id, Json(event)))
                 row = await cur.fetchone()
-                seq = int(row[0])
+                assert row is not None
+                seq = int(row["sequence_number"])
             # bump updated_at so pollers notice activity
             await conn.execute(
                 f"UPDATE {self.responses_table} SET updated_at = NOW() "

@@ -1,28 +1,40 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
 # =============================================================================
-# Long-Running Agent Example — Deep Research
+# Long-Running Agent Example — Deep Research (aws-field-eng / retail-consumer-goods)
 # =============================================================================
-# This configuration enables Responses-API-compatible kickoff / poll / cancel
-# for long-running agent tasks (medium-length, < 30 min). The flow follows
-# the Lakeflow long-running-agent 1DD: every request with background=true
-# returns immediately with a response_id; clients poll /v1/responses/{id}
-# until the task reaches a terminal state.
-#
-# Works identically in both deployment targets:
-#   * Databricks Apps — strict /v1/responses* FastAPI routes are mounted.
-#   * Model Serving   — clients hit /invocations with background=true or
-#                       custom_inputs.operation = "retrieve" | "cancel".
-#
-# Persistence is backed by the same Lakebase database as the checkpointer.
+# Responses-API-compatible kickoff / poll / cancel for long-running agent tasks
+# (< 30 min). Deploys to both Databricks Apps (strict /v1/responses* routes) and
+# Model Serving (same semantics via /invocations + custom_inputs).
+# Persistence reuses the retail-consumer-goods autoscaling Lakebase project.
+
+variables:
+  client_id: &client_id
+    options:
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
 # =============================================================================
 # SCHEMAS
 # =============================================================================
 schemas:
-  demo_schema: &demo_schema
-    catalog_name: main
-    schema_name: default
+  retail_schema: &retail_schema
+    catalog_name: retail_consumer_goods
+    schema_name: hardware_store
+    permissions:
+      - principals: [users]
+        privileges:
+          - USE_CATALOG
+          - USE_SCHEMA
+          - SELECT
+          - EXECUTE
 
 # =============================================================================
 # RESOURCES
@@ -32,23 +44,24 @@ resources:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.3
-      max_tokens: 8192
+      max_tokens: 2048
 
   databases:
-    # Reused by both the checkpointer and the long-running response store.
-    # Use the same Lakebase project you already have provisioned for dao-ai
-    # conversation persistence — no extra infrastructure is needed.
-    lakebase_db: &lakebase_db
-      project: "my-lakebase-project"
-      description: "Lakebase used for checkpointer + long-running responses"
+    retail_database: &retail_database
+      name: "Retail and Consumer Goods Database"
+      project: "retail-consumer-goods"
+      description: "Lakebase for checkpointer + long-running responses"
+      client_id: *client_id
+      client_secret: *client_secret
+      on_behalf_of_user: false
 
 # =============================================================================
 # MEMORY
 # =============================================================================
 memory:
   checkpointer:
-    name: research_checkpointer
-    database: *lakebase_db
+    name: long_running_checkpointer
+    database: *retail_database
 
 # =============================================================================
 # AGENTS
@@ -56,77 +69,54 @@ memory:
 agents:
   researcher: &researcher
     name: researcher
-    description: "Deep-research agent that gathers and synthesizes information"
+    description: "Deep-research agent that takes its time to produce a thorough answer"
     model: *default_llm
     prompt: |
-      You are a deep-research agent. Your job is to investigate a topic
-      thoroughly by calling tools iteratively, taking your time, and
-      synthesizing a comprehensive report at the end. Don't rush.
+      You are a deep-research agent. Produce a detailed, well-structured answer.
+      Take your time and think step-by-step. When you have enough information,
+      return a comprehensive response.
 
 # =============================================================================
 # APPLICATION
 # =============================================================================
 app:
-  name: deep_research_dao
-  description: "Long-running deep-research agent"
+  name: long_running_dao
+  description: "Long-running deep-research agent (demo of background kickoff + poll)"
   log_level: INFO
+  deployment_target: both
 
   registered_model:
-    name: deep_research_dao
+    schema: *retail_schema
+    name: long_running_dao
+
+  endpoint_name: long_running_dao
+
+  environment_vars:
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+
+  tags:
+    business: rcg
+    feature: long_running_agents
+
+  permissions:
+    - principals: [users]
+      entitlements:
+        - CAN_QUERY
 
   agents:
     - *researcher
 
-  # Opt-in to long-running support. All three fields on `database` are
-  # required; the rest have sensible defaults.
   long_running:
-    database: *lakebase_db
-    default_background: false          # clients set background=true explicitly
-    max_duration_seconds: 1800         # hard cap per task (30 min)
+    database: *retail_database
+    default_background: false
+    max_duration_seconds: 1800
     poll_interval_seconds: 1.0
-    # responses_table_name: dao_ai_responses           # default shown for reference
-    # messages_table_name:  dao_ai_response_messages   # default shown for reference
 
   input_example:
     messages:
       - role: user
-        content: "Research the current state of long-running agent infrastructure at Databricks"
+        content: "What is Databricks Lakebase?"
     custom_inputs:
       configurable:
         thread_id: "deep_research_demo_1"
-    background: true
-
-# =============================================================================
-# USAGE
-# =============================================================================
-#
-# Apps mode (strict OpenAI Responses API):
-#   curl -X POST $APP_URL/v1/responses \
-#     -H "Authorization: Bearer $TOKEN" \
-#     -d '{"input":[{"role":"user","content":"research X"}], "background": true}'
-#   # => {"id": "resp_abc...", "custom_outputs": {"long_running": {"status": "in_progress"}}}
-#
-#   curl $APP_URL/v1/responses/resp_abc...
-#   # => poll until status == "completed"
-#
-#   curl -X POST $APP_URL/v1/responses/resp_abc.../cancel
-#
-# Model Serving mode (/invocations only):
-#   POST /invocations
-#   {
-#     "input": [{"role": "user", "content": "research X"}],
-#     "background": true
-#   }
-#   # => returns {"custom_outputs": {"long_running": {"response_id": "resp_abc...", "status": "in_progress"}}}
-#
-#   POST /invocations
-#   {
-#     "input": [],
-#     "custom_inputs": {"operation": "retrieve", "response_id": "resp_abc..."}
-#   }
-#
-#   POST /invocations
-#   {
-#     "input": [],
-#     "custom_inputs": {"operation": "cancel", "response_id": "resp_abc..."}
-#   }
