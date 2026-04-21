@@ -173,7 +173,7 @@ flowchart LR
     subgraph RETRIEVE["Retrieve (operation=retrieve)"]
         R1[SELECT responses row by id]
         R2{status<br/>terminal?}
-        R3[Return in_progress<br/>output=[]]
+        R3[Return in_progress<br/>output=&#91;&#93;]
         R4[SELECT item rows<br/>ORDER BY sequence_number]
         R5[Return completed<br/>with populated output]
         R1 --> R2
@@ -473,7 +473,7 @@ sequenceDiagram
     Req->>BgLoop: run_coroutine_threadsafe(_run_background(…))
     BgLoop-->>Req: concurrent.futures.Future
     Note over Req: asyncio.run returns →<br/>request loop torn down
-    Note over BgThread,BgLoop: Background loop keeps running;<br/>task survives
+    Note over BgThread,BgLoop: Background loop keeps running —<br/>task survives
     BgLoop->>BgLoop: _run_background completes
 ```
 
@@ -532,7 +532,7 @@ Covers:
 
 ### Live demo notebook
 
-`notebooks/05_long_running_agents_demo.py` exercises every flow against
+`notebooks/14_long_running_agents_demo.py` exercises every flow against
 a deployed Apps + Model Serving pair:
 
 1. Sync passthrough (Apps + MS)
@@ -650,7 +650,7 @@ sessions discarded automatically
 ## See also
 
 - Example config: `config/examples/19_long_running_agents/deep_research.yaml`
-- Full demo notebook: `notebooks/05_long_running_agents_demo.py`
+- Full demo notebook: `notebooks/14_long_running_agents_demo.py`
 - Implementation:
   - `src/dao_ai/long_running/agent.py` — wrapper + background loop
   - `src/dao_ai/long_running/store.py` — Lakebase schema + CRUD
