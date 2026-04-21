@@ -62,6 +62,7 @@ def _mount_long_running_routes() -> None:
         CUSTOM_INPUT_RESPONSE_ID,
         OPERATION_CANCEL,
         OPERATION_RETRIEVE,
+        is_not_found_response,
     )
 
     def _build_request(
@@ -137,11 +138,11 @@ def _mount_long_running_routes() -> None:
                 _sse_from_events(agen), media_type="text/event-stream"
             )
 
-        try:
-            response = await non_streaming(request)
-        except KeyError:
+        response = await non_streaming(request)
+        body = response.model_dump(mode="json")
+        if is_not_found_response(body):
             raise HTTPException(status_code=404, detail="Response not found")
-        return JSONResponse(response.model_dump(mode="json"))
+        return JSONResponse(body)
 
     @app.post("/v1/responses/{response_id}/cancel")
     async def cancel_response(response_id: str):
@@ -153,11 +154,11 @@ def _mount_long_running_routes() -> None:
                 CUSTOM_INPUT_RESPONSE_ID: response_id,
             },
         )
-        try:
-            response = await non_streaming(request)
-        except KeyError:
+        response = await non_streaming(request)
+        body = response.model_dump(mode="json")
+        if is_not_found_response(body):
             raise HTTPException(status_code=404, detail="Response not found")
-        return JSONResponse(response.model_dump(mode="json"))
+        return JSONResponse(body)
 
     logger.info(
         "Long-running Responses API routes mounted",
