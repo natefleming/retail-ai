@@ -497,6 +497,18 @@
           ],
           "default": null,
           "description": "Production monitoring configuration. When present, scorers are registered to continuously evaluate production traces. Works with both experiment-based traces and UC OTEL trace tables. When trace_location is also configured, the SQL warehouse from trace_location is used for monitoring."
+        },
+        "long_running": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LongRunningModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opt-in long-running agent configuration. When set, the ResponsesAgent is wrapped so that requests with background=True or custom_inputs.operation are persisted in the referenced Lakebase database. In Databricks Apps, strict Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) are additionally exposed. See config/examples/19_long_running_agents/."
         }
       },
       "required": [
@@ -3762,6 +3774,53 @@
       ],
       "title": "LogLevel",
       "type": "string"
+    },
+    "LongRunningModel": {
+      "additionalProperties": false,
+      "description": "Opt-in long-running agent configuration.\n\nEnables Responses-API-compatible kickoff/poll/cancel on top of any\ndao-ai agent, persisted in the referenced Lakebase ``database``.\nWhen present on ``AppModel``, requests can set ``background: true``\n(or ``custom_inputs.operation: retrieve|cancel``) on ``/invocations``;\nin Databricks Apps, strict ``/v1/responses*`` FastAPI routes are\nadditionally mounted and translate to the same contract.",
+      "properties": {
+        "database": {
+          "$ref": "#/$defs/DatabaseModel",
+          "description": "Lakebase (or PostgreSQL) database used to persist response rows and stream events. May be the same database used by the checkpointer."
+        },
+        "default_background": {
+          "default": false,
+          "description": "If True, requests are treated as long-running even when background is not explicitly set.",
+          "title": "Default Background",
+          "type": "boolean"
+        },
+        "max_duration_seconds": {
+          "default": 1800,
+          "description": "Hard cap on any single background run. Tasks exceeding this are marked failed.",
+          "minimum": 1,
+          "title": "Max Duration Seconds",
+          "type": "integer"
+        },
+        "poll_interval_seconds": {
+          "default": 1.0,
+          "description": "Interval (seconds) used by streaming retrieve to poll the database for new events.",
+          "exclusiveMinimum": 0.0,
+          "title": "Poll Interval Seconds",
+          "type": "number"
+        },
+        "responses_table_name": {
+          "default": "dao_ai_responses",
+          "description": "Name of the Lakebase table that stores one row per response.",
+          "title": "Responses Table Name",
+          "type": "string"
+        },
+        "messages_table_name": {
+          "default": "dao_ai_response_messages",
+          "description": "Name of the Lakebase table that stores streamed events / final items.",
+          "title": "Messages Table Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "database"
+      ],
+      "title": "LongRunningModel",
+      "type": "object"
     },
     "McpFunctionModel": {
       "additionalProperties": false,

@@ -43,7 +43,7 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = [
-    "a2a-sdk>=0.3.0",
+    "a2a-sdk>=0.3.0,<1.0.0",
     "databricks-agents>=1.9.3",
     "databricks-langchain[memory]>=0.17.0",
     "databricks-mcp>=0.9.0",

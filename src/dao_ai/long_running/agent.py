@@ -22,9 +22,13 @@ end-to-end example.
 from __future__ import annotations
 
 import asyncio
+import math
+import threading
 import traceback
 import uuid
-from typing import Any, AsyncGenerator, Generator, Optional
+from concurrent.futures import Future
+from enum import Enum
+from typing import Any, AsyncGenerator, Coroutine, Generator, Literal, Optional
 
 import mlflow
 from loguru import logger
@@ -45,10 +49,86 @@ CUSTOM_INPUT_OPERATION = "operation"
 CUSTOM_INPUT_RESPONSE_ID = "response_id"
 CUSTOM_INPUT_CURSOR = "cursor"
 
-OPERATION_RETRIEVE = "retrieve"
-OPERATION_CANCEL = "cancel"
+OPERATION_RETRIEVE: Literal["retrieve"] = "retrieve"
+OPERATION_CANCEL: Literal["cancel"] = "cancel"
 
 _RESPONSE_ID_PREFIX = "resp_"
+
+
+class _Operation(str, Enum):
+    """Internal enum used to dispatch a request to the right handler."""
+
+    KICKOFF = "kickoff"
+    RETRIEVE = "retrieve"
+    CANCEL = "cancel"
+    PASSTHROUGH = "passthrough"
+
+
+class _BackgroundLoop:
+    """Process-singleton background event loop for long-running tasks.
+
+    Model Serving uses ``asyncio.run()`` per-request — when the request
+    returns, the loop is torn down and any in-flight ``asyncio.create_task``
+    gets cancelled before it can make progress. Databricks Apps doesn't have
+    this problem (one persistent Uvicorn loop), but we want a uniform model.
+
+    This class runs a dedicated daemon thread with its own event loop that
+    persists for the lifetime of the Python process. Callers submit a
+    coroutine via :meth:`submit` and get a ``concurrent.futures.Future`` plus
+    the underlying ``asyncio.Task`` (so we can still cancel it).
+    """
+
+    _instance: Optional["_BackgroundLoop"] = None
+    _lock: threading.Lock = threading.Lock()
+
+    @classmethod
+    def instance(cls) -> "_BackgroundLoop":
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls()
+            return cls._instance
+
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+        self._ready = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="dao_ai-long_running-bg",
+            daemon=True,
+        )
+        self._thread.start()
+        self._ready.wait(timeout=5.0)
+
+    def _run(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._ready.set()
+        self._loop.run_forever()
+
+    def submit(self, coro: Coroutine[Any, Any, Any]) -> tuple[Future, asyncio.Task]:
+        """Schedule *coro* on the background loop.
+
+        Returns a ``(concurrent.futures.Future, asyncio.Task)`` pair so the
+        caller can wait on or cancel the work.
+        """
+        fut: Future = Future()
+        task_holder: dict[str, asyncio.Task] = {}
+        task_ready = threading.Event()
+
+        def _schedule() -> None:
+            task = self._loop.create_task(coro)
+            task_holder["task"] = task
+            task.add_done_callback(
+                lambda t: (
+                    fut.set_exception(t.exception())
+                    if t.exception()
+                    else fut.set_result(t.result() if not t.cancelled() else None)
+                )
+            )
+            task_ready.set()
+
+        self._loop.call_soon_threadsafe(_schedule)
+        task_ready.wait(timeout=5.0)
+        return fut, task_holder["task"]
 
 
 def _new_response_id() -> str:
@@ -72,19 +152,31 @@ def _thread_id(request: ResponsesAgentRequest) -> str:
     return uuid.uuid4().hex
 
 
+def _long_running_custom_outputs(
+    record: ResponseRecord, *, extra: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Build the ``custom_outputs.long_running`` payload for responses/events."""
+    payload: dict[str, Any] = {
+        "response_id": record.response_id,
+        "status": record.status.value,
+        "thread_id": record.thread_id,
+        "error": record.error_json,
+    }
+    if extra:
+        payload.update(extra)
+    return {"long_running": payload}
+
+
 def _status_response(
     record: ResponseRecord, output: Optional[list[dict[str, Any]]] = None
 ) -> ResponsesAgentResponse:
+    # Pydantic will coerce dicts into OutputItem at validation time. The base
+    # annotation on `output` is list[OutputItem]; the ignore quiets mypy.
     return ResponsesAgentResponse(
+        id=record.response_id,
+        status=record.status.value,
         output=output or [],  # type: ignore[arg-type]
-        custom_outputs={
-            "long_running": {
-                "response_id": record.response_id,
-                "status": record.status.value,
-                "thread_id": record.thread_id,
-                "error": record.error_json,
-            }
-        },
+        custom_outputs=_long_running_custom_outputs(record),
     )
 
 
@@ -93,16 +185,15 @@ def _status_stream_event(
     *,
     event_type: str = "response.in_progress",
 ) -> ResponsesAgentStreamEvent:
-    return ResponsesAgentStreamEvent(
-        type=event_type,
-        custom_outputs={
-            "long_running": {
-                "response_id": record.response_id,
-                "status": record.status.value,
-                "thread_id": record.thread_id,
-                "error": record.error_json,
-            }
-        },
+    # ResponsesAgentStreamEvent has ``extra="allow"`` so ``id`` passes through
+    # to strict OpenAI clients that read ``event.id``. ``model_validate``
+    # side-steps the fact that ``id`` isn't declared on the schema.
+    return ResponsesAgentStreamEvent.model_validate(
+        {
+            "type": event_type,
+            "id": record.response_id,
+            "custom_outputs": _long_running_custom_outputs(record),
+        }
     )
 
 
@@ -170,39 +261,34 @@ class LongRunningResponsesAgent(ResponsesAgent):
     @mlflow.trace(name="long_running.apredict", span_type="AGENT")
     async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         await self.store.ensure_schema()
-        op = self._operation(request)
-
-        if op == OPERATION_RETRIEVE:
-            return await self._retrieve_non_stream(request)
-        if op == OPERATION_CANCEL:
-            return await self._cancel(request)
-        if self._is_background(request):
-            return await self._kickoff_non_stream(request)
-
-        return await self._delegate_apredict(request)
+        match self._classify(request):
+            case _Operation.RETRIEVE:
+                return await self._retrieve_non_stream(request)
+            case _Operation.CANCEL:
+                return await self._cancel(request)
+            case _Operation.KICKOFF:
+                return await self._kickoff_non_stream(request)
+            case _Operation.PASSTHROUGH:
+                return await self._delegate_apredict(request)
 
     @mlflow.trace(name="long_running.apredict_stream", span_type="AGENT")
     async def apredict_stream(
         self, request: ResponsesAgentRequest
     ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
         await self.store.ensure_schema()
-        op = self._operation(request)
-
-        if op == OPERATION_RETRIEVE:
-            async for ev in self._retrieve_stream(request):
-                yield ev
-            return
-        if op == OPERATION_CANCEL:
-            record = await self._cancel_record(request)
-            yield _status_stream_event(record, event_type="response.in_progress")
-            return
-        if self._is_background(request):
-            async for ev in self._kickoff_stream(request):
-                yield ev
-            return
-
-        async for ev in self._delegate_apredict_stream(request):
-            yield ev
+        match self._classify(request):
+            case _Operation.RETRIEVE:
+                async for ev in self._retrieve_stream(request):
+                    yield ev
+            case _Operation.CANCEL:
+                record = await self._cancel_record(request)
+                yield _status_stream_event(record, event_type="response.in_progress")
+            case _Operation.KICKOFF:
+                async for ev in self._kickoff_stream(request):
+                    yield ev
+            case _Operation.PASSTHROUGH:
+                async for ev in self._delegate_apredict_stream(request):
+                    yield ev
 
     # ------------------------------------------------------------ delegation
 
@@ -229,9 +315,25 @@ class LongRunningResponsesAgent(ResponsesAgent):
 
     # --------------------------------------------------------------- helpers
 
-    def _operation(self, request: ResponsesAgentRequest) -> Optional[str]:
+    def _classify(self, request: ResponsesAgentRequest) -> _Operation:
+        op: Literal["retrieve", "cancel"] | None = self._operation(request)
+        if op == OPERATION_RETRIEVE:
+            return _Operation.RETRIEVE
+        if op == OPERATION_CANCEL:
+            return _Operation.CANCEL
+        if self._is_background(request):
+            return _Operation.KICKOFF
+        return _Operation.PASSTHROUGH
+
+    def _operation(
+        self, request: ResponsesAgentRequest
+    ) -> Literal["retrieve", "cancel"] | None:
         op = _custom_inputs(request).get(CUSTOM_INPUT_OPERATION)
-        return str(op) if op else None
+        if op == OPERATION_RETRIEVE:
+            return OPERATION_RETRIEVE
+        if op == OPERATION_CANCEL:
+            return OPERATION_CANCEL
+        return None
 
     def _is_background(self, request: ResponsesAgentRequest) -> bool:
         if request.background is True:
@@ -286,11 +388,23 @@ class LongRunningResponsesAgent(ResponsesAgent):
         # Decouple the kicked-off request from the incoming one — we must not
         # leak our own custom_inputs (operation/response_id) into the inner run.
         inner_request = _clone_for_background(request)
-        task = asyncio.create_task(
-            self._run_background(response_id, inner_request),
-            name=f"long_running:{response_id}",
+
+        # Run on a persistent background event loop (in a dedicated daemon
+        # thread) so the task survives the per-request asyncio.run() teardown
+        # that Model Serving performs. Databricks Apps has a long-lived loop
+        # and doesn't strictly need this, but using one mechanism keeps the
+        # runtime identical across both deployment targets.
+        _, task = _BackgroundLoop.instance().submit(
+            self._run_background(response_id, inner_request)
         )
+        # task is tied to the background loop, not the request loop. We keep
+        # a reference here only to support same-pod cancellation.
         self._tasks[response_id] = task
+
+        def _forget(_t: asyncio.Task, rid: str = response_id) -> None:
+            self._tasks.pop(rid, None)
+
+        task.add_done_callback(_forget)
         try:
             await self.store.set_agent_task_id(response_id, task.get_name())
         except Exception as exc:  # noqa: BLE001 — best effort, don't fail kickoff
@@ -304,13 +418,24 @@ class LongRunningResponsesAgent(ResponsesAgent):
         self, response_id: str, request: ResponsesAgentRequest
     ) -> None:
         logger.info("Background agent run starting", response_id=response_id)
+        collected: list[dict[str, Any]] = []
         try:
-
-            async def _drive() -> None:
+            async with asyncio.timeout(self.max_duration_seconds):
                 async for event in self._delegate_apredict_stream(request):
-                    await self.store.append_event(response_id, event.model_dump())
+                    dumped = event.model_dump()
+                    collected.append(dumped)
+                    await self.store.append_event(response_id, dumped)
 
-            await asyncio.wait_for(_drive(), timeout=self.max_duration_seconds)
+            # Aggregate stream chunks into final output items so non-streaming
+            # retrieve callers get a populated ``output`` field. The reducer
+            # accepts a list of dicts or events — we give it dicts.
+            aggregated = ResponsesAgent.responses_agent_output_reducer(
+                list(collected)  # invariant list; cast to satisfy type checker
+            )
+            items = aggregated.get("output") or []
+            if items:
+                await self.store.append_output(response_id, items)
+
             await self.store.set_status(response_id, ResponseStatus.COMPLETED)
             logger.info("Background agent run completed", response_id=response_id)
         except asyncio.CancelledError:
@@ -357,7 +482,6 @@ class LongRunningResponsesAgent(ResponsesAgent):
             raise KeyError(f"Unknown response_id: {response_id}")
         output: list[dict[str, Any]] = []
         if record.status == ResponseStatus.COMPLETED:
-            # Prefer stored final items; if only stream events exist, return those.
             output = await self.store.get_output(response_id)
         return _status_response(record, output=output)
 
@@ -367,7 +491,13 @@ class LongRunningResponsesAgent(ResponsesAgent):
         response_id = self._required_response_id(request)
         cursor = int(_custom_inputs(request).get(CUSTOM_INPUT_CURSOR) or 0)
 
-        while True:
+        # Bound the poll loop so a crashed writer can't hold the connection
+        # open forever. Mirrors max_duration_seconds.
+        max_iterations = max(
+            1, math.ceil(self.max_duration_seconds / self.poll_interval_seconds)
+        )
+
+        for _ in range(max_iterations):
             record = await self.store.get(response_id)
             if record is None:
                 raise KeyError(f"Unknown response_id: {response_id}")
@@ -377,24 +507,18 @@ class LongRunningResponsesAgent(ResponsesAgent):
             ):
                 event_payload = dict(event_payload)
                 event_payload.setdefault("type", "response.in_progress")
-                custom_outputs = dict(event_payload.get("custom_outputs") or {})
-                custom_outputs.setdefault(
-                    "long_running",
-                    {
-                        "response_id": response_id,
-                        "status": record.status.value,
-                        "cursor": seq,
-                    },
+                event_payload.setdefault("id", response_id)
+                event_payload["custom_outputs"] = _long_running_custom_outputs(
+                    record, extra={"cursor": seq}
                 )
-                event_payload["custom_outputs"] = custom_outputs
                 yield ResponsesAgentStreamEvent(**event_payload)
                 cursor = seq
 
             if record.status.is_terminal:
                 # ``response.completed`` in the Responses API requires a full
-                # Response payload. We're streaming events sourced from a DB,
-                # not a live model call, so emit a lightweight terminal marker
-                # whose authoritative status lives in custom_outputs.
+                # Response payload; we stream events sourced from a DB, so
+                # emit a lightweight terminal marker whose authoritative
+                # status lives in custom_outputs.long_running.status.
                 yield _status_stream_event(
                     record,
                     event_type=(
@@ -406,6 +530,20 @@ class LongRunningResponsesAgent(ResponsesAgent):
                 return
 
             await asyncio.sleep(self.poll_interval_seconds)
+
+        # Loop exhausted — the writer never reached a terminal state.
+        await self.store.set_status(
+            response_id,
+            ResponseStatus.FAILED,
+            error={
+                "reason": "retrieve_poll_exhausted",
+                "max_iterations": max_iterations,
+                "poll_interval_seconds": self.poll_interval_seconds,
+            },
+        )
+        final = await self.store.get(response_id)
+        assert final is not None
+        yield _status_stream_event(final, event_type="response.failed")
 
     # ----------------------------------------------------------------- cancel
 

@@ -102,7 +102,11 @@ def test_passthrough_non_background_delegates_to_inner(store):
 
 
 def test_kickoff_returns_in_progress_and_creates_row(store):
-    started = asyncio.Event()
+    # threading.Event (not asyncio.Event) because the background task runs
+    # on a different event loop than this test's.
+    import threading as _threading
+
+    started = _threading.Event()
 
     class SlowInner:
         async def apredict_stream(self, request):
@@ -120,21 +124,22 @@ def test_kickoff_returns_in_progress_and_creates_row(store):
         custom_inputs={"configurable": {"thread_id": "thread_1"}},
     )
 
-    async def _body():
-        response = await agent.apredict(request)
-        # Task must have registered itself and at least started executing.
-        await asyncio.wait_for(started.wait(), timeout=1)
-        registered = list(agent._tasks.values())
-        for t in registered:
-            t.cancel()
-        return response, registered
+    response = _run(agent.apredict(request))
 
-    response, registered = _run(_body())
+    # Wait for the background task to have started (on its dedicated loop).
+    assert started.wait(timeout=2), "background task never started"
+    registered = list(agent._tasks.values())
+    # Cancel dangling tasks across the thread boundary.
+    for t in registered:
+        t.get_loop().call_soon_threadsafe(t.cancel)
 
-    assert response.custom_outputs is not None
+    # Top-level fields (OpenAI Responses API compatibility).
+    assert response.id is not None and response.id.startswith("resp_")
+    assert response.status == "in_progress"
+    # Extended fields still in custom_outputs.
     info = response.custom_outputs["long_running"]
     assert info["status"] == "in_progress"
-    assert info["response_id"].startswith("resp_")
+    assert info["response_id"] == response.id
     store.create.assert_awaited()
     assert len(registered) == 1
 
@@ -179,15 +184,15 @@ def test_kickoff_passes_cleaned_request_to_inner(store):
         custom_inputs={"configurable": {"thread_id": "t"}},
     )
 
-    async def _body():
-        await agent.apredict(request)
-        for t in list(agent._tasks.values()):
-            try:
-                await asyncio.wait_for(t, timeout=2)
-            except asyncio.TimeoutError:
-                t.cancel()
+    _run(agent.apredict(request))
 
-    _run(_body())
+    # Background task runs on _BackgroundLoop (dedicated thread). Poll for up
+    # to 2s waiting for it to call apredict_stream.
+    import time as _time
+
+    deadline = _time.monotonic() + 2.0
+    while not seen_requests and _time.monotonic() < deadline:
+        _time.sleep(0.02)
 
     assert seen_requests, "inner apredict_stream was not invoked"
     inner = seen_requests[0]
@@ -234,6 +239,8 @@ def test_retrieve_returns_output_when_completed(store):
 
     response = _run(agent.apredict(request))
 
+    assert response.id == "resp_x"
+    assert response.status == "completed"
     assert len(response.output) == 1
     assert response.output[0].id == "msg_1"
     assert response.custom_outputs["long_running"]["status"] == "completed"
@@ -305,6 +312,8 @@ def test_stream_kickoff_yields_response_created(store):
     events = _run(_collect())
     assert len(events) == 1
     assert events[0].type == "response.created"
+    # Top-level id must be present for strict OpenAI clients.
+    assert getattr(events[0], "id", None) is not None
 
 
 def test_stream_retrieve_polls_until_terminal(store):
@@ -359,3 +368,94 @@ def test_stream_retrieve_polls_until_terminal(store):
         else None
     )
     assert terminal_status == "completed"
+
+
+# ---------------------------------------------------------------------- aggregation
+
+
+def test_run_background_persists_aggregated_output_items(store):
+    """After the inner stream ends, output_item.done events become stored items."""
+    item = {
+        "type": "message",
+        "id": "msg_final",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "done"}],
+        "status": "completed",
+    }
+
+    class OneItemInner:
+        async def apredict_stream(self, request):
+            yield ResponsesAgentStreamEvent(type="response.output_item.done", item=item)
+
+    agent = LongRunningResponsesAgent(inner=OneItemInner(), store=store)
+
+    request = ResponsesAgentRequest(
+        input=[],
+        background=True,
+        custom_inputs={"configurable": {"thread_id": "t"}},
+    )
+
+    _run(agent.apredict(request))
+
+    # Background task runs on _BackgroundLoop (dedicated thread). Poll for
+    # the aggregation + persistence to complete.
+    import time as _time
+
+    deadline = _time.monotonic() + 3.0
+    while store.append_output.await_count == 0 and _time.monotonic() < deadline:
+        _time.sleep(0.02)
+
+    # append_output should have been called once with the aggregated items.
+    assert store.append_output.await_count == 1
+    call_args = store.append_output.await_args
+    stored_items = (
+        call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs["items"]
+    )
+    assert stored_items == [item]
+    # And status should have been set to COMPLETED after that.
+    # (We check the last set_status call — in happy path, only one is made.)
+    statuses = [c.args[1] for c in store.set_status.await_args_list]
+    assert ResponseStatus.COMPLETED in statuses
+
+
+def test_retrieve_stream_bounded_iterations(store):
+    """If the writer never reaches terminal, retrieve stream must fail the response."""
+    # Always in_progress — no terminal state will ever be observed.
+    store.get.return_value = _make_record(status=ResponseStatus.IN_PROGRESS)
+
+    async def _empty_iter(*_a, **_k):
+        if False:
+            yield None
+
+    store.iter_events = _empty_iter
+
+    agent = LongRunningResponsesAgent(
+        inner=_FakeInner(),
+        store=store,
+        # Force max_iterations = 2 so the bounded loop exits quickly.
+        max_duration_seconds=1,
+        poll_interval_seconds=0.5,
+    )
+
+    request = ResponsesAgentRequest(
+        input=[],
+        custom_inputs={"operation": "retrieve", "response_id": "resp_x"},
+    )
+
+    async def _collect():
+        events = []
+        async for ev in agent.apredict_stream(request):
+            events.append(ev)
+            if len(events) > 5:
+                break
+        return events
+
+    events = _run(_collect())
+
+    # Loop should have emitted a terminal failed event.
+    assert events[-1].type == "response.failed"
+    # And persisted the failure with the expected reason.
+    assert store.set_status.await_args_list, "set_status was not called"
+    last_call = store.set_status.await_args_list[-1]
+    assert last_call.args[1] == ResponseStatus.FAILED
+    assert last_call.kwargs["error"]["reason"] == "retrieve_poll_exhausted"
