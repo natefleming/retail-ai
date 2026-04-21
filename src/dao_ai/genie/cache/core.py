@@ -38,7 +38,9 @@ def execute_sql_via_warehouse(
         DataFrame with results, or error message string
     """
     if not sql or not sql.strip():
-        logger.error("SQL execution failed: empty query", layer=layer_name, sql=repr(sql))
+        logger.error(
+            "SQL execution failed: empty query", layer=layer_name, sql=repr(sql)
+        )
         return "Cannot execute empty SQL query"
 
     w: WorkspaceClient = warehouse.workspace_client
