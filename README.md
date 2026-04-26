@@ -205,7 +205,7 @@ config.deploy_agent()
 **Option B: Using the CLI** (one command)
 
 ```bash
-dao-ai bundle --deploy --run -c config/my_agent.yaml
+dao-ai pipeline --deploy --run -c config/my_agent.yaml
 ```
 
 This single command:
@@ -218,10 +218,10 @@ This single command:
 
 ```bash
 # Deploy to AWS workspace
-dao-ai bundle --deploy --run -c config/my_agent.yaml --profile aws-field-eng
+dao-ai pipeline --deploy --run -c config/my_agent.yaml --profile aws-field-eng
 
 # Deploy to Azure workspace
-dao-ai bundle --deploy --run -c config/my_agent.yaml --profile azure-retail
+dao-ai pipeline --deploy --run -c config/my_agent.yaml --profile azure-retail
 ```
 
 **Step 5: Interact with your agent**
@@ -257,6 +257,31 @@ print(response["message"]["content"])
 - Try the [DAO AI Builder](https://github.com/natefleming/dao-ai-builder) visual interface
 - Learn about [Key Capabilities](docs/key-capabilities.md) to add advanced features
 - Read the [Architecture](docs/architecture.md) documentation to understand how it works
+
+### Parameterising a Config
+
+Make one YAML re-usable across catalogs, schemas, and environments by declaring `parameters:` and referencing them with `${var.NAME}`:
+
+```yaml
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: main
+
+schemas:
+  s:
+    catalog_name: ${var.catalog}
+    schema_name: dao_ai
+```
+
+Override at runtime:
+
+```bash
+dao-ai chat -c dao_ai.yaml --var catalog=nfleming
+dao-ai vars list -c dao_ai.yaml          # see all declared parameters
+```
+
+Full reference: [Parameters (Load-Time Substitution)](docs/configuration-reference.md#parameters-load-time-substitution).
 
 ---
 
@@ -354,17 +379,20 @@ dao-ai schema > schemas/model_config_schema.json
 dao-ai graph -c config/my_config.yaml -o workflow.png
 
 # Deploy with Databricks Asset Bundles
-dao-ai bundle --deploy --run -c config/my_config.yaml
+dao-ai pipeline --deploy --run -c config/my_config.yaml
 
 # Deploy to a specific workspace (multi-cloud support)
-dao-ai bundle --deploy -c config/my_config.yaml --profile aws-field-eng
-dao-ai bundle --deploy -c config/my_config.yaml --profile azure-retail
+dao-ai pipeline --deploy -c config/my_config.yaml --profile aws-field-eng
+dao-ai pipeline --deploy -c config/my_config.yaml --profile azure-retail
 
 # Generate a deployable Databricks Apps bundle
 dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
 
 # Interactive chat with agent
 dao-ai chat -c config/my_config.yaml
+
+# Inspect declared parameters and resolved values
+dao-ai vars list -c config/my_config.yaml --var catalog=nfleming
 ```
 
 ### Multi-Cloud Deployment
@@ -373,13 +401,13 @@ DAO AI supports deploying to Azure, AWS, and GCP workspaces with automatic cloud
 
 ```bash
 # Deploy to AWS workspace
-dao-ai bundle --deploy -c config/my_config.yaml --profile aws-prod
+dao-ai pipeline --deploy -c config/my_config.yaml --profile aws-prod
 
 # Deploy to Azure workspace
-dao-ai bundle --deploy -c config/my_config.yaml --profile azure-prod
+dao-ai pipeline --deploy -c config/my_config.yaml --profile azure-prod
 
 # Deploy to GCP workspace
-dao-ai bundle --deploy -c config/my_config.yaml --profile gcp-prod
+dao-ai pipeline --deploy -c config/my_config.yaml --profile gcp-prod
 ```
 
 The CLI automatically:

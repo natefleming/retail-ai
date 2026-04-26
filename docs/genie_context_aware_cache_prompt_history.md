@@ -297,7 +297,7 @@ genie_tools:
       # name: "My Genie Space"     # resolves space_id automatically
     context_aware_cache_parameters:
       database:
-        instance_name: retail-consumer-goods  # Lakebase
+        project: retail-consumer-goods  # Lakebase
       warehouse:
         warehouse_id: my-warehouse-id  # or omit and use name instead
         # name: "My Warehouse"        # resolves warehouse_id automatically
@@ -352,7 +352,7 @@ workspace_client = WorkspaceClient()
 
 database = DatabaseModel(
     project="retail-consumer-goods",  # autoscaling Lakebase
-    # Or for provisioned: instance_name="retail-consumer-goods"
+    # project="retail-consumer-goods"
 )
 
 # Provide warehouse_id directly, or just name to resolve the ID automatically
@@ -885,7 +885,7 @@ database:
 
 # Use Lakebase for better performance
 database:
-  instance_name: retail-consumer-goods
+  project: retail-consumer-goods
 ```
 
 ### Scaling to Large Cache Sizes

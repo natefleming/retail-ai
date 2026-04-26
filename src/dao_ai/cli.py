@@ -14,6 +14,7 @@ from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
 from dao_ai.config import AppConfig
+from dao_ai.config_vars import ConfigVariableError, resolve_parameters
 from dao_ai.graph import create_dao_ai_graph
 from dao_ai.logging import configure_logging
 from dao_ai.models import save_image
@@ -143,6 +144,59 @@ if env_path:
     _ = load_dotenv(env_path)
 
 
+def _parse_var_args(raw: Optional[list[str]]) -> dict[str, str]:
+    """Parse a list of ``KEY=VALUE`` strings into a dict.
+
+    Raises ``SystemExit`` (mirrors argparse's behaviour for invalid args)
+    when an item lacks ``=``.
+    """
+    out: dict[str, str] = {}
+    for item in raw or []:
+        if "=" not in item:
+            raise SystemExit(f"--var expects KEY=VALUE, got: {item!r}")
+        key, value = item.split("=", 1)
+        out[key.strip()] = value
+    return out
+
+
+def _add_var_argument(parser: ArgumentParser) -> None:
+    """Add a repeatable ``--var KEY=VALUE`` flag to a subparser."""
+    parser.add_argument(
+        "--var",
+        action="append",
+        metavar="KEY=VALUE",
+        help=(
+            "Override a ${var.KEY} / ${param.KEY} substitution in the config "
+            "file. Repeatable (e.g. --var catalog=main --var schema=dao_ai)."
+        ),
+    )
+
+
+def _print_config_variable_error(err: ConfigVariableError) -> None:
+    """Render a ConfigVariableError to stderr in a user-friendly form."""
+    print(f"\nConfig parameter error in {err.path}:", file=sys.stderr)
+    if err.missing_required:
+        print("  Missing required parameters:", file=sys.stderr)
+        for name in err.missing_required:
+            print(f"    - {name}", file=sys.stderr)
+        print(
+            "  Pass with --var name=value or set the equivalent env var "
+            "(NAME upper-cased, dots/dashes -> underscores).",
+            file=sys.stderr,
+        )
+    if err.undeclared:
+        print(
+            "  Undeclared ${var.NAME} / ${param.NAME} references:",
+            file=sys.stderr,
+        )
+        for name in err.undeclared:
+            print(f"    - {name}", file=sys.stderr)
+        print(
+            "  Add them to the top-level parameters: block in the config.",
+            file=sys.stderr,
+        )
+
+
 def parse_args(args: Sequence[str]) -> Namespace:
     parser: ArgumentParser = ArgumentParser(
         prog="dao-ai",
@@ -155,7 +209,7 @@ Examples:
   dao-ai chat -c config/retail.yaml --custom-input store_num=87887  # Start interactive chat session
   dao-ai list-mcp-tools -c config/mcp_config.yaml --apply-filters  # List filtered MCP tools only
   dao-ai validate                                        # Validate with detailed logging
-  dao-ai bundle --deploy                                 # Deploy the DAO AI asset bundle
+  dao-ai pipeline --deploy                               # Deploy the DAO AI pipeline
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -267,29 +321,29 @@ Examples:
         help="Path to the model configuration file to visualize",
     )
 
-    bundle_parser: ArgumentParser = subparsers.add_parser(
-        "bundle",
-        help="Bundle configuration for deployment",
+    pipeline_parser: ArgumentParser = subparsers.add_parser(
+        "pipeline",
+        help="Pipeline orchestration for deployment",
         description="""
-Perform operations on the DAO AI asset bundle.
-This command prepares the configuration for deployment by:
-- Deploying DAO AI as an asset bundle
-- Running the DAO AI system with the current configuration
+Deploy and run the DAO AI pipeline. This command wraps the underlying
+Databricks Asset Bundle workflow:
+- Deploys DAO AI as a Databricks asset bundle
+- Runs the DAO AI system with the current configuration
 """,
         epilog="""
 Examples:
-    dao-ai bundle --deploy
-    dao-ai bundle --run
+    dao-ai pipeline --deploy
+    dao-ai pipeline --run
 """,
     )
 
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "-p",
         "--profile",
         type=str,
         help="The Databricks profile to use for deployment",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -297,41 +351,41 @@ Examples:
         metavar="FILE",
         help="Path to the model configuration file for the bundle",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "-d",
         "--deploy",
         action="store_true",
         help="Deploy the DAO AI asset bundle",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "--destroy",
         action="store_true",
         help="Destroy the DAO AI asset bundle",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "-r",
         "--run",
         action="store_true",
         help="Run the DAO AI system with the current configuration",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "-t",
         "--target",
         type=str,
         help="Bundle target name (default: auto-generated from app name and cloud)",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "--cloud",
         type=str,
         choices=["azure", "aws", "gcp"],
         help="Cloud provider (auto-detected from workspace URL if not specified)",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Perform a dry run without executing the deployment or run commands",
     )
-    bundle_parser.add_argument(
+    pipeline_parser.add_argument(
         "--deployment-target",
         type=str,
         choices=["model_serving", "apps", "both"],
@@ -556,6 +610,53 @@ Examples:
         help="Thread ID for the chat session (default: auto-generated UUID)",
     )
 
+    # Vars command
+    vars_parser: ArgumentParser = subparsers.add_parser(
+        "vars",
+        help="Inspect declared parameters in a configuration",
+        description="""
+Inspect the declared parameters: block in a DAO AI config file.
+
+Shows each declared parameter, whether it is required, its declared default,
+and the value that would be substituted into the YAML for the current
+combination of --var overrides and process environment variables.
+
+Use this to discover what knobs a config exposes before deploying or running it.
+        """,
+        epilog="""
+Examples:
+  dao-ai vars list -c config/model_config.yaml
+  dao-ai vars list -c config/retail.yaml --var catalog=nfleming
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    vars_parser.add_argument(
+        "action",
+        choices=["list"],
+        help="Vars action: 'list' prints declared parameters and resolved values.",
+    )
+    vars_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the model configuration file to inspect.",
+    )
+
+    for sub in (
+        validation_parser,
+        graph_parser,
+        pipeline_parser,
+        generate_bundle_parser,
+        deploy_parser,
+        list_mcp_parser,
+        monitor_parser,
+        chat_parser,
+        vars_parser,
+    ):
+        _add_var_argument(sub)
+
     options = parser.parse_args(args)
 
     # Generate a new thread_id UUID if not provided (only for chat command)
@@ -588,7 +689,13 @@ def handle_chat_command(options: Namespace) -> None:
         if options.user_id is None:
             options.user_id = get_default_user_id()
 
-        config: AppConfig = AppConfig.from_file(options.config)
+        try:
+            config: AppConfig = AppConfig.from_file(
+                options.config, params=_parse_var_args(options.var)
+            )
+        except ConfigVariableError as e:
+            _print_config_variable_error(e)
+            sys.exit(1)
         app = create_dao_ai_graph(config)
 
         print("🤖 DAO AI Chat Session Started")
@@ -918,7 +1025,13 @@ def handle_schema_command(options: Namespace) -> None:
 
 def handle_graph_command(options: Namespace) -> None:
     logger.debug("Generating graph representation...")
-    config: AppConfig = AppConfig.from_file(options.config)
+    try:
+        config: AppConfig = AppConfig.from_file(
+            options.config, params=_parse_var_args(options.var)
+        )
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
     app = create_dao_ai_graph(config)
     save_image(app, options.output)
 
@@ -928,7 +1041,13 @@ def handle_deploy_command(options: Namespace) -> None:
 
     logger.debug(f"Validating configuration from {options.config}...")
     try:
-        config: AppConfig = AppConfig.from_file(options.config)
+        try:
+            config: AppConfig = AppConfig.from_file(
+                options.config, params=_parse_var_args(options.var)
+            )
+        except ConfigVariableError as e:
+            _print_config_variable_error(e)
+            sys.exit(1)
 
         # Hybrid target resolution:
         # 1. CLI --target takes precedence
@@ -960,7 +1079,13 @@ def handle_monitor_command(options: Namespace) -> None:
 
     logger.debug(f"Loading configuration from {options.config}...")
     try:
-        config: AppConfig = AppConfig.from_file(options.config)
+        try:
+            config: AppConfig = AppConfig.from_file(
+                options.config, params=_parse_var_args(options.var)
+            )
+        except ConfigVariableError as e:
+            _print_config_variable_error(e)
+            sys.exit(1)
 
         if not config.app or not config.app.monitoring:
             logger.error("app.monitoring must be configured in the YAML for monitoring")
@@ -1024,10 +1149,15 @@ def handle_monitor_command(options: Namespace) -> None:
 def handle_validate_command(options: Namespace) -> None:
     logger.debug(f"Validating configuration from {options.config}...")
     try:
-        config: AppConfig = AppConfig.from_file(options.config)
+        config: AppConfig = AppConfig.from_file(
+            options.config, params=_parse_var_args(options.var)
+        )
         _ = create_dao_ai_graph(config)
         config.model_dump(by_alias=True)
         sys.exit(0)
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Configuration validation failed: {e}")
         sys.exit(1)
@@ -1117,8 +1247,13 @@ def handle_list_mcp_tools_command(options: Namespace) -> None:
         from dao_ai.config import McpFunctionModel
         from dao_ai.tools.mcp import MCPToolInfo, _matches_pattern, list_mcp_tools
 
-        # Load configuration
-        config: AppConfig = AppConfig.from_file(options.config)
+        try:
+            config: AppConfig = AppConfig.from_file(
+                options.config, params=_parse_var_args(options.var)
+            )
+        except ConfigVariableError as e:
+            _print_config_variable_error(e)
+            sys.exit(1)
 
         # Find all MCP tools in configuration
         mcp_tools_config: list[tuple[str, McpFunctionModel]] = []
@@ -1415,6 +1550,7 @@ def run_databricks_command(
     cloud: Optional[str] = None,
     dry_run: bool = False,
     deployment_target: Optional[str] = None,
+    config_vars: Optional[dict[str, str]] = None,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -1427,6 +1563,11 @@ def run_databricks_command(
         dry_run: If True, print the command without executing
         deployment_target: Optional agent deployment target ('model_serving' or 'apps').
             Passed to the deploy notebook via bundle variable.
+        config_vars: Optional ``${param.NAME}`` overrides for the dao-ai config.
+            Forwarded to ``AppConfig.from_file`` and to the underlying
+            ``databricks bundle`` command as ``--var name=value`` so the
+            asset-bundle layer's own ``${var.NAME}`` substitution sees the same
+            values when the names overlap.
     """
     config_path = Path(config) if config else None
 
@@ -1439,8 +1580,15 @@ def run_databricks_command(
     # resolve against the profile instead of silently using the wrong host.
     _apply_profile_context(profile)
 
-    # Load app config
-    app_config: AppConfig = AppConfig.from_file(config_path) if config_path else None
+    try:
+        app_config: AppConfig = (
+            AppConfig.from_file(config_path, params=config_vars)
+            if config_path
+            else None
+        )
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
     normalized_name: str = normalize_name(app_config.app.name) if app_config else None
 
     # Auto-detect cloud provider if not specified (used for target selection)
@@ -1464,7 +1612,7 @@ def run_databricks_command(
         logger.info(f"Using app-specific cloud target: {target}")
 
     # Build databricks command
-    # --profile is a global flag, --target is a subcommand flag for 'bundle'
+    # --profile is a global flag, --target is a subcommand flag for `databricks bundle`
     cmd = ["databricks"]
     if profile:
         cmd.extend(["--profile", profile])
@@ -1488,6 +1636,12 @@ def run_databricks_command(
             relative_config = Path(os.path.relpath(config_abs, notebooks_dir))
 
         cmd.append(f'--var="config_path={relative_config}"')
+
+    # Forward dao-ai parameter overrides to the asset-bundle layer too, so
+    # ${var.NAME} references inside databricks.yaml resolve from the same
+    # input values when the names overlap.
+    for key, value in (config_vars or {}).items():
+        cmd.append(f'--var="{key}={value}"')
 
     # Add deployment_target variable for notebooks (hybrid resolution)
     # Priority: CLI arg > config file > default (model_serving)
@@ -1550,14 +1704,15 @@ def run_databricks_command(
         sys.exit(1)
 
 
-def handle_bundle_command(options: Namespace) -> None:
-    logger.debug("Bundling configuration...")
+def handle_pipeline_command(options: Namespace) -> None:
+    logger.debug("Preparing pipeline configuration...")
     profile: Optional[str] = options.profile
     config: Optional[str] = options.config
     target: Optional[str] = options.target
     cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
     deployment_target: Optional[str] = options.deployment_target
+    config_vars: dict[str, str] = _parse_var_args(options.var)
 
     if options.deploy:
         logger.info("Deploying DAO AI asset bundle...")
@@ -1569,6 +1724,7 @@ def handle_bundle_command(options: Namespace) -> None:
             cloud=cloud,
             dry_run=dry_run,
             deployment_target=deployment_target,
+            config_vars=config_vars,
         )
     if options.run:
         logger.info("Running DAO AI system with current configuration...")
@@ -1580,6 +1736,7 @@ def handle_bundle_command(options: Namespace) -> None:
             cloud=cloud,
             dry_run=dry_run,
             deployment_target=deployment_target,
+            config_vars=config_vars,
         )
     if options.destroy:
         logger.info("Destroying DAO AI system with current configuration...")
@@ -1591,6 +1748,7 @@ def handle_bundle_command(options: Namespace) -> None:
             cloud=cloud,
             dry_run=dry_run,
             deployment_target=deployment_target,
+            config_vars=config_vars,
         )
     if not any([options.deploy, options.run, options.destroy]):
         logger.warning("No action specified. Use --deploy, --run or --destroy flags.")
@@ -1606,7 +1764,13 @@ def handle_generate_bundle_command(options: Namespace) -> None:
 
     _apply_profile_context(profile)
 
-    config: AppConfig = AppConfig.from_file(config_path, initialize=False)
+    try:
+        config: AppConfig = AppConfig.from_file(
+            config_path, params=_parse_var_args(options.var), initialize=False
+        )
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
     if config.app is None:
         logger.error("Config must have an 'app' section to generate a bundle")
         sys.exit(1)
@@ -1617,6 +1781,83 @@ def handle_generate_bundle_command(options: Namespace) -> None:
     from dao_ai.apps.bundle import write_bundle
 
     write_bundle(config, Path(output_dir), force=force, development=development)
+
+
+def handle_vars_command(options: Namespace) -> None:
+    """Handle ``dao-ai vars list`` -- inspect declared parameters in a config.
+
+    Reads only the top-level ``parameters:`` block so this works even when
+    other sections of the YAML are incomplete or fail downstream validation.
+    """
+    import yaml
+
+    from dao_ai.config_vars import ParameterDeclarationModel
+
+    cli_vars: dict[str, str] = _parse_var_args(options.var)
+
+    try:
+        raw_dict: dict[str, Any] = (
+            yaml.safe_load(Path(options.config).read_text()) or {}
+        )
+    except FileNotFoundError:
+        logger.error(f"Configuration file not found: {options.config}")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        logger.error(f"Failed to parse YAML in {options.config}: {e}")
+        sys.exit(1)
+
+    decl_block: dict[str, Any] = raw_dict.get("parameters", {}) or {}
+    try:
+        declarations: dict[str, ParameterDeclarationModel] = {
+            name: ParameterDeclarationModel(**(spec or {}))
+            for name, spec in decl_block.items()
+        }
+    except Exception as e:
+        logger.error(f"Invalid 'parameters:' declaration in {options.config}: {e}")
+        sys.exit(1)
+
+    if options.action == "list":
+        resolved = resolve_parameters(declarations, cli_vars=cli_vars)
+
+        if not resolved:
+            print(
+                f"\nNo parameters declared in {options.config}.\n"
+                "Add a top-level 'parameters:' block to declare ${param.NAME} inputs.\n"
+            )
+            sys.exit(0)
+
+        name_w = max(len("NAME"), max(len(p.name) for p in resolved))
+        default_w = max(len("DEFAULT"), max(len(p.default or "-") for p in resolved))
+        value_w = max(
+            len("RESOLVED"),
+            max(len(p.value if p.value is not None else "-") for p in resolved),
+        )
+        source_w = max(len("SOURCE"), max(len(p.source) for p in resolved))
+
+        header = (
+            f"{'NAME':<{name_w}}  "
+            f"{'REQUIRED':<8}  "
+            f"{'DEFAULT':<{default_w}}  "
+            f"{'RESOLVED':<{value_w}}  "
+            f"{'SOURCE':<{source_w}}  "
+            f"DESCRIPTION"
+        )
+        print()
+        print(header)
+        print("-" * len(header))
+        for p in resolved:
+            print(
+                f"{p.name:<{name_w}}  "
+                f"{('yes' if p.required else 'no'):<8}  "
+                f"{(p.default or '-'):<{default_w}}  "
+                f"{(p.value if p.value is not None else '-'):<{value_w}}  "
+                f"{p.source:<{source_w}}  "
+                f"{p.description or ''}"
+            )
+        print()
+
+        missing = [p.name for p in resolved if p.source == "MISSING"]
+        sys.exit(1 if missing else 0)
 
 
 def main() -> None:
@@ -1631,8 +1872,8 @@ def main() -> None:
             handle_validate_command(options)
         case "graph":
             handle_graph_command(options)
-        case "bundle":
-            handle_bundle_command(options)
+        case "pipeline":
+            handle_pipeline_command(options)
         case "generate-bundle":
             handle_generate_bundle_command(options)
         case "deploy":
@@ -1643,6 +1884,8 @@ def main() -> None:
             handle_chat_command(options)
         case "list-mcp-tools":
             handle_list_mcp_tools_command(options)
+        case "vars":
+            handle_vars_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")
             sys.exit(1)

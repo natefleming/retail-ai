@@ -65,10 +65,10 @@ Yes! Use different configuration files for each environment:
 
 ```bash
 # Development
-dao-ai bundle --deploy -c config/dev.yaml --profile dev
+dao-ai pipeline --deploy -c config/dev.yaml --profile dev
 
 # Production
-dao-ai bundle --deploy -c config/prod.yaml --profile prod
+dao-ai pipeline --deploy -c config/prod.yaml --profile prod
 ```
 
 ### How do I manage secrets?
@@ -97,7 +97,7 @@ variables:
 Simply redeploy with the updated configuration:
 
 ```bash
-dao-ai bundle --deploy --run -c config/my_config.yaml
+dao-ai pipeline --deploy --run -c config/my_config.yaml
 ```
 
 This will update the existing deployment.
@@ -128,6 +128,45 @@ Latency depends on your configuration:
 3. **Implement result deduplication** to avoid redundant processing
 4. **Set TTLs appropriately** to balance freshness vs. cache hits
 5. **Monitor usage** with MLflow tracking
+
+## Configuration Questions
+
+### What is the difference between `parameters:` and `variables:`?
+
+`parameters:` are inputs to the YAML resolved at **load time** by `AppConfig.from_file`. `variables:` are typed value sources (`env:`, `scope:/secret:`, composites) resolved at **runtime** inside the deployed app.
+
+Rule of thumb:
+
+- Should the value travel with the bundle (catalog name, schema, app name)? Use `parameters:`.
+- Should the value be read from the deployed environment or Databricks Secrets each time the agent runs (credentials, hostnames)? Use `variables:`.
+
+See [Parameters vs Variables](configuration-reference.md#parameters-vs-variables---the-lifecycle-distinction) for the full comparison table.
+
+### What happens if I use `${var.NAME}` without declaring it?
+
+If your YAML has a `parameters:` block, any `${var.NAME}` reference not declared in that block raises a `ConfigVariableError` listing all undeclared names. This is intentional typo protection - a misspelled `${var.catlaog}` fails loudly at load time instead of silently resolving to nothing.
+
+If your YAML has no `parameters:` block at all, the undeclared-name check is skipped and the reference falls through to the inline `:-default` or the "missing required" error.
+
+### Can I use a parameter to choose which secret to load?
+
+Yes - this is the recommended **bridge pattern**. `${var.NAME}` references are text-substituted before the YAML is parsed, so they work inside any string field, including fields belonging to typed `variables:` entries:
+
+```yaml
+parameters:
+  scope:
+    default: my_scope
+
+variables:
+  api_key: &api_key
+    options:
+      - scope: ${var.scope}
+        secret: api_key
+```
+
+This lets the same config target different secret scopes per environment. See [Bridge Pattern](configuration-reference.md#bridge-pattern-parameters-feeding-variables) for a full worked example.
+
+---
 
 ## Troubleshooting
 

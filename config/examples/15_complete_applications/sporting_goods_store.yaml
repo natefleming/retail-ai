@@ -178,7 +178,7 @@ resources:
       on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
-  # DATABASES (Lakebase) - temporarily disabled due to workspace quota
+  # DATABASES (Lakebase)
   # ---------------------------------------------------------------------------
   databases:
     retail_database: &retail_database
@@ -772,7 +772,7 @@ prompts:
     auto_register: true
 
 # =============================================================================
-# MEMORY (Lakebase) - temporarily disabled due to workspace quota
+# MEMORY (Lakebase)
 # =============================================================================
 memory: &memory
   checkpointer:
@@ -954,7 +954,7 @@ app:
     business: rcg
     streaming: true
     use_case: merchandiser_360
-
+  enable_chat_proxy: true
 
   permissions:
     - principals: [users]

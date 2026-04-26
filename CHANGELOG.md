@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **CLI: renamed `dao-ai bundle` to `dao-ai pipeline`** to disambiguate from the underlying Databricks Asset Bundle (DAB) feature it wraps. The old verb is no longer recognized — running `dao-ai bundle` now exits with `argparse: invalid choice: 'bundle'`. Help, examples, and documentation have been updated accordingly. The separate `dao-ai generate-bundle` subcommand keeps its name since it generates a literal Databricks Asset Bundle artifact.
+
 ### Added
 - **MCP Tool Filtering**: Control which tools are loaded from MCP servers
   - `include_tools`: Optional allowlist with glob pattern support (e.g., `["query_*", "list_*"]`)

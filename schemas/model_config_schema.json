@@ -1164,7 +1164,7 @@
     },
     "DatabaseModel": {
       "additionalProperties": false,
-      "description": "Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Autoscaling Lakebase: Provide `project` (and optionally `branch`)\n- Provisioned Lakebase: Provide `instance_name`\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nNote: `project` and `instance_name` are mutually exclusive.\nFor Lakebase connections, `name` defaults to `project` or `instance_name`.\nFor PostgreSQL connections, `name` is required.\n\nExample Autoscaling Lakebase (minimal):\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project  # name defaults to project\n```\n\nExample Autoscaling Lakebase with branch and Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project\n    branch: main                  # optional, auto-resolved if omitted\n    client_id:\n      env: SERVICE_PRINCIPAL_CLIENT_ID\n    client_secret:\n      scope: my-scope\n      secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Provisioned Lakebase:\n```yaml\ndatabases:\n  my_lakebase:\n    instance_name: my-lakebase-instance\n```\n\nExample Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
+      "description": "Configuration for database connections supporting Databricks Lakebase (autoscaling) and standard PostgreSQL.\n\nAuthentication is inherited from IsDatabricksResource. Additionally supports:\n- user/password: For user-based database authentication\n\nConnection Types (determined by fields provided):\n- Lakebase (autoscaling): Provide `project` (and optionally `branch`).\n  ``instance_name`` is accepted as a deprecated alias for ``project``.\n- Standard PostgreSQL: Provide `host` (authentication required via user/password)\n\nFor Lakebase connections, `name` defaults to `project`.\nFor PostgreSQL connections, `name` is required.\n\nExample Lakebase (minimal):\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project  # name defaults to project\n```\n\nExample Lakebase with branch and Service Principal:\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project\n    branch: main                  # optional, auto-resolved if omitted\n    client_id:\n      env: SERVICE_PRINCIPAL_CLIENT_ID\n    client_secret:\n      scope: my-scope\n      secret: sp-client-secret\n    workspace_host:\n      env: DATABRICKS_HOST\n```\n\nExample Lakebase with Ambient Authentication:\n```yaml\ndatabases:\n  my_lakebase:\n    project: my-lakebase-project\n    on_behalf_of_user: true\n```\n\nExample Standard PostgreSQL:\n```yaml\ndatabases:\n  my_postgres:\n    name: my-database\n    host: my-postgres-host.example.com\n    port: 5432\n    database: my_db\n    user: my_user\n    password:\n      env: PGPASSWORD\n```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1337,7 +1337,7 @@
             }
           ],
           "default": null,
-          "description": "Logical database name. For Lakebase, defaults to project or instance_name.",
+          "description": "Logical database name. For Lakebase, defaults to project.",
           "title": "Name"
         },
         "project": {
@@ -1350,21 +1350,8 @@
             }
           ],
           "default": null,
-          "description": "Autoscaling Lakebase project name. Mutually exclusive with instance_name.",
+          "description": "Lakebase autoscaling project name.",
           "title": "Project"
-        },
-        "instance_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Provisioned Lakebase instance name. Mutually exclusive with project.",
-          "title": "Instance Name"
         },
         "description": {
           "anyOf": [
@@ -1410,7 +1397,7 @@
             }
           ],
           "default": null,
-          "description": "PostgreSQL host address. For Lakebase, auto-fetched from the instance API.",
+          "description": "PostgreSQL host address. Not needed for Lakebase.",
           "title": "Host"
         },
         "database": {
@@ -1517,7 +1504,7 @@
             }
           ],
           "default": null,
-          "description": "Pool-level timeout in seconds (how long to wait for a free connection). Defaults to 120 for autoscaling Lakebase (to allow endpoint wake-up) and 30 for other database types.",
+          "description": "Pool-level timeout in seconds (how long to wait for a free connection). Defaults to 120 for Lakebase (to allow endpoint wake-up) and 30 for other database types.",
           "title": "Timeout Seconds"
         },
         "connect_timeout": {
@@ -1530,7 +1517,7 @@
             }
           ],
           "default": null,
-          "description": "TCP-level connection timeout in seconds passed to libpq via psycopg. Limits how long a new connection attempt waits for the database to respond. Defaults to 30 for autoscaling Lakebase (suspended endpoints need wake-up time) and 10 for other database types.",
+          "description": "TCP-level connection timeout in seconds passed to libpq via psycopg. Limits how long a new connection attempt waits for the database to respond. Defaults to 30 for Lakebase (suspended endpoints need wake-up time) and 10 for other database types.",
           "title": "Connect Timeout"
         },
         "branch": {
@@ -1543,7 +1530,7 @@
             }
           ],
           "default": null,
-          "description": "Autoscaling Lakebase branch name. If omitted, the default branch is auto-resolved.",
+          "description": "Lakebase branch name. If omitted, the default branch is auto-resolved.",
           "title": "Branch"
         },
         "autoscaling_min_cu": {
@@ -1582,38 +1569,8 @@
             }
           ],
           "default": 600,
-          "description": "Seconds of inactivity before the autoscaling Lakebase endpoint suspends. Valid range is 60-604800 (1 min to 1 week). Set to 0 or negative to disable suspension (always on).",
+          "description": "Seconds of inactivity before the Lakebase endpoint suspends. Valid range is 60-604800 (1 min to 1 week). Set to 0 or negative to disable suspension (always on).",
           "title": "Suspend Timeout Seconds"
-        },
-        "capacity": {
-          "anyOf": [
-            {
-              "enum": [
-                "CU_1",
-                "CU_2"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "CU_2",
-          "description": "Lakebase compute capacity tier (CU_1 or CU_2).",
-          "title": "Capacity"
-        },
-        "node_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Number of Lakebase compute nodes for horizontal scaling.",
-          "title": "Node Count"
         },
         "user": {
           "anyOf": [
@@ -4531,6 +4488,40 @@
       "title": "OrchestrationModel",
       "type": "object"
     },
+    "ParameterDeclarationModel": {
+      "additionalProperties": false,
+      "description": "Declared input parameter for a DAO AI config file.\n\nDeclared in the top-level ``parameters:`` block and referenced inline\nwith ``${param.NAME}`` or its alias ``${var.NAME}``. See\n:mod:`dao_ai.config_vars` for resolution rules.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable description of what this parameter controls.",
+          "title": "Description"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default value if not provided at load time. Omit to make required.",
+          "title": "Default"
+        }
+      },
+      "title": "ParameterDeclarationModel",
+      "type": "object"
+    },
     "PermissionModel": {
       "additionalProperties": false,
       "description": "A grant of Unity Catalog privileges to one or more principals.",
@@ -6801,6 +6792,14 @@
       "default": null,
       "description": "Configuration schema version for forward compatibility.",
       "title": "Version"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ParameterDeclarationModel"
+      },
+      "description": "Declared input parameters for load-time substitution. Reference with ${param.NAME} or ${var.NAME} (interchangeable aliases) anywhere in any string value. Resolved by AppConfig.from_file from CLI --var, process env, declared default, or inline ${var.NAME:-fallback} - in that order.",
+      "title": "Parameters",
+      "type": "object"
     },
     "variables": {
       "additionalProperties": {
