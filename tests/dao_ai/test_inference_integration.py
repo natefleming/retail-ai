@@ -380,10 +380,17 @@ def test_inference_with_postgres_memory(app_config_postgres: AppConfig) -> None:
         pytest.skip(f"PostgreSQL memory test skipped due to error: {e}")
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 @pytest.mark.skipif(not has_databricks_env(), reason="Databricks env vars not set")
 def test_config_has_required_components_for_inference() -> None:
-    """Unit test to verify config has required components for inference without actual inference."""
+    """Integration test verifying config has required components for inference.
+
+    Marked ``integration`` (not ``unit``) because ``as_responses_agent()``
+    eagerly instantiates a Databricks ``WorkspaceClient``, fetches secrets
+    from the configured scope, and opens a Postgres connection pool against
+    the Lakebase instance declared in the YAML — none of which are
+    appropriate for the unit-test tier.
+    """
     config_path = (
         Path(__file__).parents[2]
         / "config"

@@ -1,6 +1,5 @@
 import base64
 import time
-import uuid
 from pathlib import Path
 from typing import Any, Callable, Final, Sequence
 
@@ -27,7 +26,6 @@ from databricks.sdk.service.catalog import (
     VolumeInfo,
     VolumeType,
 )
-from databricks.sdk.service.database import DatabaseCredential
 from databricks.sdk.service.iam import User
 from databricks.sdk.service.serving import EndpointStateConfigUpdate
 from databricks.sdk.service.workspace import GetSecretResponse, ImportFormat
@@ -1069,16 +1067,29 @@ class DatabricksProvider(ServiceProvider):
                 "dao_ai.yaml exists in the app source directory."
             )
 
-        # Determine install command based on dev vs published mode
+        # Determine install command based on dev vs published mode.
+        # Respect config.app.enable_chat_proxy (default True) so the deployed
+        # app spawns the chat UI alongside the agent backend, matching the
+        # behavior of `dao-ai generate-bundle`.
+        enable_chat_proxy: bool = (
+            config.app.enable_chat_proxy
+            if config.app and config.app.enable_chat_proxy is not None
+            else True
+        )
+        entrypoint_module: str = (
+            "dao_ai.apps.start_app" if enable_chat_proxy else "dao_ai.apps.server"
+        )
         if is_published():
             app_command = [
                 "/bin/bash",
                 "-c",
-                "uv pip install dao-ai && python -m dao_ai.apps.server",
+                f"uv pip install dao-ai && python -m {entrypoint_module}",
             ]
             logger.info(
                 "dao-ai source for app: PyPI package",
                 version=dao_ai_version(),
+                entrypoint=entrypoint_module,
+                chat_proxy=enable_chat_proxy,
             )
         else:
             dev_wheel: Path | None = find_dev_wheel()
@@ -1159,8 +1170,14 @@ class DatabricksProvider(ServiceProvider):
             logger.info(
                 "dao-ai source for app: dev wheel (uv)",
                 wheel=wheel_path.name,
+                entrypoint=entrypoint_module,
+                chat_proxy=enable_chat_proxy,
             )
-            app_command = ["python", "-m", "dao_ai.apps.server"]
+            app_command = ["python", "-m", entrypoint_module]
+
+        # The chat UI (e2e-chatbot-app-next) is cloned and built at runtime
+        # by start_app.py, matching the official Databricks agent template
+        # pattern.  No pre-build or archive upload is needed here.
 
         # Generate and upload app.yaml with dynamically discovered resources
         from dao_ai.apps.resources import generate_app_yaml
@@ -1309,14 +1326,24 @@ class DatabricksProvider(ServiceProvider):
                 app = self.w.apps.get(name=app_name)
                 logger.info("App resources and scopes updated", app_name=app_name)
 
-        # Deploy requires app compute in RUNNING state (API error otherwise).
+        # Deploy requires the app's compute to be active. The Apps API rejects
+        # `start` when compute is already ACTIVE, so only call start when
+        # compute is actually stopped — otherwise let the subsequent deploy
+        # recover any unhealthy app process.
         fresh_app: App = self.w.apps.get(name=app_name)
         app_status = fresh_app.app_status
-        if app_status is None or app_status.state != ApplicationState.RUNNING:
+        compute_status = fresh_app.compute_status
+        compute_state = (
+            compute_status.state.value
+            if compute_status is not None and compute_status.state is not None
+            else None
+        )
+        if compute_state in (None, "STOPPED"):
             logger.info(
-                "Databricks App not in RUNNING state; starting before deploy",
+                "Databricks App compute not active; starting before deploy",
                 app_name=app_name,
-                state=(
+                compute_state=compute_state,
+                app_state=(
                     app_status.state.value
                     if app_status is not None and app_status.state is not None
                     else None
@@ -1324,6 +1351,17 @@ class DatabricksProvider(ServiceProvider):
             )
             self.w.apps.start_and_wait(name=app_name)
             fresh_app = self.w.apps.get(name=app_name)
+        elif app_status is None or app_status.state != ApplicationState.RUNNING:
+            logger.info(
+                "Databricks App compute active but app not RUNNING; deploy will redeploy",
+                app_name=app_name,
+                compute_state=compute_state,
+                app_state=(
+                    app_status.state.value
+                    if app_status is not None and app_status.state is not None
+                    else None
+                ),
+            )
         app = fresh_app
 
         # Deploy the app with source code
@@ -1788,420 +1826,6 @@ class DatabricksProvider(ServiceProvider):
             endpoint_name=found_endpoint_name,
         )
         return found_endpoint_name
-
-    def _wait_for_database_available(
-        self,
-        workspace_client: WorkspaceClient,
-        instance_name: str,
-        max_wait_time: int = 600,
-        wait_interval: int = 10,
-    ) -> None:
-        """
-        Wait for a database instance to become AVAILABLE.
-
-        Args:
-            workspace_client: The Databricks workspace client
-            instance_name: Name of the database instance to wait for
-            max_wait_time: Maximum time to wait in seconds (default: 600 = 10 minutes)
-            wait_interval: Time between status checks in seconds (default: 10)
-
-        Raises:
-            TimeoutError: If the database doesn't become AVAILABLE within max_wait_time
-            RuntimeError: If the database enters a failed or deleted state
-        """
-        import time
-        from typing import Any
-
-        logger.info(
-            "Waiting for database instance to become AVAILABLE",
-            instance_name=instance_name,
-        )
-        elapsed: int = 0
-
-        while elapsed < max_wait_time:
-            try:
-                current_instance: Any = workspace_client.database.get_database_instance(
-                    name=instance_name
-                )
-                current_state: str = current_instance.state
-                logger.trace(
-                    "Database instance state checked",
-                    instance_name=instance_name,
-                    state=current_state,
-                )
-
-                if current_state == "AVAILABLE":
-                    logger.success(
-                        "Database instance is now AVAILABLE",
-                        instance_name=instance_name,
-                    )
-                    return
-                elif current_state in ["STARTING", "UPDATING", "PROVISIONING"]:
-                    logger.trace(
-                        "Database instance not ready, waiting",
-                        instance_name=instance_name,
-                        state=current_state,
-                        wait_seconds=wait_interval,
-                    )
-                    time.sleep(wait_interval)
-                    elapsed += wait_interval
-                elif current_state in ["STOPPED", "DELETING", "FAILED"]:
-                    raise RuntimeError(
-                        f"Database instance {instance_name} entered unexpected state: {current_state}"
-                    )
-                else:
-                    logger.warning(
-                        "Unknown database state, continuing to wait",
-                        instance_name=instance_name,
-                        state=current_state,
-                    )
-                    time.sleep(wait_interval)
-                    elapsed += wait_interval
-            except NotFound:
-                raise RuntimeError(
-                    f"Database instance {instance_name} was deleted while waiting for it to become AVAILABLE"
-                )
-
-        raise TimeoutError(
-            f"Timed out waiting for database instance {instance_name} to become AVAILABLE after {max_wait_time} seconds"
-        )
-
-    def create_lakebase(self, database: DatabaseModel) -> None:
-        """
-        Create a Lakebase database instance using the Databricks workspace client.
-
-        This method handles idempotent database creation, gracefully handling cases where:
-        - The database instance already exists
-        - The database is in an intermediate state (STARTING, UPDATING, etc.)
-
-        Args:
-            database: DatabaseModel containing the database configuration
-
-        Returns:
-            None
-
-        Raises:
-            Exception: If an unexpected error occurs during database creation
-        """
-        import time
-        from typing import Any
-
-        workspace_client: WorkspaceClient = database.workspace_client
-
-        try:
-            # First, check if the database instance already exists
-            existing_instance: Any = workspace_client.database.get_database_instance(
-                name=database.instance_name
-            )
-
-            if existing_instance:
-                logger.debug(
-                    "Database instance already exists",
-                    instance_name=database.instance_name,
-                    state=existing_instance.state,
-                )
-
-                # Check if database is in an intermediate state
-                if existing_instance.state in ["STARTING", "UPDATING"]:
-                    logger.info(
-                        "Database instance in intermediate state, waiting",
-                        instance_name=database.instance_name,
-                        state=existing_instance.state,
-                    )
-
-                    # Wait for database to reach a stable state
-                    max_wait_time: int = 600  # 10 minutes
-                    wait_interval: int = 10  # 10 seconds
-                    elapsed: int = 0
-
-                    while elapsed < max_wait_time:
-                        try:
-                            current_instance: Any = (
-                                workspace_client.database.get_database_instance(
-                                    name=database.instance_name
-                                )
-                            )
-                            current_state: str = current_instance.state
-                            logger.trace(
-                                "Checking database instance state",
-                                instance_name=database.instance_name,
-                                state=current_state,
-                            )
-
-                            if current_state == "AVAILABLE":
-                                logger.success(
-                                    "Database instance is now AVAILABLE",
-                                    instance_name=database.instance_name,
-                                )
-                                break
-                            elif current_state in ["STARTING", "UPDATING"]:
-                                logger.trace(
-                                    "Database instance not ready, waiting",
-                                    instance_name=database.instance_name,
-                                    state=current_state,
-                                    wait_seconds=wait_interval,
-                                )
-                                time.sleep(wait_interval)
-                                elapsed += wait_interval
-                            elif current_state in ["STOPPED", "DELETING"]:
-                                logger.warning(
-                                    "Database instance in unexpected state",
-                                    instance_name=database.instance_name,
-                                    state=current_state,
-                                )
-                                break
-                            else:
-                                logger.warning(
-                                    "Unknown database state, proceeding",
-                                    instance_name=database.instance_name,
-                                    state=current_state,
-                                )
-                                break
-                        except NotFound:
-                            logger.warning(
-                                "Database instance no longer exists, will recreate",
-                                instance_name=database.instance_name,
-                            )
-                            break
-                        except Exception as state_error:
-                            logger.warning(
-                                "Could not check database state, proceeding",
-                                instance_name=database.instance_name,
-                                error=str(state_error),
-                            )
-                            break
-
-                    if elapsed >= max_wait_time:
-                        logger.warning(
-                            "Timed out waiting for database to become AVAILABLE",
-                            instance_name=database.instance_name,
-                            max_wait_seconds=max_wait_time,
-                        )
-
-                elif existing_instance.state == "AVAILABLE":
-                    logger.info(
-                        "Database instance already exists and is AVAILABLE",
-                        instance_name=database.instance_name,
-                    )
-                    return
-                elif existing_instance.state in ["STOPPED", "DELETING"]:
-                    logger.warning(
-                        "Database instance in terminal state",
-                        instance_name=database.instance_name,
-                        state=existing_instance.state,
-                    )
-                    return
-                else:
-                    logger.info(
-                        "Database instance already exists",
-                        instance_name=database.instance_name,
-                        state=existing_instance.state,
-                    )
-                    return
-
-        except NotFound:
-            # Database doesn't exist, proceed with creation
-            logger.info(
-                "Creating new database instance", instance_name=database.instance_name
-            )
-
-            try:
-                # Resolve variable values for database parameters
-                from databricks.sdk.service.database import DatabaseInstance
-
-                capacity: str = database.capacity if database.capacity else "CU_2"
-
-                # Create the database instance object
-                database_instance: DatabaseInstance = DatabaseInstance(
-                    name=database.instance_name,
-                    capacity=capacity,
-                    node_count=database.node_count,
-                )
-
-                # Create the database instance via API
-                workspace_client.database.create_database_instance(
-                    database_instance=database_instance
-                )
-                logger.success(
-                    "Database instance created successfully",
-                    instance_name=database.instance_name,
-                )
-
-                # Wait for the newly created database to become AVAILABLE
-                self._wait_for_database_available(
-                    workspace_client, database.instance_name
-                )
-                return
-
-            except Exception as create_error:
-                error_msg: str = str(create_error)
-
-                # Handle case where database was created by another process concurrently
-                if (
-                    "already exists" in error_msg.lower()
-                    or "not unique" in error_msg.lower()
-                    or "RESOURCE_ALREADY_EXISTS" in error_msg
-                ):
-                    logger.info(
-                        "Database instance was created concurrently",
-                        instance_name=database.instance_name,
-                    )
-                    # Still need to wait for the database to become AVAILABLE
-                    self._wait_for_database_available(
-                        workspace_client, database.instance_name
-                    )
-                    return
-                else:
-                    # Re-raise unexpected errors
-                    logger.error(
-                        "Error creating database instance",
-                        instance_name=database.instance_name,
-                        error=str(create_error),
-                    )
-                    raise
-
-        except Exception as e:
-            # Handle other unexpected errors
-            error_msg: str = str(e)
-
-            # Check if this is actually a "resource already exists" type error
-            if (
-                "already exists" in error_msg.lower()
-                or "RESOURCE_ALREADY_EXISTS" in error_msg
-            ):
-                logger.info(
-                    "Database instance already exists (detected via exception)",
-                    instance_name=database.instance_name,
-                )
-                return
-            else:
-                logger.error(
-                    "Unexpected error while handling database",
-                    instance_name=database.instance_name,
-                    error=str(e),
-                )
-                raise
-
-    def lakebase_password_provider(self, instance_name: str) -> str:
-        """
-        Ask Databricks to mint a fresh DB credential for this instance.
-        """
-        logger.trace(
-            "Generating password for lakebase instance", instance_name=instance_name
-        )
-        w: WorkspaceClient = self.w
-        cred: DatabaseCredential = w.database.generate_database_credential(
-            request_id=str(uuid.uuid4()),
-            instance_names=[instance_name],
-        )
-        return cred.token
-
-    def create_lakebase_instance_role(self, database: DatabaseModel) -> None:
-        """
-        Create a database instance role for a Lakebase instance.
-
-        This method creates a role with DATABRICKS_SUPERUSER membership for the
-        service principal specified in the database configuration.
-
-        Args:
-            database: DatabaseModel containing the database and service principal configuration
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: If client_id is not provided in the database configuration
-            Exception: If an unexpected error occurs during role creation
-        """
-        from databricks.sdk.service.database import (
-            DatabaseInstanceRole,
-            DatabaseInstanceRoleIdentityType,
-            DatabaseInstanceRoleMembershipRole,
-        )
-
-        from dao_ai.config import value_of
-
-        # Validate that client_id is provided
-        if not database.client_id:
-            logger.warning(
-                "client_id required to create instance role",
-                instance_name=database.instance_name,
-            )
-            return
-
-        # Resolve the client_id value
-        client_id: str = value_of(database.client_id)
-        role_name: str = client_id
-        instance_name: str = database.instance_name
-
-        logger.debug(
-            "Creating instance role",
-            role_name=role_name,
-            instance_name=instance_name,
-            principal=client_id,
-        )
-
-        try:
-            # Check if role already exists
-            try:
-                _ = self.w.database.get_database_instance_role(
-                    instance_name=instance_name,
-                    name=role_name,
-                )
-                logger.info(
-                    "Instance role already exists",
-                    role_name=role_name,
-                    instance_name=instance_name,
-                )
-                return
-            except NotFound:
-                # Role doesn't exist, proceed with creation
-                logger.debug(
-                    "Instance role not found, creating new role", role_name=role_name
-                )
-
-            # Create the database instance role
-            role: DatabaseInstanceRole = DatabaseInstanceRole(
-                name=role_name,
-                identity_type=DatabaseInstanceRoleIdentityType.SERVICE_PRINCIPAL,
-                membership_role=DatabaseInstanceRoleMembershipRole.DATABRICKS_SUPERUSER,
-            )
-
-            # Create the role using the API
-            self.w.database.create_database_instance_role(
-                instance_name=instance_name,
-                database_instance_role=role,
-            )
-
-            logger.success(
-                "Instance role created successfully",
-                role_name=role_name,
-                instance_name=instance_name,
-            )
-
-        except Exception as e:
-            error_msg: str = str(e)
-
-            # Handle case where role was created concurrently
-            if (
-                "already exists" in error_msg.lower()
-                or "RESOURCE_ALREADY_EXISTS" in error_msg
-            ):
-                logger.info(
-                    "Instance role was created concurrently",
-                    role_name=role_name,
-                    instance_name=instance_name,
-                )
-                return
-
-            # Re-raise unexpected errors
-            logger.error(
-                "Error creating instance role",
-                role_name=role_name,
-                instance_name=instance_name,
-                error=str(e),
-            )
-            raise
 
     def create_lakebase_autoscaling(self, database: DatabaseModel) -> None:
         """

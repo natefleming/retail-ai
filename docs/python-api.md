@@ -7,6 +7,85 @@ from dao_ai.config import AppConfig
 
 # Load configuration from YAML file
 config = AppConfig.from_file("config/my_config.yaml")
+
+# Load with parameter overrides for ${var.NAME} / ${param.NAME} substitution
+config = AppConfig.from_file(
+    "config/my_config.yaml",
+    params={"catalog": "my_catalog", "schema": "my_schema"},
+)
+```
+
+## Parameter Substitution (Python API)
+
+DAO AI configs can declare a `parameters:` block and reference values
+inline with `${var.NAME}` or `${param.NAME}`. Substitution happens at
+load time, before `ModelConfig` parses the YAML.
+
+Full reference (YAML syntax, precedence rules, error handling, bridge
+pattern, YAML quoting caveat): see
+[Parameters (Load-Time Substitution)](configuration-reference.md#parameters-load-time-substitution)
+in the Configuration Reference.
+
+### Passing overrides from Python
+
+```python
+from dao_ai.config import AppConfig
+
+config = AppConfig.from_file(
+    "dao_ai.yaml",
+    params={"catalog": "nfleming", "module_id": "09"},
+)
+```
+
+The `params` argument is keyword-only. Values must be strings; Pydantic
+handles downstream coercion (e.g. `"4096"` to `int` for `max_tokens`).
+
+### Inspecting what was substituted
+
+```python
+config.source_config_path   # "/path/to/dao_ai.yaml"
+config.substitution_vars    # {"catalog": "nfleming", "module_id": "09"}
+config.rendered_yaml        # full YAML text with ${var.…} resolved
+```
+
+### Handling errors
+
+```python
+from dao_ai.config import AppConfig
+from dao_ai.config_vars import ConfigVariableError
+
+try:
+    config = AppConfig.from_file("dao_ai.yaml")
+except ConfigVariableError as err:
+    print(f"Cannot load {err.path}")
+    print(f"  missing required: {err.missing_required}")
+    print(f"  undeclared refs:  {err.undeclared}")
+    raise
+```
+
+### From a Databricks notebook with widgets
+
+```python
+dbutils.widgets.text("catalog", "main")
+dbutils.widgets.text("module_id", "09")
+
+config = AppConfig.from_file(
+    "dao_ai.yaml",
+    params={
+        "catalog": dbutils.widgets.get("catalog"),
+        "module_id": dbutils.widgets.get("module_id"),
+    },
+)
+```
+
+### Skip initialization for tests / inspection
+
+```python
+config = AppConfig.from_file(
+    "dao_ai.yaml",
+    params={"catalog": "test"},
+    initialize=False,
+)
 ```
 
 ## Accessing Components
@@ -41,15 +120,42 @@ config.resources.vector_stores["my_store"].create()
 ## Packaging and Deployment
 
 ```python
+from dao_ai.config import AppConfig, DeploymentTarget
+
+config = AppConfig.from_file("config/my_agent.yaml")
+
 # Package the agent as an MLflow model
 config.create_agent(
     additional_pip_reqs=["custom-package==1.0.0"],
     additional_code_paths=["./my_modules"]
 )
 
-# Deploy to Databricks Model Serving
+# Deploy to Databricks Model Serving (default)
 config.deploy_agent()
+
+# Deploy directly to Databricks Apps (no asset bundle needed)
+config.deploy_agent(target=DeploymentTarget.APPS)
+
+# Deploy to both Model Serving and Apps
+config.deploy_agent(target=DeploymentTarget.BOTH)
 ```
+
+### Apps deployment and chat UI
+
+When deploying to Apps with `enable_chat_proxy: true` (the default), the
+deployed app automatically clones and builds the Databricks
+[e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next)
+chat UI at startup.  The Apps runtime has Node.js pre-installed, so no
+additional tools are needed on your development machine.
+
+All three deploy flows converge on the same runtime behavior:
+
+- `config.deploy_agent(target=DeploymentTarget.APPS)` (programmatic)
+- `dao-ai pipeline --deploy --run --deployment-target apps` (CLI, runs a notebook that calls `deploy_agent`)
+- `dao-ai generate-bundle` + `databricks bundle deploy` (standalone bundle)
+
+Set `app.enable_chat_proxy: false` in your config to deploy without the chat
+UI (backend API only).
 
 ## Visualization
 

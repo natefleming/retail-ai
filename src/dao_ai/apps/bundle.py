@@ -35,7 +35,6 @@ _BUNDLE_RESOURCE_CONVERTERS: dict[str, str] = {
     "serving-endpoint": "serving_endpoint",
     "sql-warehouse": "sql_warehouse",
     "genie-space": "genie_space",
-    "database": "database",
     "secret": "secret",
     "app": "app",
     "table": "uc_securable",
@@ -49,10 +48,6 @@ _DEDUP_KEY_EXTRACTORS: dict[str, Any] = {
     "serving_endpoint": lambda r: r["serving_endpoint"]["name"],
     "sql_warehouse": lambda r: r["sql_warehouse"]["id"],
     "genie_space": lambda r: r["genie_space"]["space_id"],
-    "database": lambda r: (
-        r["database"]["instance_name"],
-        r["database"]["database_name"],
-    ),
     "secret": lambda r: (r["secret"]["scope"], r["secret"]["key"]),
     "app": lambda r: r["app"]["name"],
     "uc_securable": lambda r: r["uc_securable"]["securable_full_name"],
@@ -165,14 +160,6 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
         result["genie_space"] = {
             "name": resource.get("name", ""),
             "space_id": resource["genie_space_id"],
-            "permission": permission,
-        }
-    elif resource_type == "database":
-        result["database"] = {
-            "instance_name": resource["database_instance_name"],
-            "database_name": resource.get(
-                "database_name", resource["database_instance_name"]
-            ),
             "permission": permission,
         }
     elif resource_type == "secret":
@@ -315,13 +302,9 @@ def generate_databricks_yaml(
     ]
 
     if enable_chat_proxy:
-        env_vars.extend(
-            [
-                {"name": "API_PROXY", "value": "http://localhost:8000/invocations"},
-                {"name": "CHAT_APP_PORT", "value": "3000"},
-                {"name": "CHAT_PROXY_TIMEOUT_SECONDS", "value": "300"},
-            ]
-        )
+        from dao_ai.apps.chat_ui import chat_ui_env_vars
+
+        env_vars.extend(chat_ui_env_vars())
 
     config_env_vars = _extract_env_vars_from_config(config)
     config_env_vars = [
@@ -392,10 +375,14 @@ def generate_databricks_yaml(
         },
     }
 
-    # Only include artifacts for non-dev bundles. In dev mode the pre-built
-    # dao-ai wheel lives in dist/ and must be uploaded as a regular source
-    # file, not intercepted by the artifact system.
-    if not development:
+    if development:
+        # In dev mode the pre-built wheel lives in dist/ and must be
+        # uploaded as a regular source file. The bundle CLI excludes
+        # .whl files by default, so we add an explicit sync include.
+        bundle["sync"] = {
+            "include": ["dist/*.whl"],
+        }
+    else:
         bundle["artifacts"] = {
             "default": {
                 "type": "whl",
@@ -448,6 +435,10 @@ def write_bundle(
     source_config: str | None = getattr(config, "_source_config_path", None)
     config_filename: str = Path(source_config).name if source_config else "dao_ai.yaml"
 
+    # The chat UI (e2e-chatbot-app-next) is cloned and built at runtime
+    # by start_app.py on the Apps container, matching the official
+    # Databricks agent template pattern.  No pre-build needed here.
+
     _track(
         output_dir / "databricks.yaml",
         generate_databricks_yaml(
@@ -463,8 +454,21 @@ def write_bundle(
             )
             skipped.append(config_filename)
         else:
-            shutil.copy2(source_config, dest)
-            logger.info(f"Copied config as {config_filename}")
+            # Prefer the rendered YAML (with ${param.NAME} already substituted
+            # and the parameters: declaration block stripped) so the deployed
+            # app does not need the original CLI --var arguments. Fall back to
+            # a plain copy if the config wasn't loaded via from_file.
+            rendered: str | None = getattr(config, "_rendered_yaml", None)
+            if rendered is not None:
+                rendered_dict: dict[str, Any] = yaml.safe_load(rendered) or {}
+                rendered_dict.pop("parameters", None)
+                dest.write_text(yaml.safe_dump(rendered_dict, sort_keys=False))
+                logger.info(
+                    f"Wrote rendered config as {config_filename} (parameters baked in)"
+                )
+            else:
+                shutil.copy2(source_config, dest)
+                logger.info(f"Copied config as {config_filename}")
             written.append(config_filename)
     else:
         logger.warning("No source config path found -- skipping config copy")

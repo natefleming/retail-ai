@@ -5,8 +5,12 @@ Clones the Databricks e2e-chatbot-app-next template (if not present), builds it,
 and starts both the frontend (port 3000) and backend (port 8000) concurrently.
 The MLflow AgentServer's enable_chat_proxy proxies UI requests to the frontend.
 
-When enable_chat_proxy is False in the dao-ai config, skips the frontend entirely
-and only starts the backend agent server.
+This follows the same pattern as the official Databricks agent templates:
+the Apps runtime has Node.js + npm + git pre-installed, so clone + build
+happens at runtime on first boot and is cached for subsequent restarts.
+
+When enable_chat_proxy is False in the dao-ai config, skips the frontend
+entirely and only starts the backend agent server.
 
 Usage:
     python -m dao_ai.apps.start_app
@@ -27,16 +31,18 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from dao_ai.apps.chat_ui import (
+    CHAT_APP_DIR,
+    ChatUIBuildError,
+    ensure_chat_ui_built,
+)
+
 BACKEND_READY_PATTERNS = [
     r"Uvicorn running on",
     r"Application startup complete",
     r"Started server process",
 ]
 FRONTEND_READY_PATTERNS = [r"Server is running on http://localhost"]
-
-CHAT_APP_DIR = "e2e-chatbot-app-next"
-REPO_URL_HTTPS = "https://github.com/databricks/app-templates.git"
-REPO_URL_SSH = "git@github.com:databricks/app-templates.git"
 
 
 def _check_port_available(port: int) -> bool:
@@ -140,44 +146,21 @@ class ProcessManager:
             print(f"Error monitoring {name}: {e}")
             self.failed.set()
 
-    def clone_frontend_if_needed(self) -> bool:
-        if Path(CHAT_APP_DIR).exists():
+    def _prepare_frontend(self) -> bool:
+        """Clone and build the chat UI if needed. Returns True if available."""
+        frontend_dir = Path(CHAT_APP_DIR)
+
+        if frontend_dir.exists():
             return True
 
-        print(f"Cloning {CHAT_APP_DIR}...")
-        for url in [REPO_URL_HTTPS, REPO_URL_SSH]:
-            try:
-                subprocess.run(
-                    [
-                        "git",
-                        "clone",
-                        "--filter=blob:none",
-                        "--sparse",
-                        url,
-                        "temp-app-templates",
-                    ],
-                    check=True,
-                    capture_output=True,
-                )
-                break
-            except subprocess.CalledProcessError:
-                continue
-        else:
-            print("ERROR: Failed to clone app-templates repository.")
-            print(
-                "Manually download from: "
-                "https://download-directory.github.io/?url="
-                "https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next"
-            )
+        try:
+            print("Chat UI not found. Cloning and building...")
+            ensure_chat_ui_built(Path.cwd())
+        except ChatUIBuildError as e:
+            print(f"WARNING: Could not build chat UI: {e}")
+            print("Continuing with backend only.")
             return False
 
-        subprocess.run(
-            ["git", "sparse-checkout", "set", CHAT_APP_DIR],
-            cwd="temp-app-templates",
-            check=True,
-        )
-        Path(f"temp-app-templates/{CHAT_APP_DIR}").rename(CHAT_APP_DIR)
-        shutil.rmtree("temp-app-templates", ignore_errors=True)
         return True
 
     def start_process(
@@ -240,10 +223,7 @@ class ProcessManager:
             self.check_ports()
 
         if not self.no_ui:
-            if not self.clone_frontend_if_needed():
-                print(
-                    "WARNING: Failed to clone frontend. Continuing with backend only."
-                )
+            if not self._prepare_frontend():
                 self.no_ui = True
             else:
                 os.environ["API_PROXY"] = f"http://localhost:{self.port}/invocations"
