@@ -14,12 +14,15 @@ from typing import (
     ClassVar,
     Iterator,
     Literal,
+    Mapping,
     Optional,
     Self,
     Sequence,
     TypeAlias,
     Union,
 )
+
+import yaml
 
 if TYPE_CHECKING:
     from dao_ai.genie.cache.context_aware.optimization import (
@@ -67,7 +70,6 @@ from mlflow.models.resources import (
     DatabricksApp,
     DatabricksFunction,
     DatabricksGenieSpace,
-    DatabricksLakebase,
     DatabricksResource,
     DatabricksServingEndpoint,
     DatabricksSQLWarehouse,
@@ -89,6 +91,10 @@ from pydantic import (
     model_validator,
 )
 
+from dao_ai.config_vars import (
+    ParameterDeclarationModel,
+    substitute_params,
+)
 from dao_ai.utils import normalize_name
 
 
@@ -1716,28 +1722,27 @@ class ConnectionModel(IsDatabricksResource, HasFullName):
 
 class DatabaseModel(IsDatabricksResource):
     """
-    Configuration for database connections supporting both Databricks Lakebase and standard PostgreSQL.
+    Configuration for database connections supporting Databricks Lakebase (autoscaling) and standard PostgreSQL.
 
     Authentication is inherited from IsDatabricksResource. Additionally supports:
     - user/password: For user-based database authentication
 
     Connection Types (determined by fields provided):
-    - Autoscaling Lakebase: Provide `project` (and optionally `branch`)
-    - Provisioned Lakebase: Provide `instance_name`
+    - Lakebase (autoscaling): Provide `project` (and optionally `branch`).
+      ``instance_name`` is accepted as a deprecated alias for ``project``.
     - Standard PostgreSQL: Provide `host` (authentication required via user/password)
 
-    Note: `project` and `instance_name` are mutually exclusive.
-    For Lakebase connections, `name` defaults to `project` or `instance_name`.
+    For Lakebase connections, `name` defaults to `project`.
     For PostgreSQL connections, `name` is required.
 
-    Example Autoscaling Lakebase (minimal):
+    Example Lakebase (minimal):
     ```yaml
     databases:
       my_lakebase:
         project: my-lakebase-project  # name defaults to project
     ```
 
-    Example Autoscaling Lakebase with branch and Service Principal:
+    Example Lakebase with branch and Service Principal:
     ```yaml
     databases:
       my_lakebase:
@@ -1750,13 +1755,6 @@ class DatabaseModel(IsDatabricksResource):
           secret: sp-client-secret
         workspace_host:
           env: DATABRICKS_HOST
-    ```
-
-    Example Provisioned Lakebase:
-    ```yaml
-    databases:
-      my_lakebase:
-        instance_name: my-lakebase-instance
     ```
 
     Example Lakebase with Ambient Authentication:
@@ -1784,15 +1782,11 @@ class DatabaseModel(IsDatabricksResource):
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: Optional[str] = Field(
         default=None,
-        description="Logical database name. For Lakebase, defaults to project or instance_name.",
+        description="Logical database name. For Lakebase, defaults to project.",
     )
     project: Optional[str] = Field(
         default=None,
-        description="Autoscaling Lakebase project name. Mutually exclusive with instance_name.",
-    )
-    instance_name: Optional[str] = Field(
-        default=None,
-        description="Provisioned Lakebase instance name. Mutually exclusive with project.",
+        description="Lakebase autoscaling project name.",
     )
     description: Optional[str] = Field(
         default=None,
@@ -1800,7 +1794,7 @@ class DatabaseModel(IsDatabricksResource):
     )
     host: Optional[AnyVariable] = Field(
         default=None,
-        description="PostgreSQL host address. For Lakebase, auto-fetched from the instance API.",
+        description="PostgreSQL host address. Not needed for Lakebase.",
     )
     database: Optional[AnyVariable] = Field(
         default="databricks_postgres",
@@ -1822,7 +1816,7 @@ class DatabaseModel(IsDatabricksResource):
         default=None,
         description=(
             "Pool-level timeout in seconds (how long to wait for a free connection). "
-            "Defaults to 120 for autoscaling Lakebase (to allow endpoint wake-up) "
+            "Defaults to 120 for Lakebase (to allow endpoint wake-up) "
             "and 30 for other database types."
         ),
     )
@@ -1831,14 +1825,14 @@ class DatabaseModel(IsDatabricksResource):
         description=(
             "TCP-level connection timeout in seconds passed to libpq via psycopg. "
             "Limits how long a new connection attempt waits for the database to respond. "
-            "Defaults to 30 for autoscaling Lakebase (suspended endpoints need wake-up time) "
+            "Defaults to 30 for Lakebase (suspended endpoints need wake-up time) "
             "and 10 for other database types."
         ),
     )
-    # --- Autoscaling Lakebase fields (only valid with project) ---
+    # --- Lakebase fields (only valid with project) ---
     branch: Optional[str] = Field(
         default=None,
-        description="Autoscaling Lakebase branch name. If omitted, the default branch is auto-resolved.",
+        description="Lakebase branch name. If omitted, the default branch is auto-resolved.",
     )
     autoscaling_min_cu: Optional[int] = Field(
         default=2,
@@ -1851,19 +1845,10 @@ class DatabaseModel(IsDatabricksResource):
     suspend_timeout_seconds: Optional[int] = Field(
         default=600,
         description=(
-            "Seconds of inactivity before the autoscaling Lakebase endpoint suspends. "
+            "Seconds of inactivity before the Lakebase endpoint suspends. "
             "Valid range is 60-604800 (1 min to 1 week). "
             "Set to 0 or negative to disable suspension (always on)."
         ),
-    )
-    # --- Provisioned Lakebase fields (only valid with instance_name) ---
-    capacity: Optional[Literal["CU_1", "CU_2"]] = Field(
-        default="CU_2",
-        description="Lakebase compute capacity tier (CU_1 or CU_2).",
-    )
-    node_count: Optional[int] = Field(
-        default=None,
-        description="Number of Lakebase compute nodes for horizontal scaling.",
     )
     # --- Common auth fields ---
     user: Optional[AnyVariable] = Field(
@@ -1875,57 +1860,52 @@ class DatabaseModel(IsDatabricksResource):
         description="Database password. For Lakebase, a token is generated automatically.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_instance_name_to_project(cls, data: Any) -> Any:
+        """Accept ``instance_name`` as a deprecated alias for ``project``."""
+        if isinstance(data, dict) and "instance_name" in data:
+            import warnings
+
+            warnings.warn(
+                "DatabaseModel field 'instance_name' is deprecated. "
+                "Use 'project' instead — Lakebase only supports autoscaling going forward.",
+                DeprecationWarning,
+                stacklevel=4,
+            )
+            if "project" not in data or data["project"] is None:
+                data["project"] = data.pop("instance_name")
+            else:
+                data.pop("instance_name")
+        return data
+
     @property
     def api_scopes(self) -> Sequence[str]:
-        if self.is_lakebase_autoscaling:
+        if self.is_lakebase:
             return ["postgres"]
-        return ["database.database-instances"]
+        return []
 
     @property
     def is_lakebase(self) -> bool:
-        """Returns True if this is a Databricks Lakebase connection (project or instance_name provided)."""
-        return self.project is not None or self.instance_name is not None
-
-    @property
-    def is_lakebase_autoscaling(self) -> bool:
-        """Returns True if this is an autoscaling Lakebase connection."""
+        """Returns True if this is a Databricks Lakebase connection."""
         return self.project is not None
 
     @property
-    def is_lakebase_provisioned(self) -> bool:
-        """Returns True if this is a provisioned Lakebase connection."""
-        return self.instance_name is not None
+    def is_lakebase_autoscaling(self) -> bool:
+        """Alias for ``is_lakebase`` — all Lakebase is autoscaling now."""
+        return self.is_lakebase
 
     def as_resources(self) -> Sequence[DatabricksResource]:
-        if self.is_lakebase_provisioned:
-            return [
-                DatabricksLakebase(
-                    database_instance_name=self.instance_name,
-                    on_behalf_of_user=self.on_behalf_of_user,
-                )
-            ]
-        # Autoscaling Lakebase uses the "postgres" API scope instead of
-        # a DatabricksLakebase resource (which maps to the provisioned
-        # Database Instances API).  Returning an empty list here avoids
-        # the "Database instance … does not exist" error at deploy time.
+        # Autoscaling Lakebase uses the "postgres" API scope and does not
+        # register as a database instance resource.
         return []
 
     @model_validator(mode="after")
     def validate_connection_type(self) -> Self:
-        """Validate connection configuration based on type.
-
-        - project: Autoscaling Lakebase (mutually exclusive with instance_name)
-        - instance_name: Provisioned Lakebase (mutually exclusive with project)
-        - host: Standard PostgreSQL (no project or instance_name)
-        """
-        if self.project and self.instance_name:
+        """Validate that either ``project`` (Lakebase) or ``host`` (PostgreSQL) is provided."""
+        if not self.project and not self.host:
             raise ValueError(
-                "'project' (autoscaling) and 'instance_name' (provisioned) are mutually exclusive."
-            )
-        if not self.project and not self.instance_name and not self.host:
-            raise ValueError(
-                "One of 'project' (autoscaling Lakebase), 'instance_name' (provisioned Lakebase), "
-                "or 'host' (PostgreSQL) must be provided."
+                "One of 'project' (Lakebase) or 'host' (PostgreSQL) must be provided."
             )
         return self
 
@@ -1933,11 +1913,11 @@ class DatabaseModel(IsDatabricksResource):
     def resolve_timeout_seconds(self) -> Self:
         """Set default timeout_seconds based on database type.
 
-        Autoscaling Lakebase endpoints may be suspended and need 30-60s
-        to wake up, so they get a longer default timeout (120s).
+        Lakebase endpoints may be suspended and need 30-60s to wake up,
+        so they get a longer default timeout (120s).
         """
         if self.timeout_seconds is None:
-            self.timeout_seconds = 120 if self.is_lakebase_autoscaling else 30
+            self.timeout_seconds = 120 if self.is_lakebase else 30
         return self
 
     @model_validator(mode="after")
@@ -1945,36 +1925,30 @@ class DatabaseModel(IsDatabricksResource):
         """Set default connect_timeout based on database type.
 
         This is the TCP-level timeout (libpq ``connect_timeout``), distinct
-        from the pool-level ``timeout_seconds``.  Autoscaling endpoints may
+        from the pool-level ``timeout_seconds``.  Lakebase endpoints may
         be suspended and need extra time to accept the TCP handshake.
         """
         if self.connect_timeout is None:
-            self.connect_timeout = 30 if self.is_lakebase_autoscaling else 10
+            self.connect_timeout = 30 if self.is_lakebase else 10
         return self
 
     @model_validator(mode="after")
     def populate_name(self) -> Self:
-        """Populate name from project or instance_name if not provided."""
+        """Populate name from project if not provided."""
         if self.name is None and self.project:
             self.name = self.project
-        elif self.name is None and self.instance_name:
-            self.name = self.instance_name
         elif self.name is None:
             raise ValueError(
-                "Either 'name', 'project', or 'instance_name' must be provided for DatabaseModel."
+                "Either 'name' or 'project' must be provided for DatabaseModel."
             )
         return self
 
     def _resolve_user(self) -> None:
         """Resolve current user via API. Called from ensure_resolved()."""
-        # Skip if using OBO (passive auth), explicit credentials, or explicit user
         if self.on_behalf_of_user or self.client_id or self.user or self.pat:
             return
 
-        # For standard PostgreSQL, we need explicit user credentials
-        # For Lakebase with no auth, ambient auth is allowed
         if not self.is_lakebase:
-            # Standard PostgreSQL - try to determine current user for local development
             try:
                 self.user = self.workspace_client.current_user.me().user_name
             except Exception as e:
@@ -1983,12 +1957,9 @@ class DatabaseModel(IsDatabricksResource):
                     f"Please provide explicit user credentials."
                 )
         else:
-            # For Lakebase, try to determine current user but don't fail if we can't
             try:
                 self.user = self.workspace_client.current_user.me().user_name
             except Exception:
-                # If we can't determine user and no explicit auth, that's okay
-                # for Lakebase with ambient auth - credentials will be injected at runtime
                 pass
 
     def ensure_resolved(self) -> None:
@@ -1997,16 +1968,6 @@ class DatabaseModel(IsDatabricksResource):
             return
         super().ensure_resolved()
         self._resolve_user()
-
-    @model_validator(mode="after")
-    def update_host(self) -> Self:
-        # Lakebase uses instance_name directly via databricks_langchain - host not needed
-        if self.is_lakebase:
-            return self
-
-        # For standard PostgreSQL, host must be provided by the user
-        # (enforced by validate_connection_type)
-        return self
 
     @model_validator(mode="after")
     def validate_auth_methods(self) -> Self:
@@ -2020,7 +1981,6 @@ class DatabaseModel(IsDatabricksResource):
         has_obo: bool = self.on_behalf_of_user is True
         has_pat: bool = self.pat is not None
 
-        # Count how many auth methods are configured
         auth_methods_count: int = sum([has_oauth, has_user_auth, has_obo, has_pat])
 
         if auth_methods_count > 1:
@@ -2033,8 +1993,7 @@ class DatabaseModel(IsDatabricksResource):
                 "or user credentials (user)."
             )
 
-        # For standard PostgreSQL (host-based), at least one auth method must be configured
-        # For Lakebase (instance_name-based), auth is optional (supports ambient authentication)
+        # Standard PostgreSQL requires explicit auth; Lakebase supports ambient auth
         if not self.is_lakebase and auth_methods_count == 0:
             raise ValueError(
                 "PostgreSQL databases require explicit authentication. "
@@ -2047,188 +2006,76 @@ class DatabaseModel(IsDatabricksResource):
 
         return self
 
-    @property
-    def autoscaling_endpoint_name(self) -> str:
-        """Resolve and return the autoscaling endpoint resource name."""
-        _, endpoint_name = self._resolve_autoscaling_endpoint_info()
-        return endpoint_name
+    def resolve_default_branch(self) -> str:
+        """Return the configured branch, or resolve the project's default branch from the API.
 
-    @property
-    def autoscaling_default_branch(self) -> str:
-        """Return the configured branch name, or resolve the default branch from the API."""
-        project_name = f"projects/{self.project}"
+        Returns the branch id (e.g. ``"production"``), not the full resource path.
+        """
         if self.branch:
-            return f"{project_name}/branches/{self.branch}"
+            return self.branch
+        project_name = f"projects/{self.project}"
         w: WorkspaceClient = self.workspace_client
         branches = list(w.postgres.list_branches(project_name))
         if not branches:
             raise ValueError(
-                f"No branches found for autoscaling Lakebase project '{self.project}'."
+                f"No branches found for Lakebase project '{self.project}'."
             )
         default_branch = next(
             (b for b in branches if b.status and b.status.default),
             branches[0],
         )
-        return default_branch.name
-
-    def _resolve_autoscaling_endpoint_info(self) -> tuple[str, str]:
-        """Resolve the read-write host and endpoint name from the autoscaling Lakebase Postgres API.
-
-        Returns:
-            Tuple of (host, endpoint_name)
-        """
-        w: WorkspaceClient = self.workspace_client
-        branch_name = self.autoscaling_default_branch
-
-        # List endpoints on the branch to find the read-write endpoint
-        endpoints = list(w.postgres.list_endpoints(branch_name))
-        if not endpoints:
-            raise ValueError(
-                f"No endpoints found for autoscaling Lakebase branch '{branch_name}'."
-            )
-
-        # Find the read-write endpoint
-        rw_endpoint = next(
-            (
-                ep
-                for ep in endpoints
-                if ep.status and ep.status.endpoint_type == "ENDPOINT_TYPE_READ_WRITE"
-            ),
-            endpoints[0],
-        )
-
-        if (
-            not rw_endpoint.status
-            or not rw_endpoint.status.hosts
-            or not rw_endpoint.status.hosts.host
-        ):
-            raise ValueError(
-                f"No host found for autoscaling Lakebase endpoint in project '{self.project}'."
-            )
-
-        return rw_endpoint.status.hosts.host, rw_endpoint.name
+        return default_branch.name.rsplit("/", 1)[-1]
 
     @property
     def connection_params(self) -> dict[str, Any]:
         """
-        Get database connection parameters as a dictionary.
+        Get database connection parameters for **standard PostgreSQL only**.
 
-        Returns a dict with connection parameters suitable for psycopg ConnectionPool.
+        Lakebase connections should use ``databricks_langchain``
+        ``AsyncCheckpointSaver`` / ``AsyncDatabricksStore`` directly — they
+        manage host resolution and credential rotation internally.
 
-        For Lakebase: Uses Databricks-generated credentials (token-based auth).
-        For standard PostgreSQL: Uses provided user/password credentials.
+        Raises ``ValueError`` if called on a Lakebase database.
         """
-        import uuid as _uuid
-
-        host: str
-        port: int
-        database: str
-        username: str | None = None
-        password_value: str | None = None
-
-        # Resolve host - fetch from API at runtime for Lakebase if not provided
-        host_value: Any = self.host
-        autoscaling_endpoint_name: str | None = None
-
-        if host_value is None and self.is_lakebase_autoscaling:
-            # Fetch host and endpoint name from autoscaling Postgres API (single API call)
-            resolved_host, autoscaling_endpoint_name = (
-                self._resolve_autoscaling_endpoint_info()
-            )
-            host_value = resolved_host
-        elif host_value is None and self.is_lakebase_provisioned:
-            # Fetch host from provisioned Database Instances API
-            from databricks.sdk.service.database import DatabaseInstance
-
-            existing_instance: DatabaseInstance = (
-                self.workspace_client.database.get_database_instance(
-                    name=self.instance_name
-                )
-            )
-            host_value = existing_instance.read_write_dns
-
-        if host_value is None:
-            instance_or_name = self.project or self.instance_name or self.name
+        if self.is_lakebase:
             raise ValueError(
-                f"Database host not configured for {instance_or_name}. "
+                "connection_params is not supported for Lakebase databases. "
+                "Use databricks_langchain AsyncCheckpointSaver / AsyncDatabricksStore instead."
+            )
+
+        host_value: Any = self.host
+        if host_value is None:
+            raise ValueError(
+                f"Database host not configured for {self.name}. "
                 "Please provide 'host' explicitly."
             )
 
-        host = value_of(host_value)
-        port = value_of(self.port)
-        database = value_of(self.database)
+        host: str = value_of(host_value)
+        port: int = value_of(self.port)
+        database: str = value_of(self.database)
+        username: str | None = value_of(self.user) if self.user else None
+        password_value: str | None = value_of(self.password) if self.password else None
 
-        if self.is_lakebase_autoscaling:
-            # Autoscaling Lakebase: Use Postgres API for credentials
-            if self.client_id and self.client_secret and self.workspace_host:
-                username = value_of(self.client_id)
-            elif self.user:
-                username = value_of(self.user)
-            else:
-                # Infer from workspace identity (mirrors LakebasePool._infer_username)
-                w_user = self.workspace_client
-                me = w_user.current_user.me()
-                if me and me.user_name:
-                    username = me.user_name
-
-            w: WorkspaceClient = self.workspace_client
-            # Resolve endpoint name if not already resolved (e.g., when host was provided explicitly)
-            if autoscaling_endpoint_name is None:
-                _, autoscaling_endpoint_name = self._resolve_autoscaling_endpoint_info()
-            cred = w.postgres.generate_database_credential(
-                endpoint=autoscaling_endpoint_name,
+        if not username or not password_value:
+            raise ValueError(
+                f"Standard PostgreSQL databases require both 'user' and 'password'. "
+                f"Database: {self.name}"
             )
-            password_value = cred.token
-        elif self.is_lakebase_provisioned:
-            # Provisioned Lakebase: Use Database Instances API for credentials
-            from databricks.sdk.service.database import DatabaseCredential
 
-            if self.client_id and self.client_secret and self.workspace_host:
-                username = value_of(self.client_id)
-            elif self.user:
-                username = value_of(self.user)
-
-            w = self.workspace_client
-            cred_provisioned: DatabaseCredential = (
-                w.database.generate_database_credential(
-                    request_id=str(_uuid.uuid4()),
-                    instance_names=[self.instance_name],
-                )
-            )
-            password_value = cred_provisioned.token
-        else:
-            # Standard PostgreSQL: Use provided credentials
-            if self.user:
-                username = value_of(self.user)
-            if self.password:
-                password_value = value_of(self.password)
-
-            if not username or not password_value:
-                raise ValueError(
-                    f"Standard PostgreSQL databases require both 'user' and 'password'. "
-                    f"Database: {self.name}"
-                )
-
-        # Build connection parameters dictionary
         params: dict[str, Any] = {
             "dbname": database,
             "host": host,
             "port": port,
+            "user": username,
             "password": password_value,
             "sslmode": "require",
             "connect_timeout": self.connect_timeout,
         }
 
-        # Only include user if explicitly configured
-        if username:
-            params["user"] = username
-            logger.debug(
-                f"Connection params: dbname={database} user={username} host={host} port={port} password=******** sslmode=require connect_timeout={self.connect_timeout}"
-            )
-        else:
-            logger.debug(
-                f"Connection params: dbname={database} host={host} port={port} password=******** sslmode=require connect_timeout={self.connect_timeout} (using token identity)"
-            )
+        logger.debug(
+            f"Connection params: dbname={database} user={username} host={host} "
+            f"port={port} password=******** sslmode=require connect_timeout={self.connect_timeout}"
+        )
 
         return params
 
@@ -2246,16 +2093,12 @@ class DatabaseModel(IsDatabricksResource):
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.databricks import DatabricksProvider
 
-        # Use provided workspace client or fall back to resource's own workspace_client
         if w is None:
             w = self.workspace_client
         provider: DatabricksProvider = DatabricksProvider(w=w)
-        if self.is_lakebase_autoscaling:
+        if self.is_lakebase:
             provider.create_lakebase_autoscaling(self)
             provider.create_lakebase_autoscaling_role(self)
-        else:
-            provider.create_lakebase(self)
-            provider.create_lakebase_instance_role(self)
 
 
 class GenieLRUCacheParametersModel(BaseModel):
@@ -5837,6 +5680,16 @@ class AppConfig(BaseModel):
         default=None,
         description="Configuration schema version for forward compatibility.",
     )
+    parameters: dict[str, ParameterDeclarationModel] = Field(
+        default_factory=dict,
+        description=(
+            "Declared input parameters for load-time substitution. Reference "
+            "with ${param.NAME} or ${var.NAME} (interchangeable aliases) "
+            "anywhere in any string value. Resolved by AppConfig.from_file "
+            "from CLI --var, process env, declared default, or inline "
+            "${var.NAME:-fallback} - in that order."
+        ),
+    )
     variables: dict[str, AnyVariable] = Field(
         default_factory=dict,
         description="Named variables (env vars, secrets, literals, composites) reusable via YAML anchors.",
@@ -5906,19 +5759,66 @@ class AppConfig(BaseModel):
         description="Custom provider overrides for dependency injection (advanced usage).",
     )
 
-    # Private attribute to track the source config file path (set by from_file)
+    # Private attributes set by from_file
     _source_config_path: str | None = None
+    _rendered_yaml: str | None = None
+    _substitution_vars: dict[str, str] | None = None
     _initialized: bool = False
 
     @classmethod
-    def from_file(cls, path: PathLike, *, initialize: bool = True) -> "AppConfig":
+    def from_file(
+        cls,
+        path: PathLike,
+        *,
+        params: Optional[Mapping[str, str]] = None,
+        initialize: bool = True,
+    ) -> "AppConfig":
+        """Load an AppConfig from a YAML file with optional parameter substitution.
+
+        Top-level ``parameters:`` declarations are parsed first and used to
+        resolve ``${param.NAME}`` and ``${var.NAME}`` references in the rest
+        of the YAML (the two prefixes are interchangeable aliases).
+        Resolution precedence per reference is CLI ``params`` > process env
+        > declared ``default`` > inline ``${var.NAME:-fallback}`` > error.
+
+        Args:
+            path: Path to the YAML config file.
+            params: Optional mapping of parameter name to literal string value,
+                used to override env-var and default lookups for
+                ``${param.NAME}`` / ``${var.NAME}`` references.
+            initialize: Whether to call :meth:`initialize` after loading.
+
+        Raises:
+            ConfigVariableError: If any required parameter cannot be resolved
+                or any reference is undeclared (when a ``parameters:`` block
+                is present).
+        """
         path = Path(path).as_posix()
         logger.debug(f"Loading config from {path}")
-        model_config: ModelConfig = ModelConfig(development_config=path)
+
+        raw_text: str = Path(path).read_text()
+
+        raw_dict: dict[str, Any] = yaml.safe_load(raw_text) or {}
+        decl_block: dict[str, Any] = raw_dict.get("parameters", {}) or {}
+        declarations: dict[str, ParameterDeclarationModel] = {
+            name: ParameterDeclarationModel(**(spec or {}))
+            for name, spec in decl_block.items()
+        }
+
+        rendered_text: str = substitute_params(
+            raw_text,
+            declarations=declarations,
+            cli_vars=params,
+            source=path,
+        )
+        rendered_dict: dict[str, Any] = yaml.safe_load(rendered_text) or {}
+
+        model_config: ModelConfig = ModelConfig(development_config=rendered_dict)
         config: AppConfig = AppConfig(**model_config.to_dict())
 
-        # Store the source config path for later use (e.g., Apps deployment)
         config._source_config_path = path
+        config._rendered_yaml = rendered_text
+        config._substitution_vars = dict(params) if params else None
 
         if initialize:
             config.initialize()
@@ -5929,6 +5829,16 @@ class AppConfig(BaseModel):
     def source_config_path(self) -> str | None:
         """Get the source config file path if loaded via from_file."""
         return self._source_config_path
+
+    @property
+    def rendered_yaml(self) -> str | None:
+        """Get the YAML text after ${param.NAME} substitution, if loaded via from_file."""
+        return self._rendered_yaml
+
+    @property
+    def substitution_vars(self) -> dict[str, str] | None:
+        """Get the explicit substitution vars used at load time, if any."""
+        return self._substitution_vars
 
     def _resolve_all_resources(self) -> None:
         """Walk the config tree and call ensure_resolved() on all IsDatabricksResource instances."""

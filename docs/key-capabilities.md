@@ -737,8 +737,7 @@ resources:
     my_lakebase: &my_lakebase
       project: "my-project"        # autoscaling Lakebase project name
       branch: "main"               # optional, auto-resolved if omitted
-      # Or for provisioned Lakebase:
-      # instance_name: "my-instance"
+      # project: "my-lakebase-project"
 
 memory:
   checkpointer:

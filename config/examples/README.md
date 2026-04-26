@@ -213,7 +213,7 @@ dao-ai chat -c config/examples/14_basic_tools/slack_integration.yaml
 
 ### Deploy to Databricks
 ```bash
-dao-ai bundle --deploy --run -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
+dao-ai pipeline --deploy --run -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 ---
@@ -302,7 +302,7 @@ Each example is a starting point for your own agents:
 
 5. **Deploy** to Databricks:
    ```bash
-   dao-ai bundle --deploy --run -c config/my_agent.yaml
+   dao-ai pipeline --deploy --run -c config/my_agent.yaml
    ```
 
 ---

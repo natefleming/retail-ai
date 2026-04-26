@@ -82,7 +82,7 @@ dao-ai chat -c config/examples/02_tools/slack_integration.yaml
 
 ### Deploy to Databricks
 ```bash
-dao-ai bundle --deploy --run -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
+dao-ai pipeline --deploy --run -c config/examples/07_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 ---
@@ -451,7 +451,7 @@ Responses API–compatible kickoff / poll / cancel for agent runs that exceed th
 |---------|-------------|
 | `deep_research.yaml` | Deep-research agent with `app.long_running` enabled, deployed to both Databricks Apps and Model Serving |
 
-**Prerequisites:** Configured Lakebase (autoscaling or provisioned)  
+**Prerequisites:** Configured Lakebase project  
 **Use:** Deep research, multi-agent workflows, or any single inference that may take more than ~2–5 minutes
 
 ---
@@ -464,7 +464,7 @@ Each example is a starting point:
 2. **Modify** prompts, tools, and settings
 3. **Validate**: `dao-ai validate -c config/my_agent.yaml`
 4. **Test** locally: `dao-ai chat -c config/my_agent.yaml`
-5. **Deploy**: `dao-ai bundle --deploy -c config/my_agent.yaml`
+5. **Deploy**: `dao-ai pipeline --deploy -c config/my_agent.yaml`
 
 For detailed guidance, see the README.md in each category directory.
 

@@ -1,28 +1,36 @@
-"""
-Databricks-native memory storage implementations.
+"""Lakebase-specific memory storage implementations.
 
-Provides CheckpointSaver and DatabricksStore implementations using
-Databricks Lakebase for persistent storage, with async support.
+Lakebase connections delegate to ``databricks_langchain.AsyncCheckpointSaver``
+and ``databricks_langchain.AsyncDatabricksStore`` which wrap
+``databricks_ai_bridge.lakebase.AsyncLakebasePool`` — that pool handles OAuth
+token rotation, host resolution, TCP keepalives, and per-connection credential
+refresh automatically.
 
-See:
-- https://api-docs.databricks.com/python/databricks-ai-bridge/latest/databricks_langchain.html#databricks_langchain.CheckpointSaver
-- https://api-docs.databricks.com/python/databricks-ai-bridge/latest/databricks_langchain.html#databricks_langchain.DatabricksStore
+This module owns:
+
+- Lakebase pool helpers (``_lakebase_pool_kwargs``, ``_create_lakebase_pool``,
+  ``_create_async_lakebase_pool``).
+- Higher-level managers (``LakebaseCheckpointerManager``,
+  ``LakebaseStoreManager``) that initialize the LangGraph checkpoint saver /
+  store backed by Lakebase.
+
+The Lakebase managers wrap the underlying ``AsyncCheckpointSaver`` /
+``AsyncDatabricksStore`` in a lazy-init proxy: the AsyncLakebasePool open is
+deferred to the first ``await`` call so the pool binds to whichever event loop
+is calling. This works for both Model Serving (predict-time loop, with
+``nest_asyncio``) and Databricks Apps (uvicorn's loop). Opening the pool at
+sync model-load time would bind it to a transient loop that gets closed,
+producing ``RuntimeError: got Future ... attached to a different loop`` on
+later use.
+
+The pool dispatchers in ``dao_ai.memory.postgres`` import the helpers below via
+deferred imports to avoid pulling ``databricks_ai_bridge`` at module-load time.
 """
 
 import asyncio
-import time
-from collections.abc import AsyncIterator, Iterable, Sequence
-from functools import partial
-from typing import Any, Literal
+from typing import Any, AsyncIterator, Iterable, Literal, Sequence
 
-from databricks_ai_bridge.lakebase import LakebasePool
-from databricks_langchain import (
-    CheckpointSaver as DatabricksCheckpointSaver,
-)
-from databricks_langchain import (
-    DatabricksEmbeddings,
-    DatabricksStore,
-)
+from databricks_langchain import DatabricksEmbeddings
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -31,108 +39,100 @@ from langgraph.checkpoint.base import (
     CheckpointMetadata,
     CheckpointTuple,
 )
-from langgraph.store.base import BaseStore, Item, Op, Result, SearchItem
+from langgraph.store.base import BaseStore, Item, NotProvided, Op, Result, SearchItem
 from loguru import logger
+from psycopg_pool import AsyncConnectionPool
 
-from dao_ai.config import (
-    CheckpointerModel,
-    StoreModel,
-)
+from dao_ai.config import CheckpointerModel, DatabaseModel, StoreModel
 from dao_ai.memory.base import (
     CheckpointManagerBase,
     StoreManagerBase,
 )
-from dao_ai.memory.postgres import _create_lakebase_pool
 
-# Type alias for namespace path
-NamespacePath = tuple[str, ...]
-
-# Sentinel for not-provided values
-NOT_PROVIDED = object()
+# ---------------------------------------------------------------------------
+# Lakebase pool helpers (thin wrappers over databricks_ai_bridge)
+# ---------------------------------------------------------------------------
 
 
-class AsyncDatabricksCheckpointSaver(DatabricksCheckpointSaver):
-    """
-    Async wrapper for DatabricksCheckpointSaver.
+def _lakebase_pool_kwargs(database: DatabaseModel) -> dict[str, Any]:
+    """Build kwargs for ``LakebasePool`` / ``AsyncLakebasePool``."""
+    branch = database.resolve_default_branch()
+    return {
+        "project": database.project,
+        "branch": branch,
+        "workspace_client": database.workspace_client,
+    }
 
-    Provides async implementations of checkpoint methods by delegating
-    to the sync methods using asyncio.to_thread().
 
-    Accepts an optional pre-built LakebasePool to use instead of creating
-    one internally, allowing callers to control authentication and pool config.
-    """
+def _create_lakebase_pool(database: DatabaseModel, **extra: Any):
+    """Create a sync ``LakebasePool`` from a ``DatabaseModel``."""
+    from databricks_ai_bridge.lakebase import LakebasePool
 
-    def __init__(self, *, pool: LakebasePool | None = None, **kwargs):
-        if pool is not None:
-            # Bypass parent __init__ which creates its own LakebasePool.
-            # Wire the pre-built pool directly via PostgresSaver (our grandparent).
-            from langgraph.checkpoint.postgres import PostgresSaver
+    kwargs = _lakebase_pool_kwargs(database)
+    kwargs.update(extra)
+    return LakebasePool(**kwargs)
 
-            self._lakebase = pool
-            PostgresSaver.__init__(self, pool.pool)
-        else:
-            super().__init__(**kwargs)
 
-    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
-        """Async version of get_tuple."""
-        thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-        logger.trace("Fetching checkpoint", thread_id=thread_id, method="aget_tuple")
-        result = await asyncio.to_thread(self.get_tuple, config)
-        if result:
-            logger.trace("Checkpoint found", thread_id=thread_id)
-        else:
-            logger.trace("No checkpoint found", thread_id=thread_id)
-        return result
+async def _create_async_lakebase_pool(database: DatabaseModel, **extra: Any):
+    """Create and open an ``AsyncLakebasePool`` from a ``DatabaseModel``."""
+    from databricks_ai_bridge.lakebase import AsyncLakebasePool
+
+    kwargs = _lakebase_pool_kwargs(database)
+    kwargs.update(extra)
+    pool = AsyncLakebasePool(**kwargs)
+    await pool.open()
+    return pool
+
+
+# ---------------------------------------------------------------------------
+# Lazy-init wrappers
+#
+# These wrap the real ``databricks_langchain`` saver / store objects and defer
+# the AsyncLakebasePool open + table setup to the first ``await`` call, so the
+# pool is bound to the caller's event loop. This is critical because the
+# manager's ``_setup`` is invoked synchronously (during model load in Model
+# Serving, during agent factory build in Apps), and the AsyncLakebasePool's
+# underlying psycopg_pool.AsyncConnectionPool latches its connection futures to
+# the loop that opens it. Opening at sync time would bind the pool to a
+# throwaway loop and break later use from the request loop.
+# ---------------------------------------------------------------------------
+
+
+class _LazyLakebaseCheckpointer(BaseCheckpointSaver):
+    """Lazily opens the wrapped ``AsyncCheckpointSaver`` on first await call."""
+
+    def __init__(self, saver_kwargs: dict[str, Any], log_extra: dict[str, Any]):
+        super().__init__()
+        self._saver_kwargs = saver_kwargs
+        self._log_extra = log_extra
+        self._saver: BaseCheckpointSaver | None = None
+        self._init_lock: asyncio.Lock | None = None
+
+    async def _ensure(self) -> BaseCheckpointSaver:
+        if self._saver is not None:
+            return self._saver
+        # Bind the lock to the active loop on first use.
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._saver is None:
+                from databricks_langchain import AsyncCheckpointSaver
+
+                saver = AsyncCheckpointSaver(**self._saver_kwargs)
+                await saver._lakebase.open()
+                await saver.setup()
+                logger.success(
+                    "Lakebase checkpointer initialized (lazy)",
+                    **self._log_extra,
+                )
+                self._saver = saver
+        return self._saver
 
     async def aget(self, config: RunnableConfig) -> Checkpoint | None:
-        """Async version of get."""
-        thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-        logger.trace("Fetching checkpoint", thread_id=thread_id, method="aget")
-        result = await asyncio.to_thread(self.get, config)
-        if result:
-            logger.trace("Checkpoint found", thread_id=thread_id)
-        else:
-            logger.trace("No checkpoint found", thread_id=thread_id)
-        return result
+        return await (await self._ensure()).aget(config)
 
-    async def aput(
-        self,
-        config: RunnableConfig,
-        checkpoint: Checkpoint,
-        metadata: CheckpointMetadata,
-        new_versions: ChannelVersions,
-    ) -> RunnableConfig:
-        """Async version of put."""
-        thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-        checkpoint_id = checkpoint.get("id", "unknown")
-        logger.trace(
-            "Saving checkpoint", checkpoint_id=checkpoint_id, thread_id=thread_id
-        )
-        result = await asyncio.to_thread(
-            self.put, config, checkpoint, metadata, new_versions
-        )
-        logger.trace(
-            "Checkpoint saved", thread_id=thread_id, checkpoint_id=checkpoint_id
-        )
-        return result
-
-    async def aput_writes(
-        self,
-        config: RunnableConfig,
-        writes: Sequence[tuple[str, Any]],
-        task_id: str,
-        task_path: str = "",
-    ) -> None:
-        """Async version of put_writes."""
-        thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-        logger.trace(
-            "Saving checkpoint writes",
-            writes_count=len(writes),
-            thread_id=thread_id,
-            task_id=task_id,
-        )
-        await asyncio.to_thread(self.put_writes, config, writes, task_id, task_path)
-        logger.trace("Checkpoint writes saved", thread_id=thread_id, task_id=task_id)
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        return await (await self._ensure()).aget_tuple(config)
 
     async def alist(
         self,
@@ -142,79 +142,90 @@ class AsyncDatabricksCheckpointSaver(DatabricksCheckpointSaver):
         before: RunnableConfig | None = None,
         limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
-        """Async version of list."""
-        thread_id = (
-            config.get("configurable", {}).get("thread_id", "unknown")
-            if config
-            else "all"
-        )
-        logger.trace("Listing checkpoints", thread_id=thread_id, limit=limit)
-        # Get all items from sync iterator in a thread
-        items = await asyncio.to_thread(
-            lambda: list(self.list(config, filter=filter, before=before, limit=limit))
-        )
-        logger.debug("Checkpoints listed", thread_id=thread_id, count=len(items))
-        for item in items:
+        saver = await self._ensure()
+        async for item in saver.alist(
+            config, filter=filter, before=before, limit=limit
+        ):
             yield item
 
-    async def adelete_thread(self, thread_id: str) -> None:
-        """Async version of delete_thread."""
-        logger.trace("Deleting thread", thread_id=thread_id)
-        await asyncio.to_thread(self.delete_thread, thread_id)
-        logger.debug("Thread deleted", thread_id=thread_id)
-
-
-class AsyncDatabricksStore(DatabricksStore):
-    """
-    Async wrapper for DatabricksStore.
-
-    Provides async implementations of store methods by delegating
-    to the sync methods using asyncio.to_thread().
-
-    Accepts an optional pre-built LakebasePool to use instead of creating
-    one internally, allowing callers to control authentication and pool config.
-    """
-
-    def __init__(
+    async def aput(
         self,
-        *,
-        pool: LakebasePool | None = None,
-        embeddings: DatabricksEmbeddings | None = None,
-        embedding_dims: int | None = None,
-        embedding_fields: list[str] | None = None,
-        **kwargs,
-    ):
-        if pool is not None:
-            # Bypass parent __init__ which creates its own LakebasePool.
-            # DatabricksStore._with_store() only needs _lakebase and index_config.
-            self._lakebase = pool
-            self.embeddings = embeddings
-            self.index_config = None
-            if embeddings is not None:
-                if embedding_dims is None:
-                    raise ValueError(
-                        "embedding_dims is required when providing embeddings"
-                    )
-                self.index_config = {
-                    "dims": embedding_dims,
-                    "embed": embeddings,
-                    "fields": embedding_fields or ["$"],
-                }
-        else:
-            super().__init__(
-                embeddings=embeddings,
-                embedding_dims=embedding_dims,
-                embedding_fields=embedding_fields,
-                **kwargs,
-            )
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        return await (await self._ensure()).aput(
+            config, checkpoint, metadata, new_versions
+        )
+
+    async def aput_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        return await (await self._ensure()).aput_writes(
+            config, writes, task_id, task_path
+        )
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        return await (await self._ensure()).adelete_thread(thread_id)
+
+    async def acopy_thread(self, source_thread_id: str, target_thread_id: str) -> None:
+        return await (await self._ensure()).acopy_thread(
+            source_thread_id, target_thread_id
+        )
+
+    async def adelete_for_runs(self, run_ids: Sequence[str]) -> None:
+        return await (await self._ensure()).adelete_for_runs(run_ids)
+
+    async def aprune(
+        self, thread_ids: Sequence[str], *, strategy: str = "keep_latest"
+    ) -> None:
+        return await (await self._ensure()).aprune(thread_ids, strategy=strategy)
+
+
+class _LazyLakebaseStore(BaseStore):
+    """Lazily opens the wrapped ``AsyncDatabricksStore`` on first await call."""
+
+    def __init__(self, store_kwargs: dict[str, Any], log_extra: dict[str, Any]):
+        # Don't call super().__init__() because BaseStore is abstract on
+        # ``batch`` / ``abatch`` — we satisfy those via overrides below.
+        self._store_kwargs = store_kwargs
+        self._log_extra = log_extra
+        self._store: BaseStore | None = None
+        self._init_lock: asyncio.Lock | None = None
+
+    async def _ensure(self) -> BaseStore:
+        if self._store is not None:
+            return self._store
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._store is None:
+                from databricks_langchain import AsyncDatabricksStore
+
+                store = AsyncDatabricksStore(**self._store_kwargs)
+                await store._lakebase.open()
+                await store.setup()
+                logger.success(
+                    "Lakebase store initialized (lazy)",
+                    **self._log_extra,
+                )
+                self._store = store
+        return self._store
 
     async def abatch(self, ops: Iterable[Op]) -> list[Result]:
-        """Async version of batch."""
-        ops_list = list(ops)
-        logger.trace("Executing batch operations", operations_count=len(ops_list))
-        result = await asyncio.to_thread(self.batch, ops_list)
-        logger.debug("Batch operations completed", operations_count=len(result))
-        return result
+        return await (await self._ensure()).abatch(ops)
+
+    def batch(self, ops: Iterable[Op]) -> list[Result]:
+        # The Lakebase store is async-only; batch() is required by BaseStore
+        # but the agent never calls it from a sync context.
+        raise NotImplementedError(
+            "LakebaseStore is async-only; use abatch from an async context"
+        )
 
     async def aget(
         self,
@@ -223,17 +234,9 @@ class AsyncDatabricksStore(DatabricksStore):
         *,
         refresh_ttl: bool | None = None,
     ) -> Item | None:
-        """Async version of get."""
-        ns_str = "/".join(namespace)
-        logger.trace("Fetching store item", key=key, namespace=ns_str)
-        result = await asyncio.to_thread(
-            partial(self.get, namespace, key, refresh_ttl=refresh_ttl)
+        return await (await self._ensure()).aget(
+            namespace, key, refresh_ttl=refresh_ttl
         )
-        if result:
-            logger.trace("Store item found", key=key, namespace=ns_str)
-        else:
-            logger.trace("Store item not found", key=key, namespace=ns_str)
-        return result
 
     async def aput(
         self,
@@ -242,26 +245,12 @@ class AsyncDatabricksStore(DatabricksStore):
         value: dict[str, Any],
         index: Literal[False] | list[str] | None = None,
         *,
-        ttl: float | None = None,
+        ttl: float | None | NotProvided = NotProvided(),
     ) -> None:
-        """Async version of put."""
-        ns_str = "/".join(namespace)
-        logger.trace("Storing item", key=key, namespace=ns_str, has_ttl=ttl is not None)
-        # Handle the ttl parameter - only pass if explicitly provided
-        if ttl is not None:
-            await asyncio.to_thread(
-                partial(self.put, namespace, key, value, index, ttl=ttl)
-            )
-        else:
-            await asyncio.to_thread(partial(self.put, namespace, key, value, index))
-        logger.trace("Item stored", key=key, namespace=ns_str)
+        return await (await self._ensure()).aput(namespace, key, value, index, ttl=ttl)
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
-        """Async version of delete."""
-        ns_str = "/".join(namespace)
-        logger.trace("Deleting item", key=key, namespace=ns_str)
-        await asyncio.to_thread(self.delete, namespace, key)
-        logger.trace("Item deleted", key=key, namespace=ns_str)
+        return await (await self._ensure()).adelete(namespace, key)
 
     async def asearch(
         self,
@@ -274,185 +263,166 @@ class AsyncDatabricksStore(DatabricksStore):
         offset: int = 0,
         refresh_ttl: bool | None = None,
     ) -> list[SearchItem]:
-        """Async version of search."""
-        ns_str = "/".join(namespace_prefix)
-        logger.trace(
-            "Searching store", namespace_prefix=ns_str, query=query, limit=limit
+        return await (await self._ensure()).asearch(
+            namespace_prefix,
+            query=query,
+            filter=filter,
+            limit=limit,
+            offset=offset,
+            refresh_ttl=refresh_ttl,
         )
-        result = await asyncio.to_thread(
-            partial(
-                self.search,
-                namespace_prefix,
-                query=query,
-                filter=filter,
-                limit=limit,
-                offset=offset,
-                refresh_ttl=refresh_ttl,
-            )
-        )
-        logger.debug(
-            "Store search completed", namespace_prefix=ns_str, results_count=len(result)
-        )
-        return result
 
     async def alist_namespaces(
         self,
         *,
-        prefix: NamespacePath | None = None,
-        suffix: NamespacePath | None = None,
+        prefix: tuple[str, ...] | None = None,
+        suffix: tuple[str, ...] | None = None,
         max_depth: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[tuple[str, ...]]:
-        """Async version of list_namespaces."""
-        prefix_str = "/".join(prefix) if prefix else "all"
-        logger.trace("Listing namespaces", prefix=prefix_str, limit=limit)
-        result = await asyncio.to_thread(
-            partial(
-                self.list_namespaces,
-                prefix=prefix,
-                suffix=suffix,
-                max_depth=max_depth,
-                limit=limit,
-                offset=offset,
-            )
+        return await (await self._ensure()).alist_namespaces(
+            prefix=prefix,
+            suffix=suffix,
+            max_depth=max_depth,
+            limit=limit,
+            offset=offset,
         )
-        logger.debug("Namespaces listed", count=len(result))
-        return result
 
 
-class DatabricksCheckpointerManager(CheckpointManagerBase):
-    """
-    Checkpointer manager using Databricks CheckpointSaver with async support.
+# ---------------------------------------------------------------------------
+# Lakebase managers — delegate to databricks_langchain
+# ---------------------------------------------------------------------------
 
-    Uses AsyncDatabricksCheckpointSaver which wraps databricks_langchain.CheckpointSaver
-    with async method implementations for LangGraph async streaming compatibility.
 
-    Required configuration via CheckpointerModel.database:
-    - instance_name: The Databricks Lakebase instance name
-    - workspace_client: WorkspaceClient (supports OBO, service principal, or default auth)
+class LakebaseCheckpointerManager(CheckpointManagerBase):
+    """Checkpointer backed by ``databricks_langchain.AsyncCheckpointSaver``.
 
-    See: https://api-docs.databricks.com/python/databricks-ai-bridge/latest/databricks_langchain.html#databricks_langchain.CheckpointSaver
+    Returns a :class:`_LazyLakebaseCheckpointer` that defers the
+    AsyncLakebasePool open + ``saver.setup()`` to the first agent ``await``
+    call. Sync ``_setup`` only validates config and assembles constructor
+    kwargs — it does not touch the network or any event loop.
     """
 
     def __init__(self, checkpointer_model: CheckpointerModel):
         self.checkpointer_model = checkpointer_model
         self._checkpointer: BaseCheckpointSaver | None = None
+        self._setup_complete = False
 
     def checkpointer(self) -> BaseCheckpointSaver:
-        if self._checkpointer is None:
-            database = self.checkpointer_model.database
-            if database is None:
-                raise ValueError(
-                    "Database configuration is required for Databricks checkpointer. "
-                    "Please provide a 'database' field in the checkpointer configuration."
-                )
-
-            lakebase_name = database.project or database.instance_name
-
-            t0 = time.monotonic()
-            pool = _create_lakebase_pool(
-                database,
-                min_size=1,
-                max_size=database.max_pool_size,
-                timeout=float(database.timeout_seconds),
-            )
-            t1 = time.monotonic()
-
-            checkpointer = AsyncDatabricksCheckpointSaver(pool=pool)
-
-            logger.debug("Setting up checkpoint tables", lakebase=lakebase_name)
-            checkpointer.setup()
-            logger.info(
-                "Databricks checkpointer initialized",
-                lakebase=lakebase_name,
-                setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
-                total_elapsed_ms=round((time.monotonic() - t0) * 1000),
-            )
-
-            self._checkpointer = checkpointer
-
+        if not self._setup_complete or not self._checkpointer:
+            self._setup()
+        if not self._checkpointer:
+            raise RuntimeError("LakebaseCheckpointerManager initialization failed")
         return self._checkpointer
 
+    def _setup(self):
+        if self._setup_complete:
+            return
 
-class DatabricksStoreManager(StoreManagerBase):
-    """
-    Store manager using Databricks DatabricksStore with async support.
+        database = self.checkpointer_model.database
+        if database is None:
+            raise ValueError(
+                "Database configuration is required for Lakebase checkpointer"
+            )
 
-    Uses AsyncDatabricksStore which wraps databricks_langchain.DatabricksStore
-    with async method implementations for LangGraph async streaming compatibility.
+        branch = database.resolve_default_branch()
+        saver_kwargs: dict[str, Any] = {
+            "project": database.project,
+            "branch": branch,
+            "workspace_client": database.workspace_client,
+            "min_size": 1,
+            "max_size": database.max_pool_size,
+            "timeout": float(database.timeout_seconds),
+            "check": AsyncConnectionPool.check_connection,
+        }
 
-    Required configuration via StoreModel.database:
-    - instance_name: The Databricks Lakebase instance name
-    - workspace_client: WorkspaceClient (supports OBO, service principal, or default auth)
+        self._checkpointer = _LazyLakebaseCheckpointer(
+            saver_kwargs=saver_kwargs,
+            log_extra={
+                "checkpointer": self.checkpointer_model.name,
+                "project": database.project,
+                "branch": branch,
+            },
+        )
+        self._setup_complete = True
+        logger.debug(
+            "Lakebase checkpointer registered (lazy open on first await)",
+            checkpointer=self.checkpointer_model.name,
+            project=database.project,
+            branch=branch,
+        )
 
-    Optional configuration via StoreModel:
-    - embedding_model: LLMModel for embeddings (will be converted to DatabricksEmbeddings)
-    - dims: Embedding dimensions
 
-    See: https://api-docs.databricks.com/python/databricks-ai-bridge/latest/databricks_langchain.html#databricks_langchain.DatabricksStore
+class LakebaseStoreManager(StoreManagerBase):
+    """Store backed by ``databricks_langchain.AsyncDatabricksStore``.
+
+    Returns a :class:`_LazyLakebaseStore` that defers the AsyncLakebasePool
+    open + ``store.setup()`` to the first agent ``await`` call. Sync
+    ``_setup`` only assembles constructor kwargs.
     """
 
     def __init__(self, store_model: StoreModel):
         self.store_model = store_model
         self._store: BaseStore | None = None
+        self._setup_complete = False
 
     def store(self) -> BaseStore:
-        if self._store is None:
-            database = self.store_model.database
-            if database is None:
-                raise ValueError(
-                    "Database configuration is required for Databricks store. "
-                    "Please provide a 'database' field in the store configuration."
-                )
-
-            lakebase_name = database.project or database.instance_name
-
-            t0 = time.monotonic()
-            pool = _create_lakebase_pool(database)
-
-            embeddings: DatabricksEmbeddings | None = None
-            embedding_dims: int | None = None
-
-            if self.store_model.embedding_model is not None:
-                embedding_endpoint = self.store_model.embedding_model.name
-                embeddings = DatabricksEmbeddings(endpoint=embedding_endpoint)
-
-                from dao_ai.memory.core import _resolve_embedding_dims
-
-                embedding_dims = _resolve_embedding_dims(
-                    embeddings, self.store_model.dims
-                )
-
-                logger.debug(
-                    "Configuring store embeddings",
-                    endpoint=embedding_endpoint,
-                    dimensions=embedding_dims,
-                )
-
-            t1 = time.monotonic()
-            store = AsyncDatabricksStore(
-                pool=pool,
-                embeddings=embeddings,
-                embedding_dims=embedding_dims,
-            )
-
-            store.setup()
-            logger.info(
-                "Databricks store initialized",
-                lakebase=lakebase_name,
-                embeddings_enabled=embeddings is not None,
-                setup_elapsed_ms=round((time.monotonic() - t1) * 1000),
-                total_elapsed_ms=round((time.monotonic() - t0) * 1000),
-            )
-            self._store = store
-
+        if not self._setup_complete or not self._store:
+            self._setup()
+        if not self._store:
+            raise RuntimeError("LakebaseStoreManager initialization failed")
         return self._store
 
+    def _setup(self):
+        if self._setup_complete:
+            return
 
-__all__ = [
-    "AsyncDatabricksCheckpointSaver",
-    "AsyncDatabricksStore",
-    "DatabricksCheckpointerManager",
-    "DatabricksStoreManager",
-]
+        database = self.store_model.database
+        if database is None:
+            raise ValueError("Database configuration is required for Lakebase store")
+
+        branch = database.resolve_default_branch()
+        store_kwargs: dict[str, Any] = {
+            "project": database.project,
+            "branch": branch,
+            "workspace_client": database.workspace_client,
+            "min_size": 1,
+            "max_size": database.max_pool_size,
+            "timeout": float(database.timeout_seconds),
+            "check": AsyncConnectionPool.check_connection,
+        }
+
+        if self.store_model.embedding_model is not None:
+            embedding_endpoint = self.store_model.embedding_model.name
+            embeddings = DatabricksEmbeddings(endpoint=embedding_endpoint)
+
+            from dao_ai.memory.core import _resolve_embedding_dims
+
+            embedding_dims = _resolve_embedding_dims(embeddings, self.store_model.dims)
+
+            store_kwargs["embedding_endpoint"] = embedding_endpoint
+            store_kwargs["embedding_dims"] = embedding_dims
+
+            logger.debug(
+                "Configuring store embeddings",
+                endpoint=embedding_endpoint,
+                dimensions=embedding_dims,
+            )
+
+        self._store = _LazyLakebaseStore(
+            store_kwargs=store_kwargs,
+            log_extra={
+                "store": self.store_model.name,
+                "project": database.project,
+                "branch": branch,
+                "embeddings_enabled": self.store_model.embedding_model is not None,
+            },
+        )
+        self._setup_complete = True
+        logger.debug(
+            "Lakebase store registered (lazy open on first await)",
+            store=self.store_model.name,
+            project=database.project,
+            branch=branch,
+        )

@@ -305,7 +305,7 @@ dao-ai chat -c config/examples/15_complete_applications/sporting_goods_store.yam
 dao-ai graph -c config/examples/15_complete_applications/sporting_goods_store.yaml -o sporting_goods_architecture.png
 
 # Deploy to Databricks
-dao-ai bundle --deploy -c config/examples/15_complete_applications/sporting_goods_store.yaml
+dao-ai pipeline --deploy -c config/examples/15_complete_applications/sporting_goods_store.yaml
 ```
 
 ### Sample Prompts
@@ -470,7 +470,7 @@ dao-ai chat -c config/examples/15_complete_applications/hardware_store.yaml
 dao-ai graph -c config/examples/15_complete_applications/hardware_store.yaml -o architecture.png
 
 # Deploy to Databricks
-dao-ai bundle --deploy -c config/examples/15_complete_applications/hardware_store.yaml
+dao-ai pipeline --deploy -c config/examples/15_complete_applications/hardware_store.yaml
 ```
 
 ## Deployment Options

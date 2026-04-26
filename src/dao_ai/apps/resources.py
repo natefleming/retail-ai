@@ -36,8 +36,6 @@ from typing import Any
 
 from databricks.sdk.service.apps import (
     AppResource,
-    AppResourceDatabase,
-    AppResourceDatabaseDatabasePermission,
     AppResourceExperiment,
     AppResourceExperimentExperimentPermission,
     AppResourceGenieSpace,
@@ -336,23 +334,12 @@ def _extract_connection_resources(
 def _extract_database_resources(
     databases: dict[str, DatabaseModel],
 ) -> list[dict[str, Any]]:
-    """Extract Lakebase database resources from DatabaseModels."""
-    resources: list[dict[str, Any]] = []
-    for key, db in databases.items():
-        # Only include provisioned Lakebase databases.
-        # Autoscaling Lakebase uses the "postgres" API scope and does not
-        # register as a database instance resource.
-        if not db.is_lakebase_provisioned:
-            continue
-        resource: dict[str, Any] = {
-            "name": key,
-            "type": "database",
-            "database_instance_name": db.instance_name,
-            "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["database"]],
-        }
-        resources.append(resource)
-        logger.debug(f"Extracted database resource: {key} -> {db.instance_name}")
-    return resources
+    """Extract Lakebase database resources from DatabaseModels.
+
+    Autoscaling Lakebase uses the ``postgres`` API scope and does not
+    register as a database instance resource, so this always returns empty.
+    """
+    return []
 
 
 def _extract_app_resources(
@@ -785,35 +772,11 @@ def _extract_sdk_database_resources(
     databases: dict[str, DatabaseModel],
 ) -> list[AppResource]:
     """Extract SDK AppResource objects for Lakebase databases.
-    Skips OBO resources."""
-    resources: list[AppResource] = []
-    for key, db in databases.items():
-        if db.on_behalf_of_user:
-            continue
-        # Only include provisioned Lakebase databases.
-        # Autoscaling Lakebase uses the "postgres" API scope and does not
-        # register as a database instance resource.
-        if not db.is_lakebase_provisioned:
-            continue
-        sanitized_name = _sanitize_resource_name(key)
-        # Use db.database for the actual database name (defaults to "databricks_postgres")
-        # db.name is just the config key/description, not the actual database name
-        database_name = value_of(db.database) if db.database else "databricks_postgres"
-        resource = AppResource(
-            name=sanitized_name,
-            description=db.description,
-            database=AppResourceDatabase(
-                instance_name=db.instance_name,
-                database_name=database_name,
-                permission=AppResourceDatabaseDatabasePermission.CAN_CONNECT_AND_CREATE,
-            ),
-        )
-        resources.append(resource)
-        logger.debug(
-            f"Extracted SDK database resource: {sanitized_name} -> "
-            f"{db.instance_name}/{database_name}"
-        )
-    return resources
+
+    Autoscaling Lakebase uses the ``postgres`` API scope and does not
+    register as a database instance resource, so this always returns empty.
+    """
+    return []
 
 
 def _extract_sdk_volume_resources(
@@ -1469,6 +1432,18 @@ def generate_app_yaml(
                 "value": config.app.trace_location.warehouse_id,
             }
         )
+
+    # Add chat proxy env vars when enabled so the AgentServer can proxy
+    # static asset requests to the frontend running on a separate port.
+    enable_chat_proxy: bool = (
+        config.app.enable_chat_proxy
+        if config.app and config.app.enable_chat_proxy is not None
+        else True
+    )
+    if enable_chat_proxy:
+        from dao_ai.apps.chat_ui import chat_ui_env_vars
+
+        env_vars.extend(chat_ui_env_vars())
 
     # Extract environment variables from config.app.environment_vars
     config_env_vars = _extract_env_vars_from_config(config)
