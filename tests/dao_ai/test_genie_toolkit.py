@@ -475,11 +475,19 @@ class TestDatabaseModelConnectTimeout:
         db = DatabaseModel(project="my-project")
         assert db.connect_timeout == 30
 
-    def test_provisioned_defaults_to_10(self) -> None:
+    def test_instance_name_alias_defaults_to_30(self) -> None:
+        """`instance_name` is now a deprecated alias for `project`; both
+        resolve to autoscaling Lakebase, so connect_timeout defaults to 30."""
+        import warnings
+
         from dao_ai.config import DatabaseModel
 
-        db = DatabaseModel(instance_name="my-instance")
-        assert db.connect_timeout == 10
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            db = DatabaseModel(instance_name="my-instance")
+        assert db.connect_timeout == 30
+        assert db.is_lakebase is True
+        assert db.project == "my-instance"
 
     def test_standard_postgres_defaults_to_10(self) -> None:
         from dao_ai.config import DatabaseModel

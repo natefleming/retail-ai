@@ -3,13 +3,19 @@
 ## Full Configuration Structure
 
 ```yaml
+# Load-time parameters (${var.NAME} substitution)
+parameters:
+  param_name:
+    description: string          # Human-readable description
+    default: string | null       # Omit to make required
+
 # Schema definitions for Unity Catalog
 schemas:
   my_schema: &my_schema
-    catalog_name: string
+    catalog_name: string         # supports ${var.NAME} references
     schema_name: string
 
-# Reusable variables (secrets, env vars)
+# Reusable variables (secrets, env vars) - resolved at RUNTIME
 variables:
   api_key: &api_key
     options:
@@ -43,17 +49,10 @@ resources:
       columns: [string]
 
   databases:
-    # Autoscaling Lakebase
-    autoscaling_db: &autoscaling_db
-      project: string              # autoscaling Lakebase project name
+    # Lakebase (autoscaling)
+    lakebase_db: &lakebase_db
+      project: string              # Lakebase project name
       branch: string               # optional, auto-resolved if omitted
-      client_id: *api_key          # OAuth credentials
-      client_secret: *secret
-      workspace_host: string
-
-    # Provisioned Lakebase
-    provisioned_db: &provisioned_db
-      instance_name: string        # provisioned Lakebase instance name
       client_id: *api_key          # OAuth credentials
       client_secret: *secret
       workspace_host: string
@@ -220,7 +219,106 @@ app:
   
   environment_vars:
     KEY: "{{secrets/scope/secret}}"
+  
+  enable_chat_proxy: true          # default; set false for API-only
 ```
+
+### Chat UI (`enable_chat_proxy`)
+
+Controls whether the deployed Databricks App includes the interactive chat UI
+alongside the agent backend.
+
+| Value | Behaviour |
+|-------|-----------|
+| `true` (default) | The app runs both a Python backend (port 8000) and a Node.js chat frontend (port 3000). The MLflow `AgentServer` proxies browser requests to the frontend. The chat UI is the Databricks [e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next) template, cloned and built automatically at app startup (the Apps runtime has Node.js pre-installed). |
+| `false` | The app runs the Python backend only (`dao_ai.apps.server`). No chat UI. Useful for headless API endpoints or Model Serving deployments. |
+
+---
+
+## Parameters (Load-Time Substitution)
+
+Configs can declare typed input parameters and reference them inline with `${var.NAME}` (or its alias `${param.NAME}`). Substitution happens once at load time, **before** MLflow's `ModelConfig` parses the YAML. This makes one YAML re-usable across catalogs, schemas, environments, and workshop modules without duplicating files.
+
+### Declaring parameters
+
+Add a top-level `parameters:` block. Each entry can include a `description` and an optional `default`. Omitting `default` makes the parameter required.
+
+```yaml
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: main
+  schema:
+    description: Schema for workshop tables
+    default: dao_ai
+  module_id:
+    description: Workshop module identifier
+    # no default => required
+
+schemas:
+  workshop_schema:
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+app:
+  name: dao_ws_${var.module_id}_orchestration
+```
+
+### Reference syntax
+
+Two prefixes are supported as interchangeable aliases:
+
+- `${var.NAME}` - matches the Databricks Asset Bundle convention (recommended).
+- `${param.NAME}` - matches the `parameters:` block name.
+
+Both can appear in the same file and resolve against the same declaration. Inline defaults are also supported: `${var.NAME:-fallback}`.
+
+### Resolution precedence
+
+Each reference is resolved in this order:
+
+1. **CLI** `--var name=value` (or `AppConfig.from_file(params={...})`)
+2. **Process env** - `NAME` upper-cased with `.` and `-` replaced by `_` (e.g. `${var.app.catalog-name}` reads from `APP_CATALOG_NAME`)
+3. **Declared default** - the `default:` entry in the `parameters:` block
+4. **Inline default** - `${var.NAME:-fallback}` on the reference itself
+5. **Error** - raises `ConfigVariableError`
+
+### Error handling
+
+Two classes of error are caught at load time:
+
+**Missing required** - a declared parameter with no `default` and no override:
+
+```
+Config parameter error in dao_ai.yaml:
+  missing required: module_id.
+  Pass with --var name=value or set the equivalent env var.
+```
+
+**Undeclared reference** - a `${var.NAME}` used in the YAML but not in the `parameters:` block (typo protection):
+
+```
+Config parameter error in dao_ai.yaml:
+  undeclared ${var.NAME} / ${param.NAME} references: catlaog.
+  Add them to the top-level parameters: block.
+```
+
+### YAML quoting caveat
+
+Substitution is text-level - the value is spliced into the YAML before parsing. If a value may contain YAML-special characters (`:` followed by a space, `#`, `[`, `{`, newlines, quotes), quote the reference:
+
+```yaml
+prompt: "${var.user_prompt}"   # safe regardless of value content
+label: ${var.label}            # OK only for plain alphanumeric values
+```
+
+### Non-recursion
+
+Substitution does not recurse. If a substituted value happens to contain `${var.x}` literally, it is preserved as-is and not re-resolved.
+
+### Bundle behaviour
+
+When `dao-ai generate-bundle` writes the deployable Apps bundle, the emitted config YAML has every reference substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--var` flags.
 
 ---
 
@@ -295,6 +393,66 @@ resources:
 - **Portability**: Easy multi-cloud and multi-workspace deployments
 - **Resilience**: Fallback chains ensure configuration succeeds
 - **Backwards Compatible**: Plain strings still work for static values
+
+### Parameters vs Variables - the Lifecycle Distinction
+
+`parameters:` and `variables:` look similar but solve different problems at different lifecycle stages. Use this table to pick the right one:
+
+| | `parameters:` | `variables:` |
+|---|---|---|
+| **When resolved** | Load time, by `AppConfig.from_file` | Runtime, when `as_value()` is called inside the deployed app |
+| **Source of value** | `--var`, env, declared default, inline `:-default` | `env` / `scope`+`secret` / composite at runtime |
+| **Reference syntax** | `${var.NAME}` or `${param.NAME}` (inline string macro) | YAML anchor `*name` (typed mapping spliced into a field) |
+| **Scope of effect** | Anywhere in any string in the YAML | Wherever the anchor expands |
+| **What ends up in the bundle** | Resolved literal value, declarations dropped | The typed mapping itself, evaluated at runtime |
+| **Use for** | Catalog/schema/app names, table prefixes, prompt fragments | Credentials, hostnames, secrets - anything the deployed runtime must read live |
+
+**Rule of thumb:** If the value should travel with the bundle, use `parameters:`. If it must be read from the deployed environment or Databricks Secrets each time the agent runs, use `variables:`.
+
+### Bridge Pattern: Parameters Feeding Variables
+
+`${var.NAME}` references work inside any string field - including fields inside typed `variables:` entries. This lets parameters control _where_ a secret lives without touching the runtime resolution model.
+
+```yaml
+parameters:
+  secret_scope:
+    description: Databricks secrets scope holding service-principal creds
+    default: dao_ai
+  client_id_secret_key:
+    description: Secret key for the SP client id
+    default: SP_CLIENT_ID
+
+variables:
+  client_id: &client_id
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.client_id_secret_key}
+      - env: ${var.client_id_secret_key}
+```
+
+At load time, `${var.secret_scope}` and `${var.client_id_secret_key}` are text-substituted to their literal values. The resulting `variables:` entry is then parsed normally as a `CompositeVariableModel` with a `SecretVariableModel` and an `EnvironmentVariableModel` - both resolved at runtime using the parameterised scope and key names.
+
+Override at deploy time:
+
+```bash
+dao-ai pipeline --deploy -c dao_ai.yaml --var secret_scope=prod_dao_ai --var client_id_secret_key=PROD_SP_CLIENT_ID
+```
+
+**What this does NOT do:** You cannot substitute a parameter for an _entire_ typed mapping - only for string fields inside one. This works:
+
+```yaml
+variables:
+  cred:
+    scope: ${var.scope}    # OK - string field inside a typed mapping
+    secret: ${var.key}     # OK
+```
+
+This does not:
+
+```yaml
+variables:
+  cred: ${var.whole_thing}  # NO - the typed mapping is not a string
+```
 
 ---
 

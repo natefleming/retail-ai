@@ -6,6 +6,9 @@ Check your configuration for errors:
 
 ```bash
 dao-ai validate -c config/my_config.yaml
+
+# With parameter overrides (repeatable)
+dao-ai validate -c config/my_config.yaml --var catalog=main --var module_id=09
 ```
 
 ## Generate JSON Schema
@@ -22,18 +25,26 @@ Generate a diagram showing how your agent works:
 
 ```bash
 dao-ai graph -c config/my_config.yaml -o workflow.png
+
+# With parameter overrides
+dao-ai graph -c config/my_config.yaml -o workflow.png --var catalog=main
 ```
 
-## Deploy with Databricks Asset Bundles
+## Pipeline: Deploy and Run
 
-Deploy your agent to Databricks. The CLI supports multi-cloud deployments with automatic cloud detection.
+The `dao-ai pipeline` subcommand deploys your agent to Databricks (under the hood it drives a Databricks Asset Bundle) and supports multi-cloud deployments with automatic cloud detection.
 
 ### Basic Deployment
 
 ```bash
 # Deploy using default profile or environment
-dao-ai bundle --deploy -c config/my_config.yaml
+dao-ai pipeline --deploy -c config/my_config.yaml
+
+# Deploy with parameter overrides
+dao-ai pipeline --deploy -c config/my_config.yaml --var catalog=prod_catalog --var schema=prod_schema
 ```
+
+`--var` flags are forwarded to the underlying `databricks bundle ...` invocation, so Databricks Asset Bundles' own `${var.NAME}` substitution sees the same values when the names overlap.
 
 ### Multi-Cloud Deployment
 
@@ -41,20 +52,20 @@ The CLI automatically detects the cloud provider from your Databricks workspace 
 
 ```bash
 # Deploy to AWS workspace
-dao-ai bundle --deploy -c config/my_config.yaml --profile aws-field-eng
+dao-ai pipeline --deploy -c config/my_config.yaml --profile aws-field-eng
 
 # Deploy to Azure workspace
-dao-ai bundle --deploy -c config/my_config.yaml --profile azure-retail
+dao-ai pipeline --deploy -c config/my_config.yaml --profile azure-retail
 
 # Deploy to GCP workspace
-dao-ai bundle --deploy -c config/my_config.yaml --profile gcp-analytics
+dao-ai pipeline --deploy -c config/my_config.yaml --profile gcp-analytics
 ```
 
 ### Deploy and Run
 
 ```bash
 # Deploy and immediately run the job
-dao-ai bundle --deploy --run -c config/my_config.yaml --profile aws-field-eng
+dao-ai pipeline --deploy --run -c config/my_config.yaml --profile aws-field-eng
 ```
 
 ### Explicit Cloud Override
@@ -62,7 +73,7 @@ dao-ai bundle --deploy --run -c config/my_config.yaml --profile aws-field-eng
 If cloud auto-detection doesn't work, you can specify the cloud explicitly:
 
 ```bash
-dao-ai bundle --deploy -c config/my_config.yaml --cloud aws
+dao-ai pipeline --deploy -c config/my_config.yaml --cloud aws
 ```
 
 ### Dry Run
@@ -70,17 +81,22 @@ dao-ai bundle --deploy -c config/my_config.yaml --cloud aws
 Preview commands without executing:
 
 ```bash
-dao-ai bundle --deploy -c config/my_config.yaml --profile aws-field-eng --dry-run
+dao-ai pipeline --deploy -c config/my_config.yaml --profile aws-field-eng --dry-run
 ```
 
 ## Generate Bundle
 
 Generate a complete, deployable Databricks Apps bundle directory from a dao-ai config file. This is distinct from the `bundle` command -- while `bundle` wraps `databricks bundle deploy/run/destroy`, `generate-bundle` **creates** the bundle project itself.
 
+When the source config uses `${var.NAME}` parameters, the generated bundle writes the **resolved** config (all parameters substituted to literal values, `parameters:` block dropped) so the deployed app does not need the original `--var` flags.
+
 ### Basic Usage
 
 ```bash
 dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle
+
+# With parameter overrides baked into the generated bundle
+dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --var catalog=prod_catalog
 ```
 
 ### What Gets Generated
@@ -96,6 +112,8 @@ The command creates a self-contained bundle directory with everything needed to 
 | `.gitignore` | Ignore patterns for build artifacts |
 | `.python-version` | Python version pin (3.11) |
 | `src/<package>/` | Stub package for custom code |
+
+When `app.enable_chat_proxy` is `true` (the default), the deployed app automatically clones and builds the Databricks [e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next) chat UI at startup. The Apps runtime has Node.js pre-installed, so no Node.js is needed on your development machine. Set `enable_chat_proxy: false` to deploy without the chat UI.
 
 ### Overwriting Existing Files
 
@@ -145,6 +163,9 @@ Start an interactive chat session with your agent:
 
 ```bash
 dao-ai chat -c config/my_config.yaml
+
+# With parameter overrides
+dao-ai chat -c config/my_config.yaml --var catalog=nfleming --var module_id=09
 ```
 
 ## List MCP Tools
@@ -157,6 +178,9 @@ List all MCP tools with full descriptions and schemas:
 
 ```bash
 dao-ai list-mcp-tools -c config/my_config.yaml
+
+# With parameter overrides
+dao-ai list-mcp-tools -c config/my_config.yaml --var catalog=main
 ```
 
 ### Show Only Filtered Tools
@@ -250,6 +274,34 @@ Schemas are displayed in a concise, readable format (53% smaller than JSON):
 - **Proper nesting**: Hierarchical structure with indentation
 - **No boilerplate**: Clean format without JSON syntax
 
+## Inspect Declared Parameters
+
+Print every parameter declared in a config's `parameters:` block, its current resolved value, and where that value came from.
+
+```bash
+dao-ai vars list -c config/my_config.yaml
+
+# With overrides to see how they resolve
+dao-ai vars list -c dao_ai.yaml --var module_id=09
+```
+
+Sample output:
+
+```
+NAME       REQUIRED  DEFAULT  RESOLVED  SOURCE   DESCRIPTION
+------------------------------------------------------------
+catalog    no        main     main      default  Unity Catalog catalog name
+module_id  yes       -        09        --var    Workshop module identifier
+```
+
+Source values: `--var`, `env`, `default`, `inline-default`, `MISSING`.
+
+Exit code is 1 if any required parameter is `MISSING`, 0 otherwise. This makes `vars list` useful in CI pipelines to verify all overrides are wired up before deploying.
+
+Full reference: [Parameters (Load-Time Substitution)](configuration-reference.md#parameters-load-time-substitution).
+
+---
+
 ## Verbose Output
 
 Increase verbosity for debugging (use `-v` through `-vvvv`):
@@ -268,6 +320,7 @@ dao-ai -vvvv validate -c config/my_config.yaml
 |--------|-------------|
 | `-c, --config FILE` | Path to configuration file (required) |
 | `-p, --profile NAME` | Databricks CLI profile to use |
+| `--var KEY=VALUE` | Override a `${var.KEY}` parameter in the config (repeatable) |
 | `-v, --verbose` | Increase verbosity (can be repeated up to 4 times) |
 | `--help` | Show help message |
 
@@ -287,17 +340,17 @@ dao-ai graph -c config/my_config.yaml -o output.png [OPTIONS]
 |--------|-------------|
 | `-o, --output FILE` | Output file path (supports .png, .pdf, .svg) |
 
-### Bundle Options
+### Pipeline Options
 
 ```bash
-dao-ai bundle -c config/my_config.yaml [OPTIONS]
+dao-ai pipeline -c config/my_config.yaml [OPTIONS]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `-d, --deploy` | Deploy the bundle to Databricks |
+| `-d, --deploy` | Deploy the pipeline to Databricks |
 | `-r, --run` | Run the deployment job after deploying |
-| `--destroy` | Destroy the deployed bundle |
+| `--destroy` | Destroy the deployed pipeline |
 | `-p, --profile NAME` | Databricks CLI profile to use |
 | `--cloud {azure,aws,gcp}` | Cloud provider (auto-detected if not specified) |
 | `-t, --target NAME` | Bundle target name (auto-generated if not specified) |
@@ -391,23 +444,23 @@ This allows you to deploy the same application to multiple workspaces without co
 
 ```bash
 # Deploy to AWS
-dao-ai bundle --deploy -c config/hardware_store.yaml --profile aws-prod
+dao-ai pipeline --deploy -c config/hardware_store.yaml --profile aws-prod
 
 # Deploy same app to Azure
-dao-ai bundle --deploy -c config/hardware_store.yaml --profile azure-prod
+dao-ai pipeline --deploy -c config/hardware_store.yaml --profile azure-prod
 
 # Deploy same app to GCP
-dao-ai bundle --deploy -c config/hardware_store.yaml --profile gcp-prod
+dao-ai pipeline --deploy -c config/hardware_store.yaml --profile gcp-prod
 ```
 
 ### Development vs Production
 
 ```bash
 # Deploy to development workspace
-dao-ai bundle --deploy -c config/my_app.yaml --profile aws-dev
+dao-ai pipeline --deploy -c config/my_app.yaml --profile aws-dev
 
 # Deploy to production workspace
-dao-ai bundle --deploy -c config/my_app.yaml --profile aws-prod
+dao-ai pipeline --deploy -c config/my_app.yaml --profile aws-prod
 ```
 
 ### Full Deployment Pipeline
@@ -420,7 +473,7 @@ dao-ai validate -c config/my_app.yaml
 dao-ai graph -c config/my_app.yaml -o workflow.png
 
 # Deploy and run
-dao-ai bundle --deploy --run -c config/my_app.yaml --profile aws-field-eng
+dao-ai pipeline --deploy --run -c config/my_app.yaml --profile aws-field-eng
 ```
 
 ---

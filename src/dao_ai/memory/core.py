@@ -89,21 +89,17 @@ class StoreManager:
                     cls.store_managers[store_model.name] = store_manager
             case StorageType.POSTGRES:
                 cache_key = store_model.database.name
-                if store_model.database.is_lakebase_provisioned:
-                    from dao_ai.memory.databricks import DatabricksStoreManager
+                store_manager = cls.store_managers.get(cache_key)
+                if store_manager is None:
+                    if store_model.database.is_lakebase:
+                        from dao_ai.memory.databricks import LakebaseStoreManager
 
-                    store_manager = cls.store_managers.get(cache_key)
-                    if store_manager is None:
-                        store_manager = DatabricksStoreManager(store_model)
-                        cls.store_managers[cache_key] = store_manager
-                else:
-                    # Autoscaling Lakebase and standard PostgreSQL use connection_params
-                    from dao_ai.memory.postgres import PostgresStoreManager
+                        store_manager = LakebaseStoreManager(store_model)
+                    else:
+                        from dao_ai.memory.postgres import AsyncPostgresStoreManager
 
-                    store_manager = cls.store_managers.get(cache_key)
-                    if store_manager is None:
-                        store_manager = PostgresStoreManager(store_model)
-                        cls.store_managers[cache_key] = store_manager
+                        store_manager = AsyncPostgresStoreManager(store_model)
+                    cls.store_managers[cache_key] = store_manager
             case _:
                 raise ValueError(f"Unknown storage type: {store_model.storage_type}")
 
@@ -130,25 +126,25 @@ class CheckpointManager:
                     )
             case StorageType.POSTGRES:
                 cache_key = checkpointer_model.database.name
-                if checkpointer_model.database.is_lakebase_provisioned:
-                    from dao_ai.memory.databricks import DatabricksCheckpointerManager
+                checkpointer_manager = cls.checkpoint_managers.get(cache_key)
+                if checkpointer_manager is None:
+                    if checkpointer_model.database.is_lakebase:
+                        from dao_ai.memory.databricks import (
+                            LakebaseCheckpointerManager,
+                        )
 
-                    checkpointer_manager = cls.checkpoint_managers.get(cache_key)
-                    if checkpointer_manager is None:
-                        checkpointer_manager = DatabricksCheckpointerManager(
+                        checkpointer_manager = LakebaseCheckpointerManager(
                             checkpointer_model
                         )
-                        cls.checkpoint_managers[cache_key] = checkpointer_manager
-                else:
-                    # Autoscaling Lakebase and standard PostgreSQL use connection_params
-                    from dao_ai.memory.postgres import AsyncPostgresCheckpointerManager
+                    else:
+                        from dao_ai.memory.postgres import (
+                            AsyncPostgresCheckpointerManager,
+                        )
 
-                    checkpointer_manager = cls.checkpoint_managers.get(cache_key)
-                    if checkpointer_manager is None:
                         checkpointer_manager = AsyncPostgresCheckpointerManager(
                             checkpointer_model
                         )
-                        cls.checkpoint_managers[cache_key] = checkpointer_manager
+                    cls.checkpoint_managers[cache_key] = checkpointer_manager
             case _:
                 raise ValueError(
                     f"Unknown storage type: {checkpointer_model.storage_type}"
