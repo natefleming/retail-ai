@@ -1,23 +1,34 @@
 """
 Tests for Lakebase database resource extraction across both deployment paths.
 
-When a Lakebase database is configured, the deploying agent should declare
-it as a Databricks resource so the platform grants the deployment's identity
-``CAN_CONNECT_AND_CREATE`` on the Lakebase instance:
+The two deploy paths emit Lakebase resources very differently:
+
+- **Databricks Apps** (``deploy_apps_agent``): the deployed app declares a
+  ``postgres`` app resource via ``generate_app_resources()`` (flat-dict for
+  the bundle) and ``generate_sdk_resources()`` (SDK ``AppResource``). The
+  platform binds the auto-SP to the Lakebase project with
+  ``CAN_CONNECT_AND_CREATE``. The Apps platform's ``postgres`` resource type
+  fully supports autoscaling Lakebase projects and requires both ``branch``
+  and ``database`` as full resource paths
+  (``projects/<p>/branches/<b>[/databases/<id>]``).
 
 - **Model Serving** (``deploy_model_serving_agent``): the model is logged
   with a ``SystemAuthPolicy`` whose ``resources`` list comes from each
-  resource model's ``as_resources()`` method. ``DatabaseModel.as_resources()``
-  must return a ``DatabricksLakebase`` resource for Lakebase configurations.
+  resource model's ``as_resources()`` method. **MLflow's
+  ``DatabricksLakebase`` resource does not support autoscaling Lakebase
+  projects** -- only the deprecated provisioned-instance shape -- and the
+  MLflow team confirmed (2026-04-10) that autoscaling support isn't planned
+  for the time being. Emitting the resource for an autoscaling project
+  causes the endpoint to fail to start with
+  ``NOT_FOUND: Database instance is not found``. dao-ai therefore returns
+  ``[]`` from ``DatabaseModel.as_resources()`` for Lakebase. Users who need
+  Model Serving + Lakebase must manage auth in agent code via OAuth M2M
+  (``client_id`` / ``client_secret`` on the DatabaseModel).
 
-- **Databricks Apps** (``deploy_apps_agent``): the deployed ``app.yaml``
-  enumerates resources via ``generate_app_resources()`` (flat-dict format
-  consumed by the bundle generator) and ``generate_sdk_resources()``
-  (SDK ``AppResource`` objects consumed by the direct-deploy path).
-  Both must include a ``database`` resource for each Lakebase.
+  Reference: https://github.com/mlflow/mlflow/issues/22452
 
-OBO databases are skipped at extraction time -- the user identity handles
-permissions via ``user_api_scopes`` instead.
+OBO databases are skipped at extraction time on the Apps path -- the user
+identity handles permissions via ``user_api_scopes`` instead.
 
 Standalone PostgreSQL connections (``host:`` set, no ``project:``) have no
 Databricks-managed resource binding and are also skipped.
@@ -35,34 +46,34 @@ import pytest
 
 @pytest.mark.unit
 class TestDatabaseModelAsResources:
-    """``DatabaseModel.as_resources()`` feeds Model Serving's SystemAuthPolicy."""
+    """``DatabaseModel.as_resources()`` feeds Model Serving's SystemAuthPolicy.
 
-    def test_lakebase_non_obo_returns_lakebase_resource(self) -> None:
-        from mlflow.models.resources import DatabricksLakebase
+    MLflow's ``DatabricksLakebase`` resource only supports the deprecated
+    provisioned-instance shape; logging it for an autoscaling Lakebase project
+    breaks Model Serving deploys (NOT_FOUND on the database resource at endpoint
+    start). Per the MLflow team, autoscaling support isn't planned for the time
+    being -- see https://github.com/mlflow/mlflow/issues/22452 (2026-04-10).
 
+    dao-ai therefore returns ``[]`` for autoscaling Lakebase databases. Users
+    who need Model Serving + Lakebase must manage auth in agent code via OAuth
+    M2M (``client_id`` / ``client_secret`` on the DatabaseModel)."""
+
+    def test_lakebase_does_not_emit_databrickslakebase_resource(self) -> None:
+        """Autoscaling Lakebase projects intentionally emit no MLflow
+        Lakebase resource -- the existing ``DatabricksLakebase`` MLflow class
+        only supports provisioned instances, not autoscaling projects."""
         from dao_ai.config import DatabaseModel
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
-        resources = list(db.as_resources())
-        assert len(resources) == 1
-        r = resources[0]
-        assert isinstance(r, DatabricksLakebase)
-        # to_dict produces the MLflow-resources YAML shape used in the model package
-        d = r.to_dict()
-        assert "lakebase" in d
-        assert d["lakebase"][0]["name"] == "retail-consumer-goods"
-        assert d["lakebase"][0]["on_behalf_of_user"] is False
+        assert list(db.as_resources()) == []
 
-    def test_lakebase_obo_carries_on_behalf_of_user_true(self) -> None:
+    def test_lakebase_obo_also_returns_empty(self) -> None:
+        """OBO databases also return [] -- the on_behalf_of_user flag does not
+        change the autoscaling-incompatibility issue with MLflow."""
         from dao_ai.config import DatabaseModel
 
-        db = DatabaseModel(
-            name="x", project="x", on_behalf_of_user=True
-        )
-        resources = list(db.as_resources())
-        assert len(resources) == 1
-        d = resources[0].to_dict()
-        assert d["lakebase"][0]["on_behalf_of_user"] is True
+        db = DatabaseModel(name="x", project="x", on_behalf_of_user=True)
+        assert list(db.as_resources()) == []
 
     def test_standalone_postgres_returns_empty(self) -> None:
         """Non-Lakebase PG has no Databricks-managed resource binding."""
@@ -76,15 +87,6 @@ class TestDatabaseModelAsResources:
         )
         assert db.is_lakebase is False
         assert list(db.as_resources()) == []
-
-    def test_lakebase_resource_uses_project_as_instance_name(self) -> None:
-        """``DatabricksLakebase.database_instance_name`` is the project field,
-        not the freeform ``name`` (which can differ for Lakebase logical names)."""
-        from dao_ai.config import DatabaseModel
-
-        db = DatabaseModel(name="logical-name", project="instance-actual")
-        d = list(db.as_resources())[0].to_dict()
-        assert d["lakebase"][0]["name"] == "instance-actual"
 
 
 # =============================================================================
@@ -102,14 +104,21 @@ class TestExtractDatabaseResourcesFlat:
         """Autoscaling Lakebase projects use the ``postgres`` resource type
         (not the deprecated ``database``/instance shape). When the user
         doesn't pin a branch, the extractor resolves the project's default
-        branch -- the Apps platform requires both ``database`` and
-        ``branch`` on a postgres resource."""
+        branch and emits the full resource path -- the Apps platform
+        validates the branch by calling ``get_branch(name=...)`` server-side
+        and rejects bare branch IDs. Same applies to the ``database`` field,
+        which must be the full Database resource path."""
         from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
 
         monkeypatch.setattr(
-            resources_mod, "_resolve_lakebase_default_branch", lambda db: "main"
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
         )
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
@@ -118,28 +127,41 @@ class TestExtractDatabaseResourcesFlat:
         r = out[0]
         assert r["type"] == "postgres"
         assert r["name"] == "workshop_db"
-        assert r["database"] == "retail-consumer-goods"
+        # Both `branch` and `database` are full resource paths -- the Apps
+        # platform rejects bare IDs with INVALID_PARAMETER_VALUE.
+        assert r["branch"] == "projects/retail-consumer-goods/branches/main"
+        assert (
+            r["database"]
+            == "projects/retail-consumer-goods/branches/main/databases/db-test"
+        )
         assert r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
-        # Branch is always present on the emitted resource (platform requires it).
-        assert r["branch"] == "main"
 
     def test_lakebase_with_branch_propagates_to_resource(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A user-pinned branch wins over the resolver -- the resolver
-        should not be consulted when ``db.branch`` is already set."""
+        """A user-pinned branch (a bare branch ID) is wrapped into the full
+        resource path; the branch resolver is not consulted."""
         from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
 
-        def _boom(db: object) -> str:
+        def _boom(self: object) -> str:
             raise AssertionError("resolver should not be called when branch is pinned")
 
-        monkeypatch.setattr(resources_mod, "_resolve_lakebase_default_branch", _boom)
+        monkeypatch.setattr(DatabaseModel, "resolve_default_branch", _boom)
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         db = DatabaseModel(project="retail-consumer-goods", branch="dev")
         out = _extract_database_resources({"workshop_db": db})
-        assert out[0]["branch"] == "dev"
+        assert out[0]["branch"] == "projects/retail-consumer-goods/branches/dev"
+        assert (
+            out[0]["database"]
+            == "projects/retail-consumer-goods/branches/dev/databases/db-test"
+        )
 
     def test_lakebase_obo_skipped(self) -> None:
         from dao_ai.apps.resources import _extract_database_resources
@@ -159,21 +181,45 @@ class TestExtractDatabaseResourcesFlat:
         )
         assert _extract_database_resources({"k": db}) == []
 
-    def test_project_only_emits_postgres_with_project_as_database(self) -> None:
-        """Lakebase autoscaling resource: ``database`` field on the
-        AppResource is the project name (Apps platform's lookup target)."""
+    def test_project_only_emits_postgres_with_project_in_database_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ``database`` field on the AppResource is the full Database
+        resource path -- which embeds the project at the root."""
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         db = DatabaseModel(project="project-only")
         out = _extract_database_resources({"k": db})
-        assert out[0]["database"] == "project-only"
+        assert out[0]["database"].startswith("projects/project-only/")
 
-    def test_resource_name_is_sanitized(self) -> None:
+    def test_resource_name_is_sanitized(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Underscores and other punctuation in the YAML key get sanitized
         for Databricks resource-name rules (matches volumes/tables behavior)."""
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         db = DatabaseModel(name="x", project="x")
         out = _extract_database_resources({"workshop_DB.shared": db})
@@ -183,9 +229,21 @@ class TestExtractDatabaseResourcesFlat:
         assert out[0]["name"]
         assert "/" not in out[0]["name"]
 
-    def test_multiple_lakebases_each_get_a_resource(self) -> None:
+    def test_multiple_lakebases_each_get_a_resource(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         out = _extract_database_resources(
             {
@@ -193,7 +251,9 @@ class TestExtractDatabaseResourcesFlat:
                 "checkpoints_db": DatabaseModel(project="p2"),
             }
         )
-        assert {r["database"] for r in out} == {"p1", "p2"}
+        # Each Lakebase becomes its own postgres resource with a project-rooted path.
+        roots = {r["database"].split("/")[1] for r in out}
+        assert roots == {"p1", "p2"}
 
     def test_empty_dict_returns_empty(self) -> None:
         from dao_ai.apps.resources import _extract_database_resources
@@ -224,7 +284,12 @@ class TestExtractDatabaseResourcesSDK:
         from dao_ai.config import DatabaseModel
 
         monkeypatch.setattr(
-            resources_mod, "_resolve_lakebase_default_branch", lambda db: "main"
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
         )
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
@@ -237,10 +302,13 @@ class TestExtractDatabaseResourcesSDK:
         # instance shape and must NOT be used.
         assert r.database is None
         assert isinstance(r.postgres, AppResourcePostgres)
-        assert r.postgres.database == "retail-consumer-goods"
-        # Branch is always populated -- the Apps platform requires it on the
-        # postgres resource. Resolved here from the (mocked) helper.
-        assert r.postgres.branch == "main"
+        # Both branch and database are full resource paths -- the platform
+        # validates each with get_branch / get_database and rejects bare IDs.
+        assert r.postgres.branch == "projects/retail-consumer-goods/branches/main"
+        assert (
+            r.postgres.database
+            == "projects/retail-consumer-goods/branches/main/databases/db-test"
+        )
         assert (
             r.postgres.permission
             is AppResourcePostgresPostgresPermission.CAN_CONNECT_AND_CREATE
@@ -306,15 +374,29 @@ class TestAppResourcesIntegration:
             ),
         )
 
-    def test_flat_app_resources_contain_postgres_alongside_llm(self) -> None:
+    def test_flat_app_resources_contain_postgres_alongside_llm(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import generate_app_resources
+        from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         resources = generate_app_resources(self._build_config())
         types = {r["type"] for r in resources}
         assert "serving-endpoint" in types
         assert "postgres" in types
         pg_r = next(r for r in resources if r["type"] == "postgres")
-        assert pg_r["database"] == "workshop-db"
+        assert pg_r["database"].startswith("projects/workshop-db/branches/")
+        assert pg_r["database"].endswith("/databases/db-test")
         assert pg_r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
 
     def test_flat_app_resources_skips_postgres_when_obo(self) -> None:
@@ -324,10 +406,23 @@ class TestAppResourcesIntegration:
         types = {r["type"] for r in resources}
         assert "postgres" not in types
 
-    def test_sdk_app_resources_contain_appresourcepostgres(self) -> None:
+    def test_sdk_app_resources_contain_appresourcepostgres(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from databricks.sdk.service.apps import AppResource, AppResourcePostgres
 
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import generate_sdk_resources
+        from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         resources = generate_sdk_resources(self._build_config())
         pg_resources = [
@@ -336,7 +431,8 @@ class TestAppResourcesIntegration:
         ]
         assert len(pg_resources) == 1
         assert isinstance(pg_resources[0].postgres, AppResourcePostgres)
-        assert pg_resources[0].postgres.database == "workshop-db"
+        assert pg_resources[0].postgres.database.startswith("projects/workshop-db/branches/")
+        assert pg_resources[0].postgres.database.endswith("/databases/db-test")
         # No legacy AppResourceDatabase mixed in
         assert pg_resources[0].database is None
 
@@ -361,11 +457,19 @@ class TestAppResourcesIntegration:
 @pytest.mark.integration
 class TestModelServingSystemResources:
     """The ``deploy_model_serving_agent`` path collects ``as_resources()``
-    from each resource model into a SystemAuthPolicy. Confirm that path
-    surfaces a Lakebase database for Model Serving deploys."""
+    from each resource model into a SystemAuthPolicy.
 
-    def test_lakebase_appears_in_as_resources_aggregate(self) -> None:
-        """Reproduce the aggregation step of deploy_model_serving_agent."""
+    For autoscaling Lakebase, dao-ai intentionally returns ``[]`` (see
+    ``DatabaseModel.as_resources``) because MLflow's ``DatabricksLakebase``
+    resource doesn't support autoscaling projects -- emitting it would
+    cause the Model Serving endpoint to fail to start with
+    ``NOT_FOUND: Database instance is not found``.
+
+    Reference: https://github.com/mlflow/mlflow/issues/22452 (2026-04-10)."""
+
+    def test_lakebase_does_not_appear_in_as_resources_aggregate(self) -> None:
+        """Reproduce the aggregation step of deploy_model_serving_agent;
+        the Lakebase database should NOT contribute resources."""
         from mlflow.models.resources import DatabricksLakebase
 
         from dao_ai.config import DatabaseModel, LLMModel
@@ -377,22 +481,18 @@ class TestModelServingSystemResources:
         for r in [llm, db]:
             all_resources.extend(r.as_resources())
 
-        # Database resource is present
+        # The LLM contributes a serving-endpoint resource; the Lakebase
+        # contributes nothing (no DatabricksLakebase resource is emitted).
         lakebase_resources = [
             r for r in all_resources if isinstance(r, DatabricksLakebase)
         ]
-        assert len(lakebase_resources) == 1
-        # The non-OBO database goes into the SystemAuthPolicy filter
-        # (the deploy path filters out on_behalf_of_user=True resources)
-        system_resources = [r for r in all_resources if not r.on_behalf_of_user]
-        assert any(isinstance(r, DatabricksLakebase) for r in system_resources)
+        assert lakebase_resources == []
 
-    def test_obo_lakebase_excluded_from_system_resources(self) -> None:
+    def test_obo_lakebase_also_excluded(self) -> None:
         from mlflow.models.resources import DatabricksLakebase
 
         from dao_ai.config import DatabaseModel
 
         db = DatabaseModel(name="x", project="x", on_behalf_of_user=True)
         resources = list(db.as_resources())
-        system_resources = [r for r in resources if not r.on_behalf_of_user]
-        assert all(not isinstance(r, DatabricksLakebase) for r in system_resources)
+        assert all(not isinstance(r, DatabricksLakebase) for r in resources)
