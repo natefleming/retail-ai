@@ -4216,6 +4216,103 @@ class SwarmModel(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def validate_no_deterministic_handoff_in_cycle(self) -> Self:
+        """Reject swarm configs where a deterministic edge participates in a cycle.
+
+        A deterministic handoff transfers control unconditionally on every
+        traversal. If any cycle in the handoff graph contains at least one
+        deterministic edge, the workflow can run forever -- the deterministic
+        edge guarantees re-entry, and the agentic edges that close the cycle
+        only need an LLM whose prompt occasionally fires the handoff tool to
+        keep the loop going.
+
+        This validator runs at config load time and rejects the pattern with
+        a clear cycle path so the user can break or reconfigure the cycle
+        before any compute is spent.
+
+        Allowed:
+          * No cycle (``A -det-> B`` with no path back to A).
+          * A cycle of all-agentic edges (LLMs can choose to terminate).
+
+        Rejected:
+          * Any cycle containing at least one deterministic edge.
+        """
+        if not self.handoffs:
+            return self
+
+        # Build edge list: list[(source_name, target_name, is_deterministic)]
+        edges: list[tuple[str, str, bool]] = []
+        for source, targets in self.handoffs.items():
+            if not targets:
+                continue
+            for entry in targets:
+                if isinstance(entry, HandoffRouteModel):
+                    target_obj = entry.agent
+                    is_det = entry.is_deterministic
+                else:
+                    target_obj = entry
+                    is_det = False
+                # Resolve AgentModel -> name; pass strings through.
+                target_name: str = (
+                    target_obj.name if hasattr(target_obj, "name") else str(target_obj)
+                )
+                # Skip self-references; they're handled (and rejected for
+                # deterministic) at swarm-build time, not here.
+                if target_name == source:
+                    continue
+                edges.append((source, target_name, is_det))
+
+        # Adjacency list keyed by source -> list[(target, is_deterministic)]
+        adj: dict[str, list[tuple[str, bool]]] = {}
+        for u, v, det in edges:
+            adj.setdefault(u, []).append((v, det))
+
+        # For each deterministic edge (u, v), is there a path v -> ... -> u?
+        # If yes, that path + the (u, v) edge forms a cycle containing a
+        # deterministic edge.
+        def find_path(start: str, goal: str) -> list[str] | None:
+            """BFS for any path from start to goal. Returns the node sequence
+            including endpoints, or None if no path exists."""
+            if start == goal:
+                return [start]
+            from collections import deque
+
+            queue: deque[tuple[str, list[str]]] = deque([(start, [start])])
+            visited: set[str] = {start}
+            while queue:
+                node, path = queue.popleft()
+                for nxt, _det in adj.get(node, []):
+                    if nxt == goal:
+                        return path + [nxt]
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        queue.append((nxt, path + [nxt]))
+            return None
+
+        for u, v, det in edges:
+            if not det:
+                continue
+            return_path: list[str] | None = find_path(v, u)
+            if return_path is None:
+                continue
+            # Cycle = u -det-> v -> ... -> u. Format with edge annotations.
+            full_path: list[str] = [u] + return_path  # u -> v -> ... -> u
+            # Annotate the deterministic edge so the message is unambiguous.
+            edge_str = (
+                f"{u} =[deterministic]=> "
+                + " -> ".join(full_path[1:])
+            )
+            raise ValueError(
+                "Swarm has a deterministic handoff inside a cycle: "
+                f"{edge_str}. Deterministic edges fire unconditionally on every "
+                "traversal, so any path back to the source forms a runaway loop. "
+                "Either remove the return path or make the deterministic edge "
+                "agentic."
+            )
+
+        return self
+
 
 class OrchestrationModel(BaseModel):
     """Multi-agent orchestration configuration. Exactly one of supervisor or swarm must be specified."""
