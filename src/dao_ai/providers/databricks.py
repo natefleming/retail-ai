@@ -690,6 +690,29 @@ class DatabricksProvider(ServiceProvider):
         logger.info(
             "Deploying agent to Model Serving", endpoint_name=config.app.endpoint_name
         )
+
+        # Warn about Lakebase autoscaling on Model Serving. MLflow's
+        # DatabricksLakebase resource doesn't support autoscaling projects
+        # (https://github.com/mlflow/mlflow/issues/22452), so dao-ai
+        # intentionally skips that resource emission. The deployed endpoint
+        # has no auto-bound Lakebase grant -- the agent must manage auth
+        # itself via OAuth M2M (client_id / client_secret on the
+        # DatabaseModel).
+        if config.resources and config.resources.databases:
+            for db_key, db in config.resources.databases.items():
+                if db.is_lakebase and db.project and not db.client_id:
+                    logger.warning(
+                        "Lakebase autoscaling on Model Serving requires manual "
+                        "auth -- MLflow's DatabricksLakebase resource doesn't "
+                        "support autoscaling projects. Set `client_id` and "
+                        "`client_secret` on the database, or deploy to "
+                        "Databricks Apps (which supports autoscaling Lakebase "
+                        "natively via the postgres resource binding). See "
+                        "https://github.com/mlflow/mlflow/issues/22452.",
+                        database=db_key,
+                        project=db.project,
+                    )
+
         mlflow.set_registry_uri("databricks-uc")
 
         endpoint_name: str = config.app.endpoint_name
