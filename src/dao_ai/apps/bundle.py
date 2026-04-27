@@ -37,6 +37,7 @@ _BUNDLE_RESOURCE_CONVERTERS: dict[str, str] = {
     "genie-space": "genie_space",
     "secret": "secret",
     "app": "app",
+    "postgres": "postgres",
     "table": "uc_securable",
     "volume": "uc_securable",
     "function": "uc_securable",
@@ -50,6 +51,7 @@ _DEDUP_KEY_EXTRACTORS: dict[str, Any] = {
     "genie_space": lambda r: r["genie_space"]["space_id"],
     "secret": lambda r: (r["secret"]["scope"], r["secret"]["key"]),
     "app": lambda r: r["app"]["name"],
+    "postgres": lambda r: (r["postgres"]["database"], r["postgres"].get("branch")),
     "uc_securable": lambda r: r["uc_securable"]["securable_full_name"],
 }
 
@@ -175,6 +177,17 @@ def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
             "name": resource["app_name"],
             "permission": permission,
         }
+    elif resource_type == "postgres":
+        # Lakebase autoscaling project. The platform grants the app SP
+        # CAN_CONNECT_AND_CREATE on the project once this resource binds.
+        postgres_block: dict[str, Any] = {
+            "database": resource["database"],
+            "permission": permission,
+        }
+        branch = resource.get("branch")
+        if branch:
+            postgres_block["branch"] = branch
+        result["postgres"] = postgres_block
     elif resource_type in (
         "table",
         "volume",

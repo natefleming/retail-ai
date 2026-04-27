@@ -95,7 +95,8 @@ DEFAULT_PERMISSIONS: dict[str, list[str]] = {
     "volume": ["CAN_READ"],
     "function": ["CAN_EXECUTE"],
     "connection": ["USE_CONNECTION"],
-    "database": ["CAN_CONNECT_AND_CREATE"],
+    "database": ["CAN_CONNECT_AND_CREATE"],   # deprecated provisioned Lakebase
+    "postgres": ["CAN_CONNECT_AND_CREATE"],    # autoscaling Lakebase project
     "app": ["CAN_VIEW"],
 }
 
@@ -336,15 +337,22 @@ def _extract_connection_resources(
 def _extract_database_resources(
     databases: dict[str, DatabaseModel],
 ) -> list[dict[str, Any]]:
-    """Extract Lakebase database resources from DatabaseModels.
+    """Extract Lakebase autoscaling-project resources from DatabaseModels.
 
-    When a Lakebase database is registered as an App resource, the
-    Databricks Apps platform grants the app's auto-generated service
-    principal ``CAN_CONNECT_AND_CREATE`` on that database instance --
-    no pre-created SP or secret-scope wiring needed.
+    When a Lakebase project is registered as a Databricks App resource
+    of type ``postgres``, the platform grants the app's auto-generated
+    service principal ``CAN_CONNECT_AND_CREATE`` on that project -- no
+    pre-created SP or secret-scope wiring needed.
+
+    Resource shape: Databricks Apps exposes two database-shaped
+    resource types -- ``database`` (deprecated, provisioned-instance
+    Lakebase) and ``postgres`` (autoscaling Lakebase projects). Lakebase
+    provisioned instances are deprecated; only the autoscaling project
+    flow is supported going forward, so this emits the ``postgres``
+    shape and points it at the project name.
 
     Standalone PostgreSQL connections (``host:`` set, no ``project:``)
-    have no Databricks-managed resource binding and are skipped here.
+    have no Databricks-managed resource binding and are skipped.
     OBO databases are skipped too -- the user identity handles
     permissions via ``user_api_scopes``.
     """
@@ -357,15 +365,16 @@ def _extract_database_resources(
         sanitized_name: str = _sanitize_resource_name(key)
         resource: dict[str, Any] = {
             "name": sanitized_name,
-            "type": "database",
-            "instance_name": db.project,
-            "database_name": db.name or db.project,
+            "type": "postgres",
+            "database": db.project,
             "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["database"]],
         }
+        if db.branch:
+            resource["branch"] = db.branch
         resources.append(resource)
         logger.debug(
-            f"Extracted Lakebase database resource: {sanitized_name} -> "
-            f"instance={db.project} database={db.name or db.project}"
+            f"Extracted Lakebase postgres resource: {sanitized_name} -> "
+            f"project={db.project} branch={db.branch or '(default)'}"
         )
     return resources
 
@@ -799,14 +808,16 @@ def _extract_sdk_genie_resources(
 def _extract_sdk_database_resources(
     databases: dict[str, DatabaseModel],
 ) -> list[AppResource]:
-    """Extract SDK AppResource objects for Lakebase databases.
+    """Extract SDK AppResource objects for Lakebase autoscaling projects.
 
     Mirror of ``_extract_database_resources`` for SDK-format deploys.
+    Uses ``AppResourcePostgres`` (autoscaling) rather than
+    ``AppResourceDatabase`` (deprecated provisioned-instance shape).
     Standalone PostgreSQL and OBO databases are skipped.
     """
     from databricks.sdk.service.apps import (
-        AppResourceDatabase,
-        AppResourceDatabaseDatabasePermission,
+        AppResourcePostgres,
+        AppResourcePostgresPostgresPermission,
     )
 
     resources: list[AppResource] = []
@@ -818,16 +829,16 @@ def _extract_sdk_database_resources(
         sanitized_name: str = _sanitize_resource_name(key)
         resource = AppResource(
             name=sanitized_name,
-            database=AppResourceDatabase(
-                instance_name=db.project,
-                database_name=db.name or db.project,
-                permission=AppResourceDatabaseDatabasePermission.CAN_CONNECT_AND_CREATE,
+            postgres=AppResourcePostgres(
+                database=db.project,
+                branch=db.branch,
+                permission=AppResourcePostgresPostgresPermission.CAN_CONNECT_AND_CREATE,
             ),
         )
         resources.append(resource)
         logger.debug(
-            f"Extracted SDK Lakebase database resource: {sanitized_name} -> "
-            f"instance={db.project} database={db.name or db.project}"
+            f"Extracted SDK Lakebase postgres resource: {sanitized_name} -> "
+            f"project={db.project} branch={db.branch or '(default)'}"
         )
     return resources
 
