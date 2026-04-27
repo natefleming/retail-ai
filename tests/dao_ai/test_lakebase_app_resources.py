@@ -102,14 +102,21 @@ class TestExtractDatabaseResourcesFlat:
         """Autoscaling Lakebase projects use the ``postgres`` resource type
         (not the deprecated ``database``/instance shape). When the user
         doesn't pin a branch, the extractor resolves the project's default
-        branch -- the Apps platform requires both ``database`` and
-        ``branch`` on a postgres resource."""
+        branch and emits the full resource path -- the Apps platform
+        validates the branch by calling ``get_branch(name=...)`` server-side
+        and rejects bare branch IDs. Same applies to the ``database`` field,
+        which must be the full Database resource path."""
         from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
 
         monkeypatch.setattr(
-            resources_mod, "_resolve_lakebase_default_branch", lambda db: "main"
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
         )
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
@@ -118,28 +125,41 @@ class TestExtractDatabaseResourcesFlat:
         r = out[0]
         assert r["type"] == "postgres"
         assert r["name"] == "workshop_db"
-        assert r["database"] == "retail-consumer-goods"
+        # Both `branch` and `database` are full resource paths -- the Apps
+        # platform rejects bare IDs with INVALID_PARAMETER_VALUE.
+        assert r["branch"] == "projects/retail-consumer-goods/branches/main"
+        assert (
+            r["database"]
+            == "projects/retail-consumer-goods/branches/main/databases/db-test"
+        )
         assert r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
-        # Branch is always present on the emitted resource (platform requires it).
-        assert r["branch"] == "main"
 
     def test_lakebase_with_branch_propagates_to_resource(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A user-pinned branch wins over the resolver -- the resolver
-        should not be consulted when ``db.branch`` is already set."""
+        """A user-pinned branch (a bare branch ID) is wrapped into the full
+        resource path; the branch resolver is not consulted."""
         from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
 
-        def _boom(db: object) -> str:
+        def _boom(self: object) -> str:
             raise AssertionError("resolver should not be called when branch is pinned")
 
-        monkeypatch.setattr(resources_mod, "_resolve_lakebase_default_branch", _boom)
+        monkeypatch.setattr(DatabaseModel, "resolve_default_branch", _boom)
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         db = DatabaseModel(project="retail-consumer-goods", branch="dev")
         out = _extract_database_resources({"workshop_db": db})
-        assert out[0]["branch"] == "dev"
+        assert out[0]["branch"] == "projects/retail-consumer-goods/branches/dev"
+        assert (
+            out[0]["database"]
+            == "projects/retail-consumer-goods/branches/dev/databases/db-test"
+        )
 
     def test_lakebase_obo_skipped(self) -> None:
         from dao_ai.apps.resources import _extract_database_resources
@@ -159,21 +179,45 @@ class TestExtractDatabaseResourcesFlat:
         )
         assert _extract_database_resources({"k": db}) == []
 
-    def test_project_only_emits_postgres_with_project_as_database(self) -> None:
-        """Lakebase autoscaling resource: ``database`` field on the
-        AppResource is the project name (Apps platform's lookup target)."""
+    def test_project_only_emits_postgres_with_project_in_database_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ``database`` field on the AppResource is the full Database
+        resource path -- which embeds the project at the root."""
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         db = DatabaseModel(project="project-only")
         out = _extract_database_resources({"k": db})
-        assert out[0]["database"] == "project-only"
+        assert out[0]["database"].startswith("projects/project-only/")
 
-    def test_resource_name_is_sanitized(self) -> None:
+    def test_resource_name_is_sanitized(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Underscores and other punctuation in the YAML key get sanitized
         for Databricks resource-name rules (matches volumes/tables behavior)."""
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         db = DatabaseModel(name="x", project="x")
         out = _extract_database_resources({"workshop_DB.shared": db})
@@ -183,9 +227,21 @@ class TestExtractDatabaseResourcesFlat:
         assert out[0]["name"]
         assert "/" not in out[0]["name"]
 
-    def test_multiple_lakebases_each_get_a_resource(self) -> None:
+    def test_multiple_lakebases_each_get_a_resource(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         out = _extract_database_resources(
             {
@@ -193,7 +249,9 @@ class TestExtractDatabaseResourcesFlat:
                 "checkpoints_db": DatabaseModel(project="p2"),
             }
         )
-        assert {r["database"] for r in out} == {"p1", "p2"}
+        # Each Lakebase becomes its own postgres resource with a project-rooted path.
+        roots = {r["database"].split("/")[1] for r in out}
+        assert roots == {"p1", "p2"}
 
     def test_empty_dict_returns_empty(self) -> None:
         from dao_ai.apps.resources import _extract_database_resources
@@ -224,7 +282,12 @@ class TestExtractDatabaseResourcesSDK:
         from dao_ai.config import DatabaseModel
 
         monkeypatch.setattr(
-            resources_mod, "_resolve_lakebase_default_branch", lambda db: "main"
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
         )
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
@@ -237,10 +300,13 @@ class TestExtractDatabaseResourcesSDK:
         # instance shape and must NOT be used.
         assert r.database is None
         assert isinstance(r.postgres, AppResourcePostgres)
-        assert r.postgres.database == "retail-consumer-goods"
-        # Branch is always populated -- the Apps platform requires it on the
-        # postgres resource. Resolved here from the (mocked) helper.
-        assert r.postgres.branch == "main"
+        # Both branch and database are full resource paths -- the platform
+        # validates each with get_branch / get_database and rejects bare IDs.
+        assert r.postgres.branch == "projects/retail-consumer-goods/branches/main"
+        assert (
+            r.postgres.database
+            == "projects/retail-consumer-goods/branches/main/databases/db-test"
+        )
         assert (
             r.postgres.permission
             is AppResourcePostgresPostgresPermission.CAN_CONNECT_AND_CREATE
@@ -306,15 +372,29 @@ class TestAppResourcesIntegration:
             ),
         )
 
-    def test_flat_app_resources_contain_postgres_alongside_llm(self) -> None:
+    def test_flat_app_resources_contain_postgres_alongside_llm(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import generate_app_resources
+        from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         resources = generate_app_resources(self._build_config())
         types = {r["type"] for r in resources}
         assert "serving-endpoint" in types
         assert "postgres" in types
         pg_r = next(r for r in resources if r["type"] == "postgres")
-        assert pg_r["database"] == "workshop-db"
+        assert pg_r["database"].startswith("projects/workshop-db/branches/")
+        assert pg_r["database"].endswith("/databases/db-test")
         assert pg_r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
 
     def test_flat_app_resources_skips_postgres_when_obo(self) -> None:
@@ -324,10 +404,23 @@ class TestAppResourcesIntegration:
         types = {r["type"] for r in resources}
         assert "postgres" not in types
 
-    def test_sdk_app_resources_contain_appresourcepostgres(self) -> None:
+    def test_sdk_app_resources_contain_appresourcepostgres(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from databricks.sdk.service.apps import AppResource, AppResourcePostgres
 
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import generate_sdk_resources
+        from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            DatabaseModel, "resolve_default_branch", lambda self: "main"
+        )
+        monkeypatch.setattr(
+            resources_mod,
+            "_resolve_lakebase_database_path",
+            lambda db, branch_path: f"{branch_path}/databases/db-test",
+        )
 
         resources = generate_sdk_resources(self._build_config())
         pg_resources = [
@@ -336,7 +429,8 @@ class TestAppResourcesIntegration:
         ]
         assert len(pg_resources) == 1
         assert isinstance(pg_resources[0].postgres, AppResourcePostgres)
-        assert pg_resources[0].postgres.database == "workshop-db"
+        assert pg_resources[0].postgres.database.startswith("projects/workshop-db/branches/")
+        assert pg_resources[0].postgres.database.endswith("/databases/db-test")
         # No legacy AppResourceDatabase mixed in
         assert pg_resources[0].database is None
 
