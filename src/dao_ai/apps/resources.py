@@ -121,7 +121,9 @@ VALID_USER_API_SCOPES: set[str] = {
 # deliberately omitted and fall through to the no-op branch in
 # generate_user_api_scopes:
 #   - "apps.apps"                      (DatabricksAppModel — no cross-app OBO)
-#   - "postgres" / "database.database-instances"  (Lakebase — no OBO scope)
+#   - "postgres" / "database.database-instances"  (Lakebase — no OBO scope;
+#     non-OBO SP access is granted via the AppResourceDatabase resource
+#     binding emitted by _extract_database_resources)
 #   - "mcp.genie" / "mcp.functions" / "mcp.vectorsearch" / "mcp.external"
 #     (MCP resource scopes; OBO falls back to the underlying Databricks
 #      scopes on the same resource, e.g. catalog.connections +
@@ -336,10 +338,36 @@ def _extract_database_resources(
 ) -> list[dict[str, Any]]:
     """Extract Lakebase database resources from DatabaseModels.
 
-    Autoscaling Lakebase uses the ``postgres`` API scope and does not
-    register as a database instance resource, so this always returns empty.
+    When a Lakebase database is registered as an App resource, the
+    Databricks Apps platform grants the app's auto-generated service
+    principal ``CAN_CONNECT_AND_CREATE`` on that database instance --
+    no pre-created SP or secret-scope wiring needed.
+
+    Standalone PostgreSQL connections (``host:`` set, no ``project:``)
+    have no Databricks-managed resource binding and are skipped here.
+    OBO databases are skipped too -- the user identity handles
+    permissions via ``user_api_scopes``.
     """
-    return []
+    resources: list[dict[str, Any]] = []
+    for key, db in databases.items():
+        if not db.is_lakebase:
+            continue
+        if db.on_behalf_of_user:
+            continue
+        sanitized_name: str = _sanitize_resource_name(key)
+        resource: dict[str, Any] = {
+            "name": sanitized_name,
+            "type": "database",
+            "instance_name": db.project,
+            "database_name": db.name or db.project,
+            "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["database"]],
+        }
+        resources.append(resource)
+        logger.debug(
+            f"Extracted Lakebase database resource: {sanitized_name} -> "
+            f"instance={db.project} database={db.name or db.project}"
+        )
+    return resources
 
 
 def _extract_app_resources(
@@ -773,10 +801,35 @@ def _extract_sdk_database_resources(
 ) -> list[AppResource]:
     """Extract SDK AppResource objects for Lakebase databases.
 
-    Autoscaling Lakebase uses the ``postgres`` API scope and does not
-    register as a database instance resource, so this always returns empty.
+    Mirror of ``_extract_database_resources`` for SDK-format deploys.
+    Standalone PostgreSQL and OBO databases are skipped.
     """
-    return []
+    from databricks.sdk.service.apps import (
+        AppResourceDatabase,
+        AppResourceDatabaseDatabasePermission,
+    )
+
+    resources: list[AppResource] = []
+    for key, db in databases.items():
+        if not db.is_lakebase:
+            continue
+        if db.on_behalf_of_user:
+            continue
+        sanitized_name: str = _sanitize_resource_name(key)
+        resource = AppResource(
+            name=sanitized_name,
+            database=AppResourceDatabase(
+                instance_name=db.project,
+                database_name=db.name or db.project,
+                permission=AppResourceDatabaseDatabasePermission.CAN_CONNECT_AND_CREATE,
+            ),
+        )
+        resources.append(resource)
+        logger.debug(
+            f"Extracted SDK Lakebase database resource: {sanitized_name} -> "
+            f"instance={db.project} database={db.name or db.project}"
+        )
+    return resources
 
 
 def _extract_sdk_volume_resources(

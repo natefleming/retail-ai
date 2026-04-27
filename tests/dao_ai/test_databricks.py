@@ -1569,18 +1569,23 @@ def test_database_model_workspace_client_oauth_uses_databricks_host_env():
 
 @pytest.mark.unit
 def test_database_model_as_resources_lakebase():
-    """Test DatabaseModel.as_resources returns empty list for Lakebase.
+    """DatabaseModel.as_resources returns a DatabricksLakebase resource for
+    Lakebase databases so the deploying agent (Model Serving SystemAuthPolicy
+    or Databricks Apps auto-SP) gets CAN_CONNECT_AND_CREATE on the instance.
 
-    Lakebase uses the 'postgres' API scope and does not register
-    as a database instance resource.
+    See tests/dao_ai/test_lakebase_app_resources.py for the broader suite.
     """
+    from mlflow.models.resources import DatabricksLakebase
+
     db = DatabaseModel(
         name="test-db",
         project="test-db",
     )
     assert db.is_lakebase is True
-    resources = db.as_resources()
-    assert len(resources) == 0
+    resources = list(db.as_resources())
+    assert len(resources) == 1
+    assert isinstance(resources[0], DatabricksLakebase)
+    assert resources[0].to_dict()["lakebase"][0]["name"] == "test-db"
     assert db.api_scopes == ["postgres"]
 
 
