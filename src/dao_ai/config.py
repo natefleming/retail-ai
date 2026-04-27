@@ -1897,17 +1897,37 @@ class DatabaseModel(IsDatabricksResource):
         return self.is_lakebase
 
     def as_resources(self) -> Sequence[DatabricksResource]:
-        # Lakebase databases register as DatabricksLakebase resources so the
-        # deploying agent (Model Serving SystemAuthPolicy or Databricks Apps
-        # auto-SP) gets CAN_CONNECT_AND_CREATE on the instance. Standalone
-        # PostgreSQL hosts have no Databricks-managed resource binding.
+        # Lakebase autoscaling projects intentionally do NOT emit a
+        # DatabricksLakebase MLflow resource. MLflow's DatabricksLakebase
+        # resource only supports the deprecated provisioned-instance shape;
+        # logging it for an autoscaling project makes the Model Serving
+        # endpoint fail to start with:
+        #
+        #   NOT_FOUND: Database instance is not found. Please ensure all
+        #   resource dependencies for the server entity are valid...
+        #
+        # MLflow team confirmed this gap is not planned for the time being
+        # (https://github.com/mlflow/mlflow/issues/22452, 2026-04-10).
+        # The recommended workaround is to manage Lakebase auth from within
+        # the agent code using OAuth M2M (set ``client_id`` and
+        # ``client_secret`` on the DatabaseModel, or surface them via the
+        # secret-scope-wrapped pattern used in the workshop's Lab 7 YAML).
+        #
+        # The Apps deploy path is unaffected -- it uses the platform's
+        # ``postgres`` resource binding (see
+        # ``dao_ai.apps.resources._extract_database_resources``), which
+        # supports autoscaling natively.
+        #
+        # Standalone PostgreSQL hosts have no Databricks-managed resource
+        # binding and likewise return [].
         if self.is_lakebase and self.project:
-            return [
-                DatabricksLakebase(
-                    database_instance_name=self.project,
-                    on_behalf_of_user=self.on_behalf_of_user,
-                )
-            ]
+            logger.debug(
+                "Lakebase database is autoscaling -- skipping DatabricksLakebase "
+                "MLflow resource emission. Use OAuth client_id/client_secret on "
+                "the DatabaseModel for Model Serving auth. See "
+                "https://github.com/mlflow/mlflow/issues/22452.",
+                project=self.project,
+            )
         return []
 
     @model_validator(mode="after")
