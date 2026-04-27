@@ -1569,23 +1569,21 @@ def test_database_model_workspace_client_oauth_uses_databricks_host_env():
 
 @pytest.mark.unit
 def test_database_model_as_resources_lakebase():
-    """DatabaseModel.as_resources returns a DatabricksLakebase resource for
-    Lakebase databases so the deploying agent (Model Serving SystemAuthPolicy
-    or Databricks Apps auto-SP) gets CAN_CONNECT_AND_CREATE on the instance.
-
-    See tests/dao_ai/test_lakebase_app_resources.py for the broader suite.
+    """DatabaseModel.as_resources intentionally returns ``[]`` for autoscaling
+    Lakebase databases. MLflow's ``DatabricksLakebase`` resource only supports
+    the deprecated provisioned-instance shape, and emitting it for an
+    autoscaling project causes Model Serving endpoints to fail to start with
+    ``NOT_FOUND: Database instance is not found`` (MLflow issue #22452,
+    2026-04-10). Apps-side resource binding goes through a different code path
+    (``_extract_database_resources``) and is unaffected -- see the broader
+    suite in tests/dao_ai/test_lakebase_app_resources.py.
     """
-    from mlflow.models.resources import DatabricksLakebase
-
     db = DatabaseModel(
         name="test-db",
         project="test-db",
     )
     assert db.is_lakebase is True
-    resources = list(db.as_resources())
-    assert len(resources) == 1
-    assert isinstance(resources[0], DatabricksLakebase)
-    assert resources[0].to_dict()["lakebase"][0]["name"] == "test-db"
+    assert list(db.as_resources()) == []
     assert db.api_scopes == ["postgres"]
 
 

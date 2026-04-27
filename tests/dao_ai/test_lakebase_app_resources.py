@@ -1,23 +1,34 @@
 """
 Tests for Lakebase database resource extraction across both deployment paths.
 
-When a Lakebase database is configured, the deploying agent should declare
-it as a Databricks resource so the platform grants the deployment's identity
-``CAN_CONNECT_AND_CREATE`` on the Lakebase instance:
+The two deploy paths emit Lakebase resources very differently:
+
+- **Databricks Apps** (``deploy_apps_agent``): the deployed app declares a
+  ``postgres`` app resource via ``generate_app_resources()`` (flat-dict for
+  the bundle) and ``generate_sdk_resources()`` (SDK ``AppResource``). The
+  platform binds the auto-SP to the Lakebase project with
+  ``CAN_CONNECT_AND_CREATE``. The Apps platform's ``postgres`` resource type
+  fully supports autoscaling Lakebase projects and requires both ``branch``
+  and ``database`` as full resource paths
+  (``projects/<p>/branches/<b>[/databases/<id>]``).
 
 - **Model Serving** (``deploy_model_serving_agent``): the model is logged
   with a ``SystemAuthPolicy`` whose ``resources`` list comes from each
-  resource model's ``as_resources()`` method. ``DatabaseModel.as_resources()``
-  must return a ``DatabricksLakebase`` resource for Lakebase configurations.
+  resource model's ``as_resources()`` method. **MLflow's
+  ``DatabricksLakebase`` resource does not support autoscaling Lakebase
+  projects** -- only the deprecated provisioned-instance shape -- and the
+  MLflow team confirmed (2026-04-10) that autoscaling support isn't planned
+  for the time being. Emitting the resource for an autoscaling project
+  causes the endpoint to fail to start with
+  ``NOT_FOUND: Database instance is not found``. dao-ai therefore returns
+  ``[]`` from ``DatabaseModel.as_resources()`` for Lakebase. Users who need
+  Model Serving + Lakebase must manage auth in agent code via OAuth M2M
+  (``client_id`` / ``client_secret`` on the DatabaseModel).
 
-- **Databricks Apps** (``deploy_apps_agent``): the deployed ``app.yaml``
-  enumerates resources via ``generate_app_resources()`` (flat-dict format
-  consumed by the bundle generator) and ``generate_sdk_resources()``
-  (SDK ``AppResource`` objects consumed by the direct-deploy path).
-  Both must include a ``database`` resource for each Lakebase.
+  Reference: https://github.com/mlflow/mlflow/issues/22452
 
-OBO databases are skipped at extraction time -- the user identity handles
-permissions via ``user_api_scopes`` instead.
+OBO databases are skipped at extraction time on the Apps path -- the user
+identity handles permissions via ``user_api_scopes`` instead.
 
 Standalone PostgreSQL connections (``host:`` set, no ``project:``) have no
 Databricks-managed resource binding and are also skipped.
@@ -35,34 +46,34 @@ import pytest
 
 @pytest.mark.unit
 class TestDatabaseModelAsResources:
-    """``DatabaseModel.as_resources()`` feeds Model Serving's SystemAuthPolicy."""
+    """``DatabaseModel.as_resources()`` feeds Model Serving's SystemAuthPolicy.
 
-    def test_lakebase_non_obo_returns_lakebase_resource(self) -> None:
-        from mlflow.models.resources import DatabricksLakebase
+    MLflow's ``DatabricksLakebase`` resource only supports the deprecated
+    provisioned-instance shape; logging it for an autoscaling Lakebase project
+    breaks Model Serving deploys (NOT_FOUND on the database resource at endpoint
+    start). Per the MLflow team, autoscaling support isn't planned for the time
+    being -- see https://github.com/mlflow/mlflow/issues/22452 (2026-04-10).
 
+    dao-ai therefore returns ``[]`` for autoscaling Lakebase databases. Users
+    who need Model Serving + Lakebase must manage auth in agent code via OAuth
+    M2M (``client_id`` / ``client_secret`` on the DatabaseModel)."""
+
+    def test_lakebase_does_not_emit_databrickslakebase_resource(self) -> None:
+        """Autoscaling Lakebase projects intentionally emit no MLflow
+        Lakebase resource -- the existing ``DatabricksLakebase`` MLflow class
+        only supports provisioned instances, not autoscaling projects."""
         from dao_ai.config import DatabaseModel
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
-        resources = list(db.as_resources())
-        assert len(resources) == 1
-        r = resources[0]
-        assert isinstance(r, DatabricksLakebase)
-        # to_dict produces the MLflow-resources YAML shape used in the model package
-        d = r.to_dict()
-        assert "lakebase" in d
-        assert d["lakebase"][0]["name"] == "retail-consumer-goods"
-        assert d["lakebase"][0]["on_behalf_of_user"] is False
+        assert list(db.as_resources()) == []
 
-    def test_lakebase_obo_carries_on_behalf_of_user_true(self) -> None:
+    def test_lakebase_obo_also_returns_empty(self) -> None:
+        """OBO databases also return [] -- the on_behalf_of_user flag does not
+        change the autoscaling-incompatibility issue with MLflow."""
         from dao_ai.config import DatabaseModel
 
-        db = DatabaseModel(
-            name="x", project="x", on_behalf_of_user=True
-        )
-        resources = list(db.as_resources())
-        assert len(resources) == 1
-        d = resources[0].to_dict()
-        assert d["lakebase"][0]["on_behalf_of_user"] is True
+        db = DatabaseModel(name="x", project="x", on_behalf_of_user=True)
+        assert list(db.as_resources()) == []
 
     def test_standalone_postgres_returns_empty(self) -> None:
         """Non-Lakebase PG has no Databricks-managed resource binding."""
@@ -76,15 +87,6 @@ class TestDatabaseModelAsResources:
         )
         assert db.is_lakebase is False
         assert list(db.as_resources()) == []
-
-    def test_lakebase_resource_uses_project_as_instance_name(self) -> None:
-        """``DatabricksLakebase.database_instance_name`` is the project field,
-        not the freeform ``name`` (which can differ for Lakebase logical names)."""
-        from dao_ai.config import DatabaseModel
-
-        db = DatabaseModel(name="logical-name", project="instance-actual")
-        d = list(db.as_resources())[0].to_dict()
-        assert d["lakebase"][0]["name"] == "instance-actual"
 
 
 # =============================================================================
@@ -455,11 +457,19 @@ class TestAppResourcesIntegration:
 @pytest.mark.integration
 class TestModelServingSystemResources:
     """The ``deploy_model_serving_agent`` path collects ``as_resources()``
-    from each resource model into a SystemAuthPolicy. Confirm that path
-    surfaces a Lakebase database for Model Serving deploys."""
+    from each resource model into a SystemAuthPolicy.
 
-    def test_lakebase_appears_in_as_resources_aggregate(self) -> None:
-        """Reproduce the aggregation step of deploy_model_serving_agent."""
+    For autoscaling Lakebase, dao-ai intentionally returns ``[]`` (see
+    ``DatabaseModel.as_resources``) because MLflow's ``DatabricksLakebase``
+    resource doesn't support autoscaling projects -- emitting it would
+    cause the Model Serving endpoint to fail to start with
+    ``NOT_FOUND: Database instance is not found``.
+
+    Reference: https://github.com/mlflow/mlflow/issues/22452 (2026-04-10)."""
+
+    def test_lakebase_does_not_appear_in_as_resources_aggregate(self) -> None:
+        """Reproduce the aggregation step of deploy_model_serving_agent;
+        the Lakebase database should NOT contribute resources."""
         from mlflow.models.resources import DatabricksLakebase
 
         from dao_ai.config import DatabaseModel, LLMModel
@@ -471,22 +481,18 @@ class TestModelServingSystemResources:
         for r in [llm, db]:
             all_resources.extend(r.as_resources())
 
-        # Database resource is present
+        # The LLM contributes a serving-endpoint resource; the Lakebase
+        # contributes nothing (no DatabricksLakebase resource is emitted).
         lakebase_resources = [
             r for r in all_resources if isinstance(r, DatabricksLakebase)
         ]
-        assert len(lakebase_resources) == 1
-        # The non-OBO database goes into the SystemAuthPolicy filter
-        # (the deploy path filters out on_behalf_of_user=True resources)
-        system_resources = [r for r in all_resources if not r.on_behalf_of_user]
-        assert any(isinstance(r, DatabricksLakebase) for r in system_resources)
+        assert lakebase_resources == []
 
-    def test_obo_lakebase_excluded_from_system_resources(self) -> None:
+    def test_obo_lakebase_also_excluded(self) -> None:
         from mlflow.models.resources import DatabricksLakebase
 
         from dao_ai.config import DatabaseModel
 
         db = DatabaseModel(name="x", project="x", on_behalf_of_user=True)
         resources = list(db.as_resources())
-        system_resources = [r for r in resources if not r.on_behalf_of_user]
-        assert all(not isinstance(r, DatabricksLakebase) for r in system_resources)
+        assert all(not isinstance(r, DatabricksLakebase) for r in resources)
