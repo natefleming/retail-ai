@@ -724,6 +724,8 @@ def test_deploy_apps_agent_creates_new_app():
     mock_app.enable_chat_proxy = True
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
+    mock_config.rendered_yaml = None
+    mock_config.model_dump.return_value = {"app": {"name": "test_app"}}
     mock_config.resources = None  # No resources (required for generate_app_resources)
     mock_config.agents = None
     mock_config.retrievers = None
@@ -807,6 +809,8 @@ def test_deploy_apps_agent_updates_existing_app():
     mock_app.enable_chat_proxy = True
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
+    mock_config.rendered_yaml = None
+    mock_config.model_dump.return_value = {"app": {"name": "test_app"}}
     mock_config.resources = None  # No resources (required for generate_app_resources)
     mock_config.agents = None
     mock_config.retrievers = None
@@ -985,6 +989,84 @@ def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
     assert upload_calls
     uploaded_text = upload_calls[0].kwargs["content"].getvalue().decode("utf-8")
     assert uploaded_text == raw_yaml
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_serializes_python_built_config(tmp_path):
+    """When AppConfig has neither rendered_yaml nor a source file (i.e. it was
+    constructed entirely in Python), deploy_apps_agent should serialize the
+    in-memory model_dump back to YAML and upload that, instead of failing."""
+    import yaml as _yaml
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    real_config = AppConfig()
+    assert real_config.source_config_path is None
+    assert real_config.rendered_yaml is None
+    expected_yaml = _yaml.safe_dump(
+        real_config.model_dump(mode="json", by_alias=True, exclude_none=True),
+        sort_keys=False,
+        default_flow_style=False,
+    )
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "py-built"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = None
+    mock_config.rendered_yaml = None
+    mock_config.model_dump.return_value = real_config.model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    )
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+    mock_user = MagicMock(spec=User, user_name="test.user@example.com")
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = mock_user
+        with patch.object(
+            provider, "get_or_create_experiment", return_value=MagicMock(experiment_id="exp-1")
+        ):
+            provider.w.apps.get.return_value = mock_existing_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+            provider.deploy_apps_agent(mock_config)
+
+    # The provider should have created the workspace dir and uploaded a YAML
+    # serialized from the in-memory model.
+    provider.w.workspace.mkdirs.assert_called()
+    upload_calls = [
+        c for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("dao_ai.yaml")
+    ]
+    assert upload_calls, "expected an upload of dao_ai.yaml even without a source file"
+    uploaded_text = upload_calls[0].kwargs["content"].getvalue().decode("utf-8")
+    # Round-trip equivalence: the uploaded YAML parses to the same dict
+    # the AppConfig.model_dump() would have produced.
+    assert _yaml.safe_load(uploaded_text) == _yaml.safe_load(expected_yaml)
 
 
 @pytest.mark.unit
