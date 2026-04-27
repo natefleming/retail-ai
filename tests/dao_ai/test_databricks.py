@@ -857,6 +857,137 @@ def test_deploy_apps_agent_updates_existing_app():
 
 
 @pytest.mark.unit
+def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
+    """Uploaded config should be the parameter-substituted (rendered) YAML, not the raw source."""
+    import io
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    raw_yaml: str = "schemas:\n  ws:\n    catalog_name: ${var.catalog}\n"
+    rendered_yaml: str = "schemas:\n  ws:\n    catalog_name: my_catalog\n"
+    src_file = tmp_path / "dao_ai.yaml"
+    src_file.write_text(raw_yaml)
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "rendered-test"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = str(src_file)
+    mock_config.rendered_yaml = rendered_yaml
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+    mock_user = MagicMock(spec=User, user_name="test.user@example.com")
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = mock_user
+        with patch.object(
+            provider, "get_or_create_experiment", return_value=MagicMock(experiment_id="exp-1")
+        ):
+            provider.w.apps.get.return_value = mock_existing_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+            provider.deploy_apps_agent(mock_config)
+
+    # Find the workspace.upload call carrying the config
+    upload_calls = [
+        c for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("dao_ai.yaml")
+    ]
+    assert upload_calls, "expected an upload of dao_ai.yaml"
+    uploaded_bytes = upload_calls[0].kwargs["content"]
+    assert isinstance(uploaded_bytes, io.BytesIO)
+    uploaded_text = uploaded_bytes.getvalue().decode("utf-8")
+    assert uploaded_text == rendered_yaml, "deploy must upload rendered YAML, not source"
+    assert "${var.catalog}" not in uploaded_text
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
+    """If rendered_yaml is missing (legacy callers), fall back to reading the source file."""
+    import io
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    raw_yaml: str = "app:\n  name: legacy-app\n"
+    src_file = tmp_path / "dao_ai.yaml"
+    src_file.write_text(raw_yaml)
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "legacy-app"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = str(src_file)
+    mock_config.rendered_yaml = None  # legacy
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+    mock_user = MagicMock(spec=User, user_name="test.user@example.com")
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = mock_user
+        with patch.object(
+            provider, "get_or_create_experiment", return_value=MagicMock(experiment_id="exp-1")
+        ):
+            provider.w.apps.get.return_value = mock_existing_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+            provider.deploy_apps_agent(mock_config)
+
+    upload_calls = [
+        c for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("dao_ai.yaml")
+    ]
+    assert upload_calls
+    uploaded_text = upload_calls[0].kwargs["content"].getvalue().decode("utf-8")
+    assert uploaded_text == raw_yaml
+
+
+@pytest.mark.unit
 def test_deployment_target_enum_values():
     """Test that DeploymentTarget enum has expected values."""
     from dao_ai.config import DeploymentTarget
