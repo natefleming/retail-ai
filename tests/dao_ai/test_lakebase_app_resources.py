@@ -96,7 +96,9 @@ class TestDatabaseModelAsResources:
 class TestExtractDatabaseResourcesFlat:
     """Flat-dict extractor used when generating ``app.yaml`` for the bundle."""
 
-    def test_lakebase_non_obo_emits_database_resource(self) -> None:
+    def test_lakebase_non_obo_emits_postgres_resource(self) -> None:
+        """Autoscaling Lakebase projects use the ``postgres`` resource type
+        (not the deprecated ``database``/instance shape)."""
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
 
@@ -104,11 +106,19 @@ class TestExtractDatabaseResourcesFlat:
         out = _extract_database_resources({"workshop_db": db})
         assert len(out) == 1
         r = out[0]
-        assert r["type"] == "database"
+        assert r["type"] == "postgres"
         assert r["name"] == "workshop_db"
-        assert r["instance_name"] == "retail-consumer-goods"
-        assert r["database_name"] == "retail-consumer-goods"
+        assert r["database"] == "retail-consumer-goods"
         assert r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
+        assert "branch" not in r
+
+    def test_lakebase_with_branch_propagates_to_resource(self) -> None:
+        from dao_ai.apps.resources import _extract_database_resources
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="retail-consumer-goods", branch="dev")
+        out = _extract_database_resources({"workshop_db": db})
+        assert out[0]["branch"] == "dev"
 
     def test_lakebase_obo_skipped(self) -> None:
         from dao_ai.apps.resources import _extract_database_resources
@@ -128,16 +138,15 @@ class TestExtractDatabaseResourcesFlat:
         )
         assert _extract_database_resources({"k": db}) == []
 
-    def test_database_name_falls_back_to_project_when_name_omitted(self) -> None:
-        """Lakebase ``name`` defaults to ``project`` per DatabaseModel; the
-        extractor preserves that even if the inputs were partial."""
+    def test_project_only_emits_postgres_with_project_as_database(self) -> None:
+        """Lakebase autoscaling resource: ``database`` field on the
+        AppResource is the project name (Apps platform's lookup target)."""
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
 
         db = DatabaseModel(project="project-only")
         out = _extract_database_resources({"k": db})
-        assert out[0]["instance_name"] == "project-only"
-        assert out[0]["database_name"] == "project-only"
+        assert out[0]["database"] == "project-only"
 
     def test_resource_name_is_sanitized(self) -> None:
         """Underscores and other punctuation in the YAML key get sanitized
@@ -163,7 +172,7 @@ class TestExtractDatabaseResourcesFlat:
                 "checkpoints_db": DatabaseModel(project="p2"),
             }
         )
-        assert {r["instance_name"] for r in out} == {"p1", "p2"}
+        assert {r["database"] for r in out} == {"p1", "p2"}
 
     def test_empty_dict_returns_empty(self) -> None:
         from dao_ai.apps.resources import _extract_database_resources
@@ -180,11 +189,11 @@ class TestExtractDatabaseResourcesFlat:
 class TestExtractDatabaseResourcesSDK:
     """SDK ``AppResource`` extractor used by the direct-deploy path."""
 
-    def test_lakebase_non_obo_emits_appresource_database(self) -> None:
+    def test_lakebase_non_obo_emits_appresource_postgres(self) -> None:
         from databricks.sdk.service.apps import (
             AppResource,
-            AppResourceDatabase,
-            AppResourceDatabaseDatabasePermission,
+            AppResourcePostgres,
+            AppResourcePostgresPostgresPermission,
         )
 
         from dao_ai.apps.resources import _extract_sdk_database_resources
@@ -195,12 +204,16 @@ class TestExtractDatabaseResourcesSDK:
         assert len(out) == 1
         r = out[0]
         assert isinstance(r, AppResource)
-        assert isinstance(r.database, AppResourceDatabase)
-        assert r.database.instance_name == "retail-consumer-goods"
-        assert r.database.database_name == "retail-consumer-goods"
+        # Autoscaling Lakebase -> AppResourcePostgres (the platform shape
+        # for projects); AppResourceDatabase is the deprecated provisioned
+        # instance shape and must NOT be used.
+        assert r.database is None
+        assert isinstance(r.postgres, AppResourcePostgres)
+        assert r.postgres.database == "retail-consumer-goods"
+        assert r.postgres.branch is None
         assert (
-            r.database.permission
-            is AppResourceDatabaseDatabasePermission.CAN_CONNECT_AND_CREATE
+            r.postgres.permission
+            is AppResourcePostgresPostgresPermission.CAN_CONNECT_AND_CREATE
         )
 
     def test_lakebase_obo_skipped(self) -> None:
@@ -263,50 +276,51 @@ class TestAppResourcesIntegration:
             ),
         )
 
-    def test_flat_app_resources_contain_database_alongside_llm(self) -> None:
+    def test_flat_app_resources_contain_postgres_alongside_llm(self) -> None:
         from dao_ai.apps.resources import generate_app_resources
 
         resources = generate_app_resources(self._build_config())
         types = {r["type"] for r in resources}
         assert "serving-endpoint" in types
-        assert "database" in types
-        # The database resource has the right shape
-        db_r = next(r for r in resources if r["type"] == "database")
-        assert db_r["instance_name"] == "workshop-db"
-        assert db_r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
+        assert "postgres" in types
+        pg_r = next(r for r in resources if r["type"] == "postgres")
+        assert pg_r["database"] == "workshop-db"
+        assert pg_r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
 
-    def test_flat_app_resources_skips_database_when_obo(self) -> None:
+    def test_flat_app_resources_skips_postgres_when_obo(self) -> None:
         from dao_ai.apps.resources import generate_app_resources
 
         resources = generate_app_resources(self._build_config(on_behalf_of_user=True))
         types = {r["type"] for r in resources}
-        assert "database" not in types
+        assert "postgres" not in types
 
-    def test_sdk_app_resources_contain_appresourcedatabase(self) -> None:
-        from databricks.sdk.service.apps import AppResource, AppResourceDatabase
+    def test_sdk_app_resources_contain_appresourcepostgres(self) -> None:
+        from databricks.sdk.service.apps import AppResource, AppResourcePostgres
 
         from dao_ai.apps.resources import generate_sdk_resources
 
         resources = generate_sdk_resources(self._build_config())
-        db_resources = [
+        pg_resources = [
             r for r in resources
-            if isinstance(r, AppResource) and r.database is not None
+            if isinstance(r, AppResource) and r.postgres is not None
         ]
-        assert len(db_resources) == 1
-        assert isinstance(db_resources[0].database, AppResourceDatabase)
-        assert db_resources[0].database.instance_name == "workshop-db"
+        assert len(pg_resources) == 1
+        assert isinstance(pg_resources[0].postgres, AppResourcePostgres)
+        assert pg_resources[0].postgres.database == "workshop-db"
+        # No legacy AppResourceDatabase mixed in
+        assert pg_resources[0].database is None
 
-    def test_sdk_app_resources_skips_database_when_obo(self) -> None:
+    def test_sdk_app_resources_skips_postgres_when_obo(self) -> None:
         from databricks.sdk.service.apps import AppResource
 
         from dao_ai.apps.resources import generate_sdk_resources
 
         resources = generate_sdk_resources(self._build_config(on_behalf_of_user=True))
-        db_resources = [
+        pg_resources = [
             r for r in resources
-            if isinstance(r, AppResource) and r.database is not None
+            if isinstance(r, AppResource) and r.postgres is not None
         ]
-        assert db_resources == []
+        assert pg_resources == []
 
 
 # =============================================================================
