@@ -70,6 +70,7 @@ from mlflow.models.resources import (
     DatabricksApp,
     DatabricksFunction,
     DatabricksGenieSpace,
+    DatabricksLakebase,
     DatabricksResource,
     DatabricksServingEndpoint,
     DatabricksSQLWarehouse,
@@ -1896,8 +1897,17 @@ class DatabaseModel(IsDatabricksResource):
         return self.is_lakebase
 
     def as_resources(self) -> Sequence[DatabricksResource]:
-        # Autoscaling Lakebase uses the "postgres" API scope and does not
-        # register as a database instance resource.
+        # Lakebase databases register as DatabricksLakebase resources so the
+        # deploying agent (Model Serving SystemAuthPolicy or Databricks Apps
+        # auto-SP) gets CAN_CONNECT_AND_CREATE on the instance. Standalone
+        # PostgreSQL hosts have no Databricks-managed resource binding.
+        if self.is_lakebase and self.project:
+            return [
+                DatabricksLakebase(
+                    database_instance_name=self.project,
+                    on_behalf_of_user=self.on_behalf_of_user,
+                )
+            ]
         return []
 
     @model_validator(mode="after")
