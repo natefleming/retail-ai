@@ -894,3 +894,218 @@ class TestDeterministicHandoffValidation:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# =============================================================================
+# Static Cycle Detection Unit Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestSwarmDeterministicCycleDetection:
+    """Tests for the SwarmModel validator that rejects deterministic edges in cycles.
+
+    A deterministic edge fires unconditionally on every traversal. If any
+    cycle in the handoff graph contains at least one deterministic edge, the
+    workflow can run forever -- the loop is closed by the deterministic edge,
+    only the agentic edge needs an LLM whose prompt occasionally fires.
+    """
+
+    def test_two_node_det_then_agentic_cycle_rejected(self) -> None:
+        """A -[det]-> B -[agentic]-> A: minimal failing case."""
+        with pytest.raises(ValueError, match="deterministic handoff inside a cycle"):
+            SwarmModel(
+                handoffs={
+                    "a": [HandoffRouteModel(agent="b", is_deterministic=True)],
+                    "b": ["a"],
+                }
+            )
+
+    def test_two_node_all_deterministic_cycle_rejected(self) -> None:
+        """A -[det]-> B -[det]-> A: at-most-one-det-per-agent passes here
+        (each source has one), but the static cycle check catches it."""
+        with pytest.raises(ValueError, match="deterministic handoff inside a cycle"):
+            SwarmModel(
+                handoffs={
+                    "a": [HandoffRouteModel(agent="b", is_deterministic=True)],
+                    "b": [HandoffRouteModel(agent="a", is_deterministic=True)],
+                }
+            )
+
+    def test_three_hop_cycle_with_one_det_rejected(self) -> None:
+        """A -[det]-> B -[agentic]-> C -[agentic]-> A: longer cycle still loops."""
+        with pytest.raises(ValueError, match="deterministic handoff inside a cycle"):
+            SwarmModel(
+                handoffs={
+                    "a": [HandoffRouteModel(agent="b", is_deterministic=True)],
+                    "b": ["c"],
+                    "c": ["a"],
+                }
+            )
+
+    def test_all_agentic_cycle_allowed(self) -> None:
+        """A -[agentic]-> B -[agentic]-> A: LLMs can choose to terminate, so allowed."""
+        # Should not raise.
+        swarm = SwarmModel(handoffs={"a": ["b"], "b": ["a"]})
+        assert swarm.handoffs is not None
+
+    def test_three_node_all_agentic_cycle_allowed(self) -> None:
+        """All-agentic cycles of any size are allowed."""
+        swarm = SwarmModel(handoffs={"a": ["b"], "b": ["c"], "c": ["a"]})
+        assert swarm.handoffs is not None
+
+    def test_deterministic_edge_no_return_path_allowed(self) -> None:
+        """A -[det]-> B with no path B -> A is fine. No cycle, no loop."""
+        swarm = SwarmModel(
+            handoffs={
+                "a": [HandoffRouteModel(agent="b", is_deterministic=True)],
+                "b": [],
+            }
+        )
+        assert swarm.handoffs is not None
+
+    def test_chain_of_deterministic_edges_allowed(self) -> None:
+        """A -[det]-> B -[det]-> C with no return path: pipeline-style flow."""
+        swarm = SwarmModel(
+            handoffs={
+                "a": [HandoffRouteModel(agent="b", is_deterministic=True)],
+                "b": [HandoffRouteModel(agent="c", is_deterministic=True)],
+                "c": [],
+            }
+        )
+        assert swarm.handoffs is not None
+
+    def test_self_referencing_deterministic_handoff_ignored_by_cycle_check(
+        self,
+    ) -> None:
+        """A self-reference (A -[det]-> A) is a separate concern handled at
+        swarm-build time. The cycle validator skips self-references so the
+        existing 'no deterministic self-handoff' error path stays intact."""
+        # Should not raise here; the swarm-build path raises a different error.
+        swarm = SwarmModel(
+            handoffs={
+                "a": [HandoffRouteModel(agent="a", is_deterministic=True)],
+            }
+        )
+        assert swarm.handoffs is not None
+
+    def test_unrelated_cycle_does_not_taint_acyclic_det_edge(self) -> None:
+        """A separate all-agentic cycle in another component is fine when a
+        deterministic edge exists in an acyclic part of the graph."""
+        swarm = SwarmModel(
+            handoffs={
+                # acyclic deterministic edge
+                "a": [HandoffRouteModel(agent="b", is_deterministic=True)],
+                "b": [],
+                # separate all-agentic cycle
+                "x": ["y"],
+                "y": ["x"],
+            }
+        )
+        assert swarm.handoffs is not None
+
+    def test_error_message_includes_cycle_path(self) -> None:
+        """The error string should include the cycle so the user can see it."""
+        with pytest.raises(ValueError) as excinfo:
+            SwarmModel(
+                handoffs={
+                    "tier2": [
+                        HandoffRouteModel(agent="escalation", is_deterministic=True)
+                    ],
+                    "escalation": ["tier2"],
+                }
+            )
+        msg = str(excinfo.value)
+        assert "tier2" in msg
+        assert "escalation" in msg
+        assert "deterministic" in msg
+
+    def test_handoff_with_agent_model_target_in_cycle_rejected(self) -> None:
+        """Cycle detection works when handoff targets are AgentModel objects
+        (not just bare name strings)."""
+        agent_b = AgentModel(name="b", model=LLMModel(name="m"))
+        with pytest.raises(ValueError, match="deterministic handoff inside a cycle"):
+            SwarmModel(
+                handoffs={
+                    "a": [HandoffRouteModel(agent=agent_b, is_deterministic=True)],
+                    "b": ["a"],
+                }
+            )
+
+    def test_empty_handoffs_allowed(self) -> None:
+        """An empty or None handoffs map is trivially fine."""
+        SwarmModel(handoffs=None)
+        SwarmModel(handoffs={})
+        SwarmModel()
+
+
+# =============================================================================
+# End-to-end Cycle Detection Integration Test
+# =============================================================================
+
+
+@pytest.mark.integration
+class TestSwarmCycleDetectionIntegration:
+    """End-to-end tests: load a full AppConfig with a buggy swarm config and
+    verify the validator fires before any compute is spent."""
+
+    def test_full_appconfig_with_det_in_cycle_rejects_at_load(self) -> None:
+        """Constructing an AppConfig that nests SwarmModel inside should
+        propagate the cycle-detection error -- no need to call as_graph()."""
+        agents = {
+            "tier1": AgentModel(name="tier1", model=LLMModel(name="m")),
+            "tier2": AgentModel(name="tier2", model=LLMModel(name="m")),
+            "escalation": AgentModel(name="escalation", model=LLMModel(name="m")),
+        }
+        config_dict = {
+            "agents": agents,
+            "app": {
+                "name": "tier-routing",
+                "deployment_target": "apps",
+                "agents": list(agents.values()),
+                "orchestration": {
+                    "swarm": {
+                        "default_agent": "tier1",
+                        "handoffs": {
+                            "tier1": ["tier2", "escalation"],
+                            "tier2": [
+                                {"agent": "escalation", "is_deterministic": True}
+                            ],
+                            "escalation": ["tier2"],
+                        },
+                    }
+                },
+            },
+        }
+        with pytest.raises(ValueError, match="deterministic handoff inside a cycle"):
+            AppConfig(**config_dict)
+
+    def test_full_appconfig_with_all_agentic_cycle_allowed(self) -> None:
+        """Same shape, but with all edges agentic -- must construct cleanly."""
+        agents = {
+            "tier1": AgentModel(name="tier1", model=LLMModel(name="m")),
+            "tier2": AgentModel(name="tier2", model=LLMModel(name="m")),
+            "escalation": AgentModel(name="escalation", model=LLMModel(name="m")),
+        }
+        config_dict = {
+            "agents": agents,
+            "app": {
+                "name": "tier-routing",
+                "deployment_target": "apps",
+                "agents": list(agents.values()),
+                "orchestration": {
+                    "swarm": {
+                        "default_agent": "tier1",
+                        "handoffs": {
+                            "tier1": ["tier2", "escalation"],
+                            "tier2": ["escalation"],
+                            "escalation": ["tier2"],
+                        },
+                    }
+                },
+            },
+        }
+        config = AppConfig(**config_dict)
+        assert config.app is not None
+        assert config.app.orchestration is not None
+        assert config.app.orchestration.swarm is not None
