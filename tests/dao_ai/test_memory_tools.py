@@ -213,3 +213,65 @@ class TestMemorySchemas:
     def test_resolve_schemas_unknown_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown memory schema 'nonexistent'"):
             resolve_schemas(["nonexistent"])
+
+
+class TestLazyLakebaseStoreTTLSentinel:
+    """Regression tests for the NotProvided/float() ttl bug.
+
+    See dao_ai.memory.databricks._LazyLakebaseStore.aput. langgraph's
+    _ensure_ttl uses an identity check (`if ttl is NOT_PROVIDED`) against
+    the langgraph singleton. If our wrapper defaults ttl to a fresh
+    NotProvided() instance, it isn't the singleton -- the identity check
+    fails, the new instance lands in PutOp.ttl, and the postgres store
+    tries to `float()` it.
+    """
+
+    @pytest.mark.unit
+    def test_aput_default_ttl_is_singleton(self) -> None:
+        """The default ttl on _LazyLakebaseStore.aput must be the langgraph
+        NOT_PROVIDED singleton, not a new NotProvided() instance."""
+        from inspect import signature
+
+        from langgraph.store.base import NOT_PROVIDED
+
+        from dao_ai.memory.databricks import _LazyLakebaseStore
+
+        sig = signature(_LazyLakebaseStore.aput)
+        ttl_param = sig.parameters["ttl"]
+        assert ttl_param.default is NOT_PROVIDED, (
+            "ttl default must be the langgraph NOT_PROVIDED singleton; otherwise "
+            "_ensure_ttl's identity check fails and NotProvided() leaks into PutOp"
+        )
+
+    @pytest.mark.unit
+    def test_aput_forwards_singleton_when_caller_omits_ttl(self) -> None:
+        """When a caller (e.g. langmem) calls aput() without specifying ttl,
+        the underlying store should receive the NOT_PROVIDED singleton -- not
+        a freshly-constructed NotProvided() instance."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from langgraph.store.base import NOT_PROVIDED
+
+        from dao_ai.memory.databricks import _LazyLakebaseStore
+
+        # Stub the inner store so we can capture the kwargs it receives.
+        inner = MagicMock()
+        inner.aput = AsyncMock(return_value=None)
+
+        # Bypass __init__ and inject the stub directly.
+        store = _LazyLakebaseStore.__new__(_LazyLakebaseStore)
+
+        async def _stub_ensure() -> object:
+            return inner
+
+        store._ensure = _stub_ensure  # type: ignore[attr-defined]
+
+        # Call aput WITHOUT specifying ttl, mirroring how langmem invokes it.
+        asyncio.run(store.aput(("ns",), "k", {"v": 1}))
+
+        inner.aput.assert_awaited_once()
+        forwarded_ttl = inner.aput.await_args.kwargs.get("ttl")
+        assert forwarded_ttl is NOT_PROVIDED, (
+            f"expected the NOT_PROVIDED singleton, got {forwarded_ttl!r} "
+            f"({type(forwarded_ttl).__name__})"
+        )
