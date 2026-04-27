@@ -39,7 +39,15 @@ from langgraph.checkpoint.base import (
     CheckpointMetadata,
     CheckpointTuple,
 )
-from langgraph.store.base import BaseStore, Item, NotProvided, Op, Result, SearchItem
+from langgraph.store.base import (
+    NOT_PROVIDED,
+    BaseStore,
+    Item,
+    NotProvided,
+    Op,
+    Result,
+    SearchItem,
+)
 from loguru import logger
 from psycopg_pool import AsyncConnectionPool
 
@@ -245,8 +253,14 @@ class _LazyLakebaseStore(BaseStore):
         value: dict[str, Any],
         index: Literal[False] | list[str] | None = None,
         *,
-        ttl: float | None | NotProvided = NotProvided(),
+        ttl: float | None | NotProvided = NOT_PROVIDED,
     ) -> None:
+        # Use the langgraph NOT_PROVIDED singleton (not a new NotProvided()
+        # instance) so that the inner store's _ensure_ttl identity check
+        # `if ttl is NOT_PROVIDED` succeeds. Constructing a fresh instance
+        # here meant callers like langmem's manage_memory_tool would let
+        # NotProvided() escape into PutOp.ttl, which langgraph's postgres
+        # store then tried to `float()` and raised TypeError on.
         return await (await self._ensure()).aput(namespace, key, value, index, ttl=ttl)
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
