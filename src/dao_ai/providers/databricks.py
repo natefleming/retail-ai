@@ -1037,9 +1037,16 @@ class DatabricksProvider(ServiceProvider):
                 destination=workspace_config_path,
             )
 
-            # Read the source config file
-            with open(source_config_path, "rb") as f:
-                config_content: bytes = f.read()
+            # Prefer the rendered (parameter-substituted) YAML so the
+            # deployed app sees fully-resolved values. Fall back to the
+            # raw source file if rendering wasn't tracked (e.g. legacy
+            # callers that constructed AppConfig without from_file()).
+            rendered: str | None = config.rendered_yaml
+            if rendered is not None:
+                config_content: bytes = rendered.encode("utf-8")
+            else:
+                with open(source_config_path, "rb") as f:
+                    config_content = f.read()
 
             # Clean the workspace directory to remove stale artifacts
             # from previous deployments (old wheels, leftover src/, etc.)
