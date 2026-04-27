@@ -67,6 +67,36 @@ def is_published() -> bool:
     return True
 
 
+def _wheel_from_direct_url() -> Path | None:
+    """Return the wheel file dao-ai was installed from, if any.
+
+    When a user runs ``pip install /path/to/dao_ai-X.Y.Z.whl`` (including
+    workspace paths like ``/Workspace/.../wheels/dao_ai-...whl`` on
+    Databricks Serverless), pip records the source path in
+    ``direct_url.json``. Surfacing that path lets ``deploy_apps_agent``
+    bundle the same wheel into the deployed app without searching for a
+    local ``dist/`` directory that doesn't exist on Serverless.
+    """
+    try:
+        from importlib.metadata import distribution
+
+        dist = distribution("dao-ai")
+        direct_url = dist.read_text("direct_url.json")
+        if not direct_url:
+            return None
+        data = json.loads(direct_url)
+        url = data.get("url", "")
+        if not url.startswith("file://"):
+            return None
+        path = Path(url.removeprefix("file://"))
+        if path.is_file() and path.suffix == ".whl":
+            logger.debug("Resolved dao-ai wheel from direct_url.json", path=str(path))
+            return path
+    except Exception as e:
+        logger.debug(f"Could not resolve wheel from direct_url.json: {e}")
+    return None
+
+
 def find_dev_wheel() -> Path | None:
     """Find an existing dao-ai wheel in known locations.
 
@@ -75,12 +105,18 @@ def find_dev_wheel() -> Path | None:
     what to do when None is returned.
 
     Search order:
-        1. Project dist/ (local dev: relative to this source file)
-        2. Bundle artifact paths (job cluster: ../dist/, ../../artifacts/.internal/)
-        3. CWD dist/ (fallback)
+        1. The wheel recorded in ``direct_url.json`` (when dao-ai was
+           installed from a local/workspace ``.whl`` path).
+        2. Project dist/ (local dev: relative to this source file)
+        3. Bundle artifact paths (job cluster: ../dist/, ../../artifacts/.internal/)
+        4. CWD dist/ (fallback)
     """
     if is_published():
         return None
+
+    direct: Path | None = _wheel_from_direct_url()
+    if direct:
+        return direct
 
     search_dirs: list[Path] = [
         Path(__file__).parents[2] / "dist",

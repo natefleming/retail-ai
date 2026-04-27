@@ -363,42 +363,119 @@ def _extract_database_resources(
         if db.on_behalf_of_user:
             continue
         sanitized_name: str = _sanitize_resource_name(key)
-        # Apps platform requires both `database` (project name) and `branch`
-        # to be defined on a postgres resource. Resolve the default branch
-        # from the project at extraction time when the user didn't pin it.
-        branch: str = db.branch or _resolve_lakebase_default_branch(db)
+        # Apps platform requires both `branch` and `database` as FULL
+        # resource paths on a postgres resource. The platform validates each
+        # by calling get_branch / get_database server-side, which reject
+        # bare IDs with INVALID_PARAMETER_VALUE.
+        branch_path: str = _resolve_lakebase_branch_path(db)
+        database_path: str = _resolve_lakebase_database_path(db, branch_path)
         resource: dict[str, Any] = {
             "name": sanitized_name,
             "type": "postgres",
-            "database": db.project,
-            "branch": branch,
+            "database": database_path,
+            "branch": branch_path,
             "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["database"]],
         }
         resources.append(resource)
         logger.debug(
             f"Extracted Lakebase postgres resource: {sanitized_name} -> "
-            f"project={db.project} branch={branch}"
+            f"database={database_path} branch={branch_path}"
         )
     return resources
 
 
-def _resolve_lakebase_default_branch(db: DatabaseModel) -> str:
-    """Resolve a Lakebase project's default branch, with a safe fallback.
+def _resolve_lakebase_branch_path(db: DatabaseModel) -> str:
+    """Return the Apps-platform branch resource path for a Lakebase database.
 
-    Calls ``db.resolve_default_branch()`` (which hits the workspace's
-    postgres API) when ``db.branch`` is unset. Falls back to ``"main"`` if
-    the API call fails -- e.g. during offline bundle generation, in unit
-    tests, or for users without ambient credentials at extraction time.
-    Most Lakebase projects use ``main`` as the default branch.
+    The Apps platform's ``postgres`` resource requires the ``branch`` field
+    in full resource form: ``projects/{project_id}/branches/{branch_id}``.
+    The platform validates by calling its own ``get_branch(name=...)`` API
+    server-side, which rejects bare branch IDs with
+    ``INVALID_PARAMETER_VALUE``.
+
+    When ``db.branch`` is pinned in config we treat it as the branch ID and
+    wrap it. Otherwise we resolve the project's default branch via
+    ``DatabaseModel.resolve_default_branch()``. Falls back to ``"main"`` as
+    the branch ID if the API call fails (offline bundle generation, missing
+    creds, etc.) -- most Lakebase projects use ``main`` as the default.
     """
+    branch_id: str
+    if db.branch:
+        branch_id = db.branch
+    else:
+        try:
+            branch_id = db.resolve_default_branch()
+        except Exception as e:  # pragma: no cover -- defensive fallback
+            logger.debug(
+                f"Could not resolve default branch for project '{db.project}': {e}. "
+                f"Falling back to 'main'."
+            )
+            branch_id = "main"
+    return f"projects/{db.project}/branches/{branch_id}"
+
+
+def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
+    """Return the Apps-platform database resource path for a Lakebase database.
+
+    The Apps platform's ``postgres`` resource ``database`` field requires
+    full resource form:
+    ``projects/{project_id}/branches/{branch_id}/databases/{database_id}``.
+
+    The Lakebase ``Database`` resource carries two distinct names:
+
+    1. ``Database.name`` -- the platform resource path (random ID suffix,
+       e.g. ``db-pmke-laez4ing20``). This is what the Apps platform binds to.
+    2. ``Database.status.postgres_database`` -- the Postgres-level database
+       name used by the connection (e.g. ``databricks_postgres``). This is
+       what ``DatabaseModel.database`` carries in dao-ai configs.
+
+    Resolution rules:
+
+    * If ``db.database`` already looks like a full resource path
+      (``projects/.../databases/...``), return it as-is.
+    * Otherwise, list databases under the branch and find the one whose
+      ``status.postgres_database`` matches ``db.database``; return its
+      ``name``.
+    * If no match is found, fall back to the first database under the
+      branch (most Lakebase projects have exactly one).
+    * If the API call fails entirely, fall back to constructing a path
+      from ``db.database`` -- the deploy will surface a clear platform
+      error if the constructed path doesn't exist.
+    """
+    from dao_ai.config import value_of
+
+    database_value = value_of(db.database) if db.database is not None else None
+    database_id: str = str(database_value) if database_value is not None else ""
+
+    if database_id.startswith("projects/") and "/databases/" in database_id:
+        return database_id
+
     try:
-        return db.resolve_default_branch()
+        w = db.workspace_client
+        databases = list(w.postgres.list_databases(branch_path))
     except Exception as e:  # pragma: no cover -- defensive fallback
         logger.debug(
-            f"Could not resolve default branch for project '{db.project}': {e}. "
-            f"Falling back to 'main'."
+            f"Could not list databases under '{branch_path}': {e}. "
+            f"Falling back to constructed path with database_id='{database_id}'."
         )
-        return "main"
+        return f"{branch_path}/databases/{database_id}"
+
+    if database_id:
+        for d in databases:
+            pg_name = d.status.postgres_database if d.status else None
+            if pg_name == database_id and d.name:
+                return d.name
+
+    if databases and databases[0].name:
+        if database_id:
+            logger.debug(
+                f"No Lakebase database matched postgres name '{database_id}' under "
+                f"'{branch_path}'; falling back to first database "
+                f"'{databases[0].name}'."
+            )
+        return databases[0].name
+
+    return f"{branch_path}/databases/{database_id}"
 
 
 def _extract_app_resources(
@@ -838,8 +915,9 @@ def _extract_sdk_database_resources(
     Standalone PostgreSQL and OBO databases are skipped.
 
     The Apps platform requires both ``database`` (project name) and
-    ``branch`` to be defined; ``branch`` is resolved from the project's
-    default if the user didn't pin one in the config.
+    ``branch`` (full resource path ``projects/<p>/branches/<b>``) to be
+    defined; ``branch`` is resolved from the project's default if the user
+    didn't pin one in the config.
     """
     from databricks.sdk.service.apps import (
         AppResourcePostgres,
@@ -853,19 +931,20 @@ def _extract_sdk_database_resources(
         if db.on_behalf_of_user:
             continue
         sanitized_name: str = _sanitize_resource_name(key)
-        branch: str = db.branch or _resolve_lakebase_default_branch(db)
+        branch_path: str = _resolve_lakebase_branch_path(db)
+        database_path: str = _resolve_lakebase_database_path(db, branch_path)
         resource = AppResource(
             name=sanitized_name,
             postgres=AppResourcePostgres(
-                database=db.project,
-                branch=branch,
+                database=database_path,
+                branch=branch_path,
                 permission=AppResourcePostgresPostgresPermission.CAN_CONNECT_AND_CREATE,
             ),
         )
         resources.append(resource)
         logger.debug(
             f"Extracted SDK Lakebase postgres resource: {sanitized_name} -> "
-            f"project={db.project} branch={branch}"
+            f"database={database_path} branch={branch_path}"
         )
     return resources
 
