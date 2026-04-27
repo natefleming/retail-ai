@@ -96,11 +96,21 @@ class TestDatabaseModelAsResources:
 class TestExtractDatabaseResourcesFlat:
     """Flat-dict extractor used when generating ``app.yaml`` for the bundle."""
 
-    def test_lakebase_non_obo_emits_postgres_resource(self) -> None:
+    def test_lakebase_non_obo_emits_postgres_resource(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Autoscaling Lakebase projects use the ``postgres`` resource type
-        (not the deprecated ``database``/instance shape)."""
+        (not the deprecated ``database``/instance shape). When the user
+        doesn't pin a branch, the extractor resolves the project's default
+        branch -- the Apps platform requires both ``database`` and
+        ``branch`` on a postgres resource."""
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            resources_mod, "_resolve_lakebase_default_branch", lambda db: "main"
+        )
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
         out = _extract_database_resources({"workshop_db": db})
@@ -110,11 +120,22 @@ class TestExtractDatabaseResourcesFlat:
         assert r["name"] == "workshop_db"
         assert r["database"] == "retail-consumer-goods"
         assert r["permissions"] == [{"level": "CAN_CONNECT_AND_CREATE"}]
-        assert "branch" not in r
+        # Branch is always present on the emitted resource (platform requires it).
+        assert r["branch"] == "main"
 
-    def test_lakebase_with_branch_propagates_to_resource(self) -> None:
+    def test_lakebase_with_branch_propagates_to_resource(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A user-pinned branch wins over the resolver -- the resolver
+        should not be consulted when ``db.branch`` is already set."""
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_database_resources
         from dao_ai.config import DatabaseModel
+
+        def _boom(db: object) -> str:
+            raise AssertionError("resolver should not be called when branch is pinned")
+
+        monkeypatch.setattr(resources_mod, "_resolve_lakebase_default_branch", _boom)
 
         db = DatabaseModel(project="retail-consumer-goods", branch="dev")
         out = _extract_database_resources({"workshop_db": db})
@@ -189,15 +210,22 @@ class TestExtractDatabaseResourcesFlat:
 class TestExtractDatabaseResourcesSDK:
     """SDK ``AppResource`` extractor used by the direct-deploy path."""
 
-    def test_lakebase_non_obo_emits_appresource_postgres(self) -> None:
+    def test_lakebase_non_obo_emits_appresource_postgres(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from databricks.sdk.service.apps import (
             AppResource,
             AppResourcePostgres,
             AppResourcePostgresPostgresPermission,
         )
 
+        from dao_ai.apps import resources as resources_mod
         from dao_ai.apps.resources import _extract_sdk_database_resources
         from dao_ai.config import DatabaseModel
+
+        monkeypatch.setattr(
+            resources_mod, "_resolve_lakebase_default_branch", lambda db: "main"
+        )
 
         db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
         out = _extract_sdk_database_resources({"workshop_db": db})
@@ -210,7 +238,9 @@ class TestExtractDatabaseResourcesSDK:
         assert r.database is None
         assert isinstance(r.postgres, AppResourcePostgres)
         assert r.postgres.database == "retail-consumer-goods"
-        assert r.postgres.branch is None
+        # Branch is always populated -- the Apps platform requires it on the
+        # postgres resource. Resolved here from the (mocked) helper.
+        assert r.postgres.branch == "main"
         assert (
             r.postgres.permission
             is AppResourcePostgresPostgresPermission.CAN_CONNECT_AND_CREATE
