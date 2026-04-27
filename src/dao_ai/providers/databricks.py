@@ -6,6 +6,7 @@ from typing import Any, Callable, Final, Sequence
 import mlflow
 import pandas as pd
 import sqlparse
+import yaml
 from databricks import agents
 from databricks.agents import PermissionLevel, set_permissions
 from databricks.sdk import WorkspaceClient
@@ -1024,55 +1025,65 @@ class DatabricksProvider(ServiceProvider):
                 scorer_count=len(registered_scorers),
             )
 
-        # Upload the configuration file to the workspace
+        # Upload the configuration file to the workspace.
+        #
+        # Three input shapes feed this step:
+        #   1. AppConfig.from_file(path, params={...}) — substituted text
+        #      is on config.rendered_yaml. Prefer that.
+        #   2. Legacy AppConfig.from_file callers without params= — fall
+        #      back to reading the raw source file from disk.
+        #   3. AppConfig built in pure Python — neither rendered_yaml nor
+        #      a source file exists, so serialize the in-memory model
+        #      back to YAML and ship that.
         source_config_path: str | None = config.source_config_path
-        if source_config_path:
-            # Read the config file and upload to workspace
-            config_file_name: str = "dao_ai.yaml"
-            workspace_config_path: str = f"{source_path}/{config_file_name}"
+        config_file_name: str = "dao_ai.yaml"
+        workspace_config_path: str = f"{source_path}/{config_file_name}"
 
-            logger.info(
-                "Uploading config file to workspace",
-                source=source_config_path,
-                destination=workspace_config_path,
-            )
-
-            # Prefer the rendered (parameter-substituted) YAML so the
-            # deployed app sees fully-resolved values. Fall back to the
-            # raw source file if rendering wasn't tracked (e.g. legacy
-            # callers that constructed AppConfig without from_file()).
-            rendered: str | None = config.rendered_yaml
-            if rendered is not None:
-                config_content: bytes = rendered.encode("utf-8")
-            else:
-                with open(source_config_path, "rb") as f:
-                    config_content = f.read()
-
-            # Clean the workspace directory to remove stale artifacts
-            # from previous deployments (old wheels, leftover src/, etc.)
-            try:
-                self.w.workspace.delete(source_path, recursive=True)
-            except Exception:
-                pass  # Directory may not exist yet
-            try:
-                self.w.workspace.mkdirs(source_path)
-            except Exception as e:
-                logger.debug(f"Directory may already exist: {e}")
-
-            # Upload the config file
-            self.w.workspace.upload(
-                path=workspace_config_path,
-                content=io.BytesIO(config_content),
-                format=ImportFormat.AUTO,
-                overwrite=True,
-            )
-            logger.info("Config file uploaded", path=workspace_config_path)
+        rendered: str | None = config.rendered_yaml
+        config_content: bytes
+        config_origin: str
+        if rendered is not None:
+            config_content = rendered.encode("utf-8")
+            config_origin = "rendered_yaml (parameter-substituted)"
+        elif source_config_path:
+            with open(source_config_path, "rb") as f:
+                config_content = f.read()
+            config_origin = f"source file {source_config_path}"
         else:
-            logger.warning(
-                "No source config path available. "
-                "Ensure DAO_AI_CONFIG_PATH is set in the app environment or "
-                "dao_ai.yaml exists in the app source directory."
+            # Python-built AppConfig: serialize the in-memory object.
+            config_dict: dict[str, Any] = config.model_dump(
+                mode="json", by_alias=True, exclude_none=True
             )
+            config_content = yaml.safe_dump(
+                config_dict, sort_keys=False, default_flow_style=False
+            ).encode("utf-8")
+            config_origin = "in-memory AppConfig (programmatic)"
+
+        logger.info(
+            "Uploading config file to workspace",
+            source=config_origin,
+            destination=workspace_config_path,
+        )
+
+        # Clean the workspace directory to remove stale artifacts from
+        # previous deployments (old wheels, leftover src/, etc.).
+        try:
+            self.w.workspace.delete(source_path, recursive=True)
+        except Exception:
+            pass  # Directory may not exist yet
+        try:
+            self.w.workspace.mkdirs(source_path)
+        except Exception as e:
+            logger.debug(f"Directory may already exist: {e}")
+
+        # Upload the config file
+        self.w.workspace.upload(
+            path=workspace_config_path,
+            content=io.BytesIO(config_content),
+            format=ImportFormat.AUTO,
+            overwrite=True,
+        )
+        logger.info("Config file uploaded", path=workspace_config_path)
 
         # Determine install command based on dev vs published mode.
         # Respect config.app.enable_chat_proxy (default True) so the deployed
