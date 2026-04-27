@@ -363,20 +363,42 @@ def _extract_database_resources(
         if db.on_behalf_of_user:
             continue
         sanitized_name: str = _sanitize_resource_name(key)
+        # Apps platform requires both `database` (project name) and `branch`
+        # to be defined on a postgres resource. Resolve the default branch
+        # from the project at extraction time when the user didn't pin it.
+        branch: str = db.branch or _resolve_lakebase_default_branch(db)
         resource: dict[str, Any] = {
             "name": sanitized_name,
             "type": "postgres",
             "database": db.project,
+            "branch": branch,
             "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["database"]],
         }
-        if db.branch:
-            resource["branch"] = db.branch
         resources.append(resource)
         logger.debug(
             f"Extracted Lakebase postgres resource: {sanitized_name} -> "
-            f"project={db.project} branch={db.branch or '(default)'}"
+            f"project={db.project} branch={branch}"
         )
     return resources
+
+
+def _resolve_lakebase_default_branch(db: DatabaseModel) -> str:
+    """Resolve a Lakebase project's default branch, with a safe fallback.
+
+    Calls ``db.resolve_default_branch()`` (which hits the workspace's
+    postgres API) when ``db.branch`` is unset. Falls back to ``"main"`` if
+    the API call fails -- e.g. during offline bundle generation, in unit
+    tests, or for users without ambient credentials at extraction time.
+    Most Lakebase projects use ``main`` as the default branch.
+    """
+    try:
+        return db.resolve_default_branch()
+    except Exception as e:  # pragma: no cover -- defensive fallback
+        logger.debug(
+            f"Could not resolve default branch for project '{db.project}': {e}. "
+            f"Falling back to 'main'."
+        )
+        return "main"
 
 
 def _extract_app_resources(
@@ -814,6 +836,10 @@ def _extract_sdk_database_resources(
     Uses ``AppResourcePostgres`` (autoscaling) rather than
     ``AppResourceDatabase`` (deprecated provisioned-instance shape).
     Standalone PostgreSQL and OBO databases are skipped.
+
+    The Apps platform requires both ``database`` (project name) and
+    ``branch`` to be defined; ``branch`` is resolved from the project's
+    default if the user didn't pin one in the config.
     """
     from databricks.sdk.service.apps import (
         AppResourcePostgres,
@@ -827,18 +853,19 @@ def _extract_sdk_database_resources(
         if db.on_behalf_of_user:
             continue
         sanitized_name: str = _sanitize_resource_name(key)
+        branch: str = db.branch or _resolve_lakebase_default_branch(db)
         resource = AppResource(
             name=sanitized_name,
             postgres=AppResourcePostgres(
                 database=db.project,
-                branch=db.branch,
+                branch=branch,
                 permission=AppResourcePostgresPostgresPermission.CAN_CONNECT_AND_CREATE,
             ),
         )
         resources.append(resource)
         logger.debug(
             f"Extracted SDK Lakebase postgres resource: {sanitized_name} -> "
-            f"project={db.project} branch={db.branch or '(default)'}"
+            f"project={db.project} branch={branch}"
         )
     return resources
 
