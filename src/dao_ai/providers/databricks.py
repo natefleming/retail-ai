@@ -2112,7 +2112,17 @@ class DatabricksProvider(ServiceProvider):
             )
             return
 
-        client_id: str = value_of(database.client_id)
+        client_id: str | None = value_of(database.client_id)
+        if not client_id:
+            logger.warning(
+                "client_id resolved to None; skipping autoscaling role creation. "
+                "Check that the configured source (secret scope, env var, etc.) "
+                "is populated.",
+                project=database.project,
+                client_id_spec=database.client_id,
+            )
+            return
+
         workspace_client: WorkspaceClient = database.workspace_client
 
         # Roles are created on a branch, not on the project
