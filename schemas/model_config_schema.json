@@ -4441,7 +4441,7 @@
     },
     "OrchestrationModel": {
       "additionalProperties": false,
-      "description": "Multi-agent orchestration configuration. Exactly one of supervisor or swarm must be specified.",
+      "description": "Multi-agent orchestration configuration.\n\n`supervisor` and `swarm` are mutually exclusive. If neither is set\n(e.g. the user only supplies `memory:`), AppConfig will auto-pick a\nsensible router at the AppConfig level based on the number of agents.",
       "properties": {
         "supervisor": {
           "anyOf": [

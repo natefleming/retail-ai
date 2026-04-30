@@ -4345,7 +4345,12 @@ class SwarmModel(BaseModel):
 
 
 class OrchestrationModel(BaseModel):
-    """Multi-agent orchestration configuration. Exactly one of supervisor or swarm must be specified."""
+    """Multi-agent orchestration configuration.
+
+    `supervisor` and `swarm` are mutually exclusive. If neither is set
+    (e.g. the user only supplies `memory:`), AppConfig will auto-pick a
+    sensible router at the AppConfig level based on the number of agents.
+    """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     supervisor: Optional[SupervisorModel] = Field(
@@ -4368,11 +4373,12 @@ class OrchestrationModel(BaseModel):
         if self.swarm is True:
             self.swarm = SwarmModel()
 
-        # Validate mutually exclusive
+        # Validate mutually exclusive. Allowing neither -- AppConfig fills
+        # in a default router (supervisor for >1 agent, swarm for 1) so
+        # that `orchestration: { memory: ... }` is valid for single-agent
+        # apps that only want the memory wiring.
         if self.supervisor is not None and self.swarm is not None:
             raise ValueError("Cannot specify both supervisor and swarm")
-        if self.supervisor is None and self.swarm is None:
-            raise ValueError("Must specify either supervisor or swarm")
         return self
 
 
@@ -4973,19 +4979,23 @@ class AppModel(BaseModel):
 
     @model_validator(mode="after")
     def set_default_orchestration(self) -> Self:
+        if not self.agents:
+            raise ValueError("At least one agent must be specified")
+
         if self.orchestration is None:
+            self.orchestration = OrchestrationModel()
+
+        # If neither supervisor nor swarm is set (e.g. user only supplied
+        # `orchestration: { memory: ... }`), pick a sensible default based
+        # on agent count.
+        if self.orchestration.supervisor is None and self.orchestration.swarm is None:
+            default_agent: AgentModel = self.agents[0]
             if len(self.agents) > 1:
-                default_agent: AgentModel = self.agents[0]
-                self.orchestration = OrchestrationModel(
-                    supervisor=SupervisorModel(model=default_agent.model)
-                )
-            elif len(self.agents) == 1:
-                default_agent: AgentModel = self.agents[0]
-                self.orchestration = OrchestrationModel(
-                    swarm=SwarmModel(default_agent=default_agent)
+                self.orchestration.supervisor = SupervisorModel(
+                    model=default_agent.model
                 )
             else:
-                raise ValueError("At least one agent must be specified")
+                self.orchestration.swarm = SwarmModel(default_agent=default_agent)
 
         return self
 
