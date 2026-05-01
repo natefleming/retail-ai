@@ -29,6 +29,7 @@ from dao_ai.config import (
     PromptModel,
     SupervisorModel,
 )
+from dao_ai.messages import last_ai_message_with_tool_calls
 from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.middleware.core import create_factory_middleware
 from dao_ai.nodes import create_agent_node
@@ -36,6 +37,7 @@ from dao_ai.orchestration import (
     SUPERVISOR_NODE,
     create_agent_node_handler,
     create_checkpointer,
+    create_extraction_manager_and_executor,
     create_handoff_tool,
     create_store,
     get_handoff_description,
@@ -79,16 +81,14 @@ def _create_handoff_back_to_supervisor_tool() -> BaseTool:
         # LLMs expect tool calls to be paired with their responses, so we must include both
         # the AIMessage containing the tool call and the ToolMessage acknowledging it.
         messages: list[BaseMessage] = runtime.state.get("messages", [])
-        last_ai_message: AIMessage | None = None
-        for msg in reversed(messages):
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                last_ai_message = msg
-                break
+        triggering_ai_message: AIMessage | None = last_ai_message_with_tool_calls(
+            messages
+        )
 
         # Build message list with proper pairing
         update_messages: list[BaseMessage] = []
-        if last_ai_message:
-            update_messages.append(last_ai_message)
+        if triggering_ai_message:
+            update_messages.append(triggering_ai_message)
         update_messages.append(
             ToolMessage(
                 content=f"Task completed: {summary}",
@@ -98,6 +98,7 @@ def _create_handoff_back_to_supervisor_tool() -> BaseTool:
 
         return Command(
             update={
+                "active_agent": SUPERVISOR_NODE,
                 "messages": update_messages,
             },
             goto=SUPERVISOR_NODE,
@@ -202,6 +203,19 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     orchestration: OrchestrationModel = config.app.orchestration
     supervisor_config: SupervisorModel = orchestration.supervisor
 
+    # Reject worker agents that would collide with the reserved supervisor
+    # node name. The collision is silent at graph compile time but produces
+    # confusing routing failures at runtime, so fail fast at config time.
+    colliding_agents: list[str] = [
+        a.name for a in config.app.agents if a.name == SUPERVISOR_NODE
+    ]
+    if colliding_agents:
+        raise ValueError(
+            f"Worker agent name(s) {colliding_agents!r} collide with the "
+            f"reserved supervisor node name {SUPERVISOR_NODE!r}. Rename the "
+            f"agent(s) in config.app.agents."
+        )
+
     logger.info(
         "Creating supervisor graph",
         pattern="handoff",
@@ -266,47 +280,13 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     # Set up shared extraction manager and background reflection executor.
     # A single extraction manager is shared across the supervisor and all
     # worker agents to avoid creating redundant model instances.
-    extraction_manager = None
-    reflection_executor = None
     memory: MemoryModel | None = orchestration.memory
-    needs_extraction = (
-        memory
-        and memory.store
-        and memory.extraction
-        and store
-        and (memory.extraction.background_extraction or memory.extraction.auto_inject)
+    extraction_manager, reflection_executor = create_extraction_manager_and_executor(
+        memory=memory,
+        store=store,
+        fallback_model=supervisor_config.model.as_chat_model(),
+        graph_label="supervisor graph",
     )
-    if needs_extraction:
-        from dao_ai.memory.extraction import (
-            create_extraction_manager,
-            create_reflection_executor,
-        )
-        from dao_ai.nodes import _build_memory_namespace
-
-        extraction_ns = _build_memory_namespace(memory)
-        extraction_model: LanguageModelLike = (
-            memory.extraction.extraction_model.as_chat_model()
-            if memory.extraction.extraction_model
-            else supervisor_config.model.as_chat_model()
-        )
-        query_model: LanguageModelLike | None = (
-            memory.extraction.query_model.as_chat_model()
-            if memory.extraction.query_model
-            else None
-        )
-
-        extraction_manager = create_extraction_manager(
-            model=extraction_model,
-            store=store,
-            namespace=extraction_ns,
-            schemas=memory.extraction.schemas,
-            instructions=memory.extraction.instructions,
-            query_model=query_model,
-        )
-
-        if memory.extraction.background_extraction:
-            reflection_executor = create_reflection_executor(extraction_manager, store)
-            logger.info("Background memory extraction enabled for supervisor graph")
 
     if (
         needs_extraction
@@ -388,7 +368,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         handler = create_agent_node_handler(
             agent_name=agent_name,
             agent=agent_subgraph,
-            output_mode="last_message",
+            output_mode=orchestration.output_mode,
             reflection_executor=reflection_executor,
             recursion_limit=agent_recursion_limits.get(agent_name),
         )

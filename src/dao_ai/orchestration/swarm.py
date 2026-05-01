@@ -23,12 +23,12 @@ from typing import TYPE_CHECKING, Callable, Sequence
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
-from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
+from langgraph.types import Command
 from loguru import logger
 
 from dao_ai.config import (
@@ -43,6 +43,7 @@ from dao_ai.nodes import create_agent_node
 from dao_ai.orchestration import (
     create_agent_node_handler,
     create_checkpointer,
+    create_extraction_manager_and_executor,
     create_handoff_tool,
     create_store,
     get_handoff_description,
@@ -59,7 +60,7 @@ class HandoffResult:
     deterministic handoff target (always-routed).
     """
 
-    tools: list[BaseTool] = field(default_factory=list)
+    tools: tuple[BaseTool, ...] = field(default_factory=tuple)
     deterministic_target: str | None = None
 
 
@@ -180,7 +181,7 @@ def _handoffs_for_agent(
             )
 
     return HandoffResult(
-        tools=handoff_tools,
+        tools=tuple(handoff_tools),
         deterministic_target=deterministic_target,
     )
 
@@ -240,16 +241,18 @@ def _create_deterministic_handler(
     """
     Wrap an agent node handler to set ``active_agent`` for deterministic routing.
 
-    After the inner handler completes, ``active_agent`` is unconditionally set
-    to *target_agent_name* so that:
+    After the inner handler completes, ``active_agent`` is set to
+    *target_agent_name* so that:
 
     1. The ``add_edge`` in the parent graph routes to the deterministic target.
     2. The swarm router correctly resumes at the target on re-entry
        (e.g. after checkpoint restore).
 
-    If the agent invoked an agentic handoff tool during its turn, the resulting
-    ``Command(graph=Command.PARENT)`` takes precedence over the static edge,
-    so this wrapper is effectively a no-op in that case.
+    If the agent invoked an agentic handoff tool during its turn, the inner
+    handler returns a ``Command(graph=Command.PARENT)`` carrying its own
+    routing and ``active_agent`` update. That Command is passed through
+    unchanged — the agentic target takes precedence over the deterministic
+    edge.
 
     Args:
         inner_handler: The original handler produced by ``create_agent_node_handler``.
@@ -260,7 +263,14 @@ def _create_deterministic_handler(
     """
 
     async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
-        result: AgentState = await inner_handler(state, runtime)
+        result = await inner_handler(state, runtime)
+        if isinstance(result, Command):
+            logger.debug(
+                "Deterministic handoff overridden by agentic Command",
+                deterministic_target=target_agent_name,
+                agentic_goto=result.goto,
+            )
+            return result
         result["active_agent"] = target_agent_name
         logger.debug(
             "Deterministic handoff: setting active_agent",
@@ -347,46 +357,12 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     # Set up shared extraction manager and background reflection executor
     # before creating agents so the manager can be shared across all nodes.
-    extraction_manager = None
-    reflection_executor = None
-    needs_extraction = (
-        memory
-        and memory.store
-        and memory.extraction
-        and store
-        and (memory.extraction.background_extraction or memory.extraction.auto_inject)
+    extraction_manager, reflection_executor = create_extraction_manager_and_executor(
+        memory=memory,
+        store=store,
+        fallback_model=config.app.agents[0].model.as_chat_model(),
+        graph_label="swarm graph",
     )
-    if needs_extraction:
-        from dao_ai.memory.extraction import (
-            create_extraction_manager,
-            create_reflection_executor,
-        )
-        from dao_ai.nodes import _build_memory_namespace
-
-        extraction_ns = _build_memory_namespace(memory)
-        extraction_model: LanguageModelLike = (
-            memory.extraction.extraction_model.as_chat_model()
-            if memory.extraction.extraction_model
-            else config.app.agents[0].model.as_chat_model()
-        )
-        query_model: LanguageModelLike | None = (
-            memory.extraction.query_model.as_chat_model()
-            if memory.extraction.query_model
-            else None
-        )
-
-        extraction_manager = create_extraction_manager(
-            model=extraction_model,
-            store=store,
-            namespace=extraction_ns,
-            schemas=memory.extraction.schemas,
-            instructions=memory.extraction.instructions,
-            query_model=query_model,
-        )
-
-        if memory.extraction.background_extraction:
-            reflection_executor = create_reflection_executor(extraction_manager, store)
-            logger.info("Background memory extraction enabled for swarm graph")
 
     for registered_agent in config.app.agents:
         # Resolve handoff configuration for this agent
@@ -460,7 +436,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         handler = create_agent_node_handler(
             agent_name=agent_name,
             agent=agent_subgraph,
-            output_mode="last_message",
+            output_mode=orchestration.output_mode,
             reflection_executor=reflection_executor,
             recursion_limit=agent_recursion_limits.get(agent_name),
         )
@@ -500,4 +476,9 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     # This is the key pattern from langgraph-swarm-py
     workflow.set_conditional_entry_point(router)
 
-    return workflow.compile(checkpointer=checkpointer, store=store)
+    compiled = workflow.compile(checkpointer=checkpointer, store=store)
+
+    # Apply the cross-agent hop ceiling at the parent graph level. This is
+    # the only bound on agentic ping-pong between peers; per-worker
+    # recursion_limit only protects within a single agent's turn.
+    return compiled.with_config({"recursion_limit": swarm.max_hops})

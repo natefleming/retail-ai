@@ -99,19 +99,49 @@ class SessionState(BaseModel):
     # other_tool_state: OtherToolState = Field(default_factory=OtherToolState)
 
 
+def _merge_basemodel(current: BaseModel, new: BaseModel) -> BaseModel:
+    """Recursively merge two same-typed BaseModel instances.
+
+    Rules:
+    - Nested BaseModel of the same type: recurse.
+    - Dict-valued fields: union with ``new`` winning on key conflict.
+    - All other fields: ``new`` wins (last-update semantics).
+
+    Different runtime types short-circuit to ``new``, since merging unlike
+    schemas can't be done coherently.
+    """
+    if type(current) is not type(new):
+        return new
+
+    updates: dict[str, Any] = {}
+    for field_name in type(current).model_fields:
+        cur_val = getattr(current, field_name)
+        new_val = getattr(new, field_name)
+        if (
+            isinstance(cur_val, BaseModel)
+            and isinstance(new_val, BaseModel)
+            and type(cur_val) is type(new_val)
+        ):
+            updates[field_name] = _merge_basemodel(cur_val, new_val)
+        elif isinstance(cur_val, dict) and isinstance(new_val, dict):
+            updates[field_name] = {**cur_val, **new_val}
+        else:
+            updates[field_name] = new_val
+    return type(current)(**updates)
+
+
 def merge_session(current: SessionState, new: SessionState) -> SessionState:
     """Reducer that merges SessionState values from concurrent tool updates.
 
-    When multiple tools (e.g., parallel Genie calls) write to ``session``
-    in the same LangGraph step, the default ``LastValue`` channel would
-    raise ``InvalidUpdateError``. This reducer deep-merges the
-    ``genie.spaces`` dictionaries so each tool's space update is preserved.
+    When multiple tools (e.g., parallel Genie calls) write to ``session`` in
+    the same LangGraph step, the default ``LastValue`` channel would raise
+    ``InvalidUpdateError``. This reducer recursively walks ``SessionState``,
+    union-merging dict fields and recursing into nested ``BaseModel`` fields,
+    so newly added stateful tool state automatically participates in merging
+    without bespoke reducer code.
     """
-    merged_spaces: dict[str, GenieSpaceState] = {
-        **current.genie.spaces,
-        **new.genie.spaces,
-    }
-    return SessionState(genie=GenieState(spaces=merged_spaces))
+    merged = _merge_basemodel(current, new)
+    return merged  # type: ignore[return-value]
 
 
 class AgentState(MessagesState, total=False):
