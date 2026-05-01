@@ -288,9 +288,12 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         graph_label="supervisor graph",
     )
 
+    # extraction_manager is non-None iff create_extraction_manager_and_executor
+    # determined extraction is needed; use it as the gate for downstream wiring.
     if (
-        needs_extraction
-        and extraction_manager
+        extraction_manager
+        and memory
+        and memory.extraction
         and memory.extraction.auto_inject
         and memory.extraction.supervisor_auto_inject
     ):
@@ -305,7 +308,12 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             "Memory context injection enabled for supervisor",
             auto_inject_limit=memory.extraction.auto_inject_limit,
         )
-    elif needs_extraction and extraction_manager and memory.extraction.auto_inject:
+    elif (
+        extraction_manager
+        and memory
+        and memory.extraction
+        and memory.extraction.auto_inject
+    ):
         logger.info(
             "Memory context injection skipped for supervisor (supervisor_auto_inject=False)"
         )
