@@ -129,9 +129,15 @@ class TestDeterministicHandlerCommandPassthrough:
 
 @pytest.mark.unit
 class TestFilterMessagesForAgentTagging:
-    """Agents must see their own prior tool exchanges; peers' must be hidden."""
+    """Agents must see their own prior tool exchanges; peers' must be hidden.
+
+    Ownership: AIMessage by ``msg.name``, ToolMessage by ``tool_call_id``
+    pairing against an own AIMessage(tool_calls=…).
+    """
 
     def test_keeps_own_tool_exchange_drops_peer_tool_exchange(self) -> None:
+        # ToolMessage.name carries the *tool*'s name (set by langchain), not
+        # the agent's — pairing works via tool_call_id.
         own_call = AIMessage(
             content="checking inventory",
             name="agent_a",
@@ -140,7 +146,7 @@ class TestFilterMessagesForAgentTagging:
             ],
         )
         own_result = ToolMessage(
-            content="42 in stock", tool_call_id="call_a1", name="agent_a"
+            content="42 in stock", tool_call_id="call_a1", name="lookup"
         )
         peer_call = AIMessage(
             content="forecasting demand",
@@ -148,7 +154,7 @@ class TestFilterMessagesForAgentTagging:
             tool_calls=[{"name": "forecast", "args": {}, "id": "call_b1"}],
         )
         peer_result = ToolMessage(
-            content="trending up", tool_call_id="call_b1", name="agent_b"
+            content="trending up", tool_call_id="call_b1", name="forecast"
         )
 
         history = [
@@ -161,12 +167,10 @@ class TestFilterMessagesForAgentTagging:
 
         filtered = filter_messages_for_agent(history, current_agent_name="agent_a")
 
-        types = [type(m).__name__ for m in filtered]
-        assert "ToolMessage" in types
-        # agent_a's tool exchange present
+        # agent_a's tool exchange present (paired by tool_call_id)
         assert own_call in filtered
         assert own_result in filtered
-        # agent_b's ToolMessage stripped (no name match)
+        # agent_b's ToolMessage dropped (no matching kept AIMessage)
         assert peer_result not in filtered
         # peer AIMessage with content survives but with tool_calls stripped
         peer_in_filtered = next(
@@ -176,6 +180,23 @@ class TestFilterMessagesForAgentTagging:
         assert peer_in_filtered is not None
         assert not peer_in_filtered.tool_calls
 
+    def test_pairs_multiple_tool_calls_in_one_aimessage(self) -> None:
+        own_call = AIMessage(
+            content="parallel fetches",
+            name="agent_a",
+            tool_calls=[
+                {"name": "lookup", "args": {"sku": "1"}, "id": "tc1"},
+                {"name": "lookup", "args": {"sku": "2"}, "id": "tc2"},
+            ],
+        )
+        result1 = ToolMessage(content="r1", tool_call_id="tc1", name="lookup")
+        result2 = ToolMessage(content="r2", tool_call_id="tc2", name="lookup")
+        history = [HumanMessage(content="q"), own_call, result1, result2]
+
+        filtered = filter_messages_for_agent(history, current_agent_name="agent_a")
+        assert result1 in filtered
+        assert result2 in filtered
+
     def test_legacy_no_agent_name_strips_all_tool_messages(self) -> None:
         """When called with no agent name, behaviour matches the pre-refactor
         contract: all ToolMessages dropped, all tool_calls stripped."""
@@ -184,7 +205,7 @@ class TestFilterMessagesForAgentTagging:
                 content="hi",
                 tool_calls=[{"name": "x", "args": {}, "id": "c1"}],
             ),
-            ToolMessage(content="result", tool_call_id="c1"),
+            ToolMessage(content="result", tool_call_id="c1", name="x"),
         ]
         filtered = filter_messages_for_agent(history)
         assert all(not isinstance(m, ToolMessage) for m in filtered)

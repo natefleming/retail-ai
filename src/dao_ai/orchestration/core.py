@@ -91,28 +91,31 @@ def filter_messages_for_agent(
     - HumanMessage (user queries)
     - AIMessage with content from any agent (peer responses, with tool_calls
       stripped so the model doesn't see orphaned tool_use blocks)
-    - Its own AIMessage(tool_calls=...) and matching ToolMessages, identified
-      by the ``name`` field on the message
+    - Its own AIMessage(tool_calls=...) and the matching ToolMessage(s), so a
+      multi-turn agent can see its own prior tool results
 
-    Tool exchanges produced by other agents (tagged with their own ``name``)
-    or by orchestration plumbing (handoff tools, untagged) are dropped so the
-    re-entering agent doesn't trip pairing checks on tool_call_ids it didn't
-    issue.
+    Ownership rules:
+    - AIMessages are tagged with the agent's name by ``create_agent`` (and as
+      a fallback by ``create_agent_node_handler``). ``msg.name ==
+      current_agent_name`` identifies an own AIMessage.
+    - ToolMessages carry the **tool's** name in ``msg.name`` (e.g.
+      ``product_vector_search_tool``) — *not* the agent's. To attribute a
+      ToolMessage to an agent, we pair it via ``tool_call_id`` against the
+      surrounding ``AIMessage(tool_calls=…)`` we already decided to keep.
 
     Args:
         messages: The full message history from parent state
         current_agent_name: The name of the agent receiving the filtered
-            history. When set, the agent's own tool exchanges (matching
-            ``msg.name``) are preserved. When ``None`` (legacy callers), all
-            tool exchanges are stripped — preserves the pre-refactor behaviour.
+            history. When set, the agent's own tool exchanges are preserved.
+            When ``None`` (legacy callers), all tool exchanges are stripped.
 
     Returns:
         Filtered messages safe for the agent to process
     """
     filtered: list[BaseMessage] = []
+    own_tool_call_ids: set[str] = set()
     for msg in messages:
         if isinstance(msg, HumanMessage):
-            # Always include user messages
             filtered.append(msg)
         elif isinstance(msg, AIMessage):
             is_own = (
@@ -121,13 +124,14 @@ def filter_messages_for_agent(
             )
             if msg.tool_calls:
                 if is_own:
-                    # Keep agent's own tool-call message intact so it pairs
-                    # with the matching ToolMessage(s) below.
                     filtered.append(msg)
+                    for tc in msg.tool_calls:
+                        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                        if tc_id:
+                            own_tool_call_ids.add(tc_id)
                 elif msg.content:
-                    # Strip tool_calls from peer/orchestration messages but
-                    # preserve content (and name, so a peer's identity flows
-                    # through subsequent turns).
+                    # Peer/orchestration message: keep visible content but
+                    # strip tool_calls so the model doesn't see orphans.
                     filtered.append(
                         AIMessage(content=msg.content, id=msg.id, name=msg.name)
                     )
@@ -135,13 +139,10 @@ def filter_messages_for_agent(
             elif msg.content:
                 filtered.append(msg)
         elif isinstance(msg, ToolMessage):
-            if (
-                current_agent_name is not None
-                and msg.name == current_agent_name
-            ):
-                # Keep agent's own tool result so it pairs with its tool_call.
+            if msg.tool_call_id in own_tool_call_ids:
+                # Pair with a kept own AIMessage(tool_calls=…).
                 filtered.append(msg)
-            # else: drop peer or orchestration tool result
+            # else: peer / handoff / orchestration tool result — drop
     return filtered
 
 
@@ -330,14 +331,15 @@ def create_agent_node_handler(
         result_messages = result.get("messages", [])
         response_messages = extract_agent_response(result_messages, output_mode)
 
-        # Tag the agent's own tool-call AIMessages and ToolMessages so a later
-        # filter pass can preserve same-agent tool pairs while hiding peers'.
-        # Untagged messages from this agent get the agent's name; messages
-        # already carrying a name (e.g. peer tool exchanges that flowed
-        # through full_history mode) keep their existing tag.
+        # Defensive fallback: if any AIMessage came back without ``name``
+        # set, tag it with the agent's name so ``filter_messages_for_agent``
+        # can identify it as own on re-entry. ``create_agent(name=…)``
+        # normally sets this already, so this is rarely a no-op. ToolMessages
+        # carry the tool's name (not the agent's) and get attributed via
+        # tool_call_id pairing in the filter.
         response_messages = [
             msg.model_copy(update={"name": agent_name})
-            if isinstance(msg, (AIMessage, ToolMessage)) and not msg.name
+            if isinstance(msg, AIMessage) and not msg.name
             else msg
             for msg in response_messages
         ]
