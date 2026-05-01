@@ -414,3 +414,77 @@ class TestOrchestrationOutputMode:
                 supervisor=SupervisorModel(model=LLMModel(name="test-model")),
                 output_mode="garbage",
             )
+
+
+# =============================================================================
+# Regression for the deploy-time bugs caught only by `dao-ai validate` /
+# real endpoint (commits 84cabde, 2777cb8). Unit-tests-only would have
+# missed these — these tests exist so a future refactor doesn't reintroduce
+# them.
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestSupervisorNoStaleNeedsExtractionReference:
+    """Static check that supervisor.py never references the removed
+    ``needs_extraction`` local. The original bug (commit 84cabde) had
+    `needs_extraction` referenced in the auto-inject branch after the
+    factory refactor (#6) deleted the local. Failed at
+    `dao-ai validate -c sporting_goods_store.yaml` with NameError."""
+
+    def test_supervisor_module_has_no_orphan_needs_extraction(self) -> None:
+        import inspect
+        from dao_ai.orchestration import supervisor
+
+        source = inspect.getsource(supervisor)
+        # The substring should NOT appear as a bare identifier anywhere.
+        # Tolerate "needs_extraction" inside a comment or docstring (none
+        # currently exist; if one is added, this test will tighten the rule).
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            assert "needs_extraction" not in line, (
+                f"supervisor.py:{lineno}: bare reference to "
+                f"`needs_extraction` resurfaced — this was deleted in "
+                f"the factory refactor and any reference is a NameError "
+                f"at validate time. Line: {line.rstrip()}"
+            )
+
+
+@pytest.mark.unit
+class TestToolMessageNameIsToolNotAgent:
+    """Document the LangChain semantics that originally tripped commit
+    2777cb8: ``ToolMessage.name`` carries the *tool's* name, not the
+    *agent's* name. Future fixture authors should set ``name=<tool_name>``
+    when constructing ToolMessage in tests, matching production traces."""
+
+    def test_tool_message_default_name_is_tool_identifier(self) -> None:
+        # When langchain wraps a tool's return value into a ToolMessage,
+        # it sets `.name` to the tool's identifier. Tests SHOULD reflect
+        # this — fixtures using `name=<agent_name>` masked the original
+        # filter bug.
+        msg = ToolMessage(
+            content="result",
+            tool_call_id="tc_x",
+            name="product_vector_search_tool",
+        )
+        assert msg.name == "product_vector_search_tool"
+        # Filter pairs by tool_call_id, not by name. Confirm with own
+        # AIMessage.
+        own_call = AIMessage(
+            content="searching",
+            name="general",
+            tool_calls=[
+                {
+                    "name": "product_vector_search_tool",
+                    "args": {"q": "x"},
+                    "id": "tc_x",
+                }
+            ],
+        )
+        history = [HumanMessage(content="?"), own_call, msg]
+        kept = filter_messages_for_agent(history, current_agent_name="general")
+        # ToolMessage retained because tc_x pairs with own_call's tool_calls,
+        # NOT because msg.name matches "general".
+        assert msg in kept
