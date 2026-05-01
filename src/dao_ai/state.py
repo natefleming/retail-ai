@@ -144,6 +144,27 @@ def merge_session(current: SessionState, new: SessionState) -> SessionState:
     return merged  # type: ignore[return-value]
 
 
+def last_active_agent(current: Optional[str], new: Optional[str]) -> Optional[str]:
+    """Reducer that tolerates concurrent writes to ``active_agent``.
+
+    In swarm configs that mix deterministic edges with agentic handoff
+    tools (e.g. ``deterministic_handoff_pattern.yaml``), an agentic
+    ``Command(goto=X, graph=PARENT)`` and the parent graph's static
+    ``add_edge`` from the same source can both fire in one step. Each
+    writes ``active_agent``, and the default ``LastValue`` channel raises
+    ``InvalidUpdateError: At key 'active_agent': Can receive only one
+    value per step.``
+
+    The Command path is the source of truth (it carries the LLM's chosen
+    target); the static-edge update is bookkeeping. We resolve concurrent
+    writes by preferring whichever value is non-None, falling back to the
+    new value.
+    """
+    if new is not None:
+        return new
+    return current
+
+
 class AgentState(MessagesState, total=False):
     """
     Primary state schema for DAO AI agents.
@@ -169,7 +190,7 @@ class AgentState(MessagesState, total=False):
     """
 
     context: NotRequired[str]
-    active_agent: NotRequired[str]
+    active_agent: NotRequired[Annotated[str, last_active_agent]]
     is_valid: NotRequired[bool]
     message_error: NotRequired[str]
     session: NotRequired[Annotated[SessionState, merge_session]]

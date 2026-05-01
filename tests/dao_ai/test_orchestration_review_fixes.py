@@ -453,6 +453,60 @@ class TestSupervisorNoStaleNeedsExtractionReference:
 
 
 @pytest.mark.unit
+class TestActiveAgentReducerToleratesConcurrentWrites:
+    """Regression for a bug surfaced by the C2 (deterministic +
+    agentic combo) deploy test on 2026-05-01: when an agent has both a
+    static deterministic edge and an agentic handoff tool, both can fire
+    in one parent step, each writing ``active_agent``. Without a
+    reducer, the default ``LastValue`` channel raises
+    ``InvalidUpdateError: At key 'active_agent': Can receive only one
+    value per step.``"""
+
+    def test_last_active_agent_prefers_non_none_new(self) -> None:
+        from dao_ai.state import last_active_agent
+
+        # New value wins when present
+        assert last_active_agent("a", "b") == "b"
+        # Falls back to current when new is None (e.g. dict update with
+        # active_agent unset)
+        assert last_active_agent("a", None) == "a"
+        # New value wins when current is None
+        assert last_active_agent(None, "b") == "b"
+        # Both None is fine
+        assert last_active_agent(None, None) is None
+
+    def test_active_agent_field_has_reducer_annotation(self) -> None:
+        import typing
+        from dao_ai.state import AgentState, last_active_agent
+
+        hints = typing.get_type_hints(AgentState, include_extras=True)
+        active = hints.get("active_agent")
+        # active_agent should be Annotated with the reducer (wrapped in
+        # NotRequired). This guard makes sure a future refactor doesn't
+        # silently drop the reducer.
+        assert active is not None
+        # Walk past NotRequired/Optional wrappers
+        # NotRequired is detected via __metadata__-less check; just look for
+        # the reducer in any of typing's metadata.
+        from typing import get_args
+        # Recurse through nested generics until we find Annotated metadata.
+        def find_metadata(t):
+            args = get_args(t)
+            for a in args:
+                if hasattr(a, "__call__") and a is last_active_agent:
+                    return True
+                if find_metadata(a):
+                    return True
+            return False
+
+        assert find_metadata(active), (
+            "active_agent must be Annotated with last_active_agent so "
+            "concurrent writes from deterministic edge + agentic Command "
+            "don't crash the parent graph."
+        )
+
+
+@pytest.mark.unit
 class TestToolMessageNameIsToolNotAgent:
     """Document the LangChain semantics that originally tripped commit
     2777cb8: ``ToolMessage.name`` carries the *tool's* name, not the
