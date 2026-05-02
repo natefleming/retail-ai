@@ -4483,6 +4483,16 @@
           ],
           "default": null,
           "description": "Memory configuration scoped to the orchestration layer (checkpointer, store, extraction)."
+        },
+        "output_mode": {
+          "default": "full_history",
+          "description": "How an agent's response flows back into parent state. ``full_history`` returns the agent's full local history including intermediate AI/tool messages, which lets the same agent see its own prior tool results across multi-turn conversations. ``last_message`` returns only the final AI response, which trims tokens but loses intermediate content. Default flipped to ``full_history`` so per-agent ToolMessage tagging actually has messages to identify.",
+          "enum": [
+            "full_history",
+            "last_message"
+          ],
+          "title": "Output Mode",
+          "type": "string"
         }
       },
       "title": "OrchestrationModel",
@@ -5535,6 +5545,13 @@
           ],
           "description": "Mapping of agent names to their allowed handoff targets. Each target can be an agent name (str), an AgentModel, or a HandoffRouteModel for deterministic routing. Use null (~) to allow handoffs to all agents.",
           "title": "Handoffs"
+        },
+        "max_hops": {
+          "default": 25,
+          "description": "Cross-agent hop ceiling for the parent swarm graph. Two agents agentic-handing-off to each other are bounded only by this value (set via LangGraph's recursion_limit on the compiled parent graph). Independent of per-worker recursion limits. Defaults to LangGraph's own default of 25.",
+          "minimum": 1,
+          "title": "Max Hops",
+          "type": "integer"
         }
       },
       "title": "SwarmModel",
