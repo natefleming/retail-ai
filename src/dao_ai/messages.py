@@ -197,6 +197,27 @@ def last_ai_message(messages: Sequence[BaseMessage]) -> Optional[AIMessage]:
     )
 
 
+def last_ai_message_with_tool_calls(
+    messages: Sequence[BaseMessage],
+) -> Optional[AIMessage]:
+    """
+    Find the last AIMessage that carries one or more tool calls.
+
+    Used by handoff tools that need to emit a ToolMessage paired with the
+    AIMessage that triggered the handoff (LLMs require tool_use/tool_result
+    pairing across providers).
+
+    Args:
+        messages: A sequence of LangChain message objects to search through
+
+    Returns:
+        The last AIMessage with non-empty ``tool_calls``, or None if not found
+    """
+    return last_message(
+        messages, lambda m: isinstance(m, AIMessage) and bool(m.tool_calls)
+    )
+
+
 def last_tool_message(messages: Sequence[BaseMessage]) -> Optional[ToolMessage]:
     """
     Find the last message from a tool in the message history.

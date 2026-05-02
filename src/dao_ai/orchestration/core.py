@@ -12,6 +12,7 @@ This module provides the foundational utilities for multi-agent orchestration:
 from typing import Any, Awaitable, Callable, Literal
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -26,9 +27,10 @@ from loguru import logger
 from dao_ai.config import (
     AgentModel,
     AppConfig,
+    MemoryModel,
     OrchestrationModel,
 )
-from dao_ai.messages import last_ai_message
+from dao_ai.messages import last_ai_message, last_ai_message_with_tool_calls
 from dao_ai.state import AgentState, Context
 
 # Constant for supervisor node name
@@ -78,36 +80,69 @@ def create_checkpointer(
     return None
 
 
-def filter_messages_for_agent(messages: list[BaseMessage]) -> list[BaseMessage]:
+def filter_messages_for_agent(
+    messages: list[BaseMessage],
+    current_agent_name: str | None = None,
+) -> list[BaseMessage]:
     """
     Filter messages for a worker agent to avoid tool_use/tool_result pairing errors.
 
-    When the supervisor hands off to an agent, the agent should only see:
+    When agents share parent-graph state, each agent should only see:
     - HumanMessage (user queries)
-    - AIMessage with content (previous responses, but not tool calls)
+    - AIMessage with content from any agent (peer responses, with tool_calls
+      stripped so the model doesn't see orphaned tool_use blocks)
+    - Its own AIMessage(tool_calls=...) and the matching ToolMessage(s), so a
+      multi-turn agent can see its own prior tool results
 
-    This prevents the agent from seeing orphaned ToolMessages or AIMessages
-    with tool_calls that don't belong to the agent's context.
+    Ownership rules:
+    - AIMessages are tagged with the agent's name by ``create_agent`` (and as
+      a fallback by ``create_agent_node_handler``). ``msg.name ==
+      current_agent_name`` identifies an own AIMessage.
+    - ToolMessages carry the **tool's** name in ``msg.name`` (e.g.
+      ``product_vector_search_tool``) — *not* the agent's. To attribute a
+      ToolMessage to an agent, we pair it via ``tool_call_id`` against the
+      surrounding ``AIMessage(tool_calls=…)`` we already decided to keep.
 
     Args:
         messages: The full message history from parent state
+        current_agent_name: The name of the agent receiving the filtered
+            history. When set, the agent's own tool exchanges are preserved.
+            When ``None`` (legacy callers), all tool exchanges are stripped.
 
     Returns:
         Filtered messages safe for the agent to process
     """
     filtered: list[BaseMessage] = []
+    own_tool_call_ids: set[str] = set()
     for msg in messages:
         if isinstance(msg, HumanMessage):
-            # Always include user messages
             filtered.append(msg)
         elif isinstance(msg, AIMessage):
-            # Include AI messages but strip tool_calls to avoid confusion
-            if msg.content and not msg.tool_calls:
+            is_own = (
+                current_agent_name is not None
+                and msg.name == current_agent_name
+            )
+            if msg.tool_calls:
+                if is_own:
+                    filtered.append(msg)
+                    for tc in msg.tool_calls:
+                        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                        if tc_id:
+                            own_tool_call_ids.add(tc_id)
+                elif msg.content:
+                    # Peer/orchestration message: keep visible content but
+                    # strip tool_calls so the model doesn't see orphans.
+                    filtered.append(
+                        AIMessage(content=msg.content, id=msg.id, name=msg.name)
+                    )
+                # else: drop silent tool-call-only message from peers
+            elif msg.content:
                 filtered.append(msg)
-            elif msg.content and msg.tool_calls:
-                # Include content but create clean AIMessage without tool_calls
-                filtered.append(AIMessage(content=msg.content, id=msg.id))
-        # Skip ToolMessages - they belong to the supervisor's context
+        elif isinstance(msg, ToolMessage):
+            if msg.tool_call_id in own_tool_call_ids:
+                # Pair with a kept own AIMessage(tool_calls=…).
+                filtered.append(msg)
+            # else: peer / handoff / orchestration tool result — drop
     return filtered
 
 
@@ -172,9 +207,13 @@ def create_agent_node_handler(
     """
 
     async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
-        # Filter messages to avoid tool_use/tool_result pairing errors
+        # Filter messages to avoid tool_use/tool_result pairing errors.
+        # Passing agent_name preserves the agent's own tool exchanges from
+        # prior turns while still hiding peers' tool exchanges.
         original_messages = state.get("messages", [])
-        filtered_messages = filter_messages_for_agent(original_messages)
+        filtered_messages = filter_messages_for_agent(
+            original_messages, current_agent_name=agent_name
+        )
 
         logger.trace(
             "Agent receiving filtered messages",
@@ -292,6 +331,19 @@ def create_agent_node_handler(
         result_messages = result.get("messages", [])
         response_messages = extract_agent_response(result_messages, output_mode)
 
+        # Defensive fallback: if any AIMessage came back without ``name``
+        # set, tag it with the agent's name so ``filter_messages_for_agent``
+        # can identify it as own on re-entry. ``create_agent(name=…)``
+        # normally sets this already, so this is rarely a no-op. ToolMessages
+        # carry the tool's name (not the agent's) and get attributed via
+        # tool_call_id pairing in the filter.
+        response_messages = [
+            msg.model_copy(update={"name": agent_name})
+            if isinstance(msg, AIMessage) and not msg.name
+            else msg
+            for msg in response_messages
+        ]
+
         logger.debug(
             "Agent completed",
             agent=agent_name,
@@ -355,16 +407,14 @@ def create_handoff_tool(
         # LLMs expect tool calls to be paired with their responses, so we must include both
         # the AIMessage containing the tool call and the ToolMessage acknowledging it.
         messages: list[BaseMessage] = runtime.state.get("messages", [])
-        last_ai_message: AIMessage | None = None
-        for msg in reversed(messages):
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                last_ai_message = msg
-                break
+        triggering_ai_message: AIMessage | None = last_ai_message_with_tool_calls(
+            messages
+        )
 
         # Build message list with proper pairing
         update_messages: list[BaseMessage] = []
-        if last_ai_message:
-            update_messages.append(last_ai_message)
+        if triggering_ai_message:
+            update_messages.append(triggering_ai_message)
         update_messages.append(
             ToolMessage(
                 content=f"Transferred to {target_agent_name}",
@@ -406,6 +456,78 @@ def get_handoff_description(agent: AgentModel) -> str:
         or agent.description
         or f"Handles {agent.name} related tasks and inquiries"
     )
+
+
+def create_extraction_manager_and_executor(
+    memory: MemoryModel | None,
+    store: BaseStore | None,
+    fallback_model: LanguageModelLike,
+    graph_label: str,
+) -> tuple[Any | None, Any | None]:
+    """
+    Build the shared extraction manager and optional reflection executor.
+
+    Both the supervisor and swarm graphs need a single extraction manager
+    shared across all nodes. The fallback model differs (the supervisor's
+    own model vs. the first worker's model in swarm), so it's parameterised.
+
+    Args:
+        memory: The orchestration memory configuration, if any.
+        store: The shared LangGraph store, if any.
+        fallback_model: Chat model to use when ``memory.extraction.extraction_model``
+            is not set.
+        graph_label: Human-readable label used only in log messages
+            (e.g. ``"supervisor graph"``).
+
+    Returns:
+        ``(extraction_manager, reflection_executor)``. Either or both may
+        be ``None`` when extraction is not configured or background
+        extraction is disabled.
+    """
+    needs_extraction = (
+        memory
+        and memory.store
+        and memory.extraction
+        and store
+        and (memory.extraction.background_extraction or memory.extraction.auto_inject)
+    )
+    if not needs_extraction:
+        return None, None
+
+    # Lazy imports avoid an import cycle with dao_ai.memory and dao_ai.nodes.
+    from dao_ai.memory.extraction import (
+        create_extraction_manager,
+        create_reflection_executor,
+    )
+    from dao_ai.nodes import _build_memory_namespace
+
+    extraction_ns = _build_memory_namespace(memory)
+    extraction_model: LanguageModelLike = (
+        memory.extraction.extraction_model.as_chat_model()
+        if memory.extraction.extraction_model
+        else fallback_model
+    )
+    query_model: LanguageModelLike | None = (
+        memory.extraction.query_model.as_chat_model()
+        if memory.extraction.query_model
+        else None
+    )
+
+    extraction_manager = create_extraction_manager(
+        model=extraction_model,
+        store=store,
+        namespace=extraction_ns,
+        schemas=memory.extraction.schemas,
+        instructions=memory.extraction.instructions,
+        query_model=query_model,
+    )
+
+    reflection_executor = None
+    if memory.extraction.background_extraction:
+        reflection_executor = create_reflection_executor(extraction_manager, store)
+        logger.info(f"Background memory extraction enabled for {graph_label}")
+
+    return extraction_manager, reflection_executor
 
 
 def create_orchestration_graph(config: AppConfig) -> CompiledStateGraph:

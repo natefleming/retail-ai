@@ -4245,6 +4245,17 @@ class SwarmModel(BaseModel):
             "Use null (~) to allow handoffs to all agents."
         ),
     )
+    max_hops: int = Field(
+        default=25,
+        ge=1,
+        description=(
+            "Cross-agent hop ceiling for the parent swarm graph. Two agents "
+            "agentic-handing-off to each other are bounded only by this "
+            "value (set via LangGraph's recursion_limit on the compiled "
+            "parent graph). Independent of per-worker recursion limits. "
+            "Defaults to LangGraph's own default of 25."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_no_deterministic_handoff_in_cycle(self) -> Self:
@@ -4364,6 +4375,19 @@ class OrchestrationModel(BaseModel):
     memory: Optional[MemoryModel] = Field(
         default=None,
         description="Memory configuration scoped to the orchestration layer (checkpointer, store, extraction).",
+    )
+    output_mode: Literal["full_history", "last_message"] = Field(
+        default="full_history",
+        description=(
+            "How an agent's response flows back into parent state. "
+            "``full_history`` returns the agent's full local history including "
+            "intermediate AI/tool messages, which lets the same agent see its "
+            "own prior tool results across multi-turn conversations. "
+            "``last_message`` returns only the final AI response, which trims "
+            "tokens but loses intermediate content. Default flipped to "
+            "``full_history`` so per-agent ToolMessage tagging actually has "
+            "messages to identify."
+        ),
     )
 
     @model_validator(mode="after")

@@ -99,19 +99,70 @@ class SessionState(BaseModel):
     # other_tool_state: OtherToolState = Field(default_factory=OtherToolState)
 
 
+def _merge_basemodel(current: BaseModel, new: BaseModel) -> BaseModel:
+    """Recursively merge two same-typed BaseModel instances.
+
+    Rules:
+    - Nested BaseModel of the same type: recurse.
+    - Dict-valued fields: union with ``new`` winning on key conflict.
+    - All other fields: ``new`` wins (last-update semantics).
+
+    Different runtime types short-circuit to ``new``, since merging unlike
+    schemas can't be done coherently.
+    """
+    if type(current) is not type(new):
+        return new
+
+    updates: dict[str, Any] = {}
+    for field_name in type(current).model_fields:
+        cur_val = getattr(current, field_name)
+        new_val = getattr(new, field_name)
+        if (
+            isinstance(cur_val, BaseModel)
+            and isinstance(new_val, BaseModel)
+            and type(cur_val) is type(new_val)
+        ):
+            updates[field_name] = _merge_basemodel(cur_val, new_val)
+        elif isinstance(cur_val, dict) and isinstance(new_val, dict):
+            updates[field_name] = {**cur_val, **new_val}
+        else:
+            updates[field_name] = new_val
+    return type(current)(**updates)
+
+
 def merge_session(current: SessionState, new: SessionState) -> SessionState:
     """Reducer that merges SessionState values from concurrent tool updates.
 
-    When multiple tools (e.g., parallel Genie calls) write to ``session``
-    in the same LangGraph step, the default ``LastValue`` channel would
-    raise ``InvalidUpdateError``. This reducer deep-merges the
-    ``genie.spaces`` dictionaries so each tool's space update is preserved.
+    When multiple tools (e.g., parallel Genie calls) write to ``session`` in
+    the same LangGraph step, the default ``LastValue`` channel would raise
+    ``InvalidUpdateError``. This reducer recursively walks ``SessionState``,
+    union-merging dict fields and recursing into nested ``BaseModel`` fields,
+    so newly added stateful tool state automatically participates in merging
+    without bespoke reducer code.
     """
-    merged_spaces: dict[str, GenieSpaceState] = {
-        **current.genie.spaces,
-        **new.genie.spaces,
-    }
-    return SessionState(genie=GenieState(spaces=merged_spaces))
+    merged = _merge_basemodel(current, new)
+    return merged  # type: ignore[return-value]
+
+
+def last_active_agent(current: Optional[str], new: Optional[str]) -> Optional[str]:
+    """Reducer that tolerates concurrent writes to ``active_agent``.
+
+    In swarm configs that mix deterministic edges with agentic handoff
+    tools (e.g. ``deterministic_handoff_pattern.yaml``), an agentic
+    ``Command(goto=X, graph=PARENT)`` and the parent graph's static
+    ``add_edge`` from the same source can both fire in one step. Each
+    writes ``active_agent``, and the default ``LastValue`` channel raises
+    ``InvalidUpdateError: At key 'active_agent': Can receive only one
+    value per step.``
+
+    The Command path is the source of truth (it carries the LLM's chosen
+    target); the static-edge update is bookkeeping. We resolve concurrent
+    writes by preferring whichever value is non-None, falling back to the
+    new value.
+    """
+    if new is not None:
+        return new
+    return current
 
 
 class AgentState(MessagesState, total=False):
@@ -139,7 +190,7 @@ class AgentState(MessagesState, total=False):
     """
 
     context: NotRequired[str]
-    active_agent: NotRequired[str]
+    active_agent: NotRequired[Annotated[str, last_active_agent]]
     is_valid: NotRequired[bool]
     message_error: NotRequired[str]
     session: NotRequired[Annotated[SessionState, merge_session]]

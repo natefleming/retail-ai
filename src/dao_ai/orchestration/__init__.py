@@ -27,6 +27,7 @@ from dao_ai.orchestration.core import (
     OutputMode,
     create_agent_node_handler,
     create_checkpointer,
+    create_extraction_manager_and_executor,
     create_handoff_tool,
     create_orchestration_graph,
     create_store,
@@ -45,6 +46,7 @@ __all__ = [
     "filter_messages_for_agent",
     "extract_agent_response",
     "create_agent_node_handler",
+    "create_extraction_manager_and_executor",
     "create_handoff_tool",
     "get_handoff_description",
     # Main factory

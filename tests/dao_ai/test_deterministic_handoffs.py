@@ -198,7 +198,7 @@ class TestHandoffResult:
         from dao_ai.orchestration.swarm import HandoffResult
 
         result = HandoffResult()
-        assert result.tools == []
+        assert result.tools == ()
         assert result.deterministic_target is None
 
     def test_handoff_result_with_values(self) -> None:
@@ -207,7 +207,7 @@ class TestHandoffResult:
 
         mock_tool = MagicMock()
         result = HandoffResult(
-            tools=[mock_tool],
+            tools=(mock_tool,),
             deterministic_target="agent_b",
         )
         assert len(result.tools) == 1
@@ -285,7 +285,7 @@ class TestHandoffsForAgent:
         )
 
         result = _handoffs_for_agent(agents[0], config)
-        assert result.tools == []
+        assert result.tools == ()
         assert result.deterministic_target == "agent_b"
 
     def test_mixed_agentic_and_deterministic_handoffs(self) -> None:
@@ -412,7 +412,7 @@ class TestHandoffsForAgent:
 
         result = _handoffs_for_agent(agents[0], config)
         assert result.deterministic_target == "agent_b"
-        assert result.tools == []
+        assert result.tools == ()
 
     def test_unknown_agent_reference_is_skipped(self) -> None:
         """Test that an unknown agent name in handoffs is skipped with warning."""
@@ -429,7 +429,7 @@ class TestHandoffsForAgent:
         )
 
         result = _handoffs_for_agent(agents[0], config)
-        assert result.tools == []
+        assert result.tools == ()
         assert result.deterministic_target is None
 
 
