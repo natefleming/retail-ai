@@ -225,6 +225,118 @@ class TestGenerateAppResourcesPartition:
         assert scopes == ["serving.serving-endpoints"]
 
 
+@pytest.mark.unit
+class TestSdkExtractorObOFilter:
+    """The SDK-format extractors are used by ``AppConfig.deploy_agent(target=APPS)``
+    via ``apps.create/update`` (not the bundle path). They must apply the same
+    OBO filter as the flat-dict family so both deploy paths agree."""
+
+    def test_sdk_llm_extractor_skips_obo(self) -> None:
+        from dao_ai.apps.resources import _extract_sdk_llm_resources
+
+        llms = {
+            "obo_llm": LLMModel(
+                name="databricks-claude-sonnet-4-5", on_behalf_of_user=True
+            ),
+            "system_llm": LLMModel(
+                name="databricks-gte-large-en", on_behalf_of_user=False
+            ),
+        }
+        resources = _extract_sdk_llm_resources(llms)
+        names = {r.name for r in resources}
+        assert "system_llm" in names
+        assert "obo_llm" not in names
+
+    def test_sdk_warehouse_extractor_skips_obo(self) -> None:
+        from dao_ai.apps.resources import _extract_sdk_warehouse_resources
+
+        warehouses = {
+            "obo_wh": WarehouseModel(
+                name="obo", warehouse_id="abc", on_behalf_of_user=True
+            ),
+            "system_wh": WarehouseModel(
+                name="sys", warehouse_id="def", on_behalf_of_user=False
+            ),
+        }
+        names = {r.name for r in _extract_sdk_warehouse_resources(warehouses)}
+        assert names == {"system_wh"}
+
+    def test_sdk_genie_extractor_skips_obo(self) -> None:
+        from dao_ai.apps.resources import _extract_sdk_genie_resources
+
+        genie_rooms = {
+            "obo_room": GenieRoomModel(
+                name="obo", space_id="01f0obo", on_behalf_of_user=True
+            ),
+            "system_room": GenieRoomModel(
+                name="sys", space_id="01f0sys", on_behalf_of_user=False
+            ),
+        }
+        names = {r.name for r in _extract_sdk_genie_resources(genie_rooms)}
+        assert names == {"system_room"}
+
+    def test_sdk_volume_extractor_skips_obo(self) -> None:
+        from dao_ai.apps.resources import _extract_sdk_volume_resources
+
+        schema = SchemaModel(catalog_name="cat", schema_name="sch")
+        volumes = {
+            "obo_v": VolumeModel(
+                schema=schema, name="obo_v", on_behalf_of_user=True
+            ),
+            "system_v": VolumeModel(
+                schema=schema, name="system_v", on_behalf_of_user=False
+            ),
+        }
+        names = {r.name for r in _extract_sdk_volume_resources(volumes)}
+        assert names == {"system_v"}
+
+
+@pytest.mark.integration
+class TestSportingGoodsSdkResourcesPartition:
+    """Integration: ``generate_sdk_resources`` on canonical sporting_goods config.
+
+    The SDK-format output is what ``AppConfig.deploy_agent(target=APPS)`` sends
+    to ``apps.create/update`` (not the bundle path). Verifies OBO LLMs don't
+    leak into SDK resources either.
+    """
+
+    CONFIG_PATH = (
+        "config/examples/15_complete_applications/sporting_goods_store.yaml"
+    )
+    OBO_RESOURCE_NAMES: frozenset[str] = frozenset(
+        {"fast_llm", "supervisor_llm", "tool_calling_llm", "decomposition_llm"}
+    )
+
+    @pytest.fixture(scope="class")
+    def config(self) -> AppConfig:
+        return AppConfig.from_file(self.CONFIG_PATH, initialize=False)
+
+    def test_sdk_resources_excludes_obo_llms(self, config: AppConfig) -> None:
+        from dao_ai.apps.resources import generate_sdk_resources
+
+        sdk_resources = generate_sdk_resources(config)
+        # SDK AppResource.name is sanitized; compare against sanitized OBO names
+        from dao_ai.apps.resources import _sanitize_resource_name
+
+        names = {r.name for r in sdk_resources}
+        sanitized_obo = {_sanitize_resource_name(n) for n in self.OBO_RESOURCE_NAMES}
+        leaked = sanitized_obo & names
+        assert not leaked, (
+            f"OBO LLMs leaked into SDK app resources: {sorted(leaked)}. "
+            "These should only contribute to user_api_scopes, not be granted "
+            "to the app SP."
+        )
+
+    def test_sdk_resources_includes_system_llms(self, config: AppConfig) -> None:
+        from dao_ai.apps.resources import generate_sdk_resources, _sanitize_resource_name
+
+        sdk_resources = generate_sdk_resources(config)
+        names = {r.name for r in sdk_resources}
+        # Non-OBO LLMs should be present
+        for name in ("judge_llm", "embedding_model"):
+            assert _sanitize_resource_name(name) in names
+
+
 @pytest.mark.integration
 class TestSportingGoodsConfigPartition:
     """End-to-end on the canonical sporting_goods_store.yaml.
