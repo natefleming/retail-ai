@@ -1030,17 +1030,33 @@ class WarehouseModel(IsDatabricksResource):
         return self._warehouse_details
 
     def _resolve_warehouse_id_by_name(self, name: str) -> str:
-        """Look up a warehouse ID by iterating all warehouses and matching by name."""
+        """Look up a warehouse ID by iterating all warehouses and matching by name.
+
+        Raises:
+            ValueError: if zero or more than one warehouse match ``name``.
+                The Databricks docs claim warehouse names "must be unique
+                within an org," but the platform does **not** enforce this
+                — duplicates are routinely created. Pass ``warehouse_id``
+                directly to disambiguate.
+        """
         logger.info(f"Resolving warehouse by name: '{name}'")
-        warehouses: Iterator[EndpointInfo] = self.workspace_client.warehouses.list()
-        for warehouse in warehouses:
-            if warehouse.name == name:
-                logger.info(f"Resolved warehouse '{name}' to id '{warehouse.id}'")
-                return warehouse.id
-        raise ValueError(
-            f"No warehouse found with name '{name}'. "
-            "Verify the name matches an existing SQL warehouse in your workspace."
-        )
+        matches: list[str] = [
+            warehouse.id
+            for warehouse in self.workspace_client.warehouses.list()
+            if warehouse.name == name
+        ]
+        if not matches:
+            raise ValueError(
+                f"No warehouse found with name '{name}'. "
+                "Verify the name matches an existing SQL warehouse in your workspace."
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple warehouses ({len(matches)}) found with name '{name}': "
+                f"{matches}. Pass warehouse_id directly to disambiguate."
+            )
+        logger.info(f"Resolved warehouse '{name}' to id '{matches[0]}'")
+        return matches[0]
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -1326,7 +1342,17 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
     )
     space_id: Optional[AnyVariable] = Field(
         default=None,
-        description="Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name or created by .create().",
+        description=(
+            "Databricks-assigned Genie space identifier. The only field "
+            "guaranteed unique by the platform; titles are not enforced unique. "
+            "Lifecycle: "
+            "(a) Reference mode — set by the user in YAML; readable immediately. "
+            "(b) Spec mode — left None, populated by .create() once the space "
+            "is provisioned. Downstream consumers reading *room_anchor.space_id "
+            "must wait until .create() has run. "
+            "Required when on_behalf_of_user is true (name-based lookup cannot "
+            "authenticate at Model Serving startup)."
+        ),
     )
     parent_path: Optional[AnyVariable] = Field(
         default=None,
@@ -1411,8 +1437,15 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         return self._space_details
 
     def _resolve_space_id_by_name(self, name: str) -> str:
-        """Look up a Genie space ID by iterating all spaces and matching by title."""
+        """Look up a Genie space ID by iterating all spaces and matching by title.
+
+        Raises:
+            ValueError: if zero spaces or more than one space match ``name``.
+                Genie titles are not enforced unique by Databricks; pass
+                ``space_id`` directly to disambiguate.
+        """
         logger.info(f"Resolving Genie space by name: '{name}'")
+        matches: list[str] = []
         page_token: Optional[str] = None
         while True:
             response: GenieListSpacesResponse = self.workspace_client.genie.list_spaces(
@@ -1421,17 +1454,24 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             if response.spaces:
                 for space in response.spaces:
                     if space.title == name:
-                        logger.info(
-                            f"Resolved Genie space '{name}' to space_id '{space.space_id}'"
-                        )
-                        return space.space_id
+                        matches.append(space.space_id)
             if not response.next_page_token:
                 break
             page_token = response.next_page_token
-        raise ValueError(
-            f"No Genie space found with title '{name}'. "
-            "Verify the name matches an existing Genie space in your workspace."
-        )
+
+        if not matches:
+            raise ValueError(
+                f"No Genie space found with title '{name}'. "
+                "Verify the name matches an existing Genie space in your workspace."
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple Genie spaces ({len(matches)}) found with title '{name}': "
+                f"{matches}. Genie titles are not enforced unique by Databricks; "
+                "pass space_id directly to disambiguate."
+            )
+        logger.info(f"Resolved Genie space '{name}' to space_id '{matches[0]}'")
+        return matches[0]
 
     def _parse_serialized_space(self) -> dict[str, Any]:
         """Parse the serialized_space JSON string and return the parsed data."""

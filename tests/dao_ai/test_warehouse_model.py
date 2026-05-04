@@ -195,28 +195,32 @@ class TestWarehouseModelNameResolution:
             assert warehouse.warehouse_id == "prod_id"
             assert warehouse.name == "Production Warehouse"
 
-    def test_resolve_warehouse_by_name_first_match(self, mock_workspace_client):
-        """Test that resolution short-circuits on first match."""
-        call_count = 0
-        endpoints = [
-            _make_endpoint_info("Target Warehouse", "target_id"),
-            _make_endpoint_info("Other Warehouse", "other_id"),
-        ]
+    def test_resolve_warehouse_by_name_raises_on_duplicates(
+        self, mock_workspace_client
+    ):
+        """Resolution raises clearly when multiple warehouses share the same name.
 
-        def counting_iter():
-            nonlocal call_count
-            for ep in endpoints:
-                call_count += 1
-                yield ep
-
-        mock_workspace_client.warehouses.list.return_value = counting_iter()
+        Databricks docs claim warehouse names "must be unique within an
+        org" but the platform does not enforce this; the resolver must
+        surface duplicates rather than silently returning the first.
+        """
+        mock_workspace_client.warehouses.list.return_value = iter(
+            [
+                _make_endpoint_info("Shared Warehouse", "first_id"),
+                _make_endpoint_info("Other Warehouse", "other_id"),
+                _make_endpoint_info("Shared Warehouse", "second_id"),
+            ]
+        )
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
-            warehouse = WarehouseModel(name="Target Warehouse")
-            warehouse.ensure_resolved()
-
-            assert warehouse.warehouse_id == "target_id"
-            assert call_count == 1
+            warehouse = WarehouseModel(name="Shared Warehouse")
+            with pytest.raises(
+                ValueError,
+                match=r"Multiple warehouses \(2\) found with name 'Shared Warehouse'",
+            ) as exc_info:
+                warehouse.ensure_resolved()
+            assert "first_id" in str(exc_info.value)
+            assert "second_id" in str(exc_info.value)
 
     def test_resolve_warehouse_by_name_not_found(self, mock_workspace_client):
         """Test that ValueError is raised when no warehouse matches the name."""

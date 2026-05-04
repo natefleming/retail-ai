@@ -1035,20 +1035,37 @@ class TestGenieRoomModelNameResolution:
             assert genie_room.space_id == "target_id"
             assert mock_workspace_client.genie.list_spaces.call_count == 2
 
-    def test_resolve_space_by_name_short_circuits(self, mock_workspace_client):
-        """Test that resolution short-circuits on first match without fetching more pages."""
+    def test_resolve_space_by_name_raises_on_duplicates(self, mock_workspace_client):
+        """Resolution raises clearly when multiple spaces share the same title.
+
+        Genie titles are not enforced unique by Databricks; the resolver
+        must scan the whole workspace and surface the ambiguity rather
+        than silently returning the first match.
+        """
         page1 = _make_list_spaces_response(
-            [_make_genie_space_summary("Target Space", "target_id")],
+            [
+                _make_genie_space_summary("Shared Title", "first_id"),
+                _make_genie_space_summary("Other Space", "other_id"),
+            ],
             next_page_token="page2_token",
         )
-        mock_workspace_client.genie.list_spaces.return_value = page1
+        page2 = _make_list_spaces_response(
+            [_make_genie_space_summary("Shared Title", "second_id")],
+            next_page_token=None,
+        )
+        mock_workspace_client.genie.list_spaces.side_effect = [page1, page2]
 
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
-            genie_room = GenieRoomModel(name="Target Space")
-            genie_room.ensure_resolved()
-
-            assert genie_room.space_id == "target_id"
-            assert mock_workspace_client.genie.list_spaces.call_count == 1
+            model = GenieRoomModel(name="Shared Title")
+            with pytest.raises(
+                ValueError,
+                match=r"Multiple Genie spaces \(2\) found with title 'Shared Title'",
+            ) as exc_info:
+                model.ensure_resolved()
+            # Both colliding ids should appear in the error so the user can
+            # disambiguate.
+            assert "first_id" in str(exc_info.value)
+            assert "second_id" in str(exc_info.value)
 
     def test_resolve_space_by_name_not_found(self, mock_workspace_client):
         """Test that ValueError is raised when no space matches the name."""
