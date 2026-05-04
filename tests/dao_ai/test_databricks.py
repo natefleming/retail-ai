@@ -521,6 +521,10 @@ def test_deploy_agent_sets_endpoint_tag():
     mock_app.monitoring = None
 
     mock_config.app = mock_app
+    # Pydantic v2 fields aren't in dir(AppConfig); MagicMock(spec=...) blocks
+    # them. Set resources=None explicitly so the deploy code's
+    # `if config.resources and config.resources.databases` short-circuits.
+    mock_config.resources = None
 
     # Mock the agents module functions
     with patch.object(
@@ -574,6 +578,7 @@ def test_deploy_model_serving_omits_tags_when_serving_endpoint_exists():
     mock_app.trace_location = None
     mock_app.monitoring = None
     mock_config.app = mock_app
+    mock_config.resources = None
 
     with patch.object(
         DatabricksProvider, "_serving_endpoint_exists", return_value=True
@@ -2316,6 +2321,7 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
     mock_app.service_principal = None
 
     mock_config.app = mock_app
+    mock_config.resources = None
 
     mock_experiment = MagicMock()
     mock_experiment.experiment_id = "exp123"

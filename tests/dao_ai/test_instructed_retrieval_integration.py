@@ -101,10 +101,18 @@ class TestInstructedRetrievalIntegration:
         result = tool.invoke(tool_call)
         return extract_documents_from_tool_result(result)
 
+    @pytest.mark.flaky(reruns=2, reruns_delay=2)
     def test_instructed_retrieval_returns_results(
         self, milwaukee_results: list[dict]
     ) -> None:
-        """Instructed retrieval returns non-empty results with RRF and rerank metadata."""
+        """Instructed retrieval returns non-empty results with RRF and rerank metadata.
+
+        Marked flaky because the upstream LLM decomposition is non-deterministic:
+        a sub-query that the LLM occasionally generates with too-restrictive
+        filters can match no rows, triggering the empty-result fallback path
+        in ``vector_search.py`` (which intentionally bypasses RRF). Retrying
+        twice gives the LLM another shot at producing a usable decomposition.
+        """
         assert len(milwaukee_results) > 0, "Instructed retrieval returned no results"
 
         for doc in milwaukee_results:

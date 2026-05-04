@@ -86,12 +86,18 @@ def _extract_tool_context(messages: list[BaseMessage], max_length: int = 8000) -
 
 
 def _get_thread_id(runtime: Runtime[Context]) -> str:
-    """Extract a thread identifier from runtime context for state keying."""
-    context: Context = runtime.context
+    """Extract a thread identifier from runtime context for state keying.
+
+    Returns the default key when no Context is bound on the runtime
+    (which happens for direct invocations that don't go through
+    ``ChatModel.predict`` / ``ResponsesAgent.predict``).
+    """
+    context: Context | None = runtime.context
+    if context is None:
+        return "__default__"
     thread_id: str | None = context.thread_id
     if thread_id:
         return thread_id
-    # Fallback to a default key when thread_id is not provided
     return "__default__"
 
 

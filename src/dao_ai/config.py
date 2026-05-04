@@ -96,6 +96,11 @@ from dao_ai.config_vars import (
     ParameterDeclarationModel,
     substitute_params,
 )
+from dao_ai.resource_protocol import (
+    ManagedResource,
+    Provisionable,
+    Refreshable,
+)
 from dao_ai.utils import normalize_name
 
 
@@ -563,7 +568,7 @@ class PermissionModel(BaseModel):
         return self
 
 
-class SchemaModel(BaseModel, HasFullName):
+class SchemaModel(BaseModel, HasFullName, Provisionable):
     """Unity Catalog schema reference (catalog + schema) used to qualify tables, functions, and prompts."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1087,13 +1092,233 @@ class WarehouseModel(IsDatabricksResource):
                 logger.debug(f"Could not fetch details from warehouse: {e}")
 
 
-class GenieRoomModel(IsDatabricksResource):
-    """Databricks Genie space configuration for natural-language SQL exploration."""
+class GenieColumnConfig(BaseModel):
+    """Per-column metadata registered with a Genie data source.
+
+    Mirrors the ``data_sources.tables[].column_configs[]`` entries in
+    a Genie space's ``serialized_space`` payload. ``synonyms`` lets the
+    LLM map natural-language terms to the underlying column.
+
+    Uses ``extra="allow"`` so unmodeled server metadata round-trips
+    cleanly through ``GenieRoomModel.refresh() → create()``.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    name: str = Field(description="Column name as defined in Unity Catalog.")
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description shown to the model when reasoning about this column.",
+    )
+    synonyms: Optional[list[str]] = Field(
+        default=None,
+        description="Alternate names users may use for this column.",
+    )
+    excluded: bool = Field(
+        default=False,
+        description="If true, hide this column from Genie when answering questions.",
+    )
+    sample_values: bool = Field(
+        default=True,
+        description="If true, surface example values for this column to the model.",
+    )
+    build_value_dictionary: bool = Field(
+        default=False,
+        description="If true, build a value dictionary so Genie can match user terms against actual values.",
+    )
+
+
+class GenieTableSource(BaseModel):
+    """A Unity Catalog table or view registered as a Genie data source."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    table: TableModel = Field(
+        description="Reference to the UC table, view, or materialized view (reuses TableModel).",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Description of the table presented to the Genie LLM.",
+    )
+    column_configs: Optional[list[GenieColumnConfig]] = Field(
+        default=None,
+        description="Per-column metadata (synonyms, descriptions, exclusions).",
+    )
+
+
+class GenieMetricViewSource(BaseModel):
+    """A Unity Catalog metric view registered as a Genie data source."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    table: TableModel = Field(
+        description="Reference to the metric view (UC three-part name via TableModel).",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Description of the metric view presented to the Genie LLM.",
+    )
+
+
+class GenieSqlFunctionSource(BaseModel):
+    """A Unity Catalog SQL function registered as a Genie trusted asset."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    function: FunctionModel = Field(
+        description="Reference to the UC function (reuses FunctionModel).",
+    )
+
+
+class GenieSqlParameter(BaseModel):
+    """A named parameter on a trusted example SQL query."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    name: str = Field(description="Parameter name as referenced in the SQL.")
+    type_hint: Literal["STRING", "INTEGER", "DATE"] = Field(
+        default="STRING",
+        description="Declared parameter type so Genie can route values correctly.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description of the parameter's meaning.",
+    )
+
+
+class GenieExampleSql(BaseModel):
+    """A trusted example question + SQL pair Genie uses for few-shot guidance."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    question: str = Field(description="Natural-language question.")
+    sql: str = Field(description="Authoritative SQL answering the question.")
+    parameters: Optional[list[GenieSqlParameter]] = Field(
+        default=None,
+        description="Optional parameters bound to the SQL.",
+    )
+    usage_guidance: Optional[str] = Field(
+        default=None,
+        description="When the model should reuse this example.",
+    )
+
+
+class GenieRelationshipType(str, Enum):
+    """Relationship cardinality used to annotate Genie join specs."""
+
+    ONE_TO_ONE = "ONE_TO_ONE"
+    ONE_TO_MANY = "ONE_TO_MANY"
+    MANY_TO_ONE = "MANY_TO_ONE"
+    MANY_TO_MANY = "MANY_TO_MANY"
+
+
+class GenieJoinSpec(BaseModel):
+    """A trusted join relationship between two Genie data sources."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    left: TableModel = Field(description="Left table in the join.")
+    left_alias: Optional[str] = Field(
+        default=None, description="Optional alias for the left table."
+    )
+    right: TableModel = Field(description="Right table in the join.")
+    right_alias: Optional[str] = Field(
+        default=None, description="Optional alias for the right table."
+    )
+    sql: str = Field(
+        description="Join condition expression (e.g., 'orders.customer_id = customers.id').",
+    )
+    relationship_type: Optional[GenieRelationshipType] = Field(
+        default=None,
+        description="Cardinality annotation Genie can reason about.",
+    )
+    comment: Optional[str] = Field(
+        default=None,
+        description="Free-form description of when the join applies.",
+    )
+
+
+class GenieSqlSnippet(BaseModel):
+    """A reusable SQL snippet (filter / expression / measure) registered with a Genie space."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    display_name: str = Field(description="Human-readable name shown to authors.")
+    sql: str = Field(description="The SQL fragment.")
+    instruction: Optional[str] = Field(
+        default=None,
+        description="When the model should use this snippet.",
+    )
+    synonyms: Optional[list[str]] = Field(
+        default=None,
+        description="Alternate phrasings users may employ to reference this snippet.",
+    )
+
+
+class GenieBenchmarkQuestion(BaseModel):
+    """A benchmark question + expected SQL pair stored on the Genie space.
+
+    Mirrors ``benchmarks.questions[]`` in the serialized space and lets
+    teams ship offline evaluation data alongside the space configuration.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
+    question: str = Field(description="Benchmark natural-language question.")
+    expected_sql: str = Field(description="Expected SQL answer for evaluation.")
+
+
+class GenieEntitlementLevel(str, Enum):
+    """Workspace permission levels supported on Genie spaces."""
+
+    CAN_VIEW = "CAN_VIEW"
+    CAN_RUN = "CAN_RUN"
+    CAN_EDIT = "CAN_EDIT"
+    CAN_MANAGE = "CAN_MANAGE"
+
+
+class GenieEntitlement(BaseModel):
+    """A grant of workspace-level permissions on the Genie space.
+
+    Principals may be users (email), groups, or service principals
+    (application ID, or a ``ServicePrincipalModel``).
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    principals: list[ServicePrincipalModel | str] = Field(
+        default_factory=list,
+        description="Users (email), groups, or service principals to grant the permission to.",
+    )
+    permission_level: GenieEntitlementLevel = Field(
+        description="Genie permission level to grant (CAN_VIEW, CAN_RUN, CAN_EDIT, CAN_MANAGE).",
+    )
+
+    @model_validator(mode="after")
+    def resolve_principals(self) -> Self:
+        """Resolve ``ServicePrincipalModel`` entries to their client_id."""
+        resolved: list[str] = []
+        for principal in self.principals:
+            if isinstance(principal, ServicePrincipalModel):
+                resolved.append(value_of(principal.client_id))
+            else:
+                resolved.append(principal)
+        self.principals = resolved
+        return self
+
+
+class GenieRoomModel(IsDatabricksResource, ManagedResource):
+    """Databricks Genie space configuration for natural-language SQL exploration.
+
+    Supports two modes:
+
+    1. **Use Existing Space**: Provide ``space_id`` (or ``name`` for lookup) to
+       reference an existing Genie space at runtime. Tables, functions, and
+       warehouses are auto-discovered from the live ``serialized_space``.
+
+    2. **Provisioning Mode**: Provide ``warehouse`` plus any of
+       ``table_sources``, ``metric_view_sources``, ``function_sources``,
+       ``text_instructions``, ``example_sqls``, ``join_specs``,
+       ``sql_filters``/``sql_expressions``/``sql_measures``,
+       ``sample_questions``, ``benchmarks``, and ``entitlements`` to declare
+       the full space configuration. Calling :meth:`create` provisions a new
+       space (or updates an existing one when ``space_id`` is set).
+    """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: Optional[str] = Field(
         default=None,
-        description="Display name for the Genie room. Auto-populated from the space if omitted.",
+        description="Display name (title) for the Genie space. Auto-populated from the space if omitted.",
     )
     description: Optional[str] = Field(
         default=None,
@@ -1101,7 +1326,63 @@ class GenieRoomModel(IsDatabricksResource):
     )
     space_id: Optional[AnyVariable] = Field(
         default=None,
-        description="Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
+        description="Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name or created by .create().",
+    )
+    parent_path: Optional[AnyVariable] = Field(
+        default=None,
+        description="Workspace folder path used when provisioning a new space (e.g., '/Users/me@example.com/genie').",
+    )
+    warehouse: Optional[WarehouseModel] = Field(
+        default=None,
+        description="SQL warehouse the Genie space queries against. Required for provisioning. For existing-space references, call :meth:`discover_warehouse` to fetch the warehouse attached to the live space.",
+    )
+    table_sources: Optional[list[GenieTableSource]] = Field(
+        default=None,
+        description="UC tables/views registered as Genie data sources (with optional column metadata).",
+    )
+    metric_view_sources: Optional[list[GenieMetricViewSource]] = Field(
+        default=None,
+        description="UC metric views registered as Genie data sources.",
+    )
+    function_sources: Optional[list[GenieSqlFunctionSource]] = Field(
+        default=None,
+        description="UC SQL functions registered as Genie trusted assets.",
+    )
+    text_instructions: Optional[list[str]] = Field(
+        default=None,
+        description="Free-form instructions Genie always considers when reasoning.",
+    )
+    example_sqls: Optional[list[GenieExampleSql]] = Field(
+        default=None,
+        description="Trusted example question→SQL pairs.",
+    )
+    join_specs: Optional[list[GenieJoinSpec]] = Field(
+        default=None,
+        description="Trusted join relationships between data sources.",
+    )
+    sql_filters: Optional[list[GenieSqlSnippet]] = Field(
+        default=None,
+        description="Reusable SQL filter snippets.",
+    )
+    sql_expressions: Optional[list[GenieSqlSnippet]] = Field(
+        default=None,
+        description="Reusable SQL expression snippets.",
+    )
+    sql_measures: Optional[list[GenieSqlSnippet]] = Field(
+        default=None,
+        description="Reusable SQL measure snippets.",
+    )
+    sample_questions: Optional[list[str]] = Field(
+        default=None,
+        description="Suggested sample questions surfaced in the Genie UI.",
+    )
+    benchmarks: Optional[list[GenieBenchmarkQuestion]] = Field(
+        default=None,
+        description="Benchmark questions + expected SQL stored with the space for offline evaluation.",
+    )
+    entitlements: Optional[list[GenieEntitlement]] = Field(
+        default=None,
+        description="Workspace permissions to grant on the Genie space (applied during .create()).",
     )
 
     _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
@@ -1166,12 +1447,15 @@ class GenieRoomModel(IsDatabricksResource):
             logger.warning(f"Failed to parse serialized_space: {e}")
             return {}
 
-    @property
-    def warehouse(self) -> Optional[WarehouseModel]:
-        """Extract warehouse information from the Genie space.
+    def discover_warehouse(self) -> Optional[WarehouseModel]:
+        """Fetch the SQL warehouse attached to the live Genie space.
 
-        Returns:
-            WarehouseModel instance if warehouse_id is available, None otherwise.
+        Used for existing-space references: looks up the space via the
+        Databricks SDK and returns a :class:`WarehouseModel` for whatever
+        warehouse is currently bound to it. Returns ``None`` if the space
+        cannot be inspected, has no warehouse, or the warehouse details
+        call fails. This does not mutate :attr:`warehouse` — assign the
+        result explicitly if you want to cache it on the model.
         """
         space_details = self._get_space_details()
 
@@ -1184,7 +1468,7 @@ class GenieRoomModel(IsDatabricksResource):
             )
             warehouse_name: str = response.name or space_details.warehouse_id
 
-            warehouse_model = WarehouseModel(
+            return WarehouseModel(
                 name=warehouse_name,
                 warehouse_id=space_details.warehouse_id,
                 on_behalf_of_user=self.on_behalf_of_user,
@@ -1194,8 +1478,6 @@ class GenieRoomModel(IsDatabricksResource):
                 workspace_host=self.workspace_host,
                 pat=self.pat,
             )
-
-            return warehouse_model
         except Exception as e:
             logger.warning(
                 f"Failed to fetch warehouse details for {space_details.warehouse_id}: {e}"
@@ -1216,10 +1498,20 @@ class GenieRoomModel(IsDatabricksResource):
 
         Only includes entries that actually exist in Unity Catalog so a
         stale reference in ``serialized_space`` doesn't break bundle
-        generation.
+        generation. If the live space cannot be inspected (e.g., before
+        provisioning), falls back to ``table_sources`` /
+        ``metric_view_sources`` declared on this model so resource
+        discovery still works during the same provisioning run.
         """
         parsed_space = self._parse_serialized_space()
         tables_list: list[TableModel] = []
+
+        if not parsed_space and (self.table_sources or self.metric_view_sources):
+            for source in self.table_sources or []:
+                tables_list.append(source.table)
+            for source in self.metric_view_sources or []:
+                tables_list.append(source.table)
+            return tables_list
 
         data_sources = parsed_space.get("data_sources")
         if not isinstance(data_sources, dict):
@@ -1263,11 +1555,21 @@ class GenieRoomModel(IsDatabricksResource):
         Databricks Genie stores functions in multiple locations:
         - instructions.sql_functions[].identifier (SQL functions)
         - data_sources.functions[].identifier (other functions)
-        Only includes functions that actually exist in Unity Catalog.
+        Only includes functions that actually exist in Unity Catalog. Falls
+        back to ``function_sources`` declared on this model when the live
+        space cannot be inspected (e.g., before provisioning).
         """
         parsed_space = self._parse_serialized_space()
         functions_list: list[FunctionModel] = []
         seen_functions: set[str] = set()
+
+        if not parsed_space and self.function_sources:
+            for source in self.function_sources:
+                if source.function.full_name in seen_functions:
+                    continue
+                seen_functions.add(source.function.full_name)
+                functions_list.append(source.function)
+            return functions_list
 
         def add_function_if_exists(function_name: str) -> None:
             """Helper to add a function if it exists and hasn't been added."""
@@ -1358,14 +1660,54 @@ class GenieRoomModel(IsDatabricksResource):
             )
         return self
 
+    @property
+    def has_provisioning_config(self) -> bool:
+        """True when any provisioning field is set on this model.
+
+        Used to distinguish discovery-mode usage (just reference an existing
+        space) from provisioning-mode usage (declare the space contents and
+        call :meth:`create`). In provisioning mode we tolerate a missing
+        space at resolve time because :meth:`create` will materialize it.
+        """
+        return any(
+            field is not None and field != []
+            for field in (
+                self.warehouse,
+                self.table_sources,
+                self.metric_view_sources,
+                self.function_sources,
+                self.text_instructions,
+                self.example_sqls,
+                self.join_specs,
+                self.sql_filters,
+                self.sql_expressions,
+                self.sql_measures,
+                self.sample_questions,
+                self.benchmarks,
+                self.entitlements,
+                self.parent_path,
+            )
+        )
+
     def ensure_resolved(self) -> None:
         """Resolve space name→ID and populate details via API."""
         if self._resolved:
             return
         super().ensure_resolved()
-        # Resolve name → space_id if needed
+        # Resolve name → space_id if needed. When provisioning fields are
+        # declared, a missing space is expected (it will be created on demand
+        # by :meth:`create`), so we skip rather than raise.
         if not self.space_id and self.name:
-            self.space_id = self._resolve_space_id_by_name(self.name)
+            try:
+                self.space_id = self._resolve_space_id_by_name(self.name)
+            except ValueError:
+                if self.has_provisioning_config:
+                    logger.debug(
+                        "Genie space not found by name; will be created when create() is invoked",
+                        name=self.name,
+                    )
+                else:
+                    raise
         # Populate name and description from space details if missing
         if self.space_id and (not self.name or not self.description):
             try:
@@ -1378,8 +1720,497 @@ class GenieRoomModel(IsDatabricksResource):
             except Exception as e:
                 logger.debug(f"Could not fetch details from Genie space: {e}")
 
+    def _build_serialized_space(self) -> dict[str, Any]:
+        """Build the ``serialized_space`` JSON payload from this model's fields.
 
-class VolumeModel(IsDatabricksResource, HasFullName):
+        The shape mirrors the JSON Genie persists internally (data_sources,
+        instructions, benchmarks, etc.). Stable hex IDs are derived from the
+        natural keys of each entry so re-running provisioning produces the
+        same payload (important for the diff check in :meth:`create`).
+        """
+        import hashlib
+
+        def _stable_id(*parts: str) -> str:
+            digest = hashlib.sha1("\x00".join(parts).encode("utf-8")).hexdigest()
+            return digest[:32]
+
+        payload: dict[str, Any] = {"version": 1}
+
+        # config.sample_questions
+        if self.sample_questions:
+            payload["config"] = {
+                "sample_questions": [
+                    {
+                        "id": _stable_id("sample_question", question),
+                        "question": [question],
+                    }
+                    for question in self.sample_questions
+                ]
+            }
+
+        # data_sources.tables and data_sources.metric_views
+        data_sources: dict[str, Any] = {}
+        if self.table_sources:
+            tables_payload: list[dict[str, Any]] = []
+            for source in self.table_sources:
+                entry: dict[str, Any] = {"identifier": source.table.full_name}
+                if source.description:
+                    entry["description"] = [source.description]
+                if source.column_configs:
+                    entry["column_configs"] = [
+                        {
+                            "column_name": cc.name,
+                            **(
+                                {"description": [cc.description]}
+                                if cc.description
+                                else {}
+                            ),
+                            "get_example_values": cc.sample_values,
+                            "exclude": cc.excluded,
+                            **({"synonyms": cc.synonyms} if cc.synonyms else {}),
+                            "build_value_dictionary": cc.build_value_dictionary,
+                        }
+                        for cc in source.column_configs
+                    ]
+                tables_payload.append(entry)
+            data_sources["tables"] = tables_payload
+
+        if self.metric_view_sources:
+            data_sources["metric_views"] = [
+                {
+                    "identifier": source.table.full_name,
+                    **({"description": [source.description]} if source.description else {}),
+                }
+                for source in self.metric_view_sources
+            ]
+
+        if data_sources:
+            payload["data_sources"] = data_sources
+
+        # instructions.{text_instructions, example_question_sqls, sql_functions, join_specs, sql_snippets}
+        instructions: dict[str, Any] = {}
+        if self.text_instructions:
+            instructions["text_instructions"] = [
+                {
+                    "id": _stable_id("text_instruction", text),
+                    "content": [text],
+                }
+                for text in self.text_instructions
+            ]
+        if self.example_sqls:
+            example_payload: list[dict[str, Any]] = []
+            for example in self.example_sqls:
+                entry = {
+                    "id": _stable_id("example_sql", example.question, example.sql),
+                    "question": [example.question],
+                    "sql": [example.sql],
+                }
+                if example.parameters:
+                    entry["parameters"] = [
+                        {
+                            "name": p.name,
+                            "type_hint": p.type_hint,
+                            **({"description": [p.description]} if p.description else {}),
+                        }
+                        for p in example.parameters
+                    ]
+                if example.usage_guidance:
+                    entry["usage_guidance"] = [example.usage_guidance]
+                example_payload.append(entry)
+            instructions["example_question_sqls"] = example_payload
+        if self.function_sources:
+            instructions["sql_functions"] = [
+                {
+                    "id": _stable_id("sql_function", source.function.full_name),
+                    "identifier": source.function.full_name,
+                }
+                for source in self.function_sources
+            ]
+        if self.join_specs:
+            join_payload: list[dict[str, Any]] = []
+            for spec in self.join_specs:
+                left: dict[str, str] = {"identifier": spec.left.full_name}
+                if spec.left_alias:
+                    left["alias"] = spec.left_alias
+                right: dict[str, str] = {"identifier": spec.right.full_name}
+                if spec.right_alias:
+                    right["alias"] = spec.right_alias
+                sql = spec.sql
+                if spec.relationship_type:
+                    rt_value = (
+                        spec.relationship_type.value
+                        if isinstance(spec.relationship_type, GenieRelationshipType)
+                        else spec.relationship_type
+                    )
+                    sql = f"{sql} --rt={rt_value}--"
+                entry = {
+                    "id": _stable_id(
+                        "join_spec", spec.left.full_name, spec.right.full_name, spec.sql
+                    ),
+                    "left": left,
+                    "right": right,
+                    "sql": [sql],
+                }
+                if spec.comment:
+                    entry["comment"] = [spec.comment]
+                join_payload.append(entry)
+            instructions["join_specs"] = join_payload
+
+        snippets: dict[str, Any] = {}
+        for snippet_key, snippet_list in (
+            ("filters", self.sql_filters),
+            ("expressions", self.sql_expressions),
+            ("measures", self.sql_measures),
+        ):
+            if not snippet_list:
+                continue
+            snippets[snippet_key] = [
+                {
+                    "id": _stable_id(snippet_key, snippet.display_name, snippet.sql),
+                    "sql": [snippet.sql],
+                    "display_name": snippet.display_name,
+                    **(
+                        {"instruction": [snippet.instruction]}
+                        if snippet.instruction
+                        else {}
+                    ),
+                    **({"synonyms": snippet.synonyms} if snippet.synonyms else {}),
+                }
+                for snippet in snippet_list
+            ]
+        if snippets:
+            instructions["sql_snippets"] = snippets
+
+        if instructions:
+            payload["instructions"] = instructions
+
+        # benchmarks.questions
+        if self.benchmarks:
+            payload["benchmarks"] = {
+                "questions": [
+                    {
+                        "id": _stable_id("benchmark", b.question, b.expected_sql),
+                        "question": [b.question],
+                        "answer": [{"format": "SQL", "content": [b.expected_sql]}],
+                    }
+                    for b in self.benchmarks
+                ]
+            }
+
+        return payload
+
+    def refresh(
+        self,
+        *,
+        force: bool = False,
+        payload: dict[str, Any] | None = None,
+    ) -> Self:
+        """Hydrate provisioning fields from the live ``serialized_space``.
+
+        Inverse of :meth:`_build_serialized_space`. Mutates the structured
+        provisioning fields (``table_sources``, ``text_instructions``, etc.)
+        in place from the JSON payload stored on the Genie space, so the
+        same model can then be locally edited and pushed back via
+        :meth:`create`.
+
+        Args:
+            force: If True, invalidate the cached ``_space_details`` before
+                re-fetching. Use after a write so subsequent reads see the
+                post-write state.
+            payload: Optional pre-parsed serialized_space dict. Bypasses the
+                network entirely — primarily for tests and for callers that
+                already hold the JSON.
+
+        Returns:
+            self, for chaining.
+        """
+        if payload is None:
+            if force:
+                self._space_details = None
+            payload = self._parse_serialized_space()
+
+        if not payload:
+            return self
+
+        self._apply_serialized_space(payload)
+        return self
+
+    def _apply_serialized_space(self, payload: dict[str, Any]) -> None:
+        """Write a parsed ``serialized_space`` payload into the model fields."""
+
+        # config.sample_questions
+        cfg = payload.get("config")
+        if isinstance(cfg, dict):
+            sample = cfg.get("sample_questions")
+            if isinstance(sample, list):
+                self.sample_questions = [
+                    _unwrap_text(item.get("question")) if isinstance(item, dict) else None
+                    for item in sample
+                ]
+                self.sample_questions = [q for q in self.sample_questions if q]
+
+        data_sources = payload.get("data_sources")
+        if isinstance(data_sources, dict):
+            tables_data = data_sources.get("tables")
+            if isinstance(tables_data, list):
+                self.table_sources = [
+                    self._table_source_from_payload(entry)
+                    for entry in tables_data
+                    if isinstance(entry, (dict, str))
+                ]
+            metric_views_data = data_sources.get("metric_views")
+            if isinstance(metric_views_data, list):
+                self.metric_view_sources = [
+                    GenieMetricViewSource(
+                        table=TableModel(name=_identifier_of(entry)),
+                        description=_unwrap_text(entry.get("description"))
+                        if isinstance(entry, dict)
+                        else None,
+                    )
+                    for entry in metric_views_data
+                    if _identifier_of(entry)
+                ]
+
+        instructions = payload.get("instructions")
+        if isinstance(instructions, dict):
+            text_instructions = instructions.get("text_instructions")
+            if isinstance(text_instructions, list):
+                self.text_instructions = [
+                    _unwrap_text(item.get("content"))
+                    for item in text_instructions
+                    if isinstance(item, dict) and item.get("content")
+                ]
+                self.text_instructions = [t for t in self.text_instructions if t]
+
+            example_sqls = instructions.get("example_question_sqls")
+            if isinstance(example_sqls, list):
+                self.example_sqls = [
+                    self._example_sql_from_payload(entry)
+                    for entry in example_sqls
+                    if isinstance(entry, dict)
+                ]
+
+            sql_functions = instructions.get("sql_functions")
+            if isinstance(sql_functions, list):
+                self.function_sources = [
+                    GenieSqlFunctionSource(
+                        function=FunctionModel(name=_identifier_of(entry))
+                    )
+                    for entry in sql_functions
+                    if _identifier_of(entry)
+                ]
+
+            join_specs = instructions.get("join_specs")
+            if isinstance(join_specs, list):
+                self.join_specs = [
+                    self._join_spec_from_payload(entry)
+                    for entry in join_specs
+                    if isinstance(entry, dict)
+                ]
+
+            snippets = instructions.get("sql_snippets")
+            if isinstance(snippets, dict):
+                for snippet_key, target_attr in (
+                    ("filters", "sql_filters"),
+                    ("expressions", "sql_expressions"),
+                    ("measures", "sql_measures"),
+                ):
+                    items = snippets.get(snippet_key)
+                    if isinstance(items, list):
+                        setattr(
+                            self,
+                            target_attr,
+                            [
+                                self._snippet_from_payload(entry)
+                                for entry in items
+                                if isinstance(entry, dict)
+                            ],
+                        )
+
+        benchmarks = payload.get("benchmarks")
+        if isinstance(benchmarks, dict):
+            questions = benchmarks.get("questions")
+            if isinstance(questions, list):
+                self.benchmarks = [
+                    self._benchmark_from_payload(entry)
+                    for entry in questions
+                    if isinstance(entry, dict)
+                ]
+
+    @staticmethod
+    def _table_source_from_payload(entry: Any) -> "GenieTableSource":
+        if isinstance(entry, str):
+            return GenieTableSource(table=TableModel(name=entry))
+        identifier = entry.get("identifier") or entry.get("name")
+        column_configs_raw = entry.get("column_configs") or []
+        column_configs: list[GenieColumnConfig] = []
+        for cc in column_configs_raw:
+            if not isinstance(cc, dict):
+                continue
+            column_configs.append(
+                GenieColumnConfig(
+                    name=cc.get("column_name") or cc.get("name") or "",
+                    description=_unwrap_text(cc.get("description")),
+                    synonyms=cc.get("synonyms") or None,
+                    excluded=bool(cc.get("exclude", False)),
+                    sample_values=bool(cc.get("get_example_values", True)),
+                    build_value_dictionary=bool(cc.get("build_value_dictionary", False)),
+                )
+            )
+        return GenieTableSource(
+            table=TableModel(name=identifier),
+            description=_unwrap_text(entry.get("description")),
+            column_configs=column_configs or None,
+        )
+
+    @staticmethod
+    def _example_sql_from_payload(entry: dict[str, Any]) -> "GenieExampleSql":
+        params_raw = entry.get("parameters") or []
+        parameters: list[GenieSqlParameter] = []
+        for p in params_raw:
+            if not isinstance(p, dict):
+                continue
+            parameters.append(
+                GenieSqlParameter(
+                    name=p.get("name", ""),
+                    type_hint=p.get("type_hint", "STRING"),
+                    description=_unwrap_text(p.get("description")),
+                )
+            )
+        return GenieExampleSql(
+            question=_unwrap_text(entry.get("question")) or "",
+            sql=_unwrap_text(entry.get("sql")) or "",
+            parameters=parameters or None,
+            usage_guidance=_unwrap_text(entry.get("usage_guidance")),
+        )
+
+    @staticmethod
+    def _join_spec_from_payload(entry: dict[str, Any]) -> "GenieJoinSpec":
+        sql_text: str = _unwrap_text(entry.get("sql")) or ""
+        relationship_type: GenieRelationshipType | None = None
+        rt_match = re.search(r"\s*--rt=([A-Z_]+)--\s*$", sql_text)
+        if rt_match:
+            try:
+                relationship_type = GenieRelationshipType(rt_match.group(1))
+            except ValueError:
+                relationship_type = None
+            sql_text = sql_text[: rt_match.start()].rstrip()
+        left = entry.get("left") or {}
+        right = entry.get("right") or {}
+        return GenieJoinSpec(
+            left=TableModel(name=left.get("identifier", "")),
+            left_alias=left.get("alias"),
+            right=TableModel(name=right.get("identifier", "")),
+            right_alias=right.get("alias"),
+            sql=sql_text,
+            relationship_type=relationship_type,
+            comment=_unwrap_text(entry.get("comment")),
+        )
+
+    @staticmethod
+    def _snippet_from_payload(entry: dict[str, Any]) -> "GenieSqlSnippet":
+        return GenieSqlSnippet(
+            display_name=entry.get("display_name", ""),
+            sql=_unwrap_text(entry.get("sql")) or "",
+            instruction=_unwrap_text(entry.get("instruction")),
+            synonyms=entry.get("synonyms") or None,
+        )
+
+    @staticmethod
+    def _benchmark_from_payload(entry: dict[str, Any]) -> "GenieBenchmarkQuestion":
+        question_text: str = _unwrap_text(entry.get("question")) or ""
+        answers = entry.get("answer") or []
+        expected_sql: str = ""
+        if answers and isinstance(answers, list):
+            first = answers[0]
+            if isinstance(first, dict):
+                expected_sql = _unwrap_text(first.get("content")) or ""
+        return GenieBenchmarkQuestion(
+            question=question_text,
+            expected_sql=expected_sql,
+        )
+
+    @classmethod
+    def from_space(
+        cls,
+        space_id: str,
+        *,
+        w: WorkspaceClient | None = None,
+        **auth_kwargs: Any,
+    ) -> Self:
+        """Construct a fully-hydrated ``GenieRoomModel`` from an existing space.
+
+        Convenience factory equivalent to::
+
+            room = GenieRoomModel(space_id=space_id, **auth_kwargs)
+            room.ensure_resolved()
+            room.refresh()
+
+        Args:
+            space_id: The Databricks Genie space identifier.
+            w: Optional pre-built ``WorkspaceClient``. When omitted, falls
+                back to ambient/auth credentials configured on the model.
+            **auth_kwargs: Forwarded to ``GenieRoomModel.__init__`` for
+                callers using PAT / service-principal auth.
+
+        Returns:
+            A new ``GenieRoomModel`` instance with structured fields
+            populated from the live space.
+        """
+        instance = cls(space_id=space_id, **auth_kwargs)
+        instance.ensure_resolved()
+        if w is not None:
+            instance._space_details = w.genie.get_space(
+                space_id=space_id, include_serialized_space=True
+            )
+        instance.refresh()
+        return instance
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        """Create or update this Genie space.
+
+        Behavior:
+
+        - **Create**: When ``space_id`` is not set after :meth:`ensure_resolved`,
+          a new space is provisioned via ``WorkspaceClient.genie.create_space``
+          and the resulting ID is written back to ``self.space_id``.
+        - **Update**: When ``space_id`` is set, the live ``serialized_space``
+          is fetched and compared against the locally-built payload. If
+          anything changed, ``WorkspaceClient.genie.update_space`` is called.
+        - **Entitlements**: After create/update, any configured
+          :class:`GenieEntitlement` grants are applied via
+          ``WorkspaceClient.permissions.set``.
+
+        Provisioning requires :attr:`warehouse` to be set.
+        """
+        from dao_ai.providers.base import ServiceProvider
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_genie_space(self)
+
+
+def _unwrap_text(value: Any) -> str | None:
+    """Genie stores most string fields as one-element lists. Unwrap to a plain string."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value[0] if value else None
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _identifier_of(entry: Any) -> str | None:
+    """Pull the ``identifier`` from a ``data_sources.*[]`` entry, with fallbacks."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        return entry.get("identifier") or entry.get("name")
+    return None
+
+
+class VolumeModel(IsDatabricksResource, HasFullName, Provisionable):
     """Unity Catalog volume reference for file storage."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1413,7 +2244,7 @@ class VolumeModel(IsDatabricksResource, HasFullName):
         return []
 
 
-class VolumePathModel(BaseModel, HasFullName):
+class VolumePathModel(BaseModel, HasFullName, Provisionable):
     """A path within a Unity Catalog volume (e.g., /Volumes/catalog/schema/volume/subdir)."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1455,7 +2286,7 @@ class VolumePathModel(BaseModel, HasFullName):
         provider.create_path(self)
 
 
-class VectorStoreModel(IsDatabricksResource):
+class VectorStoreModel(IsDatabricksResource, ManagedResource):
     """
     Configuration model for a Databricks Vector Search store.
 
@@ -1531,6 +2362,8 @@ class VectorStoreModel(IsDatabricksResource):
         default=None,
         description="Column name containing document URIs for provenance tracking.",
     )
+
+    _index_details: Optional[dict[str, Any]] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def validate_configuration_mode(self) -> Self:
@@ -1638,6 +2471,114 @@ class VectorStoreModel(IsDatabricksResource):
         provider: DatabricksProvider = DatabricksProvider(vsc=vsc)
         index: VectorSearchIndex = provider.get_vector_index(self)
         return index
+
+    def refresh(
+        self,
+        *,
+        force: bool = False,
+        vsc: VectorSearchClient | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> Self:
+        """Hydrate fields from a live vector search index's ``describe()`` response.
+
+        Used in "existing index" mode: takes a model with just an ``index``
+        reference and populates ``source_table``, ``embedding_source_column``,
+        ``embedding_model``, ``endpoint``, ``primary_key``, and ``columns``
+        from the live index spec.
+
+        Args:
+            force: If True, invalidate the cached describe response before
+                re-fetching.
+            vsc: Optional ``VectorSearchClient`` to use for the lookup.
+            details: Optional pre-fetched describe dict (for tests / callers
+                that already hold the response).
+
+        Returns:
+            self, for chaining.
+        """
+        if self.index is None:
+            raise ValueError(
+                "VectorStoreModel.refresh() requires an 'index' reference."
+            )
+
+        if details is None:
+            if force:
+                self._index_details = None
+            if self._index_details is None:
+                from dao_ai.providers.databricks import DatabricksProvider
+
+                provider: DatabricksProvider = DatabricksProvider(vsc=vsc)
+                live_index: VectorSearchIndex = provider.get_vector_index(self)
+                self._index_details = live_index.describe()
+            details = self._index_details
+
+        if not isinstance(details, dict):
+            return self
+
+        delta_spec = details.get("delta_sync_index_spec") or {}
+        source_table_name = delta_spec.get("source_table")
+        if source_table_name:
+            self.source_table = TableModel(
+                name=source_table_name,
+                on_behalf_of_user=self.on_behalf_of_user,
+                service_principal=self.service_principal,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                workspace_host=self.workspace_host,
+                pat=self.pat,
+            )
+
+        embedding_source_columns = delta_spec.get("embedding_source_columns") or []
+        if embedding_source_columns:
+            first = embedding_source_columns[0]
+            if isinstance(first, dict):
+                self.embedding_source_column = first.get("name")
+                model_endpoint_name = first.get("embedding_model_endpoint_name")
+                if model_endpoint_name:
+                    self.embedding_model = LLMModel(name=model_endpoint_name)
+
+        endpoint_name = details.get("endpoint_name")
+        if endpoint_name:
+            self.endpoint = VectorSearchEndpoint(name=endpoint_name)
+
+        primary_key = details.get("primary_key")
+        if primary_key:
+            self.primary_key = primary_key
+
+        columns_to_sync = delta_spec.get("columns_to_sync")
+        if columns_to_sync:
+            self.columns = list(columns_to_sync)
+
+        return self
+
+    @classmethod
+    def from_index(
+        cls,
+        index_name: str,
+        *,
+        vsc: VectorSearchClient | None = None,
+        **auth_kwargs: Any,
+    ) -> Self:
+        """Construct a fully-hydrated ``VectorStoreModel`` from an existing index.
+
+        Convenience factory equivalent to::
+
+            vs = VectorStoreModel(index=IndexModel(name=index_name), **auth_kwargs)
+            vs.ensure_resolved()
+            vs.refresh(vsc=vsc)
+
+        Args:
+            index_name: Fully qualified UC index name (``catalog.schema.index``).
+            vsc: Optional ``VectorSearchClient``.
+            **auth_kwargs: Forwarded to ``VectorStoreModel.__init__``.
+
+        Returns:
+            A new ``VectorStoreModel`` with structured fields populated.
+        """
+        instance = cls(index=IndexModel(name=index_name), **auth_kwargs)
+        instance.ensure_resolved()
+        instance.refresh(vsc=vsc)
+        return instance
 
     def create(self, vsc: VectorSearchClient | None = None) -> None:
         """
@@ -5732,10 +6673,14 @@ class ResourcesModel(BaseModel):
         if not self.genie_rooms:
             return self
 
-        # Process warehouses from all genie rooms
+        # Process warehouses from all genie rooms. Prefer the explicitly
+        # configured warehouse; fall back to discovery for existing-space
+        # references that don't declare one inline.
         for genie_room in self.genie_rooms.values():
             genie_room: GenieRoomModel
-            warehouse: Optional[WarehouseModel] = genie_room.warehouse
+            warehouse: Optional[WarehouseModel] = (
+                genie_room.warehouse or genie_room.discover_warehouse()
+            )
 
             if warehouse is None:
                 continue

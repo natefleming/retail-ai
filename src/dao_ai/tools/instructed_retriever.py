@@ -275,7 +275,10 @@ def decompose_query(
     if resource_info:
         set_resource_attributes(resource_info)
 
-    current_time = datetime.now().isoformat()
+    # Format without microseconds so the timestamp can't pattern-match as a
+    # phone number ("HH:MM:SS.<microseconds>") in upstream PII guardrails —
+    # observed Foundation Model 400s with finishReason=input_guardrail_triggered.
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Load and format prompt
     prompt_config = _load_prompt_template()
