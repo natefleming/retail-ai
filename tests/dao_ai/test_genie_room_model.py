@@ -723,8 +723,8 @@ class TestGenieRoomModelSerialization:
             )
             genie_room.ensure_resolved()
 
-            # Get warehouse
-            warehouse = genie_room.warehouse
+            # Discover warehouse from the live space
+            warehouse = genie_room.discover_warehouse()
 
             # Verify warehouse was extracted
             assert warehouse is not None
@@ -767,8 +767,8 @@ class TestGenieRoomModelSerialization:
             )
             genie_room.ensure_resolved()
 
-            # Get warehouse
-            warehouse = genie_room.warehouse
+            # Discover warehouse from the live space
+            warehouse = genie_room.discover_warehouse()
 
             # Verify warehouse inherits authentication
             assert warehouse is not None
@@ -793,8 +793,8 @@ class TestGenieRoomModelSerialization:
             )
             genie_room.ensure_resolved()
 
-            # Get warehouse - should return None
-            warehouse = genie_room.warehouse
+            # Discover warehouse - should return None when no warehouse_id is bound
+            warehouse = genie_room.discover_warehouse()
             assert warehouse is None
 
             # Verify warehouses.get was not called
@@ -819,8 +819,8 @@ class TestGenieRoomModelSerialization:
             )
             genie_room.ensure_resolved()
 
-            # Get warehouse - should return None on error
-            warehouse = genie_room.warehouse
+            # Discover warehouse - should return None on error
+            warehouse = genie_room.discover_warehouse()
             assert warehouse is None
 
     def test_warehouse_uses_warehouse_id_as_fallback_name(
@@ -843,8 +843,8 @@ class TestGenieRoomModelSerialization:
             )
             genie_room.ensure_resolved()
 
-            # Get warehouse
-            warehouse = genie_room.warehouse
+            # Discover warehouse from the live space
+            warehouse = genie_room.discover_warehouse()
 
             # Verify warehouse uses warehouse_id as name
             assert warehouse is not None
@@ -1222,8 +1222,8 @@ class TestGenieRoomModelRealAPI:
         )
         genie_room.ensure_resolved()
 
-        # Test warehouse extraction
-        warehouse = genie_room.warehouse
+        # Test warehouse discovery from the live space
+        warehouse = genie_room.discover_warehouse()
 
         if warehouse is not None:
             # If warehouse exists, verify it's a WarehouseModel

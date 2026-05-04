@@ -1,0 +1,113 @@
+# Sample dao-ai config demonstrating declarative Genie space provisioning.
+#
+# This file is loaded by tests/dao_ai/test_genie_provisioning.py to verify that
+# YAML anchors and aliases (`&anchor` / `*alias`) work end-to-end for
+# warehouses, tables, functions, and entitlements wired into a GenieRoomModel.
+#
+# Run `genie_room.create()` after loading this config to provision (or update)
+# the space against a live Databricks workspace.
+
+schemas:
+  retail: &retail_schema
+    catalog_name: cat
+    schema_name: sch
+
+resources:
+  warehouses:
+    # Warehouse anchor reused by the Genie space below.
+    retail_warehouse: &retail_warehouse
+      name: retail_warehouse
+      warehouse_id: wh-abc-123
+
+  tables:
+    products: &products_table
+      schema: *retail_schema
+      name: products
+    orders: &orders_table
+      schema: *retail_schema
+      name: orders
+    daily_sales_mv: &daily_sales_mv
+      schema: *retail_schema
+      name: daily_sales_mv
+
+  functions:
+    find_product: &find_product_fn
+      schema: *retail_schema
+      name: find_product
+
+  genie_rooms:
+    retail_genie:
+      name: "Retail AI Provisioned Genie"
+      description: "Provisioned by dao-ai. Update the YAML and re-run create() to apply changes."
+
+      # Anchored references — warehouses and UC objects defined once, reused here.
+      warehouse: *retail_warehouse
+      parent_path: "/Users/dao-ai-test"
+
+      # data_sources.tables[]
+      table_sources:
+        - table: *products_table
+          description: "Product catalog table."
+          column_configs:
+            - name: product_id
+              description: "Primary key for the product."
+              synonyms: ["sku", "item id"]
+              build_value_dictionary: true
+            - name: product_name
+              synonyms: ["title"]
+        - table: *orders_table
+          description: "Order line items."
+
+      # data_sources.metric_views[]
+      metric_view_sources:
+        - table: *daily_sales_mv
+          description: "Pre-aggregated daily sales metric view."
+
+      # instructions.sql_functions[] — UC SQL functions exposed as trusted assets.
+      function_sources:
+        - function: *find_product_fn
+
+      # instructions.text_instructions[]
+      text_instructions:
+        - "Always join orders with products via product_id."
+        - "Prefer the daily_sales_mv when asked about totals over a date range."
+
+      # instructions.example_question_sqls[] — few-shot trusted examples.
+      example_sqls:
+        - question: "Top selling products last month"
+          sql: "SELECT product_id, SUM(qty) FROM cat.sch.orders WHERE order_date >= current_date - 30 GROUP BY 1 ORDER BY 2 DESC LIMIT 10"
+          usage_guidance: "Use when ranking products by sales over a recent window."
+
+      # instructions.join_specs[] — declared joins for the planner to use.
+      join_specs:
+        - left: *orders_table
+          right: *products_table
+          sql: "orders.product_id = products.product_id"
+          relationship_type: MANY_TO_ONE
+          comment: "Orders join to product catalog."
+
+      # instructions.sql_snippets.{filters,expressions,measures}[]
+      sql_filters:
+        - display_name: "Active products"
+          sql: "status = 'ACTIVE'"
+          synonyms: ["live", "available"]
+      sql_measures:
+        - display_name: "Total revenue"
+          sql: "SUM(amount)"
+
+      # config.sample_questions[]
+      sample_questions:
+        - "What were the top selling products last month?"
+        - "Which SKUs are out of stock?"
+
+      # benchmarks.questions[]
+      benchmarks:
+        - question: "How many active products are in the catalog?"
+          expected_sql: "SELECT COUNT(*) FROM cat.sch.products WHERE status = 'ACTIVE'"
+
+      # workspace permissions applied via WorkspaceClient.permissions.set().
+      entitlements:
+        - principals: ["data-analysts"]
+          permission_level: CAN_RUN
+        - principals: ["genie-admins"]
+          permission_level: CAN_MANAGE

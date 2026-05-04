@@ -2479,6 +2479,91 @@
       "title": "FunctionModel",
       "type": "object"
     },
+    "GenieBenchmarkQuestion": {
+      "additionalProperties": true,
+      "description": "A benchmark question + expected SQL pair stored on the Genie space.\n\nMirrors ``benchmarks.questions[]`` in the serialized space and lets\nteams ship offline evaluation data alongside the space configuration.",
+      "properties": {
+        "question": {
+          "description": "Benchmark natural-language question.",
+          "title": "Question",
+          "type": "string"
+        },
+        "expected_sql": {
+          "description": "Expected SQL answer for evaluation.",
+          "title": "Expected Sql",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question",
+        "expected_sql"
+      ],
+      "title": "GenieBenchmarkQuestion",
+      "type": "object"
+    },
+    "GenieColumnConfig": {
+      "additionalProperties": true,
+      "description": "Per-column metadata registered with a Genie data source.\n\nMirrors the ``data_sources.tables[].column_configs[]`` entries in\na Genie space's ``serialized_space`` payload. ``synonyms`` lets the\nLLM map natural-language terms to the underlying column.\n\nUses ``extra=\"allow\"`` so unmodeled server metadata round-trips\ncleanly through ``GenieRoomModel.refresh() \u2192 create()``.",
+      "properties": {
+        "name": {
+          "description": "Column name as defined in Unity Catalog.",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable description shown to the model when reasoning about this column.",
+          "title": "Description"
+        },
+        "synonyms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alternate names users may use for this column.",
+          "title": "Synonyms"
+        },
+        "excluded": {
+          "default": false,
+          "description": "If true, hide this column from Genie when answering questions.",
+          "title": "Excluded",
+          "type": "boolean"
+        },
+        "sample_values": {
+          "default": true,
+          "description": "If true, surface example values for this column to the model.",
+          "title": "Sample Values",
+          "type": "boolean"
+        },
+        "build_value_dictionary": {
+          "default": false,
+          "description": "If true, build a value dictionary so Genie can match user terms against actual values.",
+          "title": "Build Value Dictionary",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GenieColumnConfig",
+      "type": "object"
+    },
     "GenieContextAwareCacheParametersModel": {
       "additionalProperties": false,
       "description": "Configuration for PostgreSQL-backed context-aware cache.\n\nExtends the base context-aware cache configuration with database-specific\nfields for table management and prompt history tracking.",
@@ -2663,9 +2748,217 @@
       "title": "GenieContextAwareCacheParametersModel",
       "type": "object"
     },
+    "GenieEntitlement": {
+      "additionalProperties": false,
+      "description": "A grant of workspace-level permissions on the Genie space.\n\nPrincipals may be users (email), groups, or service principals\n(application ID, or a ``ServicePrincipalModel``).",
+      "properties": {
+        "principals": {
+          "description": "Users (email), groups, or service principals to grant the permission to.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServicePrincipalModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Principals",
+          "type": "array"
+        },
+        "permission_level": {
+          "$ref": "#/$defs/GenieEntitlementLevel",
+          "description": "Genie permission level to grant (CAN_VIEW, CAN_RUN, CAN_EDIT, CAN_MANAGE)."
+        }
+      },
+      "required": [
+        "permission_level"
+      ],
+      "title": "GenieEntitlement",
+      "type": "object"
+    },
+    "GenieEntitlementLevel": {
+      "description": "Workspace permission levels supported on Genie spaces.",
+      "enum": [
+        "CAN_VIEW",
+        "CAN_RUN",
+        "CAN_EDIT",
+        "CAN_MANAGE"
+      ],
+      "title": "GenieEntitlementLevel",
+      "type": "string"
+    },
+    "GenieExampleSql": {
+      "additionalProperties": true,
+      "description": "A trusted example question + SQL pair Genie uses for few-shot guidance.",
+      "properties": {
+        "question": {
+          "description": "Natural-language question.",
+          "title": "Question",
+          "type": "string"
+        },
+        "sql": {
+          "description": "Authoritative SQL answering the question.",
+          "title": "Sql",
+          "type": "string"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieSqlParameter"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional parameters bound to the SQL.",
+          "title": "Parameters"
+        },
+        "usage_guidance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the model should reuse this example.",
+          "title": "Usage Guidance"
+        }
+      },
+      "required": [
+        "question",
+        "sql"
+      ],
+      "title": "GenieExampleSql",
+      "type": "object"
+    },
+    "GenieJoinSpec": {
+      "additionalProperties": true,
+      "description": "A trusted join relationship between two Genie data sources.",
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/TableModel",
+          "description": "Left table in the join."
+        },
+        "left_alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional alias for the left table.",
+          "title": "Left Alias"
+        },
+        "right": {
+          "$ref": "#/$defs/TableModel",
+          "description": "Right table in the join."
+        },
+        "right_alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional alias for the right table.",
+          "title": "Right Alias"
+        },
+        "sql": {
+          "description": "Join condition expression (e.g., 'orders.customer_id = customers.id').",
+          "title": "Sql",
+          "type": "string"
+        },
+        "relationship_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenieRelationshipType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cardinality annotation Genie can reason about."
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Free-form description of when the join applies.",
+          "title": "Comment"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "sql"
+      ],
+      "title": "GenieJoinSpec",
+      "type": "object"
+    },
+    "GenieMetricViewSource": {
+      "additionalProperties": true,
+      "description": "A Unity Catalog metric view registered as a Genie data source.",
+      "properties": {
+        "table": {
+          "$ref": "#/$defs/TableModel",
+          "description": "Reference to the metric view (UC three-part name via TableModel)."
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Description of the metric view presented to the Genie LLM.",
+          "title": "Description"
+        }
+      },
+      "required": [
+        "table"
+      ],
+      "title": "GenieMetricViewSource",
+      "type": "object"
+    },
+    "GenieRelationshipType": {
+      "description": "Relationship cardinality used to annotate Genie join specs.",
+      "enum": [
+        "ONE_TO_ONE",
+        "ONE_TO_MANY",
+        "MANY_TO_ONE",
+        "MANY_TO_MANY"
+      ],
+      "title": "GenieRelationshipType",
+      "type": "string"
+    },
     "GenieRoomModel": {
       "additionalProperties": false,
-      "description": "Databricks Genie space configuration for natural-language SQL exploration.",
+      "description": "Databricks Genie space configuration for natural-language SQL exploration.\n\nSupports two modes:\n\n1. **Use Existing Space**: Provide ``space_id`` (or ``name`` for lookup) to\n   reference an existing Genie space at runtime. Tables, functions, and\n   warehouses are auto-discovered from the live ``serialized_space``.\n\n2. **Provisioning Mode**: Provide ``warehouse`` plus any of\n   ``table_sources``, ``metric_view_sources``, ``function_sources``,\n   ``text_instructions``, ``example_sqls``, ``join_specs``,\n   ``sql_filters``/``sql_expressions``/``sql_measures``,\n   ``sample_questions``, ``benchmarks``, and ``entitlements`` to declare\n   the full space configuration. Calling :meth:`create` provisions a new\n   space (or updates an existing one when ``space_id`` is set).",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -2838,7 +3131,7 @@
             }
           ],
           "default": null,
-          "description": "Display name for the Genie room. Auto-populated from the space if omitted.",
+          "description": "Display name (title) for the Genie space. Auto-populated from the space if omitted.",
           "title": "Name"
         },
         "description": {
@@ -2885,11 +3178,399 @@
             }
           ],
           "default": null,
-          "description": "Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
+          "description": "Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name or created by .create().",
           "title": "Space Id"
+        },
+        "parent_path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Workspace folder path used when provisioning a new space (e.g., '/Users/me@example.com/genie').",
+          "title": "Parent Path"
+        },
+        "warehouse": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WarehouseModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SQL warehouse the Genie space queries against. Required for provisioning. For existing-space references, call :meth:`discover_warehouse` to fetch the warehouse attached to the live space."
+        },
+        "table_sources": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieTableSource"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UC tables/views registered as Genie data sources (with optional column metadata).",
+          "title": "Table Sources"
+        },
+        "metric_view_sources": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieMetricViewSource"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UC metric views registered as Genie data sources.",
+          "title": "Metric View Sources"
+        },
+        "function_sources": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieSqlFunctionSource"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UC SQL functions registered as Genie trusted assets.",
+          "title": "Function Sources"
+        },
+        "text_instructions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Free-form instructions Genie always considers when reasoning.",
+          "title": "Text Instructions"
+        },
+        "example_sqls": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieExampleSql"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trusted example question\u2192SQL pairs.",
+          "title": "Example Sqls"
+        },
+        "join_specs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieJoinSpec"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trusted join relationships between data sources.",
+          "title": "Join Specs"
+        },
+        "sql_filters": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieSqlSnippet"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reusable SQL filter snippets.",
+          "title": "Sql Filters"
+        },
+        "sql_expressions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieSqlSnippet"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reusable SQL expression snippets.",
+          "title": "Sql Expressions"
+        },
+        "sql_measures": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieSqlSnippet"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reusable SQL measure snippets.",
+          "title": "Sql Measures"
+        },
+        "sample_questions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Suggested sample questions surfaced in the Genie UI.",
+          "title": "Sample Questions"
+        },
+        "benchmarks": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieBenchmarkQuestion"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Benchmark questions + expected SQL stored with the space for offline evaluation.",
+          "title": "Benchmarks"
+        },
+        "entitlements": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieEntitlement"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Workspace permissions to grant on the Genie space (applied during .create()).",
+          "title": "Entitlements"
         }
       },
       "title": "GenieRoomModel",
+      "type": "object"
+    },
+    "GenieSqlFunctionSource": {
+      "additionalProperties": true,
+      "description": "A Unity Catalog SQL function registered as a Genie trusted asset.",
+      "properties": {
+        "function": {
+          "$ref": "#/$defs/FunctionModel",
+          "description": "Reference to the UC function (reuses FunctionModel)."
+        }
+      },
+      "required": [
+        "function"
+      ],
+      "title": "GenieSqlFunctionSource",
+      "type": "object"
+    },
+    "GenieSqlParameter": {
+      "additionalProperties": true,
+      "description": "A named parameter on a trusted example SQL query.",
+      "properties": {
+        "name": {
+          "description": "Parameter name as referenced in the SQL.",
+          "title": "Name",
+          "type": "string"
+        },
+        "type_hint": {
+          "default": "STRING",
+          "description": "Declared parameter type so Genie can route values correctly.",
+          "enum": [
+            "STRING",
+            "INTEGER",
+            "DATE"
+          ],
+          "title": "Type Hint",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable description of the parameter's meaning.",
+          "title": "Description"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GenieSqlParameter",
+      "type": "object"
+    },
+    "GenieSqlSnippet": {
+      "additionalProperties": true,
+      "description": "A reusable SQL snippet (filter / expression / measure) registered with a Genie space.",
+      "properties": {
+        "display_name": {
+          "description": "Human-readable name shown to authors.",
+          "title": "Display Name",
+          "type": "string"
+        },
+        "sql": {
+          "description": "The SQL fragment.",
+          "title": "Sql",
+          "type": "string"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the model should use this snippet.",
+          "title": "Instruction"
+        },
+        "synonyms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alternate phrasings users may employ to reference this snippet.",
+          "title": "Synonyms"
+        }
+      },
+      "required": [
+        "display_name",
+        "sql"
+      ],
+      "title": "GenieSqlSnippet",
+      "type": "object"
+    },
+    "GenieTableSource": {
+      "additionalProperties": true,
+      "description": "A Unity Catalog table or view registered as a Genie data source.",
+      "properties": {
+        "table": {
+          "$ref": "#/$defs/TableModel",
+          "description": "Reference to the UC table, view, or materialized view (reuses TableModel)."
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Description of the table presented to the Genie LLM.",
+          "title": "Description"
+        },
+        "column_configs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GenieColumnConfig"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-column metadata (synonyms, descriptions, exclusions).",
+          "title": "Column Configs"
+        }
+      },
+      "required": [
+        "table"
+      ],
+      "title": "GenieTableSource",
       "type": "object"
     },
     "GuardrailModel": {

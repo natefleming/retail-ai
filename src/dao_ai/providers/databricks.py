@@ -1,4 +1,5 @@
 import base64
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Final, Sequence
@@ -56,6 +57,7 @@ from dao_ai.config import (
     DatasetModel,
     DeploymentTarget,
     FunctionModel,
+    GenieEntitlement,
     GenieRoomModel,
     HasFullName,
     IndexModel,
@@ -69,6 +71,7 @@ from dao_ai.config import (
     VolumeModel,
     VolumePathModel,
     WarehouseModel,
+    value_of,
 )
 from dao_ai.models import get_latest_model_version
 from dao_ai.providers.base import ServiceProvider
@@ -85,6 +88,15 @@ from dao_ai.utils import (
 from dao_ai.vector_search import endpoint_exists, index_exists
 
 MAX_NUM_INDEXES: Final[int] = 50
+
+_UUID_RE: Final = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def _looks_like_uuid(value: str) -> bool:
+    """True if ``value`` is shaped like a service principal application ID (UUID)."""
+    return bool(_UUID_RE.match(value))
 
 
 def with_available_indexes(endpoint: dict[str, Any]) -> bool:
@@ -1739,6 +1751,171 @@ class DatabricksProvider(ServiceProvider):
             vector_store.endpoint.name, vector_store.index.full_name
         )
         return index
+
+    def create_genie_space(self, room: GenieRoomModel) -> Any:
+        """Create or update a Databricks Genie space from a ``GenieRoomModel``.
+
+        Uses the Databricks SDK's ``WorkspaceClient.genie`` API exclusively:
+
+        - ``create_space`` when ``room.space_id`` is unset.
+        - ``update_space`` when ``room.space_id`` is set and the locally-built
+          ``serialized_space`` differs from the one stored on the workspace.
+          The current ``etag`` is supplied so concurrent edits are rejected
+          rather than silently lost.
+        - ``permissions.set`` to apply any configured entitlements.
+
+        Returns the resulting ``GenieSpace`` SDK object.
+        """
+        import json
+
+        if room.warehouse is None:
+            raise ValueError(
+                "GenieRoomModel.warehouse must be set to provision a Genie space. "
+                "Provide a WarehouseModel with a name or warehouse_id."
+            )
+
+        # Defer to ensure_resolved so the warehouse_id is resolved from name
+        # if needed before we commit it to the API call.
+        room.warehouse.ensure_resolved()
+        warehouse_id: str = value_of(room.warehouse.warehouse_id)
+        if not warehouse_id:
+            raise ValueError(
+                f"Could not resolve warehouse_id for warehouse '{room.warehouse.name}'."
+            )
+
+        title: str = room.name or "Untitled Genie Space"
+        description: str | None = room.description
+        parent_path: str | None = (
+            value_of(room.parent_path) if room.parent_path else None
+        )
+        serialized_payload: dict[str, Any] = room._build_serialized_space()
+        serialized_str: str = json.dumps(serialized_payload, sort_keys=True)
+
+        space_id: str | None = value_of(room.space_id) if room.space_id else None
+
+        space: Any
+        if space_id:
+            existing = self.w.genie.get_space(
+                space_id=space_id, include_serialized_space=True
+            )
+            existing_serialized: dict[str, Any] = {}
+            if getattr(existing, "serialized_space", None):
+                try:
+                    existing_serialized = json.loads(existing.serialized_space)
+                except json.JSONDecodeError:
+                    existing_serialized = {}
+
+            needs_update: bool = (
+                existing_serialized != serialized_payload
+                or (existing.title or None) != title
+                or (existing.description or None) != description
+                or (getattr(existing, "warehouse_id", None) or None) != warehouse_id
+            )
+            if needs_update:
+                logger.info(
+                    "Updating Genie space",
+                    space_id=space_id,
+                    title=title,
+                )
+                space = self.w.genie.update_space(
+                    space_id=space_id,
+                    title=title,
+                    description=description,
+                    serialized_space=serialized_str,
+                    warehouse_id=warehouse_id,
+                    etag=getattr(existing, "etag", None),
+                )
+            else:
+                logger.info(
+                    "Genie space already up to date; skipping update",
+                    space_id=space_id,
+                )
+                space = existing
+        else:
+            logger.info(
+                "Creating Genie space",
+                title=title,
+                warehouse_id=warehouse_id,
+                parent_path=parent_path,
+            )
+            space = self.w.genie.create_space(
+                warehouse_id=warehouse_id,
+                serialized_space=serialized_str,
+                title=title,
+                description=description,
+                parent_path=parent_path,
+            )
+            new_id: str | None = getattr(space, "space_id", None)
+            if not new_id:
+                raise RuntimeError(
+                    "Genie space create_space did not return a space_id."
+                )
+            room.space_id = new_id
+            logger.success("Genie space created", space_id=new_id, title=title)
+
+        if room.entitlements:
+            self._apply_genie_entitlements(value_of(room.space_id), room.entitlements)
+
+        # Invalidate cached space details so subsequent property reads see the
+        # post-write state.
+        room._space_details = None
+        return space
+
+    def _apply_genie_entitlements(
+        self, space_id: str, entitlements: Sequence[GenieEntitlement]
+    ) -> None:
+        """Apply workspace permission grants on a Genie space.
+
+        Each entitlement maps to one or more ``AccessControlRequest`` entries
+        applied via ``WorkspaceClient.permissions.set`` against object type
+        ``genie``. Email-shaped principals are sent as ``user_name``,
+        application-id-shaped principals as ``service_principal_name``, and
+        anything else as ``group_name``.
+        """
+        from databricks.sdk.service.iam import (
+            AccessControlRequest,
+            PermissionLevel,
+        )
+
+        access_control: list[AccessControlRequest] = []
+        for entitlement in entitlements:
+            level_str: str = (
+                entitlement.permission_level.value
+                if hasattr(entitlement.permission_level, "value")
+                else str(entitlement.permission_level)
+            )
+            try:
+                level = PermissionLevel(level_str)
+            except ValueError:
+                logger.warning(
+                    "Unknown permission level for Genie space; skipping",
+                    level=level_str,
+                )
+                continue
+            for principal in entitlement.principals:
+                principal_str: str = value_of(principal)
+                kwargs: dict[str, str] = {"permission_level": level}
+                if "@" in principal_str and "." in principal_str:
+                    kwargs["user_name"] = principal_str
+                elif _looks_like_uuid(principal_str):
+                    kwargs["service_principal_name"] = principal_str
+                else:
+                    kwargs["group_name"] = principal_str
+                access_control.append(AccessControlRequest(**kwargs))
+
+        if not access_control:
+            return
+
+        logger.info(
+            "Applying Genie space entitlements",
+            space_id=space_id,
+            count=len(access_control),
+        )
+        self.w.permissions.set(
+            request_object_type="genie",
+            request_object_id=space_id,
+            access_control_list=access_control,
+        )
 
     def create_sql_function(
         self, unity_catalog_function: UnityCatalogFunctionSqlModel
