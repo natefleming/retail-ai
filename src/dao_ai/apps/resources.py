@@ -155,9 +155,17 @@ API_SCOPE_TO_USER_SCOPE: dict[str, str] = {
 def _extract_llm_resources(
     llms: dict[str, LLMModel],
 ) -> list[dict[str, Any]]:
-    """Extract model serving endpoint resources from LLMModels."""
+    """Extract model serving endpoint resources from LLMModels.
+
+    Skips resources where ``on_behalf_of_user=True`` -- those are served via
+    the user's forwarded token and surface in ``user_api_scopes`` instead;
+    listing them as app resources would have the platform prompt the operator
+    to authorize a permission the app SP will never use.
+    """
     resources: list[dict[str, Any]] = []
     for idx, (key, llm) in enumerate(llms.items()):
+        if llm.on_behalf_of_user:
+            continue
         resource: dict[str, Any] = {
             "name": key,
             "type": "serving-endpoint",
@@ -174,10 +182,16 @@ def _extract_llm_resources(
 def _extract_vector_search_resources(
     vector_stores: dict[str, VectorStoreModel],
 ) -> list[dict[str, Any]]:
-    """Extract vector search index resources from VectorStoreModels."""
+    """Extract vector search index resources from VectorStoreModels.
+
+    Skips resources where ``on_behalf_of_user=True`` (served via
+    ``user_api_scopes``).
+    """
     resources: list[dict[str, Any]] = []
     for key, vs in vector_stores.items():
         if vs.index is None:
+            continue
+        if vs.on_behalf_of_user:
             continue
         resource: dict[str, Any] = {
             "name": key,
@@ -195,9 +209,15 @@ def _extract_vector_search_resources(
 def _extract_warehouse_resources(
     warehouses: dict[str, WarehouseModel],
 ) -> list[dict[str, Any]]:
-    """Extract SQL warehouse resources from WarehouseModels."""
+    """Extract SQL warehouse resources from WarehouseModels.
+
+    Skips resources where ``on_behalf_of_user=True`` (served via
+    ``user_api_scopes``).
+    """
     resources: list[dict[str, Any]] = []
     for key, warehouse in warehouses.items():
+        if warehouse.on_behalf_of_user:
+            continue
         warehouse_id = value_of(warehouse.warehouse_id)
         resource: dict[str, Any] = {
             "name": key,
@@ -213,9 +233,15 @@ def _extract_warehouse_resources(
 def _extract_genie_resources(
     genie_rooms: dict[str, GenieRoomModel],
 ) -> list[dict[str, Any]]:
-    """Extract Genie space resources from GenieRoomModels."""
+    """Extract Genie space resources from GenieRoomModels.
+
+    Skips resources where ``on_behalf_of_user=True`` (served via
+    ``user_api_scopes``).
+    """
     resources: list[dict[str, Any]] = []
     for key, genie in genie_rooms.items():
+        if genie.on_behalf_of_user:
+            continue
         space_id = value_of(genie.space_id)
         resource: dict[str, Any] = {
             "name": key,
@@ -286,9 +312,15 @@ def _extract_genie_warehouse_resources(
 def _extract_volume_resources(
     volumes: dict[str, VolumeModel],
 ) -> list[dict[str, Any]]:
-    """Extract UC Volume resources from VolumeModels."""
+    """Extract UC Volume resources from VolumeModels.
+
+    Skips resources where ``on_behalf_of_user=True`` (served via
+    ``user_api_scopes``).
+    """
     resources: list[dict[str, Any]] = []
     for key, volume in volumes.items():
+        if volume.on_behalf_of_user:
+            continue
         resource: dict[str, Any] = {
             "name": key,
             "type": "volume",
@@ -303,9 +335,15 @@ def _extract_volume_resources(
 def _extract_function_resources(
     functions: dict[str, FunctionModel],
 ) -> list[dict[str, Any]]:
-    """Extract UC Function resources from FunctionModels."""
+    """Extract UC Function resources from FunctionModels.
+
+    Skips resources where ``on_behalf_of_user=True`` (served via
+    ``user_api_scopes``).
+    """
     resources: list[dict[str, Any]] = []
     for key, func in functions.items():
+        if func.on_behalf_of_user:
+            continue
         resource: dict[str, Any] = {
             "name": key,
             "type": "function",
@@ -320,9 +358,15 @@ def _extract_function_resources(
 def _extract_connection_resources(
     connections: dict[str, ConnectionModel],
 ) -> list[dict[str, Any]]:
-    """Extract UC Connection resources from ConnectionModels."""
+    """Extract UC Connection resources from ConnectionModels.
+
+    Skips resources where ``on_behalf_of_user=True`` (served via
+    ``user_api_scopes``).
+    """
     resources: list[dict[str, Any]] = []
     for key, conn in connections.items():
+        if conn.on_behalf_of_user:
+            continue
         resource: dict[str, Any] = {
             "name": key,
             "type": "connection",
