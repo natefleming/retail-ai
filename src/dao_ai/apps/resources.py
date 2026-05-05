@@ -1132,13 +1132,13 @@ def _extract_raw_vector_search_resources(
     """
     Extract vector search index resources as raw dicts for the REST API.
 
-    Adds a VECTOR_SEARCH_INDEX UC securable for each index that uses
-    service principal auth (not OBO). When on_behalf_of_user=True, the
-    calling user's identity provides all permissions via user_api_scopes,
-    so no app resource is needed.
-
-    Not all workspaces support VECTOR_SEARCH_INDEX as a UC securable
-    type yet — the deployment code retries without it if rejected.
+    Vector search indexes are stored as TABLE securables in Unity Catalog,
+    so the App platform expects ``securable_type: "TABLE"`` with SELECT
+    privilege — same as any other table. The bundle generator already does
+    this; the SDK/REST deploy path must match. Emitting
+    ``VECTOR_SEARCH_INDEX`` causes the platform to reject the create with a
+    retryable error and the fallback strips the index out entirely, so the
+    App ends up unable to read the index at runtime.
     """
     resources: list[dict[str, Any]] = []
     for key, vs in vector_stores.items():
@@ -1157,7 +1157,7 @@ def _extract_raw_vector_search_resources(
                 "name": sanitized_name,
                 "uc_securable": {
                     "securable_full_name": vs.index.full_name,
-                    "securable_type": "VECTOR_SEARCH_INDEX",
+                    "securable_type": "TABLE",
                     "permission": "SELECT",
                 },
             }
