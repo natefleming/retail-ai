@@ -585,7 +585,17 @@ class DatabricksProvider(ServiceProvider):
                 logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
                     python_model=model_path.as_posix(),
                     code_paths=code_paths,
-                    model_config=config.model_dump(mode="json", by_alias=True),
+                    # exclude_none=True keeps the serialized config compatible
+                    # with older dao-ai versions that may be installed in the
+                    # Model Serving container — the registry can lag the
+                    # development branch by several versions, and any new
+                    # ``Optional`` field on a Pydantic model with ``extra=
+                    # "forbid"`` becomes a load-time error if it's persisted
+                    # as null and the deployed code doesn't know the field
+                    # name yet. Dropping null values is forward-compatible.
+                    model_config=config.model_dump(
+                        mode="json", by_alias=True, exclude_none=True
+                    ),
                     name="agent",
                     conda_env=conda_env,
                     input_example=input_example,
