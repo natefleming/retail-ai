@@ -1774,7 +1774,7 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             digest = hashlib.sha1("\x00".join(parts).encode("utf-8")).hexdigest()
             return digest[:32]
 
-        payload: dict[str, Any] = {"version": 1}
+        payload: dict[str, Any] = {"version": 2}
 
         # config.sample_questions
         if self.sample_questions:
@@ -1797,7 +1797,7 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                 if source.description:
                     entry["description"] = [source.description]
                 if source.column_configs:
-                    entry["column_configs"] = [
+                    cc_payload = [
                         {
                             "column_name": cc.name,
                             **(
@@ -1805,24 +1805,26 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                                 if cc.description
                                 else {}
                             ),
-                            "get_example_values": cc.sample_values,
+                            "enable_format_assistance": cc.sample_values,
                             "exclude": cc.excluded,
                             **({"synonyms": cc.synonyms} if cc.synonyms else {}),
-                            "build_value_dictionary": cc.build_value_dictionary,
+                            "enable_entity_matching": cc.build_value_dictionary,
                         }
                         for cc in source.column_configs
                     ]
+                    entry["column_configs"] = cc_payload
                 tables_payload.append(entry)
             data_sources["tables"] = tables_payload
 
         if self.metric_view_sources:
-            data_sources["metric_views"] = [
+            mv_payload = [
                 {
                     "identifier": source.table.full_name,
                     **({"description": [source.description]} if source.description else {}),
                 }
                 for source in self.metric_view_sources
             ]
+            data_sources["metric_views"] = mv_payload
 
         if data_sources:
             payload["data_sources"] = data_sources
@@ -1830,12 +1832,14 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         # instructions.{text_instructions, example_question_sqls, sql_functions, join_specs, sql_snippets}
         instructions: dict[str, Any] = {}
         if self.text_instructions:
+            combined_id = _stable_id(
+                "text_instruction", *self.text_instructions
+            )
             instructions["text_instructions"] = [
                 {
-                    "id": _stable_id("text_instruction", text),
-                    "content": [text],
+                    "id": combined_id,
+                    "content": self.text_instructions,
                 }
-                for text in self.text_instructions
             ]
         if self.example_sqls:
             example_payload: list[dict[str, Any]] = []
@@ -1870,26 +1874,14 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             join_payload: list[dict[str, Any]] = []
             for spec in self.join_specs:
                 left: dict[str, str] = {"identifier": spec.left.full_name}
-                if spec.left_alias:
-                    left["alias"] = spec.left_alias
                 right: dict[str, str] = {"identifier": spec.right.full_name}
-                if spec.right_alias:
-                    right["alias"] = spec.right_alias
-                sql = spec.sql
-                if spec.relationship_type:
-                    rt_value = (
-                        spec.relationship_type.value
-                        if isinstance(spec.relationship_type, GenieRelationshipType)
-                        else spec.relationship_type
-                    )
-                    sql = f"{sql} --rt={rt_value}--"
-                entry = {
+                entry: dict[str, Any] = {
                     "id": _stable_id(
                         "join_spec", spec.left.full_name, spec.right.full_name, spec.sql
                     ),
                     "left": left,
                     "right": right,
-                    "sql": [sql],
+                    "sql": [spec.sql],
                 }
                 if spec.comment:
                     entry["comment"] = [spec.comment]
@@ -1904,11 +1896,12 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         ):
             if not snippet_list:
                 continue
+            label_key = "display_name" if snippet_key == "filters" else "alias"
             snippets[snippet_key] = [
                 {
                     "id": _stable_id(snippet_key, snippet.display_name, snippet.sql),
                     "sql": [snippet.sql],
-                    "display_name": snippet.display_name,
+                    label_key: snippet.display_name,
                     **(
                         {"instruction": [snippet.instruction]}
                         if snippet.instruction
@@ -1937,7 +1930,28 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                 ]
             }
 
+        self._sort_payload_lists(payload)
         return payload
+
+    @staticmethod
+    def _sort_payload_lists(obj: Any) -> None:
+        """Recursively sort list-of-dicts in the serialized payload.
+
+        The Genie v2 API requires all repeated entries to be sorted by
+        their natural key (``id``, ``identifier``, ``column_name``, or
+        ``display_name``).
+        """
+        if isinstance(obj, dict):
+            for value in obj.values():
+                GenieRoomModel._sort_payload_lists(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                GenieRoomModel._sort_payload_lists(item)
+            if obj and isinstance(obj[0], dict):
+                for key in ("column_name", "identifier", "id", "display_name"):
+                    if key in obj[0]:
+                        obj.sort(key=lambda x: (x.get(key, ""),))
+                        break
 
     def refresh(
         self,
@@ -2093,8 +2107,12 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                     description=_unwrap_text(cc.get("description")),
                     synonyms=cc.get("synonyms") or None,
                     excluded=bool(cc.get("exclude", False)),
-                    sample_values=bool(cc.get("get_example_values", True)),
-                    build_value_dictionary=bool(cc.get("build_value_dictionary", False)),
+                    sample_values=bool(
+                        cc.get("enable_format_assistance", cc.get("get_example_values", True))
+                    ),
+                    build_value_dictionary=bool(
+                        cc.get("enable_entity_matching", cc.get("build_value_dictionary", False))
+                    ),
                 )
             )
         return GenieTableSource(
