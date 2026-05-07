@@ -15,6 +15,7 @@ Usage:
     write_bundle(config, Path("./my-bundle"), force=False)
 """
 
+import io
 import shutil
 import subprocess
 from importlib.metadata import version as pkg_version
@@ -23,6 +24,7 @@ from typing import Any
 
 import yaml
 from loguru import logger
+from ruamel.yaml import YAML
 
 from dao_ai.apps.resources import (
     _extract_env_vars_from_config,
@@ -87,6 +89,11 @@ bundle_config_schema.json
 dao_ai_schema.json
 """
 
+# Databricks Apps' runtime auto-installs Python deps from requirements.txt.
+# We ship just `uv` so the rest of the dependency graph (including dao-ai)
+# resolves from pyproject.toml + uv.lock at app startup via `uv run`.
+_REQUIREMENTS_TXT_CONTENT = "uv\n"
+
 _PYPROJECT_TEMPLATE = """\
 [build-system]
 requires = ["hatchling"]
@@ -135,6 +142,50 @@ def _get_dao_ai_version() -> str:
         return pkg_version("dao-ai")
     except Exception:
         return "0.1.0"
+
+
+def _strip_parameters_block(rendered_yaml: str) -> str:
+    """Drop the top-level ``parameters:`` block from a rendered config while
+    preserving anchor names, comments, key order, and merge keys.
+
+    PyYAML's ``safe_load`` -> ``safe_dump`` round-trip discards original
+    anchor names (rewriting ``&hardware_store_schema`` as ``&id001`` etc.),
+    drops comments, and may reorder keys. ruamel.yaml's round-trip mode
+    keeps all of that intact, so the deployed config stays readable.
+
+    Args:
+        rendered_yaml: YAML text after ``${param.NAME}`` substitution.
+
+    Returns:
+        YAML text with the top-level ``parameters:`` key removed.
+        If parsing fails or the structure isn't a mapping, the input is
+        returned unchanged so we never silently corrupt the user's config.
+    """
+    rt = YAML(typ="rt")
+    rt.preserve_quotes = True
+    # Avoid line-wrapping long anchored strings on dump.
+    rt.width = 4096
+
+    try:
+        data = rt.load(rendered_yaml)
+    except Exception as exc:
+        logger.warning(
+            f"ruamel parse failed; emitting rendered YAML unchanged: {exc}"
+        )
+        return rendered_yaml
+
+    # Only mappings have a top-level `parameters:` key. A document whose root
+    # is a list, scalar, or None is returned untouched.
+    from collections.abc import MutableMapping
+
+    if not isinstance(data, MutableMapping):
+        return rendered_yaml
+
+    data.pop("parameters", None)
+
+    buf = io.StringIO()
+    rt.dump(data, buf)
+    return buf.getvalue()
 
 
 def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
@@ -346,9 +397,9 @@ def generate_databricks_yaml(
     user_api_scopes = generate_user_api_scopes(config)
 
     app_command: list[str] = (
-        ["python", "-m", "dao_ai.apps.start_app"]
+        ["uv", "run", "python", "-m", "dao_ai.apps.start_app"]
         if enable_chat_proxy
-        else ["python", "-m", "dao_ai.apps.server"]
+        else ["uv", "run", "python", "-m", "dao_ai.apps.server"]
     )
 
     app_def: dict[str, Any] = {
@@ -473,9 +524,7 @@ def write_bundle(
             # a plain copy if the config wasn't loaded via from_file.
             rendered: str | None = getattr(config, "_rendered_yaml", None)
             if rendered is not None:
-                rendered_dict: dict[str, Any] = yaml.safe_load(rendered) or {}
-                rendered_dict.pop("parameters", None)
-                dest.write_text(yaml.safe_dump(rendered_dict, sort_keys=False))
+                dest.write_text(_strip_parameters_block(rendered))
                 logger.info(
                     f"Wrote rendered config as {config_filename} (parameters baked in)"
                 )
@@ -619,6 +668,7 @@ def write_bundle(
         _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
     )
     _track(output_dir / ".python-version", "3.11\n")
+    _track(output_dir / "requirements.txt", _REQUIREMENTS_TXT_CONTENT)
 
     print(f"\nBundle generated in {output_dir}/\n")
     for name in written:
