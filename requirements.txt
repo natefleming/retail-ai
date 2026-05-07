@@ -213,6 +213,8 @@ rfc3987-syntax==1.1.0
 rich==14.3.3
 rpds-py==0.30.0
 rstr==3.2.2
+ruamel-yaml==0.18.17
+ruamel-yaml-clib==0.2.15
 ruff==0.15.9
 s3transfer==0.16.0
 scikit-learn==1.8.0

@@ -695,6 +695,354 @@ def test_write_bundle_bakes_resolved_values_and_drops_parameters(
     assert "${param." not in raw
 
 
+@pytest.mark.unit
+def test_write_bundle_emits_requirements_txt_and_uv_run_command(
+    parameterised_config_path: Path, tmp_path: Path
+) -> None:
+    """The generated bundle must ship a requirements.txt (so Databricks Apps
+    auto-installs `uv`) and an app `command:` that starts with `uv run`.
+    Without both, the App container's runtime venv is missing dao_ai.
+    """
+    from dao_ai.apps.bundle import write_bundle
+
+    config = AppConfig.from_file(
+        parameterised_config_path,
+        params={"module_id": "09", "catalog": "nfleming"},
+        initialize=False,
+    )
+    out_dir = tmp_path / "bundle"
+    out_dir.mkdir()
+
+    write_bundle(config, out_dir, force=True, development=False)
+
+    req = (out_dir / "requirements.txt").read_text().strip().splitlines()
+    assert req == ["uv"], f"requirements.txt should contain only `uv`; got {req!r}"
+
+    db_yaml = yaml.safe_load((out_dir / "databricks.yaml").read_text())
+    app_name = next(iter(db_yaml["resources"]["apps"]))
+    cmd = db_yaml["resources"]["apps"][app_name]["config"]["command"]
+    assert cmd[:2] == ["uv", "run"], (
+        f"App command must start with `uv run`; got {cmd!r}"
+    )
+    assert cmd[2:] == ["python", "-m", "dao_ai.apps.start_app"], (
+        f"App command tail unexpected: {cmd!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bundle config round-trip: ruamel-based _strip_parameters_block must
+# preserve descriptive anchor names, aliases, comments, key order, and
+# merge keys, while still dropping the parameters: block and baking in
+# ${param.NAME} substitutions.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def anchored_config_path(tmp_path: Path) -> Path:
+    """Config exercising anchors, aliases, merge keys, comments, and params.
+
+    Anchors land only in pydantic-valid fields:
+    - `&hardware_store_schema` on a schemas entry, referenced by another
+      schemas entry via a YAML merge key
+    - `&default_llm` on an LLM resource, referenced by `agents.hello.model`
+    - `&hello` on an agent, referenced by `app.agents[0]`
+    """
+    p = tmp_path / "anchored.yaml"
+    p.write_text(
+        dedent(
+            """
+            # Top-of-file comment that should survive round-trip
+            parameters:
+              catalog:
+                description: UC catalog
+                default: main
+              module_id:
+                description: workshop module id
+
+            schemas:  # shared schema definitions reused across resources
+              hardware: &hardware_store_schema
+                catalog_name: ${var.catalog}
+                schema_name: dao_ai_${var.module_id}
+              clothing:
+                <<: *hardware_store_schema
+                schema_name: dao_ai_clothing_${var.module_id}
+
+            resources:
+              llms:
+                default_llm: &default_llm
+                  name: databricks-test-llm
+                  temperature: 0.0
+
+            agents:
+              hello: &hello  # primary greeter agent
+                name: hello
+                description: hello agent for module ${var.module_id}
+                model: *default_llm
+                prompt: |
+                  Welcome to module ${var.module_id}.
+
+            app:
+              name: dao_ai_test_${var.module_id}
+              description: "test"
+              deployment_target: apps
+              agents:
+                - *hello
+            """
+        ).lstrip()
+    )
+    return p
+
+
+def _emitted_config_text(
+    config_path: Path,
+    out_dir: Path,
+    params: dict[str, str],
+) -> str:
+    """Helper: run write_bundle and return the emitted config YAML text."""
+    from dao_ai.apps.bundle import write_bundle
+
+    config = AppConfig.from_file(config_path, params=params, initialize=False)
+    out_dir.mkdir(exist_ok=True)
+    write_bundle(config, out_dir, force=True, development=False)
+    return (out_dir / config_path.name).read_text()
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_descriptive_anchor_names(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """Source uses `&hardware_store_schema`; emitted YAML must keep that
+    literal name, not auto-generate `&id001`."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    assert "&hardware_store_schema" in text, (
+        f"descriptive anchor name lost — got:\n{text}"
+    )
+    assert "&default_llm" in text
+    assert "&hello" in text
+    # No PyYAML-style auto-generated anchor noise.
+    assert "&id001" not in text
+    assert "&id002" not in text
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_aliases_pointing_at_descriptive_anchors(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """Aliases like `*hardware_store_schema` must stay textual aliases (not
+    inlined copies), and they must point at the original anchor name."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    assert "*hardware_store_schema" in text, (
+        f"alias was inlined or renamed — got:\n{text}"
+    )
+    assert "*default_llm" in text
+    assert "*hello" in text
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_merge_keys(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """The clothing schema uses `<<: *hardware_store_schema` — both the merge
+    syntax and the alias name must survive."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    assert "<<: *hardware_store_schema" in text, (
+        f"merge key did not survive — got:\n{text}"
+    )
+
+
+@pytest.mark.unit
+def test_round_trip_aliases_resolve_to_same_data_after_load(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """Semantic check: parse the emitted YAML and confirm the alias target
+    equals the anchor source. Anchor preservation is cosmetic; this proves
+    we didn't accidentally fork the references."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    parsed = yaml.safe_load(text)
+    # `&hello` is referenced by `app.agents[0]` via `*hello`.
+    assert (
+        parsed["app"]["agents"][0] == parsed["agents"]["hello"]
+    ), "alias resolved to a different value than the anchor source"
+    # `&default_llm` is referenced by `agents.hello.model` via `*default_llm`.
+    assert (
+        parsed["agents"]["hello"]["model"] == parsed["resources"]["llms"]["default_llm"]
+    )
+    # Merge key: clothing schema inherits catalog_name from hardware but
+    # overrides schema_name.
+    assert parsed["schemas"]["clothing"]["catalog_name"] == "nfleming"
+    assert parsed["schemas"]["clothing"]["schema_name"] == "dao_ai_clothing_09"
+
+
+@pytest.mark.unit
+def test_round_trip_drops_parameters_block_with_anchors_present(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """The parameters: removal path must coexist with anchors elsewhere."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    parsed = yaml.safe_load(text)
+    assert "parameters" not in parsed, (
+        "parameters: block must be stripped from the emitted bundle YAML"
+    )
+
+
+@pytest.mark.unit
+def test_round_trip_bakes_in_param_substitutions_with_anchors(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """`${var.…}` and `${param.…}` references must be substituted, even
+    inside anchored mappings."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    assert "${var." not in text
+    assert "${param." not in text
+    parsed = yaml.safe_load(text)
+    assert parsed["schemas"]["hardware"]["catalog_name"] == "nfleming"
+    assert parsed["schemas"]["hardware"]["schema_name"] == "dao_ai_09"
+    assert parsed["app"]["name"] == "dao_ai_test_09"
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_top_level_key_order(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """ruamel rt mode preserves key order; PyYAML safe_dump did not."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    # Source order (after parameters: removed): schemas, resources, agents, app
+    expected_order = ["schemas", "resources", "agents", "app"]
+    actual_order = [
+        line.split(":", 1)[0]
+        for line in text.splitlines()
+        if line and not line.startswith((" ", "\t", "#"))
+    ]
+    actual_order = [k for k in actual_order if k in expected_order]
+    assert actual_order == expected_order, (
+        f"key order changed: expected {expected_order}, got {actual_order}"
+    )
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_comments(
+    anchored_config_path: Path, tmp_path: Path
+) -> None:
+    """ruamel rt mode preserves comments (PyYAML does not)."""
+    text = _emitted_config_text(
+        anchored_config_path,
+        tmp_path / "bundle",
+        params={"module_id": "09", "catalog": "nfleming"},
+    )
+    assert "# Top-of-file comment that should survive round-trip" in text
+    # Inline-on-key comments are the most robustly-anchored kind; both
+    # should survive even though the parameters: block (a sibling of
+    # schemas:) was removed.
+    assert "# shared schema definitions reused across resources" in text
+    assert "# primary greeter agent" in text
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests for the round-trip helper.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_strip_parameters_block_drops_top_level_parameters() -> None:
+    from dao_ai.apps.bundle import _strip_parameters_block
+
+    src = dedent(
+        """
+        parameters:
+          foo:
+            default: bar
+        app:
+          name: x
+        """
+    ).lstrip()
+    out = _strip_parameters_block(src)
+    parsed = yaml.safe_load(out)
+    assert "parameters" not in parsed
+    assert parsed["app"]["name"] == "x"
+
+
+@pytest.mark.unit
+def test_strip_parameters_block_no_op_when_parameters_absent() -> None:
+    """If no top-level parameters: key, output is semantically identical."""
+    from dao_ai.apps.bundle import _strip_parameters_block
+
+    src = dedent(
+        """
+        # leading comment
+        schemas:
+          s: &s
+            name: a
+        agents:
+          a:
+            schema: *s
+        """
+    ).lstrip()
+    out = _strip_parameters_block(src)
+    assert "&s" in out
+    assert "*s" in out
+    assert "# leading comment" in out
+    parsed = yaml.safe_load(out)
+    assert parsed["agents"]["a"]["schema"] == parsed["schemas"]["s"]
+
+
+@pytest.mark.unit
+def test_strip_parameters_block_returns_input_on_parse_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Malformed YAML must not corrupt: returned unchanged so the caller
+    isn't silently handed broken output."""
+    from dao_ai.apps.bundle import _strip_parameters_block
+
+    bad = "key: [unclosed\n"
+    assert _strip_parameters_block(bad) == bad
+
+
+@pytest.mark.unit
+def test_strip_parameters_block_handles_empty_string() -> None:
+    from dao_ai.apps.bundle import _strip_parameters_block
+
+    assert _strip_parameters_block("") == ""
+
+
+@pytest.mark.unit
+def test_strip_parameters_block_handles_top_level_list() -> None:
+    """If the document root is a list (no top-level mapping), pop is a no-op
+    and the input must come back functionally intact."""
+    from dao_ai.apps.bundle import _strip_parameters_block
+
+    src = "- one\n- two\n"
+    out = _strip_parameters_block(src)
+    assert yaml.safe_load(out) == ["one", "two"]
+
+
 # ---------------------------------------------------------------------------
 # CLI integration: parse_args + handler call against tmp configs.
 # ---------------------------------------------------------------------------
