@@ -382,6 +382,7 @@ def create_agent_node_handler(
 def create_handoff_tool(
     target_agent_name: str,
     description: str,
+    requires: list[str] | None = None,
 ) -> BaseTool:
     """
     Create a handoff tool that transfers control to another agent.
@@ -392,10 +393,16 @@ def create_handoff_tool(
     Args:
         target_agent_name: The name of the agent to hand off to
         description: Description of what this agent handles
+        requires: Optional list of agent names that must have appeared in
+            ``state["messages"]`` (as ``AIMessage.name``) before the handoff
+            is allowed. When unmet, the tool returns a refusal ``ToolMessage``
+            naming the missing prereqs and ``active_agent`` stays unchanged.
+            Empty/None means no constraint (existing behavior).
 
     Returns:
         A tool that triggers a handoff to the target agent via Command
     """
+    required_agents: tuple[str, ...] = tuple(requires or ())
 
     @tool
     def handoff_tool(runtime: ToolRuntime[Context, AgentState]) -> Command:
@@ -410,6 +417,40 @@ def create_handoff_tool(
         triggering_ai_message: AIMessage | None = last_ai_message_with_tool_calls(
             messages
         )
+
+        # Enforce ``requires`` (handoff constraints): refuse if any required
+        # agent has not yet produced a tagged AIMessage in this conversation.
+        if required_agents:
+            called_agents: set[str] = {
+                m.name
+                for m in messages
+                if isinstance(m, AIMessage) and m.name
+            }
+            missing: list[str] = [a for a in required_agents if a not in called_agents]
+            if missing:
+                logger.debug(
+                    "Handoff refused: prerequisites unmet",
+                    target_agent=target_agent_name,
+                    missing=missing,
+                    called=sorted(called_agents),
+                )
+                refusal_messages: list[BaseMessage] = []
+                if triggering_ai_message:
+                    refusal_messages.append(triggering_ai_message)
+                refusal_messages.append(
+                    ToolMessage(
+                        content=(
+                            f"Cannot hand off to '{target_agent_name}' — "
+                            f"requires {list(required_agents)}; called so far: "
+                            f"{sorted(called_agents)}. Missing: {missing}. "
+                            f"Pick a different handoff or continue working."
+                        ),
+                        tool_call_id=tool_call_id,
+                    )
+                )
+                # Return-only update: no goto, no active_agent change. Source
+                # agent stays in control and sees the refusal in-band.
+                return Command(update={"messages": refusal_messages})
 
         # Build message list with proper pairing
         update_messages: list[BaseMessage] = []

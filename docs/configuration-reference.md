@@ -117,6 +117,10 @@ agents:
     guardrails: [*guardrail_ref]
     prompt: string | *prompt_ref
     handoff_prompt: string      # For swarm routing
+    requires: [*agent_name]     # Swarm only: prerequisite agents that must have
+                                # run before this agent can be reached. Empty by
+                                # default. See architecture.md → Swarm Pattern →
+                                # Handoff constraints.
     middleware: [*middleware_ref]
     response_format: *response_format_ref | string | null
 
