@@ -38,6 +38,7 @@ resources:
       endpoint:
         name: string
         type: STANDARD | OPTIMIZED_STORAGE
+        target_qps: int            # optional, STANDARD only, Public Preview
       index:
         schema: *my_schema
         name: string
@@ -226,6 +227,17 @@ app:
   
   enable_chat_proxy: true          # default; set false for API-only
 ```
+
+### Vector Search endpoint capacity (`target_qps`)
+
+**`vector_stores.<name>.endpoint.target_qps`** *(int, optional, Public Preview)* —
+Target queries-per-second for the Vector Search endpoint. **STANDARD endpoints only**;
+setting this on an `OPTIMIZED_STORAGE` endpoint raises a config-validation error.
+Endpoint compute scales linearly with `target_qps`, so cost scales linearly too.
+**Honored at endpoint-creation time only** — if the endpoint already exists, this
+value is ignored (a debug log entry records the configured value but no API call
+is made). To change capacity on a live endpoint, use the Databricks UI, REST API,
+or SDK directly. See the [Databricks Vector Search QPS scaling docs](https://docs.databricks.com/aws/en/generative-ai/vector-search) for the underlying capability.
 
 ### Chat UI (`enable_chat_proxy`)
 

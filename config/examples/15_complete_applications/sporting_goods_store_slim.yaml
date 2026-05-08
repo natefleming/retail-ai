@@ -101,6 +101,10 @@ resources:
       endpoint:
         name: dbdemos_vs_endpoint
         type: STANDARD
+        # Public Preview: provision target queries-per-second on the endpoint.
+        # STANDARD only. Honored at create time only — if the endpoint already
+        # exists, this value is ignored. Cost scales linearly with target_qps.
+        target_qps: 500
       index:
         schema: *sporting_goods_schema
         name: products_description_index
