@@ -78,9 +78,15 @@ resources:
         - databricks-claude-sonnet-4-6
 
     judge_llm: &judge_llm
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-sonnet-4-5
       temperature: 0.5
       max_tokens: 8192
+
+    verifier_llm: &verifier_llm
+      name: databricks-gpt-5-4-mini
+      temperature: 0.1
+      max_tokens: 2048
+      on_behalf_of_user: true
 
     decomposition_llm: &decomposition_llm
       name: databricks-gpt-5-4-mini
@@ -273,6 +279,10 @@ retrievers:
           - Product type: match specific merchandise_class mentioned
           - Price sensitivity: if price is mentioned, prioritize relevant price ranges
         top_n: 10
+      verifier:
+        model: *verifier_llm
+        on_failure: warn_and_retry
+        max_retries: 1
     rerank:
       model: ms-marco-MiniLM-L-12-v2
       top_n: 20

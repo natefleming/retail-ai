@@ -559,6 +559,48 @@
       "title": "AppPermissionModel",
       "type": "object"
     },
+    "BestOfNConfig": {
+      "additionalProperties": false,
+      "description": "Opt-in best-of-N + LLM-as-judge wrapper around an LLMModel.\n\nWhen attached to an LLMModel, every model invocation fans out N parallel\ncandidate generations at elevated temperature, then asks a judge model to\nscore the candidates. The wrapper returns the highest-scoring candidate\nverbatim (no synthesis).\n\nCost: roughly N+1 LLM calls per protected step. Generator calls run in\nparallel so wall-clock latency is approximately one generator call plus\none judge call. Token cost is ~N x baseline plus the judge.\n\nDiversity is non-negotiable: with low generator temperature, the N\ncandidates collapse to near-identical outputs and best-of-N degenerates\ninto best-of-1 with extra cost. The wrapper enforces an effective\ngenerator temperature of max(LLMModel.temperature, 0.7) unless\n`temperature_override` is set.",
+      "properties": {
+        "n": {
+          "default": 8,
+          "description": "Number of parallel candidate generations. Must be in [1, 16].",
+          "title": "N",
+          "type": "integer"
+        },
+        "judge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/LLMModel"
+            }
+          ],
+          "description": "Judge model: a serving endpoint name (string) or a full LLMModel config.",
+          "title": "Judge"
+        },
+        "temperature_override": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If set, the parallel candidate calls use this temperature regardless of the generator's configured temperature. If unset, the wrapper uses max(LLMModel.temperature, 0.7) so candidates have meaningful diversity.",
+          "title": "Temperature Override"
+        }
+      },
+      "required": [
+        "judge"
+      ],
+      "title": "BestOfNConfig",
+      "type": "object"
+    },
     "ChatHistoryModel": {
       "additionalProperties": false,
       "description": "Configuration for chat history summarization.\n\nAttributes:\n    model: The LLM to use for generating summaries.\n    max_tokens: Maximum tokens to keep after summarization (the \"keep\" threshold).\n        After summarization, recent messages totaling up to this many tokens are preserved.\n    max_tokens_before_summary: Token threshold that triggers summarization.\n        When conversation exceeds this, summarization runs. Mutually exclusive with\n        max_messages_before_summary. If neither is set, defaults to max_tokens * 10.\n    max_messages_before_summary: Message count threshold that triggers summarization.\n        When conversation exceeds this many messages, summarization runs.\n        Mutually exclusive with max_tokens_before_summary.",
@@ -4401,6 +4443,18 @@
           "description": "Disable streaming for this model. Required when the Foundation Model endpoint has output guardrails enabled.",
           "title": "Disable Streaming",
           "type": "boolean"
+        },
+        "best_of_n": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BestOfNConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opt-in best-of-N + LLM-as-judge wrapper. When set, every invocation of this model fans out N parallel candidates and a judge picks the winner. Forces disable_streaming=True. See BestOfNConfig for cost implications."
         }
       },
       "required": [

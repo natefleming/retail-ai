@@ -75,13 +75,37 @@ def _get_cached_llm(
             model=model_config.name,
             auth_type=workspace_client.config.auth_type,
         )
-        return ChatDatabricks(
+        # Force-disable streaming when best_of_n is set: the wrapper has to
+        # buffer each candidate fully before judging.
+        disable_streaming = (
+            True if model_config.best_of_n is not None
+            else model_config.disable_streaming
+        )
+        obo_chat = ChatDatabricks(
             model=model_config.name,
             temperature=model_config.temperature,
             max_tokens=model_config.max_tokens,
             use_responses_api=model_config.use_responses_api,
+            disable_streaming=disable_streaming,
             workspace_client=workspace_client,
         )
+        # OBO and best_of_n must compose: the wrapper sees the user's tokens
+        # via the OBO client for each parallel candidate call.
+        if model_config.best_of_n is not None:
+            from dao_ai.best_of_n import BestOfNChatModel
+            from dao_ai.config import LLMModel
+
+            judge_cfg = model_config.best_of_n.judge
+            if isinstance(judge_cfg, str):
+                judge_cfg = LLMModel(name=judge_cfg)
+            obo_chat = BestOfNChatModel.from_components(
+                generator=obo_chat,
+                judge=judge_cfg.as_chat_model(),
+                n=model_config.best_of_n.n,
+                generator_temperature=model_config.temperature,
+                temperature_override=model_config.best_of_n.temperature_override,
+            )
+        return obo_chat
 
     cache_key = model_config.model_dump_json()
     if cache_key not in _llm_cache:
