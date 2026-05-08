@@ -718,15 +718,74 @@ def test_write_bundle_emits_requirements_txt_and_uv_run_command(
     req = (out_dir / "requirements.txt").read_text().strip().splitlines()
     assert req == ["uv"], f"requirements.txt should contain only `uv`; got {req!r}"
 
+    # The trimmed databricks.yaml carries bundle/include/targets/artifacts only;
+    # the App + experiment block lives in resources/app.yml so users can drop
+    # sibling resources/*.yml files (jobs, pipelines, etc.) without conflicting
+    # with regen.
     db_yaml = yaml.safe_load((out_dir / "databricks.yaml").read_text())
-    app_name = next(iter(db_yaml["resources"]["apps"]))
-    cmd = db_yaml["resources"]["apps"][app_name]["config"]["command"]
+    assert db_yaml["include"] == ["resources/*.yml"], (
+        f"databricks.yaml must wildcard-include resources/*.yml; got {db_yaml.get('include')!r}"
+    )
+    assert "resources" not in db_yaml or "apps" not in db_yaml.get("resources", {}), (
+        "databricks.yaml must not carry the App block; it lives in resources/app.yml"
+    )
+
+    app_yaml = yaml.safe_load((out_dir / "resources" / "app.yml").read_text())
+    app_name = next(iter(app_yaml["resources"]["apps"]))
+    cmd = app_yaml["resources"]["apps"][app_name]["config"]["command"]
     assert cmd[:2] == ["uv", "run"], (
         f"App command must start with `uv run`; got {cmd!r}"
     )
     assert cmd[2:] == ["python", "-m", "dao_ai.apps.start_app"], (
         f"App command tail unexpected: {cmd!r}"
     )
+
+
+@pytest.mark.unit
+def test_write_bundle_preserves_user_resources_yml(
+    parameterised_config_path: Path, tmp_path: Path
+) -> None:
+    """A user-authored resources/jobs.yml must survive a re-run of write_bundle.
+
+    The whole point of the wildcard include is that users can drop sibling
+    resources/*.yml files into the bundle without `--force` clobbering them.
+    """
+    from dao_ai.apps.bundle import write_bundle
+
+    config = AppConfig.from_file(
+        parameterised_config_path,
+        params={"module_id": "09", "catalog": "nfleming"},
+        initialize=False,
+    )
+    out_dir = tmp_path / "bundle"
+    out_dir.mkdir()
+
+    write_bundle(config, out_dir, force=True, development=False)
+
+    user_resource = out_dir / "resources" / "jobs.yml"
+    user_payload = (
+        "resources:\n"
+        "  jobs:\n"
+        "    user_job:\n"
+        "      name: user_job\n"
+        "      tasks: []\n"
+    )
+    user_resource.write_text(user_payload)
+
+    write_bundle(config, out_dir, force=True, development=False)
+
+    assert user_resource.exists(), (
+        "User-authored resources/jobs.yml must not be deleted by write_bundle"
+    )
+    assert user_resource.read_text() == user_payload, (
+        "User-authored resources/jobs.yml must not be modified by write_bundle"
+    )
+
+    # And the regen-owned files are still present + correct.
+    db_yaml = yaml.safe_load((out_dir / "databricks.yaml").read_text())
+    assert db_yaml["include"] == ["resources/*.yml"]
+    app_yaml = yaml.safe_load((out_dir / "resources" / "app.yml").read_text())
+    assert "apps" in app_yaml["resources"]
 
 
 # ---------------------------------------------------------------------------

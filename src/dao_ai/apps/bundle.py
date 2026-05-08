@@ -314,39 +314,15 @@ def _convert_to_bundle_resources(
     return result
 
 
-def generate_databricks_yaml(
+def _build_app_block(
     config: AppConfig,
-    development: bool = False,
-    config_filename: str = "dao_ai.yaml",
-) -> str:
-    """Generate a complete databricks.yaml bundle definition from an AppConfig.
+    config_filename: str,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """Build the App + experiment dicts shared by `databricks.yaml` and
+    `resources/app.yml`.
 
-    Reuses generate_app_resources(), _extract_env_vars_from_config(), and
-    generate_user_api_scopes() from resources.py -- only the format translation
-    to the bundle schema is new.
-
-    When development=True, omits the artifacts section so the pre-built
-    dao-ai wheel is uploaded as a regular source file (not intercepted as
-    an artifact).
-
-    Note on deployment_target:
-        The emitted bundle is always Databricks-Apps-shaped
-        (`resources.apps.<name>` with its `resources` list and optional
-        `user_api_scopes`). This bundle works regardless of
-        `app.deployment_target`:
-
-        - `apps`           → the App IS the deployment target.
-        - `model_serving`  → the App process registers the MLflow model
-                             and creates the serving endpoint at runtime
-                             (via `dao_ai.apps.server`). No separate
-                             bundle is needed; users who only want the
-                             serving endpoint typically use
-                             `dao-ai deploy-agent` instead of
-                             `generate-bundle` + `databricks bundle deploy`.
-
-        `generate-bundle` therefore intentionally ignores
-        `app.deployment_target`; the enum selects the runtime code path,
-        not the bundle layout.
+    Returns:
+        (app_name, experiments_block, apps_block)
     """
     app_name: str = config.app.name.lower().replace("_", "-")
 
@@ -414,21 +390,65 @@ def generate_databricks_yaml(
     if user_api_scopes:
         app_def["user_api_scopes"] = user_api_scopes
 
+    experiments_block: dict[str, Any] = {
+        experiment_key: {
+            "name": f"/Users/${{workspace.current_user.userName}}/{app_name}",
+        },
+    }
+    apps_block: dict[str, Any] = {
+        app_name: app_def,
+    }
+    return app_name, experiments_block, apps_block
+
+
+def generate_databricks_yaml(
+    config: AppConfig,
+    development: bool = False,
+    config_filename: str = "dao_ai.yaml",
+) -> str:
+    """Generate the trimmed root `databricks.yaml` for a dao-ai bundle.
+
+    Emits only the bundle-level concerns: ``bundle:`` (with ``include:
+    [resources/*.yml]``), ``targets:``, and either ``artifacts:`` or
+    ``sync:`` depending on ``development``. The App + experiment block
+    lives in ``resources/app.yml`` (see :func:`generate_resources_app_yaml`)
+    so users can drop sibling ``resources/*.yml`` files (Workflow Jobs,
+    Pipelines, etc.) into the bundle without having to edit the
+    regen-owned ``databricks.yaml``.
+
+    When development=True, omits the artifacts section so the pre-built
+    dao-ai wheel is uploaded as a regular source file (not intercepted as
+    an artifact).
+
+    Note on deployment_target:
+        The emitted bundle is always Databricks-Apps-shaped
+        (``resources.apps.<name>`` with its ``resources`` list and optional
+        ``user_api_scopes``). This bundle works regardless of
+        ``app.deployment_target``:
+
+        - ``apps``           → the App IS the deployment target.
+        - ``model_serving``  → the App process registers the MLflow model
+                               and creates the serving endpoint at runtime
+                               (via ``dao_ai.apps.server``). No separate
+                               bundle is needed; users who only want the
+                               serving endpoint typically use
+                               ``dao-ai deploy-agent`` instead of
+                               ``generate-bundle`` + ``databricks bundle deploy``.
+
+        ``generate-bundle`` therefore intentionally ignores
+        ``app.deployment_target``; the enum selects the runtime code path,
+        not the bundle layout.
+    """
+    app_name, _experiments_block, _apps_block = _build_app_block(
+        config, config_filename
+    )
+
     bundle: dict[str, Any] = {
         "bundle": {
             "name": app_name,
             "engine": "direct",
         },
-        "resources": {
-            "experiments": {
-                experiment_key: {
-                    "name": f"/Users/${{workspace.current_user.userName}}/{app_name}",
-                },
-            },
-            "apps": {
-                app_name: app_def,
-            },
-        },
+        "include": ["resources/*.yml"],
         "targets": {
             "dev": {
                 "default": True,
@@ -454,6 +474,29 @@ def generate_databricks_yaml(
         }
 
     return yaml.dump(bundle, default_flow_style=False, sort_keys=False)
+
+
+def generate_resources_app_yaml(
+    config: AppConfig,
+    config_filename: str = "dao_ai.yaml",
+) -> str:
+    """Generate ``resources/app.yml`` — the App + experiment block.
+
+    This file is owned by ``generate-bundle``; sibling ``resources/*.yml``
+    files (e.g. ``resources/jobs.yml``, ``resources/pipelines.yml``) are
+    written by users and are never touched by the generator.
+    """
+    _app_name, experiments_block, apps_block = _build_app_block(
+        config, config_filename
+    )
+
+    resources_doc: dict[str, Any] = {
+        "resources": {
+            "experiments": experiments_block,
+            "apps": apps_block,
+        },
+    }
+    return yaml.dump(resources_doc, default_flow_style=False, sort_keys=False)
 
 
 def _write_file(path: Path, content: str, force: bool) -> bool:
@@ -506,6 +549,16 @@ def write_bundle(
         generate_databricks_yaml(
             config, development=development, config_filename=config_filename
         ),
+    )
+
+    # The App + experiment block lives in resources/app.yml so users can drop
+    # sibling resources/*.yml files (jobs, pipelines, etc.) into the bundle
+    # without conflicting with the regen-owned databricks.yaml.
+    resources_dir = output_dir / "resources"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    _track(
+        resources_dir / "app.yml",
+        generate_resources_app_yaml(config, config_filename=config_filename),
     )
 
     if source_config:
