@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI: renamed `dao-ai bundle` to `dao-ai pipeline`** to disambiguate from the underlying Databricks Asset Bundle (DAB) feature it wraps. The old verb is no longer recognized — running `dao-ai bundle` now exits with `argparse: invalid choice: 'bundle'`. Help, examples, and documentation have been updated accordingly. The separate `dao-ai generate-bundle` subcommand keeps its name since it generates a literal Databricks Asset Bundle artifact.
 
 ### Added
+- **Swarm handoff constraints (`requires`)**: New optional field on the agent model declaring prerequisite agents that must have run before this agent can be reached via handoff. Enforced inside swarm handoff tools — when prereqs are unmet, the tool returns a refusal `ToolMessage` naming the missing agents and `active_agent` stays unchanged so the LLM can self-correct. Validated at config-build time (unknown agents, self-reference, cycles in the `requires` DAG, and deterministic handoffs to constrained targets are all rejected). Swarm-only in this release; supervisor adoption is planned. See `docs/architecture.md` → "Swarm Pattern" → "Handoff constraints" for details.
+
 - **MCP Tool Filtering**: Control which tools are loaded from MCP servers
   - `include_tools`: Optional allowlist with glob pattern support (e.g., `["query_*", "list_*"]`)
   - `exclude_tools`: Optional denylist with glob pattern support (e.g., `["drop_*", "delete_*"]`)

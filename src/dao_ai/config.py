@@ -5113,6 +5113,29 @@ class AgentModel(BaseModel):
             "agents. When None, uses LangGraph's default (25)."
         ),
     )
+    requires: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of prerequisite agents that must have run (i.e. produced an "
+            "AIMessage tagged with their name) before this agent can be reached "
+            "via a swarm handoff. When unmet, the handoff tool returns a refusal "
+            "ToolMessage and 'active_agent' stays unchanged so the LLM can "
+            "self-correct on its next step. Semantics: any-order, all-of. "
+            "Currently enforced in the swarm pattern only; the supervisor pattern "
+            "ignores this field. Cross-agent validation (unknown name, "
+            "self-reference, cycles in the requires DAG) runs at config-build time."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_requires_no_self_reference(self) -> Self:
+        """Reject ``requires`` entries that reference the agent itself."""
+        if self.name in self.requires:
+            raise ValueError(
+                f"Agent '{self.name}' has a self-reference in 'requires'. "
+                f"An agent cannot require itself as a prerequisite."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_response_format(self) -> Self:
@@ -5955,6 +5978,57 @@ class AppModel(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def validate_agent_requires(self) -> Self:
+        """Validate cross-agent ``requires`` references on every agent.
+
+        Checks:
+          * Each name in any agent's ``requires`` references a declared agent.
+          * The ``requires`` DAG is acyclic. A cycle is unsatisfiable -- no
+            traversal can ever satisfy it -- so we reject at config-build time.
+
+        Self-reference is caught earlier on ``AgentModel`` itself.
+        """
+        agent_names: set[str] = {a.name for a in self.agents}
+
+        # Unknown-name check.
+        for agent in self.agents:
+            for required in agent.requires:
+                if required not in agent_names:
+                    raise ValueError(
+                        f"Agent '{agent.name}' has a 'requires' entry "
+                        f"'{required}' that does not match any declared agent. "
+                        f"Known agents: {sorted(agent_names)}."
+                    )
+
+        # Cycle detection over the requires DAG via DFS with a recursion stack.
+        graph: dict[str, list[str]] = {a.name: list(a.requires) for a in self.agents}
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color: dict[str, int] = {name: WHITE for name in graph}
+
+        def visit(node: str, path: list[str]) -> None:
+            color[node] = GRAY
+            for nxt in graph.get(node, []):
+                if color[nxt] == GRAY:
+                    cycle_start = path.index(nxt) if nxt in path else 0
+                    cycle = path[cycle_start:] + [nxt]
+                    raise ValueError(
+                        f"Cycle detected in agent 'requires' DAG: "
+                        f"{' -> '.join(cycle)}. A cycle is unsatisfiable -- no "
+                        f"path through the swarm can ever satisfy a circular "
+                        f"prerequisite. Break the cycle by removing one of the "
+                        f"'requires' entries."
+                    )
+                if color[nxt] == WHITE:
+                    visit(nxt, path + [nxt])
+            color[node] = BLACK
+
+        for name in graph:
+            if color[name] == WHITE:
+                visit(name, [name])
+
+        return self
+
+    @model_validator(mode="after")
     def validate_registered_model_required_for_serving(self) -> Self:
         """Ensure registered_model is provided when deployment target is not apps."""
         if (
@@ -6035,6 +6109,58 @@ class AppModel(BaseModel):
         if self.orchestration.swarm and not self.orchestration.swarm.default_agent:
             self.orchestration.swarm.default_agent = default_agent_name
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_no_deterministic_handoff_to_constrained(self) -> Self:
+        """Reject deterministic handoffs to agents that declare ``requires``.
+
+        Deterministic edges fire unconditionally via static ``add_edge`` in
+        the swarm graph. Layering a runtime ``requires`` check on top is a
+        contradiction -- the edge would either fire and bypass the check, or
+        the check would block an edge that's supposed to be unconditional.
+
+        Catch this at config-build time and direct the user to use an
+        agentic handoff for constrained targets instead.
+        """
+        if not self.orchestration or not self.orchestration.swarm:
+            return self
+        if not self.orchestration.swarm.handoffs:
+            return self
+
+        # Build a name -> requires map so we can resolve target requires by
+        # name regardless of how the handoff entry referenced the agent.
+        requires_by_name: dict[str, list[str]] = {
+            a.name: list(a.requires) for a in self.agents
+        }
+
+        for source, targets in self.orchestration.swarm.handoffs.items():
+            if not targets:
+                continue
+            for entry in targets:
+                if isinstance(entry, HandoffRouteModel):
+                    target_obj = entry.agent
+                    is_det = entry.is_deterministic
+                else:
+                    target_obj = entry
+                    is_det = False
+                if not is_det:
+                    continue
+                target_name: str = (
+                    target_obj.name
+                    if hasattr(target_obj, "name")
+                    else str(target_obj)
+                )
+                target_requires: list[str] = requires_by_name.get(target_name, [])
+                if target_requires:
+                    raise ValueError(
+                        f"Agent '{source}' has a deterministic handoff to "
+                        f"'{target_name}', but '{target_name}' declares "
+                        f"requires={target_requires}. Deterministic edges "
+                        f"fire unconditionally and cannot honor a runtime "
+                        f"prerequisite check. Use an agentic handoff "
+                        f"(default) for constrained targets."
+                    )
         return self
 
     @model_validator(mode="after")

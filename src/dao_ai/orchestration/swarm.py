@@ -171,12 +171,14 @@ def _handoffs_for_agent(
                 "Creating handoff tool",
                 from_agent=agent.name,
                 to_agent=handoff_to_agent.name,
+                requires=handoff_to_agent.requires,
             )
             handoff_description: str = get_handoff_description(handoff_to_agent)
             handoff_tools.append(
                 create_handoff_tool(
                     target_agent_name=handoff_to_agent.name,
                     description=handoff_description,
+                    requires=list(handoff_to_agent.requires),
                 )
             )
 

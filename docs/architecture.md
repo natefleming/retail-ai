@@ -327,6 +327,54 @@ graph TB
 - **Orange**: Standard agents with handoff capabilities  
 - **Green** (Inventory): Terminal agent (no outbound handoffs)
 
+#### Handoff constraints (`requires`)
+
+Agents can declare prerequisite agents that must have run before they can be reached. This prevents the LLM from peer-routing past required intermediate agents — for example, jumping straight to `checkout` without ever visiting `cart`.
+
+Declare prereqs on the constrained agent:
+
+```yaml
+agents:
+  checkout: &checkout
+    name: checkout
+    model: *default_llm
+    prompt: ...
+    requires: [cart]   # cannot be reached until 'cart' has appeared in message history
+```
+
+The swarm graph is unchanged in shape — the constraint is a property of the target agent, not of any specific handoff edge:
+
+```yaml
+orchestration:
+  swarm:
+    default_agent: *triage
+    handoffs:
+      triage:   [cart, checkout]    # 'checkout' edge allowed; refused at runtime
+      cart:     [checkout, triage]
+      checkout: [triage]
+```
+
+**Behavior:**
+- `triage → cart → checkout` proceeds normally.
+- `triage → checkout` (skipping `cart`) returns a refusal `ToolMessage`:
+  ```
+  Cannot hand off to 'checkout' — requires [cart]; called so far: [triage].
+  Pick a different handoff or continue working.
+  ```
+  `active_agent` stays on `triage`; the LLM self-corrects on its next step.
+
+**Semantics:** any-order, all-of. Every agent in `requires` must appear in message history (any order) before the handoff is allowed.
+
+**Validation (config-build time):**
+- `requires` entries must reference declared agents.
+- Self-reference (`A.requires` containing `A`) is rejected.
+- Cycles in the `requires` DAG are rejected (unsatisfiable).
+- Deterministic handoffs to a target with non-empty `requires` are rejected — deterministic edges fire unconditionally, which contradicts the constraint. Use an agentic handoff for constrained targets.
+
+The check uses the agent name tagged on each `AIMessage` (`message.name`), iterating `state["messages"]` to determine which agents have run. No new state schema; no graph topology change.
+
+> Currently swarm-only. The same field will apply to supervisor routing in a future release.
+
 ---
 
 ## Navigation
