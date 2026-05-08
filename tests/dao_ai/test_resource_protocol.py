@@ -90,9 +90,7 @@ class TestPolymorphicIteration:
         room = GenieRoomModel(name="genie")
         vs = VectorStoreModel(index=IndexModel(name="cat.sch.idx"))
 
-        refreshable = [
-            m for m in (schema, room, vs) if isinstance(m, Refreshable)
-        ]
+        refreshable = [m for m in (schema, room, vs) if isinstance(m, Refreshable)]
         assert {type(m).__name__ for m in refreshable} == {
             "GenieRoomModel",
             "VectorStoreModel",

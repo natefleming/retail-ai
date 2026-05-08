@@ -913,7 +913,9 @@ def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
         provider.w = MagicMock()
         provider.w.current_user.me.return_value = mock_user
         with patch.object(
-            provider, "get_or_create_experiment", return_value=MagicMock(experiment_id="exp-1")
+            provider,
+            "get_or_create_experiment",
+            return_value=MagicMock(experiment_id="exp-1"),
         ):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
@@ -922,21 +924,23 @@ def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
 
     # Find the workspace.upload call carrying the config
     upload_calls = [
-        c for c in provider.w.workspace.upload.call_args_list
+        c
+        for c in provider.w.workspace.upload.call_args_list
         if c.kwargs.get("path", "").endswith("dao_ai.yaml")
     ]
     assert upload_calls, "expected an upload of dao_ai.yaml"
     uploaded_bytes = upload_calls[0].kwargs["content"]
     assert isinstance(uploaded_bytes, io.BytesIO)
     uploaded_text = uploaded_bytes.getvalue().decode("utf-8")
-    assert uploaded_text == rendered_yaml, "deploy must upload rendered YAML, not source"
+    assert uploaded_text == rendered_yaml, (
+        "deploy must upload rendered YAML, not source"
+    )
     assert "${var.catalog}" not in uploaded_text
 
 
 @pytest.mark.unit
 def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
     """If rendered_yaml is missing (legacy callers), fall back to reading the source file."""
-    import io
     from unittest.mock import MagicMock, patch
 
     from databricks.sdk.service.apps import (
@@ -980,7 +984,9 @@ def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
         provider.w = MagicMock()
         provider.w.current_user.me.return_value = mock_user
         with patch.object(
-            provider, "get_or_create_experiment", return_value=MagicMock(experiment_id="exp-1")
+            provider,
+            "get_or_create_experiment",
+            return_value=MagicMock(experiment_id="exp-1"),
         ):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
@@ -988,7 +994,8 @@ def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
             provider.deploy_apps_agent(mock_config)
 
     upload_calls = [
-        c for c in provider.w.workspace.upload.call_args_list
+        c
+        for c in provider.w.workspace.upload.call_args_list
         if c.kwargs.get("path", "").endswith("dao_ai.yaml")
     ]
     assert upload_calls
@@ -1001,9 +1008,9 @@ def test_deploy_apps_agent_serializes_python_built_config(tmp_path):
     """When AppConfig has neither rendered_yaml nor a source file (i.e. it was
     constructed entirely in Python), deploy_apps_agent should serialize the
     in-memory model_dump back to YAML and upload that, instead of failing."""
-    import yaml as _yaml
     from unittest.mock import MagicMock, patch
 
+    import yaml as _yaml
     from databricks.sdk.service.apps import (
         App,
         AppDeployment,
@@ -1053,7 +1060,9 @@ def test_deploy_apps_agent_serializes_python_built_config(tmp_path):
         provider.w = MagicMock()
         provider.w.current_user.me.return_value = mock_user
         with patch.object(
-            provider, "get_or_create_experiment", return_value=MagicMock(experiment_id="exp-1")
+            provider,
+            "get_or_create_experiment",
+            return_value=MagicMock(experiment_id="exp-1"),
         ):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
@@ -1064,7 +1073,8 @@ def test_deploy_apps_agent_serializes_python_built_config(tmp_path):
     # serialized from the in-memory model.
     provider.w.workspace.mkdirs.assert_called()
     upload_calls = [
-        c for c in provider.w.workspace.upload.call_args_list
+        c
+        for c in provider.w.workspace.upload.call_args_list
         if c.kwargs.get("path", "").endswith("dao_ai.yaml")
     ]
     assert upload_calls, "expected an upload of dao_ai.yaml even without a source file"

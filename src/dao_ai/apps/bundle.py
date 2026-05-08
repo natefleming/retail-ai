@@ -169,9 +169,7 @@ def _strip_parameters_block(rendered_yaml: str) -> str:
     try:
         data = rt.load(rendered_yaml)
     except Exception as exc:
-        logger.warning(
-            f"ruamel parse failed; emitting rendered YAML unchanged: {exc}"
-        )
+        logger.warning(f"ruamel parse failed; emitting rendered YAML unchanged: {exc}")
         return rendered_yaml
 
     # Only mappings have a top-level `parameters:` key. A document whose root

@@ -40,7 +40,7 @@ from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.apps import App
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieListSpacesResponse, GenieSpace
-from databricks.sdk.service.sql import EndpointInfo, GetWarehouseResponse
+from databricks.sdk.service.sql import GetWarehouseResponse
 from databricks.vector_search.client import VectorSearchClient
 from databricks.vector_search.index import VectorSearchIndex
 from databricks_langchain import (
@@ -70,7 +70,6 @@ from mlflow.models.resources import (
     DatabricksApp,
     DatabricksFunction,
     DatabricksGenieSpace,
-    DatabricksLakebase,
     DatabricksResource,
     DatabricksServingEndpoint,
     DatabricksSQLWarehouse,
@@ -99,7 +98,6 @@ from dao_ai.config_vars import (
 from dao_ai.resource_protocol import (
     ManagedResource,
     Provisionable,
-    Refreshable,
 )
 from dao_ai.utils import normalize_name
 
@@ -975,8 +973,7 @@ class VectorSearchEndpoint(BaseModel):
             and self.type != VectorSearchEndpointType.STANDARD
         ):
             raise ValueError(
-                "target_qps is only supported on STANDARD endpoints, "
-                f"not {self.type!r}"
+                f"target_qps is only supported on STANDARD endpoints, not {self.type!r}"
             )
         return self
 
@@ -1931,7 +1928,11 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             mv_payload = [
                 {
                     "identifier": source.table.full_name,
-                    **({"description": [source.description]} if source.description else {}),
+                    **(
+                        {"description": [source.description]}
+                        if source.description
+                        else {}
+                    ),
                 }
                 for source in self.metric_view_sources
             ]
@@ -1943,9 +1944,7 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         # instructions.{text_instructions, example_question_sqls, sql_functions, join_specs, sql_snippets}
         instructions: dict[str, Any] = {}
         if self.text_instructions:
-            combined_id = _stable_id(
-                "text_instruction", *self.text_instructions
-            )
+            combined_id = _stable_id("text_instruction", *self.text_instructions)
             instructions["text_instructions"] = [
                 {
                     "id": combined_id,
@@ -1965,7 +1964,11 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                         {
                             "name": p.name,
                             "type_hint": p.type_hint,
-                            **({"description": [p.description]} if p.description else {}),
+                            **(
+                                {"description": [p.description]}
+                                if p.description
+                                else {}
+                            ),
                         }
                         for p in example.parameters
                     ]
@@ -2109,7 +2112,9 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             sample = cfg.get("sample_questions")
             if isinstance(sample, list):
                 self.sample_questions = [
-                    _unwrap_text(item.get("question")) if isinstance(item, dict) else None
+                    _unwrap_text(item.get("question"))
+                    if isinstance(item, dict)
+                    else None
                     for item in sample
                 ]
                 self.sample_questions = [q for q in self.sample_questions if q]
@@ -2219,10 +2224,16 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                     synonyms=cc.get("synonyms") or None,
                     excluded=bool(cc.get("exclude", False)),
                     sample_values=bool(
-                        cc.get("enable_format_assistance", cc.get("get_example_values", True))
+                        cc.get(
+                            "enable_format_assistance",
+                            cc.get("get_example_values", True),
+                        )
                     ),
                     build_value_dictionary=bool(
-                        cc.get("enable_entity_matching", cc.get("build_value_dictionary", False))
+                        cc.get(
+                            "enable_entity_matching",
+                            cc.get("build_value_dictionary", False),
+                        )
                     ),
                 )
             )
@@ -5473,10 +5484,7 @@ class SwarmModel(BaseModel):
             # Cycle = u -det-> v -> ... -> u. Format with edge annotations.
             full_path: list[str] = [u] + return_path  # u -> v -> ... -> u
             # Annotate the deterministic edge so the message is unambiguous.
-            edge_str = (
-                f"{u} =[deterministic]=> "
-                + " -> ".join(full_path[1:])
-            )
+            edge_str = f"{u} =[deterministic]=> " + " -> ".join(full_path[1:])
             raise ValueError(
                 "Swarm has a deterministic handoff inside a cycle: "
                 f"{edge_str}. Deterministic edges fire unconditionally on every "
@@ -6258,9 +6266,7 @@ class AppModel(BaseModel):
                 if not is_det:
                     continue
                 target_name: str = (
-                    target_obj.name
-                    if hasattr(target_obj, "name")
-                    else str(target_obj)
+                    target_obj.name if hasattr(target_obj, "name") else str(target_obj)
                 )
                 target_requires: list[str] = requires_by_name.get(target_name, [])
                 if target_requires:

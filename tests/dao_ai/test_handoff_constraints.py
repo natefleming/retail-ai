@@ -18,7 +18,6 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from dao_ai.config import AgentModel, AppConfig, LLMModel
 from dao_ai.orchestration.core import create_handoff_tool
 
-
 # =============================================================================
 # AgentModel.requires — local validators (self-reference)
 # =============================================================================
@@ -155,9 +154,7 @@ class TestDeterministicHandoffValidator:
                 ],
             },
         )
-        with pytest.raises(
-            ValueError, match="deterministic handoff to 'checkout'"
-        ):
+        with pytest.raises(ValueError, match="deterministic handoff to 'checkout'"):
             AppConfig(**cfg)
 
     def test_agentic_handoff_to_constrained_target_allowed(self) -> None:

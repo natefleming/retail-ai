@@ -47,9 +47,9 @@ from dao_ai.config import (
     ResourcesModel,
     SchemaModel,
     TableModel,
+    VectorStoreModel,
     VolumeModel,
     WarehouseModel,
-    VectorStoreModel,
 )
 
 
@@ -167,12 +167,8 @@ class TestGenerateUserApiScopesPartition:
         config = AppConfig(
             resources=ResourcesModel(
                 llms={
-                    "obo_llm": LLMModel(
-                        name="x", on_behalf_of_user=True
-                    ),
-                    "system_llm": LLMModel(
-                        name="y", on_behalf_of_user=False
-                    ),
+                    "obo_llm": LLMModel(name="x", on_behalf_of_user=True),
+                    "system_llm": LLMModel(name="y", on_behalf_of_user=False),
                 },
                 genie_rooms={
                     "system_room": GenieRoomModel(
@@ -280,9 +276,7 @@ class TestSdkExtractorObOFilter:
 
         schema = SchemaModel(catalog_name="cat", schema_name="sch")
         volumes = {
-            "obo_v": VolumeModel(
-                schema=schema, name="obo_v", on_behalf_of_user=True
-            ),
+            "obo_v": VolumeModel(schema=schema, name="obo_v", on_behalf_of_user=True),
             "system_v": VolumeModel(
                 schema=schema, name="system_v", on_behalf_of_user=False
             ),
@@ -300,9 +294,7 @@ class TestSportingGoodsSdkResourcesPartition:
     leak into SDK resources either.
     """
 
-    CONFIG_PATH = (
-        "config/examples/15_complete_applications/sporting_goods_store.yaml"
-    )
+    CONFIG_PATH = "config/examples/15_complete_applications/sporting_goods_store.yaml"
     OBO_RESOURCE_NAMES: frozenset[str] = frozenset(
         {"fast_llm", "supervisor_llm", "tool_calling_llm", "decomposition_llm"}
     )
@@ -328,7 +320,10 @@ class TestSportingGoodsSdkResourcesPartition:
         )
 
     def test_sdk_resources_includes_system_llms(self, config: AppConfig) -> None:
-        from dao_ai.apps.resources import generate_sdk_resources, _sanitize_resource_name
+        from dao_ai.apps.resources import (
+            _sanitize_resource_name,
+            generate_sdk_resources,
+        )
 
         sdk_resources = generate_sdk_resources(config)
         names = {r.name for r in sdk_resources}
@@ -346,9 +341,7 @@ class TestSportingGoodsConfigPartition:
     real config we actually deploy.
     """
 
-    CONFIG_PATH = (
-        "config/examples/15_complete_applications/sporting_goods_store.yaml"
-    )
+    CONFIG_PATH = "config/examples/15_complete_applications/sporting_goods_store.yaml"
 
     OBO_RESOURCE_NAMES: frozenset[str] = frozenset(
         {"fast_llm", "supervisor_llm", "tool_calling_llm", "decomposition_llm"}

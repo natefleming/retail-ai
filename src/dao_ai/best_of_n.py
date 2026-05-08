@@ -443,16 +443,12 @@ class _BestOfNStructuredOutput(Runnable):
                 error=str(exc),
             )
             parent_span.set_attribute("judge_failed", True)
-            parent_span.set_attribute(
-                "judge_error", f"{type(exc).__name__}: {exc}"
-            )
+            parent_span.set_attribute("judge_error", f"{type(exc).__name__}: {exc}")
             return candidates[0]
 
         winner_index = BestOfNChatModel._select_winner_index(decision, len(candidates))
         parent_span.set_attribute("selected_index", winner_index)
-        parent_span.set_attribute(
-            "scores", [s.score for s in decision.scores]
-        )
+        parent_span.set_attribute("scores", [s.score for s in decision.scores])
         parent_span.set_attribute("judge_reasoning", decision.reasoning)
         return candidates[winner_index]
 

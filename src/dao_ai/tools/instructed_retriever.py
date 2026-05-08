@@ -78,7 +78,8 @@ def _get_cached_llm(
         # Force-disable streaming when best_of_n is set: the wrapper has to
         # buffer each candidate fully before judging.
         disable_streaming = (
-            True if model_config.best_of_n is not None
+            True
+            if model_config.best_of_n is not None
             else model_config.disable_streaming
         )
         obo_chat = ChatDatabricks(

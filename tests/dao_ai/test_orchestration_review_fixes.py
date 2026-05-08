@@ -52,8 +52,7 @@ def _basic_app_config(agent_names: list[str]) -> AppConfig:
     that's otherwise required.
     """
     agents = [
-        AgentModel(name=name, model=LLMModel(name="test-model"))
-        for name in agent_names
+        AgentModel(name=name, model=LLMModel(name="test-model")) for name in agent_names
     ]
     return AppConfig(
         app=AppModel(
@@ -67,9 +66,7 @@ def _basic_app_config(agent_names: list[str]) -> AppConfig:
     )
 
 
-def _make_tool_runtime(
-    *, tool_call_id: str, state: dict[str, Any]
-) -> ToolRuntime:
+def _make_tool_runtime(*, tool_call_id: str, state: dict[str, Any]) -> ToolRuntime:
     """Build a ToolRuntime suitable for invoking @tool-decorated handoffs in tests."""
     return ToolRuntime(
         state=state,
@@ -141,9 +138,7 @@ class TestFilterMessagesForAgentTagging:
         own_call = AIMessage(
             content="checking inventory",
             name="agent_a",
-            tool_calls=[
-                {"name": "lookup", "args": {"sku": "1"}, "id": "call_a1"}
-            ],
+            tool_calls=[{"name": "lookup", "args": {"sku": "1"}, "id": "call_a1"}],
         )
         own_result = ToolMessage(
             content="42 in stock", tool_call_id="call_a1", name="lookup"
@@ -345,28 +340,20 @@ class TestSwarmMaxHops:
 class TestMergeSessionGeneric:
     def test_genie_spaces_still_merge(self) -> None:
         a = SessionState(
-            genie=GenieState(
-                spaces={"sp_a": GenieSpaceState(conversation_id="conv_a")}
-            )
+            genie=GenieState(spaces={"sp_a": GenieSpaceState(conversation_id="conv_a")})
         )
         b = SessionState(
-            genie=GenieState(
-                spaces={"sp_b": GenieSpaceState(conversation_id="conv_b")}
-            )
+            genie=GenieState(spaces={"sp_b": GenieSpaceState(conversation_id="conv_b")})
         )
         merged = merge_session(a, b)
         assert set(merged.genie.spaces.keys()) == {"sp_a", "sp_b"}
 
     def test_overlapping_keys_take_new(self) -> None:
         a = SessionState(
-            genie=GenieState(
-                spaces={"sp": GenieSpaceState(conversation_id="conv_old")}
-            )
+            genie=GenieState(spaces={"sp": GenieSpaceState(conversation_id="conv_old")})
         )
         b = SessionState(
-            genie=GenieState(
-                spaces={"sp": GenieSpaceState(conversation_id="conv_new")}
-            )
+            genie=GenieState(spaces={"sp": GenieSpaceState(conversation_id="conv_new")})
         )
         merged = merge_session(a, b)
         assert merged.genie.spaces["sp"].conversation_id == "conv_new"
@@ -375,8 +362,9 @@ class TestMergeSessionGeneric:
         """The reducer's recursive walker should handle a hypothetical new
         SessionState field that's a BaseModel containing a dict, without
         special-casing."""
-        from dao_ai.state import _merge_basemodel
         from pydantic import BaseModel, Field
+
+        from dao_ai.state import _merge_basemodel
 
         class FakeToolState(BaseModel):
             entries: dict[str, str] = Field(default_factory=dict)
@@ -434,6 +422,7 @@ class TestSupervisorNoStaleNeedsExtractionReference:
 
     def test_supervisor_module_has_no_orphan_needs_extraction(self) -> None:
         import inspect
+
         from dao_ai.orchestration import supervisor
 
         source = inspect.getsource(supervisor)
@@ -477,6 +466,7 @@ class TestActiveAgentReducerToleratesConcurrentWrites:
 
     def test_active_agent_field_has_reducer_annotation(self) -> None:
         import typing
+
         from dao_ai.state import AgentState, last_active_agent
 
         hints = typing.get_type_hints(AgentState, include_extras=True)
@@ -489,6 +479,7 @@ class TestActiveAgentReducerToleratesConcurrentWrites:
         # NotRequired is detected via __metadata__-less check; just look for
         # the reducer in any of typing's metadata.
         from typing import get_args
+
         # Recurse through nested generics until we find Annotated metadata.
         def find_metadata(t):
             args = get_args(t)

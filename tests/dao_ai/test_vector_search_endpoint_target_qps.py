@@ -126,9 +126,10 @@ def test_create_vector_store_passes_min_qps_when_target_qps_set() -> None:
     vector_store = _build_provisioning_vector_store(target_qps=500)
 
     # Endpoint does not exist; index does not exist (skip wait-loop branch).
-    with patch(
-        "dao_ai.providers.databricks.endpoint_exists", return_value=False
-    ), patch("dao_ai.providers.databricks.index_exists", return_value=False):
+    with (
+        patch("dao_ai.providers.databricks.endpoint_exists", return_value=False),
+        patch("dao_ai.providers.databricks.index_exists", return_value=False),
+    ):
         provider.create_vector_store(vector_store)
 
     mock_vsc.create_endpoint_and_wait.assert_called_once()
@@ -146,9 +147,10 @@ def test_create_vector_store_omits_min_qps_when_target_qps_unset() -> None:
     provider, mock_vsc = _build_provider_with_mocked_vsc()
     vector_store = _build_provisioning_vector_store(target_qps=None)
 
-    with patch(
-        "dao_ai.providers.databricks.endpoint_exists", return_value=False
-    ), patch("dao_ai.providers.databricks.index_exists", return_value=False):
+    with (
+        patch("dao_ai.providers.databricks.endpoint_exists", return_value=False),
+        patch("dao_ai.providers.databricks.index_exists", return_value=False),
+    ):
         provider.create_vector_store(vector_store)
 
     mock_vsc.create_endpoint_and_wait.assert_called_once()
@@ -164,11 +166,11 @@ def test_create_vector_store_skips_endpoint_creation_when_endpoint_exists() -> N
     provider, mock_vsc = _build_provider_with_mocked_vsc()
     vector_store = _build_provisioning_vector_store(target_qps=500)
 
-    with patch(
-        "dao_ai.providers.databricks.endpoint_exists", return_value=True
-    ), patch(
-        "dao_ai.providers.databricks.index_exists", return_value=False
-    ), patch("dao_ai.providers.databricks.logger") as mock_logger:
+    with (
+        patch("dao_ai.providers.databricks.endpoint_exists", return_value=True),
+        patch("dao_ai.providers.databricks.index_exists", return_value=False),
+        patch("dao_ai.providers.databricks.logger") as mock_logger,
+    ):
         provider.create_vector_store(vector_store)
 
     mock_vsc.create_endpoint_and_wait.assert_not_called()
@@ -187,17 +189,18 @@ def test_create_vector_store_no_breadcrumb_log_when_target_qps_unset() -> None:
     provider, mock_vsc = _build_provider_with_mocked_vsc()
     vector_store = _build_provisioning_vector_store(target_qps=None)
 
-    with patch(
-        "dao_ai.providers.databricks.endpoint_exists", return_value=True
-    ), patch(
-        "dao_ai.providers.databricks.index_exists", return_value=False
-    ), patch("dao_ai.providers.databricks.logger") as mock_logger:
+    with (
+        patch("dao_ai.providers.databricks.endpoint_exists", return_value=True),
+        patch("dao_ai.providers.databricks.index_exists", return_value=False),
+        patch("dao_ai.providers.databricks.logger") as mock_logger,
+    ):
         provider.create_vector_store(vector_store)
 
     mock_vsc.create_endpoint_and_wait.assert_not_called()
     # Verify the breadcrumb log was not emitted.
     breadcrumb_calls = [
-        c for c in mock_logger.debug.call_args_list
+        c
+        for c in mock_logger.debug.call_args_list
         if c.args and c.args[0] == "endpoint already exists; target_qps not reconciled"
     ]
     assert breadcrumb_calls == []

@@ -876,9 +876,9 @@ def test_round_trip_aliases_resolve_to_same_data_after_load(
     )
     parsed = yaml.safe_load(text)
     # `&hello` is referenced by `app.agents[0]` via `*hello`.
-    assert (
-        parsed["app"]["agents"][0] == parsed["agents"]["hello"]
-    ), "alias resolved to a different value than the anchor source"
+    assert parsed["app"]["agents"][0] == parsed["agents"]["hello"], (
+        "alias resolved to a different value than the anchor source"
+    )
     # `&default_llm` is referenced by `agents.hello.model` via `*default_llm`.
     assert (
         parsed["agents"]["hello"]["model"] == parsed["resources"]["llms"]["default_llm"]

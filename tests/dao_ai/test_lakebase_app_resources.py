@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # =============================================================================
 # DatabaseModel.as_resources() -- model serving SystemAuthPolicy path
 # =============================================================================
@@ -64,7 +63,9 @@ class TestDatabaseModelAsResources:
         only supports provisioned instances, not autoscaling projects."""
         from dao_ai.config import DatabaseModel
 
-        db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
+        db = DatabaseModel(
+            name="retail-consumer-goods", project="retail-consumer-goods"
+        )
         assert list(db.as_resources()) == []
 
     def test_lakebase_obo_also_returns_empty(self) -> None:
@@ -121,7 +122,9 @@ class TestExtractDatabaseResourcesFlat:
             lambda db, branch_path: f"{branch_path}/databases/db-test",
         )
 
-        db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
+        db = DatabaseModel(
+            name="retail-consumer-goods", project="retail-consumer-goods"
+        )
         out = _extract_database_resources({"workshop_db": db})
         assert len(out) == 1
         r = out[0]
@@ -203,9 +206,7 @@ class TestExtractDatabaseResourcesFlat:
         out = _extract_database_resources({"k": db})
         assert out[0]["database"].startswith("projects/project-only/")
 
-    def test_resource_name_is_sanitized(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_resource_name_is_sanitized(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Underscores and other punctuation in the YAML key get sanitized
         for Databricks resource-name rules (matches volumes/tables behavior)."""
         from dao_ai.apps import resources as resources_mod
@@ -292,7 +293,9 @@ class TestExtractDatabaseResourcesSDK:
             lambda db, branch_path: f"{branch_path}/databases/db-test",
         )
 
-        db = DatabaseModel(name="retail-consumer-goods", project="retail-consumer-goods")
+        db = DatabaseModel(
+            name="retail-consumer-goods", project="retail-consumer-goods"
+        )
         out = _extract_sdk_database_resources({"workshop_db": db})
         assert len(out) == 1
         r = out[0]
@@ -426,12 +429,15 @@ class TestAppResourcesIntegration:
 
         resources = generate_sdk_resources(self._build_config())
         pg_resources = [
-            r for r in resources
+            r
+            for r in resources
             if isinstance(r, AppResource) and r.postgres is not None
         ]
         assert len(pg_resources) == 1
         assert isinstance(pg_resources[0].postgres, AppResourcePostgres)
-        assert pg_resources[0].postgres.database.startswith("projects/workshop-db/branches/")
+        assert pg_resources[0].postgres.database.startswith(
+            "projects/workshop-db/branches/"
+        )
         assert pg_resources[0].postgres.database.endswith("/databases/db-test")
         # No legacy AppResourceDatabase mixed in
         assert pg_resources[0].database is None
@@ -443,7 +449,8 @@ class TestAppResourcesIntegration:
 
         resources = generate_sdk_resources(self._build_config(on_behalf_of_user=True))
         pg_resources = [
-            r for r in resources
+            r
+            for r in resources
             if isinstance(r, AppResource) and r.postgres is not None
         ]
         assert pg_resources == []

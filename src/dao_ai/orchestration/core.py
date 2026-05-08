@@ -118,15 +118,16 @@ def filter_messages_for_agent(
         if isinstance(msg, HumanMessage):
             filtered.append(msg)
         elif isinstance(msg, AIMessage):
-            is_own = (
-                current_agent_name is not None
-                and msg.name == current_agent_name
-            )
+            is_own = current_agent_name is not None and msg.name == current_agent_name
             if msg.tool_calls:
                 if is_own:
                     filtered.append(msg)
                     for tc in msg.tool_calls:
-                        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                        tc_id = (
+                            tc.get("id")
+                            if isinstance(tc, dict)
+                            else getattr(tc, "id", None)
+                        )
                         if tc_id:
                             own_tool_call_ids.add(tc_id)
                 elif msg.content:
@@ -422,9 +423,7 @@ def create_handoff_tool(
         # agent has not yet produced a tagged AIMessage in this conversation.
         if required_agents:
             called_agents: set[str] = {
-                m.name
-                for m in messages
-                if isinstance(m, AIMessage) and m.name
+                m.name for m in messages if isinstance(m, AIMessage) and m.name
             }
             missing: list[str] = [a for a in required_agents if a not in called_agents]
             if missing:

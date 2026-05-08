@@ -95,8 +95,8 @@ DEFAULT_PERMISSIONS: dict[str, list[str]] = {
     "volume": ["CAN_READ"],
     "function": ["CAN_EXECUTE"],
     "connection": ["USE_CONNECTION"],
-    "database": ["CAN_CONNECT_AND_CREATE"],   # deprecated provisioned Lakebase
-    "postgres": ["CAN_CONNECT_AND_CREATE"],    # autoscaling Lakebase project
+    "database": ["CAN_CONNECT_AND_CREATE"],  # deprecated provisioned Lakebase
+    "postgres": ["CAN_CONNECT_AND_CREATE"],  # autoscaling Lakebase project
     "app": ["CAN_VIEW"],
 }
 

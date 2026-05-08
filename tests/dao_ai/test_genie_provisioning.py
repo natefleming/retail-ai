@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import textwrap
-from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -108,9 +107,7 @@ def fully_configured_room(
                 synonyms=["live", "available"],
             )
         ],
-        sql_measures=[
-            GenieSqlSnippet(display_name="Total revenue", sql="SUM(amount)")
-        ],
+        sql_measures=[GenieSqlSnippet(display_name="Total revenue", sql="SUM(amount)")],
         sample_questions=["What were the top selling products last month?"],
         benchmarks=[
             GenieBenchmarkQuestion(
@@ -198,9 +195,7 @@ class TestBuildSerializedSpace:
         assert fn["identifier"] == "cat.sch.find_product"
         assert "id" in fn
 
-    def test_sql_snippets_split_by_kind(
-        self, fully_configured_room: GenieRoomModel
-    ):
+    def test_sql_snippets_split_by_kind(self, fully_configured_room: GenieRoomModel):
         payload = fully_configured_room._build_serialized_space()
         snippets = payload["instructions"]["sql_snippets"]
         assert "filters" in snippets and "measures" in snippets
@@ -208,27 +203,23 @@ class TestBuildSerializedSpace:
         assert snippets["filters"][0]["display_name"] == "Active products"
         assert snippets["filters"][0]["synonyms"] == ["live", "available"]
 
-    def test_benchmark_round_trips(
-        self, fully_configured_room: GenieRoomModel
-    ):
+    def test_benchmark_round_trips(self, fully_configured_room: GenieRoomModel):
         payload = fully_configured_room._build_serialized_space()
         question = payload["benchmarks"]["questions"][0]
         assert question["question"] == ["How many orders were placed yesterday?"]
         answer = question["answer"][0]
         assert answer["format"] == "SQL"
-        assert "ORDER" not in answer["content"][0].upper().split()[0]  # SELECT, not ORDER
+        assert (
+            "ORDER" not in answer["content"][0].upper().split()[0]
+        )  # SELECT, not ORDER
 
-    def test_payload_is_stable_across_runs(
-        self, fully_configured_room: GenieRoomModel
-    ):
+    def test_payload_is_stable_across_runs(self, fully_configured_room: GenieRoomModel):
         """Stable IDs ensure idempotent diff checks against the live space."""
         first = fully_configured_room._build_serialized_space()
         second = fully_configured_room._build_serialized_space()
         assert first == second
 
-    def test_empty_room_produces_minimal_payload(
-        self, warehouse: WarehouseModel
-    ):
+    def test_empty_room_produces_minimal_payload(self, warehouse: WarehouseModel):
         room = GenieRoomModel(name="Empty", warehouse=warehouse)
         payload = room._build_serialized_space()
         assert payload == {"version": 1}
@@ -462,9 +453,7 @@ class TestYamlAnchors:
 class TestRefresh:
     """Round-tripping ``serialized_space`` back into structured fields."""
 
-    def test_refresh_round_trips_via_build(
-        self, fully_configured_room: GenieRoomModel
-    ):
+    def test_refresh_round_trips_via_build(self, fully_configured_room: GenieRoomModel):
         payload = fully_configured_room._build_serialized_space()
 
         fresh = GenieRoomModel(
@@ -505,14 +494,9 @@ class TestRefresh:
         assert "--rt=" not in fresh.join_specs[0].sql
         assert fresh.sql_filters[0].display_name == "Active products"
         assert fresh.sql_measures[0].display_name == "Total revenue"
-        assert (
-            fresh.benchmarks[0].question
-            == "How many orders were placed yesterday?"
-        )
+        assert fresh.benchmarks[0].question == "How many orders were placed yesterday?"
 
-    def test_refresh_is_idempotent(
-        self, fully_configured_room: GenieRoomModel
-    ):
+    def test_refresh_is_idempotent(self, fully_configured_room: GenieRoomModel):
         payload = fully_configured_room._build_serialized_space()
         fresh = GenieRoomModel(name="Fresh")
         fresh.refresh(payload=payload)
@@ -532,9 +516,7 @@ class TestRefresh:
         )
         mock_workspace_client.genie.get_space.return_value = existing
 
-        with patch(
-            "dao_ai.config.WorkspaceClient", return_value=mock_workspace_client
-        ):
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             room = GenieRoomModel(name="X", space_id="space-123")
             room.ensure_resolved()
 
@@ -626,9 +608,7 @@ class TestFromSpace:
             next_page_token=None,
         )
 
-        with patch(
-            "dao_ai.config.WorkspaceClient", return_value=mock_workspace_client
-        ):
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
             room = GenieRoomModel.from_space("space-123")
 
         assert room.space_id == "space-123"
@@ -688,9 +668,7 @@ class TestRealGenieProvisioning:
             text_instructions=["This is an automated test."],
             sample_questions=["What is 1 + 1?"],
             benchmarks=[
-                GenieBenchmarkQuestion(
-                    question="echo", expected_sql="SELECT 1"
-                )
+                GenieBenchmarkQuestion(question="echo", expected_sql="SELECT 1")
             ],
         )
 
