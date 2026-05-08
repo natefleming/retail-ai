@@ -107,6 +107,14 @@
           "default": null,
           "description": "Maximum number of graph supersteps (LLM call + tool execution cycles) allowed per agent invocation. Prevents runaway iteration loops in tool-calling agents. When None, uses LangGraph's default (25).",
           "title": "Recursion Limit"
+        },
+        "requires": {
+          "description": "Names of prerequisite agents that must have run (i.e. produced an AIMessage tagged with their name) before this agent can be reached via a swarm handoff. When unmet, the handoff tool returns a refusal ToolMessage and 'active_agent' stays unchanged so the LLM can self-correct on its next step. Semantics: any-order, all-of. Currently enforced in the swarm pattern only; the supervisor pattern ignores this field. Cross-agent validation (unknown name, self-reference, cycles in the requires DAG) runs at config-build time.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires",
+          "type": "array"
         }
       },
       "required": [
@@ -3178,7 +3186,7 @@
             }
           ],
           "default": null,
-          "description": "Databricks Genie space ID. Required when on_behalf_of_user is true. If omitted, looked up by name or created by .create().",
+          "description": "Databricks-assigned Genie space identifier. The only field guaranteed unique by the platform; titles are not enforced unique. Lifecycle: (a) Reference mode \u2014 set by the user in YAML; readable immediately. (b) Spec mode \u2014 left None, populated by .create() once the space is provisioned. Downstream consumers reading *room_anchor.space_id must wait until .create() has run. Required when on_behalf_of_user is true (name-based lookup cannot authenticate at Model Serving startup).",
           "title": "Space Id"
         },
         "parent_path": {
@@ -6664,6 +6672,20 @@
           "$ref": "#/$defs/VectorSearchEndpointType",
           "default": "STANDARD",
           "description": "Endpoint type: STANDARD or OPTIMIZED_STORAGE."
+        },
+        "target_qps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target queries-per-second for the endpoint. STANDARD only. Scales endpoint compute linearly; capacity changes take effect the next time an index on this endpoint is created or synced. Public Preview. Honored at endpoint-creation time only \u2014 if the endpoint already exists, this value is ignored.",
+          "title": "Target Qps"
         }
       },
       "required": [
