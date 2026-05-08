@@ -1,6 +1,5 @@
-# DAIS Examples for Retail AI Agent System
-# Extracted from retail_ai.orig/notebooks/agent_config.yaml
-# These examples demonstrate various agent interactions and use cases
+# Brick Store Examples for Retail AI Agent System
+# Demonstrates various agent interactions and use cases for the in-store associate POV.
 
 examples:
   # Demo Script Examples
