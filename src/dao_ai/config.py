@@ -751,6 +751,51 @@ class TableModel(IsDatabricksResource, HasFullName):
         return resources
 
 
+class BestOfNConfig(BaseModel):
+    """Opt-in best-of-N + LLM-as-judge wrapper around an LLMModel.
+
+    When attached to an LLMModel, every model invocation fans out N parallel
+    candidate generations at elevated temperature, then asks a judge model to
+    score the candidates. The wrapper returns the highest-scoring candidate
+    verbatim (no synthesis).
+
+    Cost: roughly N+1 LLM calls per protected step. Generator calls run in
+    parallel so wall-clock latency is approximately one generator call plus
+    one judge call. Token cost is ~N x baseline plus the judge.
+
+    Diversity is non-negotiable: with low generator temperature, the N
+    candidates collapse to near-identical outputs and best-of-N degenerates
+    into best-of-1 with extra cost. The wrapper enforces an effective
+    generator temperature of max(LLMModel.temperature, 0.7) unless
+    `temperature_override` is set.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    n: int = Field(
+        default=8,
+        description="Number of parallel candidate generations. Must be in [1, 16].",
+    )
+    judge: Union[str, "LLMModel"] = Field(
+        description="Judge model: a serving endpoint name (string) or a full LLMModel config.",
+    )
+    temperature_override: Optional[float] = Field(
+        default=None,
+        description=(
+            "If set, the parallel candidate calls use this temperature regardless "
+            "of the generator's configured temperature. If unset, the wrapper uses "
+            "max(LLMModel.temperature, 0.7) so candidates have meaningful diversity."
+        ),
+    )
+
+    @field_validator("n")
+    @classmethod
+    def _validate_n(cls, v: int) -> int:
+        if v < 1 or v > 16:
+            raise ValueError(f"best_of_n.n must be in [1, 16], got {v}")
+        return v
+
+
 class LLMModel(IsDatabricksResource):
     """Configuration for an LLM served via a Databricks Model Serving endpoint."""
 
@@ -782,6 +827,14 @@ class LLMModel(IsDatabricksResource):
         default=False,
         description="Disable streaming for this model. Required when the Foundation Model endpoint has output guardrails enabled.",
     )
+    best_of_n: Optional[BestOfNConfig] = Field(
+        default=None,
+        description=(
+            "Opt-in best-of-N + LLM-as-judge wrapper. When set, every invocation of "
+            "this model fans out N parallel candidates and a judge picks the winner. "
+            "Forces disable_streaming=True. See BestOfNConfig for cost implications."
+        ),
+    )
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -801,12 +854,22 @@ class LLMModel(IsDatabricksResource):
         ]
 
     def as_chat_model(self) -> LanguageModelLike:
+        # When best_of_n is enabled, force streaming off — the wrapper has to
+        # buffer the full candidate response before it can hand it to the judge.
+        effective_disable_streaming = self.disable_streaming
+        if self.best_of_n is not None and not self.disable_streaming:
+            logger.debug(
+                "best_of_n is enabled; forcing disable_streaming=True for {name}",
+                name=self.name,
+            )
+            effective_disable_streaming = True
+
         chat_client: LanguageModelLike = ChatDatabricks(
             model=self.name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             use_responses_api=self.use_responses_api,
-            disable_streaming=self.disable_streaming,
+            disable_streaming=effective_disable_streaming,
         )
 
         fallbacks: Sequence[LanguageModelLike] = []
@@ -826,6 +889,24 @@ class LLMModel(IsDatabricksResource):
         if fallbacks:
             chat_client = chat_client.with_fallbacks(fallbacks)
 
+        if self.best_of_n is not None:
+            # Lazy import to keep config.py free of langchain_core chat-model
+            # imports beyond what already lives at module top.
+            from dao_ai.best_of_n import BestOfNChatModel
+
+            judge_cfg = self.best_of_n.judge
+            if isinstance(judge_cfg, str):
+                judge_cfg = LLMModel(name=judge_cfg)
+            judge_chat_model = judge_cfg.as_chat_model()
+
+            chat_client = BestOfNChatModel.from_components(
+                generator=chat_client,
+                judge=judge_chat_model,
+                n=self.best_of_n.n,
+                generator_temperature=self.temperature,
+                temperature_override=self.best_of_n.temperature_override,
+            )
+
         return chat_client
 
     def as_open_ai_client(self) -> LanguageModelLike:
@@ -841,6 +922,12 @@ class LLMModel(IsDatabricksResource):
 
     def as_embeddings_model(self) -> Embeddings:
         return DatabricksEmbeddings(endpoint=self.name)
+
+
+# Resolve the forward reference BestOfNConfig.judge -> LLMModel now that
+# LLMModel is in scope. Without this, instantiating BestOfNConfig with a dict
+# judge config would fail with a forward-reference error.
+BestOfNConfig.model_rebuild()
 
 
 class VectorSearchEndpointType(str, Enum):
