@@ -1645,10 +1645,23 @@ class DatabricksProvider(ServiceProvider):
         """
         # Ensure endpoint exists
         if not endpoint_exists(self.vsc, vector_store.endpoint.name):
-            self.vsc.create_endpoint_and_wait(
-                name=vector_store.endpoint.name,
-                endpoint_type=vector_store.endpoint.type,
-                verbose=True,
+            create_kwargs: dict[str, Any] = {
+                "name": vector_store.endpoint.name,
+                "endpoint_type": vector_store.endpoint.type,
+                "verbose": True,
+            }
+            if vector_store.endpoint.target_qps is not None:
+                # SDK kwarg is currently `min_qps`. The Databricks REST API
+                # is renaming this to `target_qps` (the public preview field
+                # name); when the databricks-vectorsearch SDK exposes
+                # `target_qps`, this translation can be removed.
+                create_kwargs["min_qps"] = vector_store.endpoint.target_qps
+            self.vsc.create_endpoint_and_wait(**create_kwargs)
+        elif vector_store.endpoint.target_qps is not None:
+            logger.debug(
+                "endpoint already exists; target_qps not reconciled",
+                endpoint_name=vector_store.endpoint.name,
+                configured_target_qps=vector_store.endpoint.target_qps,
             )
 
         logger.success(

@@ -861,6 +861,17 @@ class VectorSearchEndpoint(BaseModel):
         default=VectorSearchEndpointType.STANDARD,
         description="Endpoint type: STANDARD or OPTIMIZED_STORAGE.",
     )
+    target_qps: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Target queries-per-second for the endpoint. STANDARD only. "
+            "Scales endpoint compute linearly; capacity changes take effect "
+            "the next time an index on this endpoint is created or synced. "
+            "Public Preview. Honored at endpoint-creation time only — if "
+            "the endpoint already exists, this value is ignored."
+        ),
+    )
 
     @field_serializer("type")
     def serialize_type(self, value: VectorSearchEndpointType) -> str:
@@ -868,6 +879,19 @@ class VectorSearchEndpoint(BaseModel):
         if isinstance(value, VectorSearchEndpointType):
             return value.value
         return str(value)
+
+    @model_validator(mode="after")
+    def validate_target_qps_only_on_standard(self) -> Self:
+        """Reject target_qps on non-STANDARD endpoints (SDK constraint)."""
+        if (
+            self.target_qps is not None
+            and self.type != VectorSearchEndpointType.STANDARD
+        ):
+            raise ValueError(
+                "target_qps is only supported on STANDARD endpoints, "
+                f"not {self.type!r}"
+            )
+        return self
 
 
 class IndexModel(IsDatabricksResource, HasFullName):
