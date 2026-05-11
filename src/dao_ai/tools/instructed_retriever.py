@@ -67,13 +67,13 @@ def _get_cached_llm(
     """
     if model_config.on_behalf_of_user:
         from databricks.sdk import WorkspaceClient
-        from databricks_langchain import ChatDatabricks
 
         workspace_client: WorkspaceClient = model_config.workspace_client_from(context)
         logger.debug(
             "Created OBO LLM client for decomposition",
             model=model_config.name,
             auth_type=workspace_client.config.auth_type,
+            ai_gateway=model_config.ai_gateway,
         )
         # Force-disable streaming when best_of_n is set: the wrapper has to
         # buffer each candidate fully before judging.
@@ -82,13 +82,9 @@ def _get_cached_llm(
             if model_config.best_of_n is not None
             else model_config.disable_streaming
         )
-        obo_chat = ChatDatabricks(
-            model=model_config.name,
-            temperature=model_config.temperature,
-            max_tokens=model_config.max_tokens,
-            use_responses_api=model_config.use_responses_api,
+        obo_chat = model_config.chat_model_for_workspace_client(
+            workspace_client,
             disable_streaming=disable_streaming,
-            workspace_client=workspace_client,
         )
         # OBO and best_of_n must compose: the wrapper sees the user's tokens
         # via the OBO client for each parallel candidate call.

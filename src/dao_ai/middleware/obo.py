@@ -22,8 +22,8 @@ Deployment targets:
 from typing import Awaitable, Callable
 
 from databricks.sdk import WorkspaceClient
-from databricks_langchain import ChatDatabricks
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from langchain_core.language_models import LanguageModelLike
 from loguru import logger
 
 from dao_ai.config import InferenceEndpointModel
@@ -46,22 +46,17 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
     def __init__(self, llm_model: InferenceEndpointModel) -> None:
         self.llm_model = llm_model
 
-    def _create_obo_model(self, context: Context | None) -> ChatDatabricks:
+    def _create_obo_model(self, context: Context | None) -> LanguageModelLike:
         workspace_client: WorkspaceClient = self.llm_model.workspace_client_from(
             context
         )
         logger.debug(
-            "OBOModelMiddleware: created OBO ChatDatabricks",
+            "OBOModelMiddleware: created OBO chat client",
             model=self.llm_model.name,
             auth_type=workspace_client.config.auth_type,
+            ai_gateway=self.llm_model.ai_gateway,
         )
-        return ChatDatabricks(
-            model=self.llm_model.name,
-            temperature=self.llm_model.temperature,
-            max_tokens=self.llm_model.max_tokens,
-            use_responses_api=self.llm_model.use_responses_api,
-            workspace_client=workspace_client,
-        )
+        return self.llm_model.chat_model_for_workspace_client(workspace_client)
 
     # -- sync ----------------------------------------------------------
 
@@ -71,7 +66,7 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         context: Context | None = request.runtime.context if request.runtime else None
-        obo_model: ChatDatabricks = self._create_obo_model(context)
+        obo_model: LanguageModelLike = self._create_obo_model(context)
         set_resource_attributes(
             ResourceInfo("model_serving", True, self.llm_model.name)
         )
@@ -85,7 +80,7 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         context: Context | None = request.runtime.context if request.runtime else None
-        obo_model: ChatDatabricks = self._create_obo_model(context)
+        obo_model: LanguageModelLike = self._create_obo_model(context)
         set_resource_attributes(
             ResourceInfo("model_serving", True, self.llm_model.name)
         )

@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# AI Gateway routing for InferenceEndpointModel
+# =============================================================================
+# Demonstrates the `ai_gateway: true` flag, which routes chat completions
+# through the Databricks AI Gateway path
+# (https://<host>/ai-gateway/mlflow/v1/chat/completions) instead of the
+# legacy /serving-endpoints/<name>/invocations path. The flag is additive
+# and OFF by default — existing configs are unaffected.
+#
+# When ai_gateway is true:
+# - dao-ai constructs a langchain_openai.ChatOpenAI with the AI Gateway
+#   base_url; the `name` field becomes the OpenAI-style model id sent in
+#   the request body.
+# - use_responses_api is rejected by the validator (AI Gateway exposes
+#   only the OpenAI-compatible /chat/completions path).
+# - on_behalf_of_user is currently permitted pending live verification;
+#   confirm against your workspace before relying on OBO with AI Gateway.
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    # New path — Foundation Model served via AI Gateway.
+    gateway_llm: &gateway_llm
+      name: databricks-claude-opus-4-6
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 1024
+
+    # Legacy path — same workspace, no flag, unchanged behavior.
+    legacy_llm: &legacy_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 1024
+
+    # Mixed-mode fallbacks: AI Gateway primary with legacy fallback.
+    # Both ChatOpenAI and ChatDatabricks are LangChain Runnables, so
+    # with_fallbacks composes them without further configuration.
+    resilient_llm: &resilient_llm
+      name: databricks-claude-opus-4-6
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 1024
+      fallbacks:
+      - databricks-claude-sonnet-4
+
+agents:
+  gateway_agent: &gateway_agent
+    name: gateway_agent
+    model: *gateway_llm
+    prompt: |
+      You are a helpful assistant served via the Databricks AI Gateway.
+
+app:
+  name: ai_gateway_example
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: ai_gateway_example
+  agents:
+  - *gateway_agent

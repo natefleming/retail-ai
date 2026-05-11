@@ -159,6 +159,10 @@ def add_databricks_resource_attrs(mock: Any) -> Any:
     mock.client_secret = None
     mock.workspace_host = None
     mock.pat = None
+    # Inference endpoint flags read by model validators / OBO factory
+    mock.ai_gateway = False
+    mock.use_responses_api = False
+    mock.disable_streaming = False
     return mock
 
 

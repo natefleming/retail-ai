@@ -82,7 +82,7 @@ def test_agent_endpoint_tool_obo_uses_workspace_client_from(
     with (
         patch.object(LLMModel, "workspace_client_from", return_value=mock_ws),
         patch(
-            "dao_ai.tools.agent.ChatDatabricks", return_value=mock_chat_model
+            "dao_ai.config.ChatDatabricks", return_value=mock_chat_model
         ) as mock_chat_cls,
     ):
         tool = create_agent_endpoint_tool(mock_llm_obo)
@@ -93,6 +93,7 @@ def test_agent_endpoint_tool_obo_uses_workspace_client_from(
         temperature=mock_llm_obo.temperature,
         max_tokens=mock_llm_obo.max_tokens,
         use_responses_api=mock_llm_obo.use_responses_api,
+        disable_streaming=mock_llm_obo.disable_streaming,
         workspace_client=mock_ws,
     )
     assert isinstance(result, AIMessage)
