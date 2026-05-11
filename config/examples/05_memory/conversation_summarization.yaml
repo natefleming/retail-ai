@@ -43,7 +43,7 @@ resources:
   # ---------------------------------------------------------------------------
   # LANGUAGE MODELS
   # ---------------------------------------------------------------------------
-  llms:
+  models:
     # Primary LLM for conversation
     default_llm: &default_llm
       name: databricks-claude-sonnet-4

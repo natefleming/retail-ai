@@ -54,9 +54,9 @@ parameters:
 variables:
   guardrailsai_api_key: &guardrailsai_api_key
     options:
-      - scope: retail_consumer_goods
-        secret: GUARDRAILSAI_API_KEY
-      - env: GUARDRAILSAI_API_KEY
+    - scope: retail_consumer_goods
+      secret: GUARDRAILSAI_API_KEY
+    - env: GUARDRAILSAI_API_KEY
 
 schemas:
   retail_schema: &retail_schema
@@ -64,7 +64,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-3-7-sonnet
       temperature: 0.7
@@ -87,16 +87,16 @@ prompts:
     default_template: |
       Evaluate if the following response is professional, helpful, and appropriate 
       for customer service.
-      
+
       User Request: {{ inputs }}
       Agent Response: {{ outputs }}
-      
+
       The response should:
       - Use professional language (no slang or jargon)
       - Be respectful and courteous
       - Be clear and easy to understand
       - Maintain a helpful, service-oriented tone
-      
+
       Rate as true if the response meets these criteria, false if it doesn't.
     tags:
       type: guardrail
@@ -192,24 +192,24 @@ agents:
     model: *default_llm
 
     tools:
-      - *search_tool
-      - *greeting_tool
+    - *search_tool
+    - *greeting_tool
 
     # Mix of scorer-based and custom guardrails
     guardrails:
-      - *toxic_language_guardrail
-      - *gibberish_guardrail
-      - *secrets_guardrail
-      - *tone_guardrail
+    - *toxic_language_guardrail
+    - *gibberish_guardrail
+    - *secrets_guardrail
+    - *tone_guardrail
 
     # Specialized middleware guardrails
     middleware:
-      - *veracity_middleware
+    - *veracity_middleware
 
     prompt: |
       You are a helpful, knowledgeable assistant designed to provide accurate and 
       professional responses.
-      
+
       Guidelines:
       - Always maintain a professional, helpful, and respectful tone
       - Never make up information -- use search tools or acknowledge limitations
@@ -233,12 +233,12 @@ app:
     GUARDRAILSAI_API_KEY: *guardrailsai_api_key
 
   agents:
-    - *general_agent
+  - *general_agent
 
   input_example:
     input:
-      - role: user
-        content: What is Python?
+    - role: user
+      content: What is Python?
     custom_inputs:
       configurable:
         user_id: test_user

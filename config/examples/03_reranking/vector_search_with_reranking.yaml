@@ -18,7 +18,7 @@ schemas:
     schema_name: ${var.schema}                # Schema within the catalog
 
 resources:
-  llms:
+  models:
     # Primary LLM for general tasks
     default_llm: &default_llm
       name: databricks-claude-sonnet-4             # Databricks serving endpoint name
@@ -31,34 +31,22 @@ resources:
   vector_stores:
     # Product information vector store for similarity search
     products_vector_store: &products_vector_store
-      embedding_model: *embedding_model             # Reference to embedding model above
+      embedding_model: *embedding_model
+                                                    # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
         name: one-env-shared-endpoint-0             # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
-        schema: *retail_schema                      # Unity Catalog schema for the index
+        schema: *retail_schema
+                                                    # Unity Catalog schema for the index
         name: retail_vectorstore                    # Index name
       source_table:                                 # Table containing source data
         schema: *retail_schema
         name: products
       primary_key: product_id                        # Primary key column
-      doc_uri: ~                                    # Optional document URI column (null in this case)
+      doc_uri:                                      # Optional document URI column (null in this case)
       embedding_source_column: description          # Column to create embeddings from
       columns:                                      # Columns to include in vector store
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - class_cd
-        - description
-
-retrievers:
-  # Retriever WITH default reranking
-  default_reranked_retriever: &default_reranked_retriever
-    vector_store: *products_vector_store
-    columns:
       - product_id
       - sku
       - upc
@@ -67,6 +55,20 @@ retrievers:
       - merchandise_class
       - class_cd
       - description
+
+retrievers:
+  # Retriever WITH default reranking
+  default_reranked_retriever: &default_reranked_retriever
+    vector_store: *products_vector_store
+    columns:
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:
       num_results: 50                               # Retrieve more candidates for reranking
       filters: {}
@@ -77,14 +79,14 @@ retrievers:
   fast_reranked_retriever: &fast_reranked_retriever
     vector_store: *products_vector_store
     columns:
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - class_cd
-      - description
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:
       num_results: 100                              # Cast wide net for reranking
       filters: {}
@@ -98,14 +100,14 @@ retrievers:
   accurate_reranked_retriever: &accurate_reranked_retriever
     vector_store: *products_vector_store
     columns:
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - class_cd
-      - description
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:
       num_results: 50
       filters: {}
@@ -165,7 +167,7 @@ agents:
     description: "Product search agent with reranking for improved accuracy"
     model: *default_llm
     tools:
-      - *default_reranked_tool
+    - *default_reranked_tool
     prompt: |
       You are an enhanced product search assistant with reranking capabilities.
       Use the reranked_product_search tool to find the most relevant products.
@@ -179,7 +181,7 @@ agents:
     description: "Product search agent with fast reranking"
     model: *default_llm
     tools:
-      - *fast_reranked_tool
+    - *fast_reranked_tool
     prompt: |
       You are a fast product search assistant. Use the fast_reranked_search tool
       to quickly find the most relevant products from a large candidate set.
@@ -192,7 +194,7 @@ agents:
     description: "Product search agent with hybrid search and accurate reranking"
     model: *default_llm
     tools:
-      - *accurate_reranked_tool
+    - *accurate_reranked_tool
     prompt: |
       You are a high-accuracy product search assistant. Use the accurate_product_search
       tool which combines hybrid search with reranking for the best possible results.
@@ -211,14 +213,15 @@ app:
     demo: reranking
     feature: vector_search
   permissions:
-    - principals: [users]
-      entitlements:
-        - CAN_QUERY
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
   agents:
     # Include agents with different reranking configurations
-    - *reranked_search_agent        # Default reranking
-    - *fast_search_agent            # Fast reranking
-    - *accurate_search_agent        # Accurate reranking with hybrid
+  - *reranked_search_agent
+  - *fast_search_agent
+  - *accurate_search_agent
+                                    # Accurate reranking with hybrid
   orchestration:
     supervisor:
       model: *default_llm

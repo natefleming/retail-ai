@@ -33,18 +33,18 @@ schemas:
     schema_name: ${var.schema}                    # Schema within the catalog
 
 resources:
-  llms:
+  models:
     # Primary LLM for general tasks
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
-      on_behalf_of_user: False
+      on_behalf_of_user: false
 
     # Embedding model for context-aware similarity search
     embedding_model: &embedding_model
       name: databricks-gte-large-en                 # Text embedding model
-      on_behalf_of_user: False
+      on_behalf_of_user: false
 
   warehouses:
     # Warehouse for executing SQL queries (used by context-aware cache)
@@ -52,7 +52,7 @@ resources:
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
-      on_behalf_of_user: False
+      on_behalf_of_user: false
 
   genie_rooms:
     # Genie space for retail data queries
@@ -77,7 +77,7 @@ resources:
 
 memory: &memory
   # Conversation checkpointing for state persistence
-  checkpointer: 
+  checkpointer:
     name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
 
 
@@ -90,7 +90,8 @@ tools:
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: Answers questions about retail products and inventory
-        genie_room: *retail_genie_room              # Reference to Genie room config
+        genie_room: *retail_genie_room
+                                                    # Reference to Genie room config
 
         # Optional L1 Cache: LRU (Least Recently Used) - Fast exact match
         # Uncomment to enable LRU cache in front of context-aware cache
@@ -106,8 +107,10 @@ tools:
         #   - TTL: 1 week (accommodates weekly work patterns)
         #   - Memory: ~4-5% of 8GB system
         in_memory_context_aware_cache_parameters:
-          warehouse: *shared_endpoint_warehouse     # Warehouse used to re-execute cached SQL
-          embedding_model: *embedding_model         # Reference to embedding model
+          warehouse: *shared_endpoint_warehouse
+                                                    # Warehouse used to re-execute cached SQL
+          embedding_model: *embedding_model
+                                                    # Reference to embedding model
           # embedding_dims: 1024                    # Auto-detected if omitted (recommended)
           similarity_threshold: 0.85                # Minimum similarity for question matching (L2 distance to 0-1)
           context_similarity_threshold: 0.80        # Minimum similarity for context matching
@@ -131,9 +134,10 @@ agents:
   genie: &genie
     name: genie                                     # Agent identifier
     description: "Genie Agent with In-Memory Context-Aware Cache"
-    model: *default_llm                             # Reference to LLM configuration
+    model: *default_llm
+                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *genie_tool
+    - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
       Answers questions about retail products and inventory using natural language.
       You have access to a context-aware cache that remembers similar questions to provide faster responses.
@@ -148,19 +152,23 @@ app:
     RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
     RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_HOST}}"
   registered_model:                                 # MLflow registered model configuration
-    schema: *quick_serve_restaurant_schema          # Schema where model will be registered
+    schema: *quick_serve_restaurant_schema
+                                                    # Schema where model will be registered
     name: dao_genie_in_memory_context_aware_cache   # Model name in MLflow registry
   endpoint_name: dao_genie_in_memory_context_aware_cache # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
-    - principals: [users]                           # Grant access to all users
-      entitlements:
-        - CAN_QUERY                                 # Query permissions
+  - principals: [users]                             # Grant access to all users
+    entitlements:
+    - CAN_QUERY                                     # Query permissions
   agents:                                           # List of agents included in the system
-    - *genie                                        # Genie agent with in-memory cache
+  - *genie
+                                                    # Genie agent with in-memory cache
   orchestration:                                    # Agent orchestration configuration
-    memory: *memory                                 # In-memory conversation persistence
+    memory: *memory
+                                                    # In-memory conversation persistence
     swarm:                                          # Swarm orchestration pattern
-      default_agent: *genie                         # Default agent for routing
+      default_agent: *genie
+                                                    # Default agent for routing

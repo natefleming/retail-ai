@@ -35,7 +35,7 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -174,23 +174,24 @@ agents:
     description: "Production-ready agent with comprehensive retry logic"
     model: *default_llm
     tools:
-      - *genie_tool
-      - *search_tool
-      - *time_tool
+    - *genie_tool
+    - *search_tool
+    - *time_tool
     middleware:
-      - *tools_retry              # Tool retry logic for all tools
-      - *model_retry              # LLM retry logic
+    - *tools_retry
+    - *model_retry
+                                  # LLM retry logic
     prompt: |
       You are a resilient research assistant designed for production use.
-      
+
       If a tool call fails, the system will automatically retry with
       exponential backoff. You don't need to manually handle transient errors.
-      
+
       Your capabilities:
       - Query retail data using the genie tool
       - Search the web for additional information
       - Check the current time
-      
+
       Focus on providing accurate, helpful responses. The retry middleware
       handles temporary failures automatically.
     handoff_prompt: |
@@ -204,17 +205,18 @@ agents:
     description: "Agent with aggressive retry for maximum reliability"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *critical_retry           # Aggressive tool retry
-      - *aggressive_model_retry   # Aggressive LLM retry
+    - *critical_retry
+    - *aggressive_model_retry
+                                  # Aggressive LLM retry
     prompt: |
       You are a high-availability assistant. Your tools have aggressive
       retry logic to ensure maximum reliability.
-      
+
       If failures persist after many retries, the system will raise an
       error to indicate a genuine service outage.
-      
+
       Focus on providing accurate answers from the retail database.
     handoff_prompt: |
       Critical queries that must succeed.
@@ -227,10 +229,11 @@ agents:
     description: "Simple agent with basic retry for common failures"
     model: *default_llm
     tools:
-      - *time_tool
+    - *time_tool
     middleware:
-      - *basic_tool_retry         # Basic retry for all tools
-      - *model_retry              # Basic LLM retry
+    - *basic_tool_retry
+    - *model_retry
+                                  # Basic LLM retry
     prompt: |
       You are a simple assistant. Answer user questions helpfully.
       The system handles temporary failures automatically.
@@ -249,17 +252,16 @@ app:
     name: retry_middleware_dao
   endpoint_name: retry_middleware_demo_dao
   agents:
-    - *resilient_agent
-    - *high_availability_agent
-    - *simple_agent
+  - *resilient_agent
+  - *high_availability_agent
+  - *simple_agent
   orchestration:
     supervisor:
       model: *default_llm
-  
   input_example:
     messages:
-      - role: user
-        content: What products are trending this week?
+    - role: user
+      content: What products are trending this week?
     custom_inputs:
       configurable:
         thread_id: "example-thread-123"

@@ -35,7 +35,7 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -82,7 +82,8 @@ agents:
     description: "Sporting goods research specialist"
     model: *default_llm
     skills:
-      - *research_skill         # R1: skill on agent → middleware
+    - *research_skill
+                                # R1: skill on agent → middleware
     prompt: |
       You investigate products thoroughly using the loaded research skill.
       For comparison questions, surface trade-offs honestly. Always cite
@@ -103,7 +104,8 @@ app:
     name: deep_agent_skills
 
   agents:
-    - *research_specialist      # R2: implicit sub-agent (no need to re-list under subagents)
+  - *research_specialist
+                                # R2: implicit sub-agent (no need to re-list under subagents)
 
   orchestration:
     deep_agent:
@@ -116,15 +118,15 @@ app:
         than two steps.
 
       tools:
-        - *current_time
+      - *current_time
 
       # Top-level skills (passed natively to create_deep_agent(skills=...)).
       skills:
-        - *governed_lookup_skill
+      - *governed_lookup_skill
 
       # AGENTS.md instruction files loaded into the system prompt at startup.
       instruction_files:
-        - skills/sporting_goods_store/research/AGENTS.md
+      - skills/sporting_goods_store/research/AGENTS.md
 
       # R2: Dict-form subagents for extras not already in app.agents.
       # The dict key becomes the sub-agent's name.
@@ -137,15 +139,15 @@ app:
 
       # Filesystem permissions — read everywhere, write only under /workspace.
       permissions:
-        - paths: ["/workspace/**"]
-          mode: allow
-          operations: [read, write]
-        - paths: ["/**"]
-          mode: allow
-          operations: [read]
-        - paths: ["/**"]
-          mode: deny
-          operations: [write]
+      - paths: ["/workspace/**"]
+        mode: allow
+        operations: [read, write]
+      - paths: ["/**"]
+        mode: allow
+        operations: [read]
+      - paths: ["/**"]
+        mode: deny
+        operations: [write]
 
       # Human-in-the-loop on potentially destructive ops.
       interrupt_on:
@@ -153,5 +155,5 @@ app:
 
   input_example:
     messages:
-      - role: user
-        content: "Use your research skill to recommend a softball bat under $200 for a 12-year-old."
+    - role: user
+      content: "Use your research skill to recommend a softball bat under $200 for a 12-year-old."

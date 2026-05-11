@@ -34,7 +34,7 @@ parameters:
 # SCHEMAS
 # =============================================================================
 schemas:
-  demo_schema: &demo_schema
+  demo_schema:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
 
@@ -42,14 +42,14 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.7
       max_tokens: 4096
-    
+
     # Optional: Separate model for summarization (more cost-effective)
-    summary_llm: &summary_llm
+    summary_llm:
       name: databricks-claude-sonnet-4
       temperature: 0.1
       max_tokens: 512
@@ -90,7 +90,7 @@ agents:
       You are a helpful assistant with persistent memory. Your conversation
       history is saved to a database, so you can resume conversations even
       after restarts.
-      
+
       When users return, you can reference previous conversations and maintain
       context across sessions. Be natural and reference past interactions when
       appropriate.
@@ -102,17 +102,16 @@ app:
   name: lakebase_persistence_dao
   description: "Chat agent with Lakebase persistence"
   log_level: INFO
-  
+
   registered_model:
     name: lakebase_persistence_dao
-  
+
   agents:
-    - *persistent_agent
-  
+  - *persistent_agent
   input_example:
     messages:
-      - role: user
-        content: "Remember that I prefer technical explanations with code examples"
+    - role: user
+      content: "Remember that I prefer technical explanations with code examples"
     custom_inputs:
       configurable:
         # Thread ID for conversation grouping - same thread_id resumes conversation

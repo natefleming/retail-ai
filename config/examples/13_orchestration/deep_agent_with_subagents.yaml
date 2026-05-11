@@ -19,7 +19,7 @@
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -56,7 +56,7 @@ agents:
     description: "Product information specialist for sporting goods"
     model: *default_llm
     tools:
-      - *current_time
+    - *current_time
     prompt: |
       You answer detailed product questions: specifications, features, pricing,
       use cases. When a question is about availability or stock counts, defer
@@ -68,7 +68,7 @@ agents:
     description: "Inventory and availability specialist"
     model: *fast_llm
     tools:
-      - *current_time
+    - *current_time
     prompt: |
       You answer questions about stock counts, store availability, and
       restocking ETAs.
@@ -85,9 +85,9 @@ app:
     name: deep_agent_subagents
 
   agents:
-    - *main_agent
-    - *product_specialist
-    - *inventory_specialist
+  - *main_agent
+  - *product_specialist
+  - *inventory_specialist
 
   orchestration:
     deep_agent:
@@ -100,22 +100,22 @@ app:
 
       subagents:
         # Form 1: AgentModel anchor — full carry-over.
-        - *product_specialist
+      - *product_specialist
 
         # Form 2: string reference — looked up in app.agents by name.
-        - inventory_specialist
+      - inventory_specialist
 
         # Form 3: inline SubAgentModel — declarative dict.
-        - name: math_helper
-          description: >-
-            Quick math helper. Use for unit conversions, percentage discounts,
-            and arithmetic on prices.
-          system_prompt: |
-            You are a precise calculator. Show your work briefly before
-            stating the final number.
-          model: *fast_llm
+      - name: math_helper
+        description: >-
+          Quick math helper. Use for unit conversions, percentage discounts,
+          and arithmetic on prices.
+        system_prompt: |
+          You are a precise calculator. Show your work briefly before
+          stating the final number.
+        model: *fast_llm
 
   input_example:
     messages:
-      - role: user
-        content: "I need a softball bat under $200. Find me one and tell me if it's in stock."
+    - role: user
+      content: "I need a softball bat under $200. Find me one and tell me if it's in stock."

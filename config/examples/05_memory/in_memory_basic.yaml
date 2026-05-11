@@ -20,7 +20,7 @@
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.7
@@ -38,7 +38,7 @@ agents:
       You are a helpful assistant. You can remember context from earlier in the
       conversation, but your memory is ephemeral - it won't persist after the
       session ends.
-      
+
       Engage naturally and reference previous parts of the conversation when relevant.
 
 # =============================================================================
@@ -54,20 +54,19 @@ app:
   name: in_memory_basic_dao
   description: "Chat agent with in-memory state (no persistence)"
   log_level: INFO
-  
+
   registered_model:
     name: in_memory_basic_dao
 
-  
+
   agents:
-    - *chat_agent
-  
+  - *chat_agent
   input_example:
     messages:
-      - role: user
-        content: "My name is Alice. I work as a data engineer."
-      - role: assistant
-        content: "Nice to meet you, Alice! As a data engineer, you must work with databases and data pipelines. How can I help you today?"
-      - role: user
-        content: "What's my name?"
+    - role: user
+      content: "My name is Alice. I work as a data engineer."
+    - role: assistant
+      content: "Nice to meet you, Alice! As a data engineer, you must work with databases and data pipelines. How can I help you today?"
+    - role: user
+      content: "What's my name?"
 

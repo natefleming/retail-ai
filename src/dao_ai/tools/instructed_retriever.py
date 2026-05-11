@@ -23,7 +23,7 @@ from dao_ai.config import (
     ColumnInfo,
     DecomposedQueries,
     FilterItem,
-    LLMModel,
+    InferenceEndpointModel,
     SearchQuery,
 )
 from dao_ai.tools.tracing import (
@@ -52,7 +52,7 @@ def _load_prompt_template() -> dict[str, Any]:
 
 
 def _get_cached_llm(
-    model_config: LLMModel,
+    model_config: InferenceEndpointModel,
     context: "Context | None" = None,
 ) -> BaseChatModel:
     """
@@ -94,11 +94,11 @@ def _get_cached_llm(
         # via the OBO client for each parallel candidate call.
         if model_config.best_of_n is not None:
             from dao_ai.best_of_n import BestOfNChatModel
-            from dao_ai.config import LLMModel
+            from dao_ai.config import InferenceEndpointModel
 
             judge_cfg = model_config.best_of_n.judge
             if isinstance(judge_cfg, str):
-                judge_cfg = LLMModel(name=judge_cfg)
+                judge_cfg = InferenceEndpointModel(name=judge_cfg)
             obo_chat = BestOfNChatModel.from_components(
                 generator=obo_chat,
                 judge=judge_cfg.as_chat_model(),

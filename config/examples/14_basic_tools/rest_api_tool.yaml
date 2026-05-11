@@ -25,7 +25,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -33,7 +33,7 @@ resources:
 
   # UC Connection for the external API (used in Mode 1)
   connections:
-    external_api_connection: &external_api_connection
+    external_api_connection:
       name: my_external_api                         # UC Connection name
       on_behalf_of_user: true                       # Use calling user's identity
 
@@ -76,7 +76,7 @@ agents:
     description: "Agent that interacts with an external REST API"
     model: *default_llm
     tools:
-      - *call_api
+    - *call_api
     prompt: |
       You are a helpful assistant that can interact with an external REST API.
 
@@ -94,7 +94,7 @@ app:
     schema: *default_schema
     name: rest_api_tool_example_dao
   agents:
-    - *api_agent
+  - *api_agent
   orchestration:
     swarm:
       default_agent: *api_agent

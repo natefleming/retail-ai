@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.75]
+
+### Changed
+- **Renamed `resources.llms` → `resources.models` and `LLMModel` → `InferenceEndpointModel`** for accuracy. The same class is reused for chat LLMs, embedding endpoints, judge / extraction / reflection / query models, and custom agent endpoints — anything reachable via `/serving-endpoints/<name>/invocations`. The previous names were specific to chat LLMs and actively misled new readers. Both renames are **fully backward compatible**:
+  - The Pydantic field carries `alias="llms"` on `ResourcesModel.models` and `ResourcesModel.model_config` sets `populate_by_name=True`, so existing YAML configs with `resources.llms:` keep parsing unchanged.
+  - The class has a module-level alias (`LLMModel = InferenceEndpointModel`), so `from dao_ai.config import LLMModel` keeps working and `isinstance(x, LLMModel)` continues to return `True`.
+  - Reading the legacy `ResourcesModel.llms` attribute now returns `self.models` and emits a `DeprecationWarning`.
+  - The generated JSON schema documents `models:` as the canonical key (via `model_json_schema(by_alias=False)`). IDE schema linting (yaml-language-server) will flag `llms:` as unknown after this release; the runtime still accepts it. Bulk-migrate your configs at your own pace, or let dao-ai-builder rewrite them on the next save.
+  - All shipped example configs under `config/examples/**` were migrated to the new key. The 27 existing test files were left as-is — they still pass via the alias, which is the regression guard.
+  - The legacy names will be removed in a future major release.
+
+## [0.1.74]
+
 ### Changed
 - **CLI: renamed `dao-ai bundle` to `dao-ai pipeline`** to disambiguate from the underlying Databricks Asset Bundle (DAB) feature it wraps. The old verb is no longer recognized — running `dao-ai bundle` now exits with `argparse: invalid choice: 'bundle'`. Help, examples, and documentation have been updated accordingly. The separate `dao-ai generate-bundle` subcommand keeps its name since it generates a literal Databricks Asset Bundle artifact.
 

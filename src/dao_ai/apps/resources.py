@@ -9,7 +9,7 @@ Databricks Apps resource documentation:
 https://learn.microsoft.com/en-us/azure/databricks/dev-tools/databricks-apps/resources
 
 Supported resource types and their mappings:
-- LLMModel → serving-endpoint (Model Serving Endpoint)
+- InferenceEndpointModel → serving-endpoint (Model Serving Endpoint)
 - VectorStoreModel/IndexModel → vector-search-index (via UC Securable - not yet supported)
 - WarehouseModel → sql-warehouse
 - GenieRoomModel → genie-space
@@ -62,7 +62,7 @@ from dao_ai.config import (
     FunctionModel,
     GenieRoomModel,
     IsDatabricksResource,
-    LLMModel,
+    InferenceEndpointModel,
     SecretVariableModel,
     TableModel,
     TraceLocationModel,
@@ -74,7 +74,7 @@ from dao_ai.config import (
 
 # Resource type mappings from dao-ai to Databricks Apps
 RESOURCE_TYPE_MAPPING: dict[type, str] = {
-    LLMModel: "serving-endpoint",
+    InferenceEndpointModel: "serving-endpoint",
     VectorStoreModel: "vector-search-index",
     WarehouseModel: "sql-warehouse",
     GenieRoomModel: "genie-space",
@@ -153,9 +153,9 @@ API_SCOPE_TO_USER_SCOPE: dict[str, str] = {
 
 
 def _extract_llm_resources(
-    llms: dict[str, LLMModel],
+    llms: dict[str, InferenceEndpointModel],
 ) -> list[dict[str, Any]]:
-    """Extract model serving endpoint resources from LLMModels.
+    """Extract model serving endpoint resources from InferenceEndpointModels.
 
     Skips resources where ``on_behalf_of_user=True`` -- those are served via
     the user's forwarded token and surface in ``user_api_scopes`` instead;
@@ -648,7 +648,7 @@ def generate_app_resources(config: AppConfig) -> list[dict[str, Any]]:
         return resources
 
     # Extract resources from each category
-    resources.extend(_extract_llm_resources(config.resources.llms))
+    resources.extend(_extract_llm_resources(config.resources.models))
     resources.extend(_extract_vector_search_resources(config.resources.vector_stores))
     resources.extend(_extract_warehouse_resources(config.resources.warehouses))
     resources.extend(_extract_genie_resources(config.resources.genie_rooms))
@@ -721,7 +721,7 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
     obo_resources: list[IsDatabricksResource] = []
 
     # Check each resource category
-    for llm in config.resources.llms.values():
+    for llm in config.resources.models.values():
         if llm.on_behalf_of_user:
             obo_resources.append(llm)
 
@@ -852,7 +852,7 @@ def generate_sdk_resources(
         return resources
 
     # Extract SDK resources from each category
-    resources.extend(_extract_sdk_llm_resources(config.resources.llms))
+    resources.extend(_extract_sdk_llm_resources(config.resources.models))
     resources.extend(_extract_sdk_warehouse_resources(config.resources.warehouses))
     resources.extend(_extract_sdk_genie_resources(config.resources.genie_rooms))
     resources.extend(_extract_sdk_database_resources(config.resources.databases))
@@ -871,7 +871,7 @@ def generate_sdk_resources(
 
 
 def _extract_sdk_llm_resources(
-    llms: dict[str, LLMModel],
+    llms: dict[str, InferenceEndpointModel],
 ) -> list[AppResource]:
     """Extract SDK AppResource objects for model serving endpoints.
     Skips OBO resources — user identity handles permissions via user_api_scopes."""
@@ -1728,7 +1728,7 @@ def get_resource_env_mappings(config: AppConfig) -> list[dict[str, Any]]:
         )
 
     # Map serving endpoint names
-    for key, llm in config.resources.llms.items():
+    for key, llm in config.resources.models.items():
         env_mappings.append(
             {
                 "name": f"{key.upper()}_ENDPOINT",

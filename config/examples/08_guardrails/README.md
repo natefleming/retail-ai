@@ -395,11 +395,11 @@ Either `model`+`prompt` (custom judge) or `scorer` (scorer-based) must be provid
 | **Tone** | `model` | `tone` ("professional"), `custom_guidelines`, `num_retries` (2), `fail_on_error` (false) |
 | **Conciseness** | `model` | `max_length` (3000), `min_length` (20), `check_verbosity` (true), `num_retries` (2), `fail_on_error` (false) |
 
-## LLM Configuration
+## Model Configuration
 
 ```yaml
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-3-7-sonnet
       temperature: 0.7            # Higher for creative responses

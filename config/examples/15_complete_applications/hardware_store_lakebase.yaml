@@ -27,27 +27,27 @@ parameters:
 variables:
   client_id: &client_id
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID        # Service principal client ID
 
   client_secret: &client_secret
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET    # Service principal secret
 
 schemas:
   retail_schema: &retail_schema
     catalog_name: ${var.catalog}                    # Unity Catalog name
     schema_name: ${var.schema}                    # Schema within the catalog
     permissions:                              # Access permissions for the schema
-       - principals: [users]                   # Grant access to all users
-         privileges:
-           - USE_CATALOG                    # Full permissions for demo purposes
-           - USE_SCHEMA                    # Full permissions for demo purposes
-           - SELECT                    # Full permissions for demo purposes
-           - EXECUTE                    # Full permissions for demo purposes
+    - principals: [users]                      # Grant access to all users
+      privileges:
+      - USE_CATALOG                         # Full permissions for demo purposes
+      - USE_SCHEMA                         # Full permissions for demo purposes
+      - SELECT                         # Full permissions for demo purposes
+      - EXECUTE                         # Full permissions for demo purposes
 
 # =============================================================================
 # RESOURCES CONFIGURATION
@@ -60,7 +60,7 @@ resources:
   # LANGUAGE MODELS (LLMs)
   # ---------------------------------------------------------------------------
   # Configure different LLMs for various purposes in the agent system
-  llms:
+  models:
 
 
     fast_llm: &fast_llm
@@ -74,7 +74,7 @@ resources:
       temperature: 0.1
       max_tokens: 8192
       fallbacks:
-        - databricks-claude-sonnet-4-5
+      - databricks-claude-sonnet-4-5
 
 
 
@@ -88,7 +88,7 @@ resources:
     # Embedding model for vector search and semantic similarity
     embedding_model: &embedding_model
       name: databricks-gte-large-en                 # Text embedding model
-      on_behalf_of_user: False
+      on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
@@ -97,29 +97,31 @@ resources:
   vector_stores:
     # Product information vector store for similarity search
     products_vector_store: &products_vector_store
-      embedding_model: *embedding_model             # Reference to embedding model above
+      embedding_model: *embedding_model
+                                                    # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
         name: dbdemos_vs_endpoint            # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
-        schema: *retail_schema                      # Unity Catalog schema for the index
+        schema: *retail_schema
+                                                    # Unity Catalog schema for the index
         name: products_index                        # Index name
       source_table:                                 # Table containing source data
         schema: *retail_schema
         name: products
       primary_key: product_id                       # Primary key column
-      doc_uri: ~                                    # Optional document URI column (null in this case)
+      doc_uri:                                      # Optional document URI column (null in this case)
       embedding_source_column: description          # Column to create embeddings from
       columns:                                      # Columns to include in vector store
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - class_cd
-        - description
-      on_behalf_of_user: False
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
+      on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -133,7 +135,6 @@ resources:
     find_product_by_upc: &find_product_by_upc
       schema: *retail_schema
       name: find_product_by_upc                     # Function to find products by UPC
-    
     # Inventory lookup functions
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *retail_schema
@@ -141,7 +142,6 @@ resources:
     find_inventory_by_upc: &find_inventory_by_upc
       schema: *retail_schema
       name: find_inventory_by_upc                   # Function to find inventory by UPC
-    
     # Store-specific inventory functions
     find_store_inventory_by_upc: &find_store_inventory_by_upc
       schema: *retail_schema
@@ -162,8 +162,7 @@ resources:
     retail_database: &retail_database
       name: "Retail and Consumer Goods Database"
       project: "retail-consumer-goods"  # Autoscaling Lakebase project name
-      description: "Database for agent memory and checkpoints" 
-   
+      description: "Database for agent memory and checkpoints"
       client_id: *client_id
       client_secret: *client_secret
       on_behalf_of_user: false
@@ -176,16 +175,17 @@ resources:
 retrievers:
   # Product information retriever using vector search
   products_retriever: &products_retriever
-    vector_store: *products_vector_store            # Reference to vector store defined above
+    vector_store: *products_vector_store
+                                                    # Reference to vector store defined above
     columns:                                        # Columns to return in search results
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - class_cd
-      - description
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:                              # Search configuration
       num_results: 10                               # Maximum number of results to return
       filters: {}                                   # Additional filters (empty in this case)
@@ -202,7 +202,6 @@ tools:
   # FACTORY TOOLS
   # ---------------------------------------------------------------------------
   # Tools created by factory functions - configured at runtime
-  
   # Vector search tool for product similarity
   find_product_details_by_description_tool: &find_product_details_by_description_tool
     name: vector_search
@@ -210,7 +209,8 @@ tools:
       type: factory
       name: dao_ai.tools.create_vector_search_tool
       args:
-        retriever: *products_retriever              # Reference to retriever config
+        retriever: *products_retriever
+                                                    # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name
         description: "Search for products by description"  # Tool description
 
@@ -218,13 +218,13 @@ tools:
   # UNITY CATALOG TOOLS
   # ---------------------------------------------------------------------------
   # Tools that directly call Unity Catalog functions
-  
   # Product lookup tools using Unity Catalog functions
   find_product_by_sku_tool: &find_product_by_sku_tool
     name: find_product_by_sku_uc
     function:
       type: unity_catalog                           # Tool type: Unity Catalog function
-      resource: *find_product_by_sku                      # Merge function configuration
+      resource: *find_product_by_sku
+                                                          # Merge function configuration
 
   find_product_by_upc_tool: &find_product_by_upc_tool
     name: find_product_by_upc_uc
@@ -254,22 +254,24 @@ tools:
 
 memory: &memory
   # Conversation checkpointing for state persistence
-  checkpointer: 
+  checkpointer:
     name: default_checkpointer                      # Checkpointer identifier
-    database: *retail_database                      # Reference to database configuration (type inferred from presence)
+    database: *retail_database
+                                                    # Reference to database configuration (type inferred from presence)
 
   # Long-term memory store for agent context
-  store: 
+  store:
     name: default_store                             # Store identifier
-    database: *retail_database                      # Database for persistence (type inferred from presence)
+    database: *retail_database
+                                                    # Database for persistence (type inferred from presence)
     namespace: "{user_id}"
 
   # Memory extraction and injection
   extraction:
     schemas:                                        # Structured memory types
-      - user_profile                                # Singleton profile per user (name, preferences, etc.)
-      - preference                                  # Collection of user preferences
-      - episode                                     # Notable interaction patterns
+    - user_profile                                  # Singleton profile per user (name, preferences, etc.)
+    - preference                                    # Collection of user preferences
+    - episode                                       # Notable interaction patterns
     instructions: |
       Extract the user's name, role, shopping preferences, product interests,
       and any notable interaction patterns. Update the user profile with new
@@ -278,8 +280,10 @@ memory: &memory
     auto_inject: true                               # Inject relevant memories into prompts
     auto_inject_limit: 5                            # Max memories to inject per turn
     background_extraction: true                     # Extract memories in background thread
-    extraction_model: *tool_calling_llm             # Use tool-calling LLM for extraction
-    query_model: *fast_llm                          # Use fast LLM for search query optimization
+    extraction_model: *tool_calling_llm
+                                                    # Use tool-calling LLM for extraction
+    query_model: *fast_llm
+                                                    # Use fast LLM for search query optimization
 
 # =============================================================================
 # AGENTS CONFIGURATION
@@ -295,9 +299,10 @@ agents:
   general: &general
     name: general                                   # Agent identifier
     description: "General retail store assistant for home improvement and hardware store inquiries"
-    model: *tool_calling_llm                       # Reference to LLM configuration
+    model: *tool_calling_llm
+                                                   # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *find_product_details_by_description_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
@@ -407,7 +412,8 @@ agents:
     description: "DIY and home improvement expert providing how-to advice, project guidance, and tool recommendations"
     model: *tool_calling_llm
     tools:
-      - *find_product_details_by_description_tool   # Can search for tools and materials
+    - *find_product_details_by_description_tool
+                                                    # Can search for tools and materials
     guardrails: []
     prompt: |
       ### User Information
@@ -452,9 +458,9 @@ agents:
     description: "Product specialist providing detailed information about specific products, features, specifications, and intended uses"
     model: *tool_calling_llm
     tools:
-      - *find_product_by_sku_tool
-      - *find_product_by_upc_tool
-      - *find_product_details_by_description_tool
+    - *find_product_by_sku_tool
+    - *find_product_by_upc_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: |
       ### User Information
@@ -513,9 +519,9 @@ agents:
     description: "Inventory management specialist providing information about product availability, stock levels, and store inventory"
     model: *tool_calling_llm
     tools:
-      - *find_inventory_by_sku_tool
-      - *find_inventory_by_upc_tool
-      - *find_product_details_by_description_tool
+    - *find_inventory_by_sku_tool
+    - *find_inventory_by_upc_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: |
       ### User Information
@@ -573,8 +579,8 @@ agents:
     description: "Product comparison specialist providing detailed comparisons between different products, highlighting key differences and best use cases"
     model: *tool_calling_llm
     tools:
-      - *find_product_details_by_description_tool
-      - *find_product_by_sku_tool
+    - *find_product_details_by_description_tool
+    - *find_product_by_sku_tool
     guardrails: []
     prompt: |
       ### User Information
@@ -640,7 +646,7 @@ agents:
     description: "Product recommendation specialist providing tailored product suggestions based on customer needs, preferences, and budget"
     model: *tool_calling_llm
     tools:
-      - *find_product_details_by_description_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: |
       ### User Information
@@ -714,16 +720,16 @@ middleware:
     args:
       fields:
         # Required field - must be provided (no 'required: false')
-        - name: store_num
-          description: "Your store number for inventory lookups"
-          example_value: "12345"
+      - name: store_num
+        description: "Your store number for inventory lookups"
+        example_value: "12345"
         # Optional fields (required: false) - shown in error messages with example values
         # Note: thread_id and user_id are handled by the middleware's error message format
         #       so we don't need to list them here - they're automatically included
-        - name: user_id
-          description: "Your unique user identifier"
-          required: false
-          example_value: "my_user_id"
+      - name: user_id
+        description: "Your unique user identifier"
+        required: false
+        example_value: "my_user_id"
 
 # =============================================================================
 # APPLICATION CONFIGURATION
@@ -736,7 +742,8 @@ app:
   description: "Multi-agent system for retail customer service and product assistance"
   log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
-    schema: *retail_schema                          # Schema where model will be registered
+    schema: *retail_schema
+                                                    # Schema where model will be registered
     name: hardware_store_lakebase_dao
   endpoint_name: hardware_store_lakebase_dao           # Model serving endpoint name
   environment_vars:
@@ -744,37 +751,41 @@ app:
     RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
-    streaming: True                                 # Indicates streaming capabilities
+    streaming: true                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
-    - principals: [users]                           # Grant access to all users
-      entitlements:
-        - CAN_QUERY                                # Full management permissions
+  - principals: [users]                             # Grant access to all users
+    entitlements:
+    - CAN_QUERY                                    # Full management permissions
   agents:                                           # List of agents included in the system
-    - *orders                                       # Order management agent
-    - *diy                                          # DIY and tutorials agent
-    - *product                                      # Product information agent
-    - *inventory                                    # Inventory management agent
-    - *comparison                                   # Product comparison agent
-    - *recommendation                               # Product recommendation agent
-    - *general                                      # General purpose agent
+  - *orders
+  - *diy
+  - *product
+  - *inventory
+  - *comparison
+  - *recommendation
+  - *general
+                                                    # General purpose agent
 
   orchestration:                                    # Agent orchestration configuration
-    memory: *memory                            # Memory store for conversation context
+    memory: *memory
+                                               # Memory store for conversation context
     supervisor:                                     # Supervisor orchestration pattern
-      model: *fast_llm                      # LLM for routing decisions
+      model: *fast_llm
+                                            # LLM for routing decisions
       middleware:                                       # Middleware for input validation
-        - *store_validation                             # Validate required custom fields
+      - *store_validation
+                                                        # Validate required custom fields
 
   input_example:
-      messages:
-        - role: user
-          content: Can you recommend a lamp to match my oak side tables?
-      custom_inputs:
-        configurable:
+    messages:
+    - role: user
+      content: Can you recommend a lamp to match my oak side tables?
+    custom_inputs:
+      configurable:
           # conversation_id is auto-generated as UUID if not provided
-          user_id: my_user_id
-          store_num: 87887
-        session: {}
+        user_id: my_user_id
+        store_num: 87887
+      session: {}
 
 # =============================================================================
 # UNITY CATALOG FUNCTIONS DEPLOYMENT
@@ -783,39 +794,44 @@ app:
 # These functions provide data access capabilities for the agent tools
 
 unity_catalog_functions:
-  - function: *find_inventory_by_sku                    # Reference to function definition
-    ddl: ../functions/hardware_store/find_inventory_by_sku.sql
-    test:
-      parameters:
-        sku: ["00176279"] 
-  - function: *find_inventory_by_upc                    # Reference to function definition
-    ddl: ../functions/hardware_store/find_inventory_by_upc.sql
-    test:
-      parameters:
-        upc: ["0017627748017"]
-  - function: *find_product_by_sku                      # Reference to function definition
-    ddl: ../functions/hardware_store/find_product_by_sku.sql
-    test:
-      parameters:
-        sku: ["00176279"]
-  - function: *find_product_by_upc                      # Reference to function definition
-    ddl: ../functions/hardware_store/find_product_by_upc.sql
-    test:
-      parameters:
-        upc: ["0017627748017"] 
-  - function: *find_store_inventory_by_sku              # Reference to function definition
-    ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
-    test:
-      parameters:
-        store: "35048"
-        sku: ["00176279"]
-  - function: *find_store_inventory_by_upc              # Reference to function definition
-    ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
-    test:
-      parameters:
-        store: "35048"
-        upc: ["0017627748017"]
- 
+- function: *find_inventory_by_sku
+                                                        # Reference to function definition
+  ddl: ../functions/hardware_store/find_inventory_by_sku.sql
+  test:
+    parameters:
+      sku: ["00176279"]
+- function: *find_inventory_by_upc
+                                                        # Reference to function definition
+  ddl: ../functions/hardware_store/find_inventory_by_upc.sql
+  test:
+    parameters:
+      upc: ["0017627748017"]
+- function: *find_product_by_sku
+                                                        # Reference to function definition
+  ddl: ../functions/hardware_store/find_product_by_sku.sql
+  test:
+    parameters:
+      sku: ["00176279"]
+- function: *find_product_by_upc
+                                                        # Reference to function definition
+  ddl: ../functions/hardware_store/find_product_by_upc.sql
+  test:
+    parameters:
+      upc: ["0017627748017"]
+- function: *find_store_inventory_by_sku
+                                                        # Reference to function definition
+  ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
+  test:
+    parameters:
+      store: "35048"
+      sku: ["00176279"]
+- function: *find_store_inventory_by_upc
+                                                        # Reference to function definition
+  ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
+  test:
+    parameters:
+      store: "35048"
+      upc: ["0017627748017"]
 # =============================================================================
 # EVALUATION CONFIGURATION
 # =============================================================================
@@ -835,11 +851,11 @@ evaluation:
       store_num: 87887
     session: {}
   guidelines:
-    - name: my_relevance_guideline
-      guidelines:
-        - Ensure responses are relevant to the user's query
-        - Prioritize information from the user's context
-        - Avoid unnecessary jargon or technical details
+  - name: my_relevance_guideline
+    guidelines:
+    - Ensure responses are relevant to the user's query
+    - Prioritize information from the user's context
+    - Avoid unnecessary jargon or technical details
 
 # =============================================================================
 # DATASETS CONFIGURATION
@@ -848,15 +864,15 @@ evaluation:
 # and data files for initial population of Unity Catalog tables
 
 datasets:
-  - table: 
-      schema: *retail_schema
-      name: products
-    ddl: ../data/hardware_store/products.sql
-    data: ../data/hardware_store/products.snappy.parquet
-    format: parquet
-  - table: 
-      schema: *retail_schema
-      name: inventory
-    ddl: ../data/hardware_store/inventory.sql
-    data: ../data/hardware_store/inventory.snappy.parquet
-    format: parquet
+- table:
+    schema: *retail_schema
+    name: products
+  ddl: ../data/hardware_store/products.sql
+  data: ../data/hardware_store/products.snappy.parquet
+  format: parquet
+- table:
+    schema: *retail_schema
+    name: inventory
+  ddl: ../data/hardware_store/inventory.sql
+  data: ../data/hardware_store/inventory.snappy.parquet
+  format: parquet

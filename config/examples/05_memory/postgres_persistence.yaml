@@ -33,7 +33,7 @@ parameters:
 # SCHEMAS
 # =============================================================================
 schemas:
-  demo_schema: &demo_schema
+  demo_schema:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
 
@@ -41,13 +41,13 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.7
       max_tokens: 4096
-    
-    summary_llm: &summary_llm
+
+    summary_llm:
       name: databricks-claude-sonnet-4
       temperature: 0.1
       max_tokens: 512
@@ -59,7 +59,7 @@ resources:
     postgres_db: &postgres_db
       name: "conversations_db"
       description: "PostgreSQL database for conversation persistence"
-      
+
       # Option 1: Connection via environment variables (recommended)
       # Set these in your environment:
       #   export PGHOST=localhost
@@ -67,7 +67,6 @@ resources:
       #   export PGDATABASE=conversations
       #   export PGUSER=your_username
       #   export PGPASSWORD=your_password
-      
       host:
         env: PGHOST
         default_value: localhost
@@ -82,7 +81,7 @@ resources:
         default_value: postgres
       password:
         env: PGPASSWORD
-      
+
       # Option 2: Direct connection string (less secure, not recommended for production)
       # Uncomment to use a connection string instead:
       # connection_string:
@@ -114,7 +113,7 @@ agents:
     model: *default_llm
     prompt: |
       You are a helpful assistant with persistent memory backed by PostgreSQL.
-      
+
       Your capabilities:
       - Remember conversations across sessions
       - Maintain context across multiple sessions
@@ -127,17 +126,16 @@ app:
   name: postgres_persistence_dao
   description: "Chat agent with PostgreSQL persistence"
   log_level: INFO
-  
+
   registered_model:
     name: postgres_persistence_dao
-  
+
   agents:
-    - *postgres_agent
-  
+  - *postgres_agent
   input_example:
     messages:
-      - role: user
-        content: "Let's start a long conversation about machine learning best practices"
+    - role: user
+      content: "Let's start a long conversation about machine learning best practices"
     custom_inputs:
       configurable:
         # Thread ID groups related messages - use same ID to resume conversation

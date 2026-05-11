@@ -401,8 +401,8 @@ schemas:
   retail_schema: &retail_schema           # Unity Catalog location
 
 resources:
-  llms:
-    default_llm: &default_llm             # Primary LLM
+  models:
+    default_llm: &default_llm             # Primary LLM (chat)
     judge_llm: &judge_llm                 # Guardrail evaluator
   vector_stores:
     products_store: &products_store       # Semantic search

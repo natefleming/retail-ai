@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Sequence
 import mlflow
 from loguru import logger
 
-from dao_ai.config import GenieContextAwareCacheParametersModel, LLMModel
+from dao_ai.config import GenieContextAwareCacheParametersModel, InferenceEndpointModel
 from dao_ai.utils import dao_ai_version
 
 # Type-only import for optuna.Trial to support type hints without runtime dependency
@@ -166,7 +166,7 @@ def semantic_match_judge(
     context1: str,
     question2: str,
     context2: str,
-    model: LLMModel | str,
+    model: InferenceEndpointModel | str,
     use_cache: bool = True,
 ) -> bool:
     """
@@ -195,8 +195,8 @@ def semantic_match_judge(
         if cache_key in _judge_cache:
             return _judge_cache[cache_key]
 
-    # Convert model to LLMModel if string
-    llm_model: LLMModel = LLMModel(name=model) if isinstance(model, str) else model
+    # Convert model to InferenceEndpointModel if string
+    llm_model: InferenceEndpointModel = InferenceEndpointModel(name=model) if isinstance(model, str) else model
 
     # Create the chat model
     chat = llm_model.as_chat_model()
@@ -284,7 +284,7 @@ def _evaluate_thresholds(
     similarity_threshold: float,
     context_similarity_threshold: float,
     question_weight: float,
-    judge_model: LLMModel | str | None = None,
+    judge_model: InferenceEndpointModel | str | None = None,
 ) -> tuple[float, float, float, dict[str, int]]:
     """
     Evaluate a set of thresholds against the dataset.
@@ -390,7 +390,7 @@ def _evaluate_thresholds(
 
 def _create_objective(
     dataset: ContextAwareCacheEvalDataset,
-    judge_model: LLMModel | str | None,
+    judge_model: InferenceEndpointModel | str | None,
     metric: Literal["f1", "precision", "recall", "fbeta"],
     beta: float = 1.0,
 ) -> Callable[["optuna.Trial"], float]:
@@ -447,7 +447,7 @@ def optimize_context_aware_cache_thresholds(
     original_thresholds: dict[str, float]
     | GenieContextAwareCacheParametersModel
     | None = None,
-    judge_model: LLMModel | str = "databricks-meta-llama-3-3-70b-instruct",
+    judge_model: InferenceEndpointModel | str = "databricks-meta-llama-3-3-70b-instruct",
     n_trials: int = 50,
     metric: Literal["f1", "precision", "recall", "fbeta"] = "f1",
     beta: float = 1.0,
@@ -720,7 +720,7 @@ def _log_optimization_to_mlflow(
     best_recall: float,
     best_f1: float,
     best_confusion: dict[str, int],
-    judge_model: LLMModel | str,
+    judge_model: InferenceEndpointModel | str,
 ) -> None:
     """Log optimization results to MLflow."""
     with mlflow.start_run(run_name=study_name):
@@ -777,10 +777,10 @@ def _log_optimization_to_mlflow(
 
 def generate_eval_dataset_from_cache(
     cache_entries: Sequence[dict[str, Any]],
-    embedding_model: LLMModel | str = "databricks-gte-large-en",
+    embedding_model: InferenceEndpointModel | str = "databricks-gte-large-en",
     num_positive_pairs: int = 50,
     num_negative_pairs: int = 50,
-    paraphrase_model: LLMModel | str | None = None,
+    paraphrase_model: InferenceEndpointModel | str | None = None,
     dataset_name: str = "generated_eval_dataset",
 ) -> ContextAwareCacheEvalDataset:
     """
@@ -820,21 +820,21 @@ def generate_eval_dataset_from_cache(
         raise ValueError("Need at least 2 cache entries to generate dataset")
 
     # Convert embedding model
-    emb_model: LLMModel = (
-        LLMModel(name=embedding_model)
+    emb_model: InferenceEndpointModel = (
+        InferenceEndpointModel(name=embedding_model)
         if isinstance(embedding_model, str)
         else embedding_model
     )
     embeddings = emb_model.as_embeddings_model()
 
     # Use paraphrase model or default to a capable LLM
-    para_model: LLMModel = (
-        LLMModel(name=paraphrase_model)
+    para_model: InferenceEndpointModel = (
+        InferenceEndpointModel(name=paraphrase_model)
         if isinstance(paraphrase_model, str)
         else (
             paraphrase_model
             if paraphrase_model
-            else LLMModel(name="databricks-meta-llama-3-3-70b-instruct")
+            else InferenceEndpointModel(name="databricks-meta-llama-3-3-70b-instruct")
         )
     )
     chat = para_model.as_chat_model()

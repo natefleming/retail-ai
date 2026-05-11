@@ -63,7 +63,7 @@ def _unwrap_to_base_chat_model(model: ModelSpec) -> str | BaseChatModel:
 
     ``langmem.create_memory_store_manager`` only accepts ``str`` or
     ``BaseChatModel``.  When the caller passes a ``RunnableWithFallbacks``
-    (produced by ``LLMModel.as_chat_model()`` when fallbacks are configured),
+    (produced by ``InferenceEndpointModel.as_chat_model()`` when fallbacks are configured),
     we extract the primary runnable so langmem can use it directly.
     """
     if isinstance(model, str) or isinstance(model, BaseChatModel):

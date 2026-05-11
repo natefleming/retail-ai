@@ -40,18 +40,18 @@ parameters:
 variables:
   client_id: &client_id
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
 
   client_secret: &client_secret
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
 service_principals:
-  retail_consumer_goods_sp: &retail_consumer_goods_sp
+  retail_consumer_goods_sp:
     name: retail_consumer_goods_sp
     client_id: *client_id
     client_secret: *client_secret
@@ -64,12 +64,12 @@ schemas:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
     permissions:
-      - principals: [users]
-        privileges:
-          - USE_CATALOG
-          - USE_SCHEMA
-          - SELECT
-          - EXECUTE
+    - principals: [users]
+      privileges:
+      - USE_CATALOG
+      - USE_SCHEMA
+      - SELECT
+      - EXECUTE
 
 # =============================================================================
 # RESOURCES
@@ -78,7 +78,7 @@ resources:
   # ---------------------------------------------------------------------------
   # LANGUAGE MODELS
   # ---------------------------------------------------------------------------
-  llms:
+  models:
     fast_llm: &fast_llm
       name: databricks-gpt-5-4-mini
       temperature: 0.1
@@ -97,7 +97,7 @@ resources:
       max_tokens: 4096
       on_behalf_of_user: true
       fallbacks:
-        - databricks-claude-sonnet-4-6
+      - databricks-claude-sonnet-4-6
 
     judge_llm: &judge_llm
       name: databricks-claude-3-7-sonnet
@@ -132,21 +132,21 @@ resources:
         schema: *brickstore_schema
         name: products
       primary_key: product_id
-      doc_uri: ~
+      doc_uri:
       embedding_source_column: long_description
       columns:
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - department_name
-        - category_name
-        - color
-        - size
-        - base_price
-        - long_description
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - department_name
+      - category_name
+      - color
+      - size
+      - base_price
+      - long_description
 
     stores_vector_store: &stores_vector_store
       embedding_model: *embedding_model
@@ -161,15 +161,15 @@ resources:
         schema: *brickstore_schema
         name: dim_stores
       primary_key: store_id
-      doc_uri: ~
+      doc_uri:
       embedding_source_column: store_details_text
       columns:
-        - store_id
-        - store_name
-        - store_address
-        - store_city
-        - store_state
-        - store_details_text
+      - store_id
+      - store_name
+      - store_address
+      - store_city
+      - store_state
+      - store_details_text
 
   # ---------------------------------------------------------------------------
   # WAREHOUSES
@@ -200,52 +200,52 @@ resources:
       parent_path: "${var.genie_parent_path}"
       warehouse: *brickstore_warehouse
       table_sources:
-        - table:
-            schema: *brickstore_schema
-            name: products
-            on_behalf_of_user: true
-          description: "Product catalog with SKU, UPC, brand, department, category, price."
-        - table:
-            schema: *brickstore_schema
-            name: inventory
-            on_behalf_of_user: true
-          description: "Per-store inventory with on-hand quantity, warehouse backstock, retail amount, popularity, aisle location."
-        - table:
-            schema: *brickstore_schema
-            name: dim_stores
-            on_behalf_of_user: true
-          description: "Store directory: id, name, address, city/state, manager id, hours, type, latitude/longitude, departments offered."
-        - table:
-            schema: *brickstore_schema
-            name: customers
-            on_behalf_of_user: true
-          description: "Customer profiles: tier, preferences (style/size/color/brand), lifetime spend, satisfaction, upcoming appointments, alerts."
-        - table:
-            schema: *brickstore_schema
-            name: employee_performance
-            on_behalf_of_user: true
-          description: "Monthly employee performance: sales achievement, task completion, customer satisfaction, attendance, by department."
-        - table:
-            schema: *brickstore_schema
-            name: employee_tasks
-            on_behalf_of_user: true
-          description: "Per-task assignments: store, employee, type, priority, status, due time, customer/order linkage."
-        - table:
-            schema: *brickstore_schema
-            name: managers
-            on_behalf_of_user: true
-          description: "Manager directory: contact info, department, communication preferences, work schedule."
-        - table:
-            schema: *brickstore_schema
-            name: appointments
-            on_behalf_of_user: true
-          description: "Customer appointment scheduling: type, date/time, store, stylist, status."
+      - table:
+          schema: *brickstore_schema
+          name: products
+          on_behalf_of_user: true
+        description: "Product catalog with SKU, UPC, brand, department, category, price."
+      - table:
+          schema: *brickstore_schema
+          name: inventory
+          on_behalf_of_user: true
+        description: "Per-store inventory with on-hand quantity, warehouse backstock, retail amount, popularity, aisle location."
+      - table:
+          schema: *brickstore_schema
+          name: dim_stores
+          on_behalf_of_user: true
+        description: "Store directory: id, name, address, city/state, manager id, hours, type, latitude/longitude, departments offered."
+      - table:
+          schema: *brickstore_schema
+          name: customers
+          on_behalf_of_user: true
+        description: "Customer profiles: tier, preferences (style/size/color/brand), lifetime spend, satisfaction, upcoming appointments, alerts."
+      - table:
+          schema: *brickstore_schema
+          name: employee_performance
+          on_behalf_of_user: true
+        description: "Monthly employee performance: sales achievement, task completion, customer satisfaction, attendance, by department."
+      - table:
+          schema: *brickstore_schema
+          name: employee_tasks
+          on_behalf_of_user: true
+        description: "Per-task assignments: store, employee, type, priority, status, due time, customer/order linkage."
+      - table:
+          schema: *brickstore_schema
+          name: managers
+          on_behalf_of_user: true
+        description: "Manager directory: contact info, department, communication preferences, work schedule."
+      - table:
+          schema: *brickstore_schema
+          name: appointments
+          on_behalf_of_user: true
+        description: "Customer appointment scheduling: type, date/time, store, stylist, status."
       sample_questions:
-        - "How many BOPIS-style task assignments are open at store 101 right now?"
-        - "Which departments have the highest task completion rate this month?"
-        - "What's the average customer satisfaction score by store?"
-        - "Which products in Womens Fashion have the highest current inventory?"
-        - "How many upcoming appointments are scheduled at each store this week?"
+      - "How many BOPIS-style task assignments are open at store 101 right now?"
+      - "Which departments have the highest task completion rate this month?"
+      - "What's the average customer satisfaction score by store?"
+      - "Which products in Womens Fashion have the highest current inventory?"
+      - "How many upcoming appointments are scheduled at each store this week?"
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -342,80 +342,80 @@ retrievers:
   products_retriever: &products_retriever
     vector_store: *products_vector_store
     columns:
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - department_name
-      - category_name
-      - color
-      - size
-      - base_price
-      - long_description
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - department_name
+    - category_name
+    - color
+    - size
+    - base_price
+    - long_description
     search_parameters:
       num_results: 50
       filters: {}
       query_type: HYBRID
     instructed:
       columns:
-        - name: product_id
-          type: number
-          description: "Unique product identifier"
-        - name: sku
-          type: string
-          description: "Stock keeping unit - internal product code"
-        - name: upc
-          type: string
-          description: "Universal Product Code - barcode number"
-        - name: brand_name
-          type: string
-          description: "Brand or manufacturer (Adidas, Nike, Lululemon, etc.)"
-        - name: product_name
-          type: string
-          description: "Product display name"
-        - name: merchandise_class
-          type: string
-          description: "Broad category (Apparel, Footwear, Electronics, Home Goods, Accessories)"
-        - name: department_name
-          type: string
-          description: "Department (Womens Fashion, Mens Fashion, Electronics, Home Goods, Accessories)"
-        - name: category_name
-          type: string
-          description: "Category within department"
-        - name: color
-          type: string
-          description: "Primary color"
-        - name: size
-          type: string
-          description: "Size specification"
-        - name: base_price
-          type: number
-          description: "Base retail price in USD"
-        - name: long_description
-          type: string
-          description: "Detailed product description"
+      - name: product_id
+        type: number
+        description: "Unique product identifier"
+      - name: sku
+        type: string
+        description: "Stock keeping unit - internal product code"
+      - name: upc
+        type: string
+        description: "Universal Product Code - barcode number"
+      - name: brand_name
+        type: string
+        description: "Brand or manufacturer (Adidas, Nike, Lululemon, etc.)"
+      - name: product_name
+        type: string
+        description: "Product display name"
+      - name: merchandise_class
+        type: string
+        description: "Broad category (Apparel, Footwear, Electronics, Home Goods, Accessories)"
+      - name: department_name
+        type: string
+        description: "Department (Womens Fashion, Mens Fashion, Electronics, Home Goods, Accessories)"
+      - name: category_name
+        type: string
+        description: "Category within department"
+      - name: color
+        type: string
+        description: "Primary color"
+      - name: size
+        type: string
+        description: "Size specification"
+      - name: base_price
+        type: number
+        description: "Base retail price in USD"
+      - name: long_description
+        type: string
+        description: "Detailed product description"
       constraints:
-        - "Use brand_name for brand filtering"
-        - "Use merchandise_class for product type filtering"
-        - "Use department_name for department-level queries"
-        - "Use color or size for fit filtering"
-        - "Only use columns listed above"
+      - "Use brand_name for brand filtering"
+      - "Use merchandise_class for product type filtering"
+      - "Use department_name for department-level queries"
+      - "Use color or size for fit filtering"
+      - "Only use columns listed above"
       decomposition:
         model: *decomposition_llm
         max_subqueries: 3
         rrf_k: 60
         normalize_filter_case: uppercase
         examples:
-          - query: "black Adidas Gazelle size 10"
-            filters: {"brand_name": "ADIDAS", "merchandise_class": "FOOTWEAR", "color": "BLACK", "size": "10"}
-          - query: "designer black handbag under $300"
-            filters: {"merchandise_class": "ACCESSORIES", "color": "BLACK"}
-          - query: "women's professional dresses"
-            filters: {"department_name": "WOMENS FASHION", "merchandise_class": "APPAREL"}
-          - query: "Nike running shoes excluding Pegasus"
-            filters: {"brand_name": "NIKE", "merchandise_class": "FOOTWEAR"}
+        - query: "black Adidas Gazelle size 10"
+          filters: {"brand_name": "ADIDAS", "merchandise_class": "FOOTWEAR", "color": "BLACK", "size": "10"}
+        - query: "designer black handbag under $300"
+          filters: {"merchandise_class": "ACCESSORIES", "color": "BLACK"}
+        - query: "women's professional dresses"
+          filters: {"department_name": "WOMENS FASHION", "merchandise_class": "APPAREL"}
+        - query: "Nike running shoes excluding Pegasus"
+          filters: {"brand_name": "NIKE", "merchandise_class": "FOOTWEAR"}
       rerank:
         model: *decomposition_llm
         instructions: |
@@ -429,20 +429,20 @@ retrievers:
       model: ms-marco-MiniLM-L-12-v2
       top_n: 20
       columns:
-        - brand_name
-        - product_name
-        - merchandise_class
-        - department_name
+      - brand_name
+      - product_name
+      - merchandise_class
+      - department_name
 
   stores_retriever: &stores_retriever
     vector_store: *stores_vector_store
     columns:
-      - store_id
-      - store_name
-      - store_address
-      - store_city
-      - store_state
-      - store_details_text
+    - store_id
+    - store_name
+    - store_address
+    - store_city
+    - store_state
+    - store_details_text
     search_parameters:
       num_results: 10
       filters: {}
@@ -650,27 +650,27 @@ tools:
           nearby-store checks, customer appointment preparation, BOPIS
           orders, employee performance, and personal styling support.
         agents:
-          - name: product
-            description: "Product details, SKU/UPC lookup, comparisons, recommendations"
-          - name: inventory
-            description: "Stock levels, store availability, nearby stores, hold guidance"
-          - name: orders
-            description: "BOPIS pickups, order tracking, delivery scheduling"
-          - name: customer
-            description: "Customer profiles, upcoming appointments, prep summaries"
-          - name: stylist
-            description: "Personal styling sessions and outfit preselection"
-          - name: employee
-            description: "Top performers, task assignments, manager lookup"
-          - name: general
-            description: "Store info, hours, services, and other inquiries"
+        - name: product
+          description: "Product details, SKU/UPC lookup, comparisons, recommendations"
+        - name: inventory
+          description: "Stock levels, store availability, nearby stores, hold guidance"
+        - name: orders
+          description: "BOPIS pickups, order tracking, delivery scheduling"
+        - name: customer
+          description: "Customer profiles, upcoming appointments, prep summaries"
+        - name: stylist
+          description: "Personal styling sessions and outfit preselection"
+        - name: employee
+          description: "Top performers, task assignments, manager lookup"
+        - name: general
+          description: "Store info, hours, services, and other inquiries"
         sample_prompts:
-          - "Do you have Adidas Gazelle size 10 black at store 101?"
-          - "Who has appointments today at store 101 that I should prep for?"
-          - "Tell me about Victoria Sterling - she just walked in"
-          - "Find a personal shopper for a 2pm walk-in at store 101"
-          - "Who are the top performers in Womens Fashion this month?"
-          - "Where is the Marina Market store?"
+        - "Do you have Adidas Gazelle size 10 black at store 101?"
+        - "Who has appointments today at store 101 that I should prep for?"
+        - "Tell me about Victoria Sterling - she just walked in"
+        - "Find a personal shopper for a 2pm walk-in at store 101"
+        - "Who are the top performers in Womens Fashion this month?"
+        - "Where is the Marina Market store?"
 
 # =============================================================================
 # PROMPTS (MLflow Prompt Registry)
@@ -1002,9 +1002,9 @@ memory: &memory
 
   extraction:
     schemas:
-      - user_profile
-      - preference
-      - episode
+    - user_profile
+    - preference
+    - episode
     instructions: |
       Extract the user's role (associate, manager, stylist, pickup-desk),
       their `store_num`, their typical workflow (in-aisle assist, BOPIS pickup,
@@ -1026,13 +1026,13 @@ middleware:
     name: dao_ai.middleware.create_custom_field_validation_middleware
     args:
       fields:
-        - name: store_num
-          description: "Your store number for inventory, customer, and task lookups"
-          example_value: "101"
-        - name: user_id
-          description: "Your unique user identifier"
-          required: false
-          example_value: "associate_01"
+      - name: store_num
+        description: "Your store number for inventory, customer, and task lookups"
+        example_value: "101"
+      - name: user_id
+        description: "Your unique user identifier"
+        required: false
+        example_value: "associate_01"
 
 # =============================================================================
 # AGENTS
@@ -1043,12 +1043,12 @@ agents:
     description: "General store associate for store info, store search, and quick customer/appointment context"
     model: *tool_calling_llm
     tools:
-      - *current_time_tool
-      - *find_store_details_by_location_tool
-      - *find_store_by_number_tool
-      - *find_upcoming_customer_appointments_tool
-      - *get_customer_details_tool
-      - *store_ops_analytics_tool
+    - *current_time_tool
+    - *find_store_details_by_location_tool
+    - *find_store_by_number_tool
+    - *find_upcoming_customer_appointments_tool
+    - *get_customer_details_tool
+    - *store_ops_analytics_tool
     guardrails: []
     prompt: *general_prompt
     handoff_prompt: "Store info, hours, location, services, quick customer lookups, or any inquiry that doesn't clearly belong to a specialist."
@@ -1058,9 +1058,9 @@ agents:
     description: "BOPIS and order fulfillment specialist for pickup, staging, and order tracking"
     model: *tool_calling_llm
     tools:
-      - *current_time_tool
-      - *get_customer_details_tool
-      - *store_ops_analytics_tool
+    - *current_time_tool
+    - *get_customer_details_tool
+    - *store_ops_analytics_tool
     guardrails: []
     prompt: *orders_prompt
     handoff_prompt: "BOPIS pickups, online order status, in-store order tracking, delivery scheduling, or hold confirmations (narrative)."
@@ -1070,10 +1070,10 @@ agents:
     description: "Product specialist covering catalog lookup, comparisons, and recommendations"
     model: *tool_calling_llm
     tools:
-      - *product_vector_search_tool
-      - *find_product_by_sku_tool
-      - *find_product_by_upc_tool
-      - *store_ops_analytics_tool
+    - *product_vector_search_tool
+    - *find_product_by_sku_tool
+    - *find_product_by_upc_tool
+    - *store_ops_analytics_tool
     guardrails: []
     prompt: *product_prompt
     handoff_prompt: "Product details, SKU/UPC lookups, side-by-side comparisons, or 'what's similar to X' recommendations."
@@ -1083,12 +1083,12 @@ agents:
     description: "Inventory specialist for stock checks at the home store and nearby stores"
     model: *tool_calling_llm
     tools:
-      - *find_inventory_by_sku_tool
-      - *find_inventory_by_upc_tool
-      - *find_store_inventory_by_sku_tool
-      - *find_store_inventory_by_upc_tool
-      - *find_nearby_stores_inventory_tool
-      - *product_vector_search_tool
+    - *find_inventory_by_sku_tool
+    - *find_inventory_by_upc_tool
+    - *find_store_inventory_by_sku_tool
+    - *find_store_inventory_by_upc_tool
+    - *find_nearby_stores_inventory_tool
+    - *product_vector_search_tool
     guardrails: []
     prompt: *inventory_prompt
     handoff_prompt: "Stock levels at this store, nearby-store availability, out-of-stock alternatives, or hold guidance."
@@ -1098,11 +1098,11 @@ agents:
     description: "Customer service specialist for upcoming-visit prep and customer profile context"
     model: *tool_calling_llm
     tools:
-      - *find_upcoming_customer_appointments_tool
-      - *get_customer_details_tool
-      - *get_customer_preparation_summary_tool
-      - *product_vector_search_tool
-      - *find_inventory_by_sku_tool
+    - *find_upcoming_customer_appointments_tool
+    - *get_customer_details_tool
+    - *get_customer_preparation_summary_tool
+    - *product_vector_search_tool
+    - *find_inventory_by_sku_tool
     guardrails: []
     prompt: *customer_prompt
     handoff_prompt: "Upcoming customer appointments, pre-visit preparation, customer profile lookups, or 'who's coming in today'."
@@ -1112,11 +1112,11 @@ agents:
     description: "Personal stylist for active styling sessions, outfit selection, and inventory preselection"
     model: *tool_calling_llm
     tools:
-      - *get_customer_details_tool
-      - *get_customer_preparation_summary_tool
-      - *product_vector_search_tool
-      - *find_store_inventory_by_sku_tool
-      - *find_personal_shopping_associates_tool
+    - *get_customer_details_tool
+    - *get_customer_preparation_summary_tool
+    - *product_vector_search_tool
+    - *find_store_inventory_by_sku_tool
+    - *find_personal_shopping_associates_tool
     guardrails: []
     prompt: *stylist_prompt
     handoff_prompt: "Personal styling sessions, outfit building, inventory preselection by customer preference, or finding an available stylist."
@@ -1126,11 +1126,11 @@ agents:
     description: "Manager-on-duty specialist for top performers, task assignments, and manager lookups"
     model: *tool_calling_llm
     tools:
-      - *find_top_employees_by_department_tool
-      - *find_personal_shopping_associates_tool
-      - *find_employee_manager_tool
-      - *find_task_assignments_tool
-      - *employee_insights_tool
+    - *find_top_employees_by_department_tool
+    - *find_personal_shopping_associates_tool
+    - *find_employee_manager_tool
+    - *find_task_assignments_tool
+    - *employee_insights_tool
     guardrails: []
     prompt: *employee_prompt
     handoff_prompt: "Top performers, employee performance, task assignments, overdue tasks, or 'who's <employee>'s manager'."
@@ -1153,30 +1153,30 @@ app:
   monitoring:
     sample_rate: 1.0
     scorers:
-      - safety
-      - completeness
-      - relevance_to_query
-      - tool_call_efficiency
+    - safety
+    - completeness
+    - relevance_to_query
+    - tool_call_efficiency
     guidelines_sample_rate: 0.5
     guidelines:
-      - name: customer_service_accuracy
-        guidelines:
-          - Inventory counts and stock levels must come from tool results, never fabricated
-          - Customer profile data, appointment details, and preparation summaries must be sourced from UC function results
-          - Hold IDs are narrative-only ("HOLD-<store_id>-<yyyymmddhhmm>") - never claim a hold row was inserted
-          - Stylist notifications are narrative-only - draft the message text and tell the user to send it
-      - name: tool_usage_quality
-        guidelines:
-          - SKU and UPC lookups must use the corresponding `find_*_by_sku_uc` / `find_*_by_upc_uc` tool, not Genie
-          - Genie analytics tools should be used for trends and aggregates, not single-record lookups
-          - Vector search should be used when the user describes a product rather than naming a SKU
-          - When stock is zero at the home store, the agent must call `find_nearby_stores_inventory_uc` before suggesting alternatives
-      - name: response_professionalism
-        guidelines:
-          - Responses use floor-friendly language - associates are usually mid-task
-          - Currency values use USD formatting with a `$` prefix
-          - When the customer profile has `requires_manager_greeting=true`, that flag must be surfaced
-          - Privacy-sensitive customer fields (alerts, dietary, accessibility) are only used to prepare service, not casually mentioned
+    - name: customer_service_accuracy
+      guidelines:
+      - Inventory counts and stock levels must come from tool results, never fabricated
+      - Customer profile data, appointment details, and preparation summaries must be sourced from UC function results
+      - Hold IDs are narrative-only ("HOLD-<store_id>-<yyyymmddhhmm>") - never claim a hold row was inserted
+      - Stylist notifications are narrative-only - draft the message text and tell the user to send it
+    - name: tool_usage_quality
+      guidelines:
+      - SKU and UPC lookups must use the corresponding `find_*_by_sku_uc` / `find_*_by_upc_uc` tool, not Genie
+      - Genie analytics tools should be used for trends and aggregates, not single-record lookups
+      - Vector search should be used when the user describes a product rather than naming a SKU
+      - When stock is zero at the home store, the agent must call `find_nearby_stores_inventory_uc` before suggesting alternatives
+    - name: response_professionalism
+      guidelines:
+      - Responses use floor-friendly language - associates are usually mid-task
+      - Currency values use USD formatting with a `$` prefix
+      - When the customer profile has `requires_manager_greeting=true`, that flag must be surfaced
+      - Privacy-sensitive customer fields (alerts, dietary, accessibility) are only used to prepare service, not casually mentioned
   environment_vars:
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
     RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
@@ -1188,23 +1188,23 @@ app:
   enable_chat_proxy: true
 
   permissions:
-    - principals: [users]
-      entitlements:
-        - CAN_QUERY
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
   agents:
-    - *general
-    - *orders
-    - *product
-    - *inventory
-    - *customer
-    - *stylist
-    - *employee
+  - *general
+  - *orders
+  - *product
+  - *inventory
+  - *customer
+  - *stylist
+  - *employee
   orchestration:
     memory: *memory
     supervisor:
       model: *supervisor_llm
       tools:
-        - *app_info_tool
+      - *app_info_tool
       prompt: |
         You are a routing coordinator for an in-store associate companion. You do
         NOT answer questions yourself. Your only job is to read the request and
@@ -1215,11 +1215,11 @@ app:
         request to one of: general, orders, product, inventory, customer, stylist,
         employee. Never attempt to answer a substantive question yourself.
       middleware:
-        - *store_validation
+      - *store_validation
   input_example:
     messages:
-      - role: user
-        content: "Do you have Adidas Gazelle size 10 in black at store 101?"
+    - role: user
+      content: "Do you have Adidas Gazelle size 10 in black at store 101?"
     custom_inputs:
       configurable:
         user_id: associate_01
@@ -1231,103 +1231,103 @@ app:
 # =============================================================================
 unity_catalog_functions:
   # Product / inventory primitives (existing SQL files)
-  - function: *find_product_by_sku
-    ddl: ../functions/brickstore/find_product_by_sku.sql
-    test:
-      parameters:
-        sku: ["STB-KCP-001"]
+- function: *find_product_by_sku
+  ddl: ../functions/brickstore/find_product_by_sku.sql
+  test:
+    parameters:
+      sku: ["STB-KCP-001"]
 
-  - function: *find_product_by_upc
-    ddl: ../functions/brickstore/find_product_by_upc.sql
-    test:
-      parameters:
-        upc: ["012345678901"]
+- function: *find_product_by_upc
+  ddl: ../functions/brickstore/find_product_by_upc.sql
+  test:
+    parameters:
+      upc: ["012345678901"]
 
-  - function: *find_inventory_by_sku
-    ddl: ../functions/brickstore/find_inventory_by_sku.sql
-    test:
-      parameters:
-        sku: ["PET-KCP-001"]
+- function: *find_inventory_by_sku
+  ddl: ../functions/brickstore/find_inventory_by_sku.sql
+  test:
+    parameters:
+      sku: ["PET-KCP-001"]
 
-  - function: *find_inventory_by_upc
-    ddl: ../functions/brickstore/find_inventory_by_upc.sql
-    test:
-      parameters:
-        upc: ["123456789012"]
+- function: *find_inventory_by_upc
+  ddl: ../functions/brickstore/find_inventory_by_upc.sql
+  test:
+    parameters:
+      upc: ["123456789012"]
 
-  - function: *find_store_inventory_by_sku
-    ddl: ../functions/brickstore/find_store_inventory_by_sku.sql
-    test:
-      parameters:
-        store_id: 101
-        sku: ["DUN-KCP-001"]
+- function: *find_store_inventory_by_sku
+  ddl: ../functions/brickstore/find_store_inventory_by_sku.sql
+  test:
+    parameters:
+      store_id: 101
+      sku: ["DUN-KCP-001"]
 
-  - function: *find_store_inventory_by_upc
-    ddl: ../functions/brickstore/find_store_inventory_by_upc.sql
-    test:
-      parameters:
-        store_id: 101
-        upc: ["234567890123"]
+- function: *find_store_inventory_by_upc
+  ddl: ../functions/brickstore/find_store_inventory_by_upc.sql
+  test:
+    parameters:
+      store_id: 101
+      upc: ["234567890123"]
 
-  - function: *find_store_by_number
-    ddl: ../functions/brickstore/find_store_by_number.sql
-    test:
-      parameters:
-        store_ids: [1, 2]
+- function: *find_store_by_number
+  ddl: ../functions/brickstore/find_store_by_number.sql
+  test:
+    parameters:
+      store_ids: [1, 2]
 
   # New brick_store SQL functions
-  - function: *find_nearby_stores_inventory
-    ddl: ../functions/brickstore/find_nearby_stores_inventory.sql
-    test:
-      parameters:
-        reference_store_id: 101
-        sku: ["PET-KCP-001"]
-        max_results: 3
+- function: *find_nearby_stores_inventory
+  ddl: ../functions/brickstore/find_nearby_stores_inventory.sql
+  test:
+    parameters:
+      reference_store_id: 101
+      sku: ["PET-KCP-001"]
+      max_results: 3
 
-  - function: *find_top_employees_by_department
-    ddl: ../functions/brickstore/find_top_employees_by_department.sql
-    test:
-      parameters:
-        department_name: "Womens Fashion"
-        limit_count: 5
+- function: *find_top_employees_by_department
+  ddl: ../functions/brickstore/find_top_employees_by_department.sql
+  test:
+    parameters:
+      department_name: "Womens Fashion"
+      limit_count: 5
 
-  - function: *find_personal_shopping_associates
-    ddl: ../functions/brickstore/find_personal_shopping_associates.sql
-    test:
-      parameters:
-        limit_count: 5
+- function: *find_personal_shopping_associates
+  ddl: ../functions/brickstore/find_personal_shopping_associates.sql
+  test:
+    parameters:
+      limit_count: 5
 
-  - function: *find_employee_manager
-    ddl: ../functions/brickstore/find_employee_manager.sql
-    test:
-      parameters:
-        employee_id: ["EMP-016"]
+- function: *find_employee_manager
+  ddl: ../functions/brickstore/find_employee_manager.sql
+  test:
+    parameters:
+      employee_id: ["EMP-016"]
 
-  - function: *find_task_assignments
-    ddl: ../functions/brickstore/find_task_assignments.sql
-    test:
-      parameters:
-        store_id: []
-        task_status_filter: ""
+- function: *find_task_assignments
+  ddl: ../functions/brickstore/find_task_assignments.sql
+  test:
+    parameters:
+      store_id: []
+      task_status_filter: ""
 
-  - function: *find_upcoming_customer_appointments
-    ddl: ../functions/brickstore/find_upcoming_customer_appointments.sql
-    test:
-      parameters:
-        store_id: []
-        days_ahead: 30
+- function: *find_upcoming_customer_appointments
+  ddl: ../functions/brickstore/find_upcoming_customer_appointments.sql
+  test:
+    parameters:
+      store_id: []
+      days_ahead: 30
 
-  - function: *get_customer_details
-    ddl: ../functions/brickstore/get_customer_details.sql
-    test:
-      parameters:
-        customer_lookup: "CUST-005"
+- function: *get_customer_details
+  ddl: ../functions/brickstore/get_customer_details.sql
+  test:
+    parameters:
+      customer_lookup: "CUST-005"
 
-  - function: *get_customer_preparation_summary
-    ddl: ../functions/brickstore/get_customer_preparation_summary.sql
-    test:
-      parameters:
-        customer_id: ["CUST-005"]
+- function: *get_customer_preparation_summary
+  ddl: ../functions/brickstore/get_customer_preparation_summary.sql
+  test:
+    parameters:
+      customer_id: ["CUST-005"]
 
 # =============================================================================
 # EVALUATION
@@ -1386,88 +1386,88 @@ evaluation:
       store_num: "101"
     session: {}
   guidelines:
-    - name: in_store_relevance
-      guidelines:
-        - Responses must be relevant to in-store retail operations
-        - Inventory and customer data must come from tool results
-        - When stock is zero at the home store, nearby stores must be checked before suggesting alternatives
-        - Hold and stylist-notification flows are narrative-only and must be framed as such
-        - Privacy-sensitive customer fields (alerts, dietary, accessibility) must only be used to prepare service
+  - name: in_store_relevance
+    guidelines:
+    - Responses must be relevant to in-store retail operations
+    - Inventory and customer data must come from tool results
+    - When stock is zero at the home store, nearby stores must be checked before suggesting alternatives
+    - Hold and stylist-notification flows are narrative-only and must be framed as such
+    - Privacy-sensitive customer fields (alerts, dietary, accessibility) must only be used to prepare service
 
 # =============================================================================
 # DATASETS
 # =============================================================================
 datasets:
   # Core product and inventory tables
-  - table:
-      schema: *brickstore_schema
-      name: products
-    ddl: ../data/brickstore/products.sql
-    data: ../data/brickstore/product_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: products
+  ddl: ../data/brickstore/products.sql
+  data: ../data/brickstore/product_data.sql
+  format: sql
 
-  - table:
-      schema: *brickstore_schema
-      name: inventory
-    ddl: ../data/brickstore/inventory.sql
-    data: ../data/brickstore/inventory_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: inventory
+  ddl: ../data/brickstore/inventory.sql
+  data: ../data/brickstore/inventory_data.sql
+  format: sql
 
-  - table:
-      schema: *brickstore_schema
-      name: appointments
-    ddl: ../data/brickstore/appointments.sql
-    data: ../data/brickstore/appointments_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: appointments
+  ddl: ../data/brickstore/appointments.sql
+  data: ../data/brickstore/appointments_data.sql
+  format: sql
 
   # Store dimension
-  - table:
-      schema: *brickstore_schema
-      name: dim_stores
-    ddl: ../data/brickstore/dim_stores.sql
-    data: ../data/brickstore/dim_stores_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: dim_stores
+  ddl: ../data/brickstore/dim_stores.sql
+  data: ../data/brickstore/dim_stores_data.sql
+  format: sql
 
   # Employee + tasks + managers (also creates the views the new UC fns wrap)
-  - table:
-      schema: *brickstore_schema
-      name: employee_tasks
-    ddl: ../data/brickstore/employee_tasks.sql
-    data: ../data/brickstore/employee_tasks_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: employee_tasks
+  ddl: ../data/brickstore/employee_tasks.sql
+  data: ../data/brickstore/employee_tasks_data.sql
+  format: sql
 
-  - table:
-      schema: *brickstore_schema
-      name: employee_performance
-    ddl: ../data/brickstore/employee_performance.sql
-    data: ../data/brickstore/employee_performance_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: employee_performance
+  ddl: ../data/brickstore/employee_performance.sql
+  data: ../data/brickstore/employee_performance_data.sql
+  format: sql
 
-  - table:
-      schema: *brickstore_schema
-      name: managers
-    ddl: ../data/brickstore/managers.sql
-    data: ../data/brickstore/managers_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: managers
+  ddl: ../data/brickstore/managers.sql
+  data: ../data/brickstore/managers_data.sql
+  format: sql
 
-  - table:
-      schema: *brickstore_schema
-      name: customers
-    ddl: ../data/brickstore/customers.sql
-    data: ../data/brickstore/customers_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: customers
+  ddl: ../data/brickstore/customers.sql
+  data: ../data/brickstore/customers_data.sql
+  format: sql
 
   # Brand-rep demo tables (kept for Genie coverage)
-  - table:
-      schema: *brickstore_schema
-      name: brand_rep_demo_tables
-    ddl: ../data/brickstore/brand_rep_demo_tables.sql
-    data: ../data/brickstore/brand_rep_demo_data.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: brand_rep_demo_tables
+  ddl: ../data/brickstore/brand_rep_demo_tables.sql
+  data: ../data/brickstore/brand_rep_demo_data.sql
+  format: sql
 
-  - table:
-      schema: *brickstore_schema
-      name: brand_rep_demo_queries
-    ddl: ../data/brickstore/brand_rep_demo_queries.sql
-    data: ../data/brickstore/brand_rep_demo_queries.sql
-    format: sql
+- table:
+    schema: *brickstore_schema
+    name: brand_rep_demo_queries
+  ddl: ../data/brickstore/brand_rep_demo_queries.sql
+  data: ../data/brickstore/brand_rep_demo_queries.sql
+  format: sql

@@ -21,7 +21,7 @@ variables:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -63,7 +63,7 @@ agents:
     description: "Specialist for product details, specifications, and features"
     model: *default_llm
     tools:
-      - *search_products
+    - *search_products
     prompt: |
       You are a product information specialist. Your role is to provide detailed,
       accurate information about products including:
@@ -71,7 +71,7 @@ agents:
       - Pricing information
       - Product comparisons
       - Use cases and applications
-      
+
       Always use your search tools to find current, accurate product information.
       Be thorough and provide helpful details to customers.
 
@@ -81,15 +81,15 @@ agents:
     description: "Specialist for stock levels, availability, and inventory information"
     model: *default_llm
     tools:
-      - *check_inventory
-      - *search_products
+    - *check_inventory
+    - *search_products
     prompt: |
       You are an inventory management specialist. Your role is to provide:
       - Current stock levels and availability
       - Store location information
       - Restocking timelines
       - Alternative product suggestions if items are out of stock
-      
+
       Use your inventory tools first, then search for alternatives if needed.
       Always provide accurate, real-time inventory information.
 
@@ -110,16 +110,15 @@ app:
   name: supervisor_pattern_dao
   description: "Supervisor orchestration pattern example with specialized agents"
   log_level: INFO
-  
+
   registered_model:
     name: supervisor_pattern_dao
-  
+
   # List all worker agents that the supervisor can route to
   agents:
-    - *product_agent
-    - *inventory_agent
-    - *general_agent
-  
+  - *product_agent
+  - *inventory_agent
+  - *general_agent
   # Supervisor configuration
   orchestration:
     supervisor:
@@ -127,20 +126,20 @@ app:
       prompt: |
         You are a routing coordinator for a customer service system. Analyze incoming
         customer requests and route them to the most appropriate specialist agent:
-        
+
         - product_agent: For questions about product details, features, specifications,
           pricing, or comparisons
         - inventory_agent: For questions about stock availability, inventory levels,
           or product location in store
         - general_agent: For general questions about store policies, hours, services,
           or other non-product inquiries
-        
+
         Route the request to the single most appropriate agent based on the primary
         intent of the customer's question.
 
   # Example input demonstrating the pattern
   input_example:
     messages:
-      - role: user
-        content: "Do you have the Dewalt cordless drill in stock?"
+    - role: user
+      content: "Do you have the Dewalt cordless drill in stock?"
 

@@ -34,7 +34,7 @@ from databricks.sdk.service.dashboards import (
 )
 from loguru import logger
 
-from dao_ai.config import LLMModel, WarehouseModel
+from dao_ai.config import InferenceEndpointModel, WarehouseModel
 from dao_ai.genie.cache.base import (
     CacheResult,
     GenieServiceBase,
@@ -533,7 +533,7 @@ class ContextAwareGenieService(GenieServiceBase):
 
     def _initialize_embeddings(
         self,
-        embedding_model: str | LLMModel,
+        embedding_model: str | InferenceEndpointModel,
         embedding_dims: int | None = None,
     ) -> None:
         """
@@ -542,12 +542,12 @@ class ContextAwareGenieService(GenieServiceBase):
         This helper method handles embedding model initialization for subclasses.
 
         Args:
-            embedding_model: The embedding model name or LLMModel instance
+            embedding_model: The embedding model name or InferenceEndpointModel instance
             embedding_dims: Optional pre-configured embedding dimensions
         """
-        # Convert embedding_model to LLMModel if it's a string
-        model: LLMModel = (
-            LLMModel(name=embedding_model)
+        # Convert embedding_model to InferenceEndpointModel if it's a string
+        model: InferenceEndpointModel = (
+            InferenceEndpointModel(name=embedding_model)
             if isinstance(embedding_model, str)
             else embedding_model
         )

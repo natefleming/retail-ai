@@ -13,7 +13,7 @@
 #   export DATABRICKS_CONFIG_PROFILE=aws-field-eng
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4-5
       temperature: 0.1
@@ -56,9 +56,9 @@ agents:
     description: "Sales & Pricing Analytics Agent for Sporting Goods"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *context_editor
+    - *context_editor
     prompt: |
       You are a sales and pricing analytics assistant for a sporting goods retailer.
       You help users explore sales performance, pricing strategies, profit margins,
@@ -80,7 +80,7 @@ app:
   log_level: DEBUG
   deployment_target: apps
   agents:
-    - *genie_agent
+  - *genie_agent
 
   chat_history:
     model: *summarization_llm
@@ -89,8 +89,8 @@ app:
 
   input_example:
     messages:
-      - role: user
-        content: What were our top-selling product categories last quarter?
+    - role: user
+      content: What were our top-selling product categories last quarter?
     custom_inputs:
       configurable:
         user_id: demo_user

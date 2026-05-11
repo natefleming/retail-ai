@@ -27,7 +27,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     # Primary LLM for agent reasoning
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
@@ -57,23 +57,9 @@ resources:
         schema: *retail_schema
         name: products
       primary_key: product_id
-      doc_uri: ~
+      doc_uri:
       embedding_source_column: description
       columns:
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - class_cd
-        - description
-
-retrievers:
-  # FlashRank + Instruction-Aware Reranking
-  instruction_aware_retriever: &instruction_aware_retriever
-    vector_store: *products_vector_store
-    columns:
       - product_id
       - sku
       - upc
@@ -82,6 +68,20 @@ retrievers:
       - merchandise_class
       - class_cd
       - description
+
+retrievers:
+  # FlashRank + Instruction-Aware Reranking
+  instruction_aware_retriever: &instruction_aware_retriever
+    vector_store: *products_vector_store
+    columns:
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:
       num_results: 50
       query_type: HYBRID
@@ -89,48 +89,48 @@ retrievers:
       # Column metadata is the single source of truth for schema context.
       # Each pipeline component generates the context it needs from this data.
       columns:
-        - name: product_id
-          type: number
-          description: "Unique product identifier"
-        - name: sku
-          type: string
-          description: "Stock keeping unit - internal product code"
-        - name: upc
-          type: string
-          description: "Universal Product Code - barcode number"
-        - name: brand_name
-          type: string
-          description: "Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)"
-        - name: product_name
-          type: string
-          description: "Product display name"
-        - name: merchandise_class
-          type: string
-          description: "Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)"
-        - name: class_cd
-          type: string
-          description: "Category code"
-        - name: description
-          type: string
-          description: "Detailed product description"
+      - name: product_id
+        type: number
+        description: "Unique product identifier"
+      - name: sku
+        type: string
+        description: "Stock keeping unit - internal product code"
+      - name: upc
+        type: string
+        description: "Universal Product Code - barcode number"
+      - name: brand_name
+        type: string
+        description: "Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)"
+      - name: product_name
+        type: string
+        description: "Product display name"
+      - name: merchandise_class
+        type: string
+        description: "Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)"
+      - name: class_cd
+        type: string
+        description: "Category code"
+      - name: description
+        type: string
+        description: "Detailed product description"
       constraints:
-        - "Use merchandise_class for category filtering"
-        - "Use brand_name for brand filtering"
-        - "Only use columns listed above"
+      - "Use merchandise_class for category filtering"
+      - "Use brand_name for brand filtering"
+      - "Only use columns listed above"
       decomposition:
         model: *reranker_llm
         normalize_filter_case: uppercase
         max_subqueries: 3
         rrf_k: 60
         examples:
-          - query: "Milwaukee drills"
-            filters: {"brand_name": "MILWAUKEE"}
-          - query: "cordless power tools excluding DeWalt"
-            filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
-          - query: "paint products"
-            filters: {"merchandise_class": "PAINT"}
-          - query: "Milwaukee or DeWalt tools"
-            filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+        - query: "Milwaukee drills"
+          filters: {"brand_name": "MILWAUKEE"}
+        - query: "cordless power tools excluding DeWalt"
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+        - query: "paint products"
+          filters: {"merchandise_class": "PAINT"}
+        - query: "Milwaukee or DeWalt tools"
+          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
       # Instruction-Aware LLM reranking (uses schema context above)
       rerank:
         model: *reranker_llm
@@ -171,7 +171,7 @@ agents:
     description: "Product search with constraint-aware reranking"
     model: *default_llm
     tools:
-      - *instruction_aware_search_tool
+    - *instruction_aware_search_tool
     prompt: |
       You are a product search assistant with constraint-aware reranking.
       Use the instruction_aware_product_search tool for queries with:
@@ -194,19 +194,19 @@ app:
     demo: instruction_aware_reranking
     feature: reranking
   permissions:
-    - principals: [users]
-      entitlements:
-        - CAN_QUERY
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
   agents:
 
-    - *instruction_aware_search_agent
+  - *instruction_aware_search_agent
   orchestration:
     supervisor:
       model: *default_llm
   input_example:
     input:
-      - role: user
-        content: Find me Milwaukee brand drills
+    - role: user
+      content: Find me Milwaukee brand drills
     custom_inputs:
       configurable:
         user_id: demo_user

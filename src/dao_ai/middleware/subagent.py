@@ -14,10 +14,10 @@ The ``model`` field in each subagent spec supports multiple input types:
 
 - **str**: A ``"provider:model"`` identifier (e.g., ``"openai:gpt-4o"``), passed
   directly to deepagents.
-- **dict**: An ``LLMModel``-style mapping (e.g.,
+- **dict**: An ``InferenceEndpointModel``-style mapping (e.g.,
   ``{"name": "my-endpoint", "temperature": 0.1}``), converted to a
-  ``ChatDatabricks`` instance via ``LLMModel.as_chat_model()``.
-- **LLMModel**: A DAO AI ``LLMModel`` instance, converted via
+  ``ChatDatabricks`` instance via ``InferenceEndpointModel.as_chat_model()``.
+- **InferenceEndpointModel**: A DAO AI ``InferenceEndpointModel`` instance, converted via
   ``as_chat_model()``.
 - **BaseChatModel**: A LangChain chat model instance (e.g., ``ChatDatabricks``),
   passed through directly.
@@ -37,7 +37,7 @@ Example:
         ],
     )
 
-    # Using a Databricks endpoint via LLMModel dict:
+    # Using a Databricks endpoint via InferenceEndpointModel dict:
     middleware = create_subagent_middleware(
         subagents=[
             {
@@ -82,7 +82,7 @@ from dao_ai.middleware._backends import resolve_backend
 from dao_ai.middleware._prompt_utils import resolve_prompt
 
 if TYPE_CHECKING:
-    from dao_ai.config import LLMModel, VolumePathModel
+    from dao_ai.config import InferenceEndpointModel, VolumePathModel
 
 __all__ = [
     "create_subagent_middleware",
@@ -90,7 +90,7 @@ __all__ = [
 
 
 def _resolve_subagent_model(
-    model: str | dict[str, Any] | LLMModel | BaseChatModel | None,
+    model: str | dict[str, Any] | InferenceEndpointModel | BaseChatModel | None,
 ) -> str | BaseChatModel | None:
     """Resolve a subagent model value to a type accepted by deepagents.
 
@@ -98,10 +98,10 @@ def _resolve_subagent_model(
     helper bridges DAO AI configuration types so users can provide:
 
     - ``str`` -- passed through (e.g., ``"openai:gpt-4o"``)
-    - ``dict`` -- treated as ``LLMModel`` kwargs, converted via
-      ``LLMModel(**dict).as_chat_model()`` which returns a
+    - ``dict`` -- treated as ``InferenceEndpointModel`` kwargs, converted via
+      ``InferenceEndpointModel(**dict).as_chat_model()`` which returns a
       ``ChatDatabricks`` instance.
-    - ``LLMModel`` -- converted via ``as_chat_model()``.
+    - ``InferenceEndpointModel`` -- converted via ``as_chat_model()``.
     - ``BaseChatModel`` -- passed through (e.g., ``ChatDatabricks``).
     - ``None`` -- returned as-is (deepagents uses the parent model).
 
@@ -123,19 +123,19 @@ def _resolve_subagent_model(
     if isinstance(model, BaseChatModel):
         return model
 
-    # Import LLMModel at runtime to avoid circular imports.
-    from dao_ai.config import LLMModel
+    # Import InferenceEndpointModel at runtime to avoid circular imports.
+    from dao_ai.config import InferenceEndpointModel
 
     if isinstance(model, dict):
         logger.debug(
             "Resolving subagent model from dict",
             model_name=model.get("name", "unknown"),
         )
-        return LLMModel(**model).as_chat_model()
+        return InferenceEndpointModel(**model).as_chat_model()
 
-    if isinstance(model, LLMModel):
+    if isinstance(model, InferenceEndpointModel):
         logger.debug(
-            "Resolving subagent model from LLMModel",
+            "Resolving subagent model from InferenceEndpointModel",
             model_name=model.name,
         )
         return model.as_chat_model()
@@ -189,12 +189,12 @@ def create_subagent_middleware(
 
     Optional subagent fields:
         - ``model``: Override model.  Accepts a ``str`` (e.g.,
-          ``"openai:gpt-4o"``), a ``dict`` of ``LLMModel`` kwargs (e.g.,
-          ``{"name": "my-endpoint", "temperature": 0.1}``), an ``LLMModel``
+          ``"openai:gpt-4o"``), a ``dict`` of ``InferenceEndpointModel`` kwargs (e.g.,
+          ``{"name": "my-endpoint", "temperature": 0.1}``), an ``InferenceEndpointModel``
           instance, or a ``BaseChatModel`` instance (e.g.,
-          ``ChatDatabricks``).  Dicts and ``LLMModel`` values are
+          ``ChatDatabricks``).  Dicts and ``InferenceEndpointModel`` values are
           automatically converted to ``ChatDatabricks`` via
-          ``LLMModel.as_chat_model()``.
+          ``InferenceEndpointModel.as_chat_model()``.
         - ``tools``: Tools the subagent can use
         - ``middleware``: Additional middleware for the subagent
 
@@ -233,7 +233,7 @@ def create_subagent_middleware(
             ],
         )
 
-        # LLMModel dict (converted to ChatDatabricks):
+        # InferenceEndpointModel dict (converted to ChatDatabricks):
         middleware = create_subagent_middleware(
             subagents=[
                 {

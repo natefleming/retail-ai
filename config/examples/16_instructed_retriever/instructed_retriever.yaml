@@ -18,7 +18,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     # Primary LLM for agent reasoning
     default_llm: &default_llm
       name: databricks-claude-sonnet-4-5
@@ -47,23 +47,9 @@ resources:
         schema: *retail_schema
         name: products
       primary_key: product_id
-      doc_uri: ~
+      doc_uri:
       embedding_source_column: description
       columns:
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - class_cd
-        - description
-
-retrievers:
-  # Standard retriever (no instructed retrieval)
-  standard_retriever: &standard_retriever
-    vector_store: *products_vector_store
-    columns:
       - product_id
       - sku
       - upc
@@ -72,6 +58,20 @@ retrievers:
       - merchandise_class
       - class_cd
       - description
+
+retrievers:
+  # Standard retriever (no instructed retrieval)
+  standard_retriever: &standard_retriever
+    vector_store: *products_vector_store
+    columns:
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:
       num_results: 10
       query_type: ANN
@@ -80,14 +80,14 @@ retrievers:
   instructed_retriever: &instructed_retriever
     vector_store: *products_vector_store
     columns:
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - class_cd
-      - description
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:
       num_results: 50
       query_type: HYBRID
@@ -95,48 +95,48 @@ retrievers:
       # Column metadata is the single source of truth for schema context.
       # Each pipeline component generates the context it needs from this data.
       columns:
-        - name: product_id
-          type: number
-          description: "Unique product identifier"
-        - name: sku
-          type: string
-          description: "Stock keeping unit - internal product code"
-        - name: upc
-          type: string
-          description: "Universal Product Code - barcode number"
-        - name: brand_name
-          type: string
-          description: "Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)"
-        - name: product_name
-          type: string
-          description: "Product display name"
-        - name: merchandise_class
-          type: string
-          description: "Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)"
-        - name: class_cd
-          type: string
-          description: "Category code"
-        - name: description
-          type: string
-          description: "Detailed product description"
+      - name: product_id
+        type: number
+        description: "Unique product identifier"
+      - name: sku
+        type: string
+        description: "Stock keeping unit - internal product code"
+      - name: upc
+        type: string
+        description: "Universal Product Code - barcode number"
+      - name: brand_name
+        type: string
+        description: "Brand/manufacturer (MILWAUKEE, DEWALT, MAKITA, etc.)"
+      - name: product_name
+        type: string
+        description: "Product display name"
+      - name: merchandise_class
+        type: string
+        description: "Product category (POWER TOOLS, HAND TOOLS, PAINT, etc.)"
+      - name: class_cd
+        type: string
+        description: "Category code"
+      - name: description
+        type: string
+        description: "Detailed product description"
       constraints:
-        - "Use merchandise_class for category filtering"
-        - "Use brand_name for brand filtering"
-        - "Only use columns listed above"
+      - "Use merchandise_class for category filtering"
+      - "Use brand_name for brand filtering"
+      - "Only use columns listed above"
       decomposition:
         model: *decomposition_llm
         normalize_filter_case: uppercase
         max_subqueries: 3
         rrf_k: 60
         examples:
-          - query: "Milwaukee drills"
-            filters: {"brand_name": "MILWAUKEE"}
-          - query: "cordless power tools excluding DeWalt"
-            filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
-          - query: "paint products"
-            filters: {"merchandise_class": "PAINT"}
-          - query: "Milwaukee or DeWalt tools"
-            filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
+        - query: "Milwaukee drills"
+          filters: {"brand_name": "MILWAUKEE"}
+        - query: "cordless power tools excluding DeWalt"
+          filters: {"product_name LIKE": "cordless", "brand_name NOT": "DEWALT"}
+        - query: "paint products"
+          filters: {"merchandise_class": "PAINT"}
+        - query: "Milwaukee or DeWalt tools"
+          filters: {"brand_name": ["MILWAUKEE", "DEWALT"]}
       # Instruction-Aware LLM reranking (uses schema context above)
       rerank:
         model: *decomposition_llm
@@ -149,9 +149,9 @@ retrievers:
     # Reranking: Databricks columns (pure reranking, no LLM)
     rerank:
       columns:                            # Databricks server-side reranking
-        - merchandise_class
-        - product_name
-        - brand_name
+      - merchandise_class
+      - product_name
+      - brand_name
       top_n: 20                           # Databricks reranker outputs 20 candidates
 
 tools:
@@ -192,7 +192,7 @@ agents:
     description: "Product search using standard vector similarity"
     model: *default_llm
     tools:
-      - *standard_search_tool
+    - *standard_search_tool
     prompt: |
       You are a product search assistant. Use the standard_product_search tool
       to find products based on customer queries.
@@ -207,10 +207,10 @@ agents:
     description: "Product search with intelligent query decomposition"
     model: *default_llm
     tools:
-      - *instructed_search_tool
+    - *instructed_search_tool
     prompt: |
       You are an intelligent product search assistant with advanced search capabilities.
-      
+
       Use the instructed_product_search tool for queries that include:
       - Brand preferences (e.g., "Milwaukee", "not DeWalt")
       - Category filters (e.g., "power tools", "paint")
@@ -233,19 +233,19 @@ app:
     demo: instructed_retriever
     feature: query_decomposition
   permissions:
-    - principals: [users]
-      entitlements:
-        - CAN_QUERY
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
   agents:
-    - *standard_search_agent
-    - *instructed_search_agent
+  - *standard_search_agent
+  - *instructed_search_agent
   orchestration:
     supervisor:
       model: *default_llm
   input_example:
     input:
-      - role: user
-        content: Find me Milwaukee power drills
+    - role: user
+      content: Find me Milwaukee power drills
     custom_inputs:
       configurable:
         user_id: demo_user
@@ -257,15 +257,15 @@ app:
 # Source data for provisioning tables and vector search indexes
 
 datasets:
-  - table:
-      schema: *retail_schema
-      name: products
-    ddl: ../data/hardware_store/products.sql
-    data: ../data/hardware_store/products.snappy.parquet
-    format: parquet
-  - table:
-      schema: *retail_schema
-      name: inventory
-    ddl: ../data/hardware_store/inventory.sql
-    data: ../data/hardware_store/inventory.snappy.parquet
-    format: parquet
+- table:
+    schema: *retail_schema
+    name: products
+  ddl: ../data/hardware_store/products.sql
+  data: ../data/hardware_store/products.snappy.parquet
+  format: parquet
+- table:
+    schema: *retail_schema
+    name: inventory
+  ddl: ../data/hardware_store/inventory.sql
+  data: ../data/hardware_store/inventory.snappy.parquet
+  format: parquet

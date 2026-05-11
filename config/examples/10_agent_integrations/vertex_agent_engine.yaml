@@ -39,18 +39,18 @@ variables:
   # automatically.
   gcp_credentials: &gcp_credentials
     options:
-      - env: GOOGLE_APPLICATION_CREDENTIALS
-      - scope: retail_consumer_goods
-        secret: GOOGLE_APPLICATION_CREDENTIALS
+    - env: GOOGLE_APPLICATION_CREDENTIALS
+    - scope: retail_consumer_goods
+      secret: GOOGLE_APPLICATION_CREDENTIALS
 
   vertex_agent_endpoint: &vertex_agent_endpoint
     options:
-      - env: GCP_REASONING_ENGINE_ENDPOINT
-      - scope: retail_consumer_goods
-        secret: GCP_REASONING_ENGINE_ENDPOINT
+    - env: GCP_REASONING_ENGINE_ENDPOINT
+    - scope: retail_consumer_goods
+      secret: GCP_REASONING_ENGINE_ENDPOINT
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -237,8 +237,8 @@ agents:
       carriers, warehouses, tracking).
     model: *default_llm
     tools:
-      - *sales_genie_tool
-      - *logistics_genie_tool
+    - *sales_genie_tool
+    - *logistics_genie_tool
     prompt: *retail_analytics_prompt
 
   # Customer service worker — backed by a Vertex AI Agent Engine ADK agent.
@@ -249,7 +249,7 @@ agents:
       Vertex AI Agent Engine.
     model: *default_llm
     tools:
-      - *customer_service_tool
+    - *customer_service_tool
     prompt: *customer_service_prompt
 
 app:
@@ -260,8 +260,8 @@ app:
   log_level: INFO
   deployment_target: apps
   agents:
-    - *retail_analytics_agent
-    - *customer_service_agent
+  - *retail_analytics_agent
+  - *customer_service_agent
 
   orchestration:
     supervisor:
@@ -270,5 +270,5 @@ app:
 
   input_example:
     messages:
-      - role: user
-        content: "Which product is ordered the most?"
+    - role: user
+      content: "Which product is ordered the most?"

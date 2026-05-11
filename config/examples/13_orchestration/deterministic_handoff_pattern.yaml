@@ -21,7 +21,7 @@
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -103,10 +103,10 @@ app:
     name: deterministic_handoff_dao
 
   agents:
-    - *triage_agent
-    - *resolution_agent
-    - *summary_agent
-    - *escalation_agent
+  - *triage_agent
+  - *resolution_agent
+  - *summary_agent
+  - *escalation_agent
 
   orchestration:
     swarm:
@@ -121,14 +121,14 @@ app:
       # escalation_agent: no handoffs (terminal node)
       handoffs:
         triage_agent:
-          - agent: resolution_agent
-            is_deterministic: true
+        - agent: resolution_agent
+          is_deterministic: true
         resolution_agent:
-          - agent: summary_agent
-            is_deterministic: true
-          - escalation_agent           # agentic: LLM can choose to escalate
+        - agent: summary_agent
+          is_deterministic: true
+        - escalation_agent             # agentic: LLM can choose to escalate
 
   input_example:
     messages:
-      - role: user
-        content: "I've been charged twice for my subscription this month. Can you help?"
+    - role: user
+      content: "I've been charged twice for my subscription this month. Can you help?"

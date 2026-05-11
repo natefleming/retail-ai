@@ -11,59 +11,59 @@ schemas:
     schema_name: quick_serve_restaurant                    # Schema within the catalog
 
 resources:
-  llms:
+  models:
     # Primary LLM for general tasks
     default_llm: &default_llm
       name: databricks-claude-3-7-sonnet # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
-      on_behalf_of_user: False
+      on_behalf_of_user: false
       fallbacks:                                  # Fallback LLMs in case of issues
-        - databricks-claude-sonnet-4
-        - databricks-claude-sonnet-4
+      - databricks-claude-sonnet-4
+      - databricks-claude-sonnet-4
 
   databases:
     # PostgreSQL database for agent memory and checkpoints
     retail_database: &retail_database
       name: "retail-consumer-goods"
-      description: "Database for agent memory and checkpoints" 
-      
+      description: "Database for agent memory and checkpoints"
+
       # Database connection parameters
       # These can be set via environment variables or Databricks secrets
-      host:                                                 
-        default_value: localhost                                             
+      host:
+        default_value: localhost
         options:
-          - env: PGHOST                              # Environment variable
-          - scope: retail_ai                         # Databricks secret scope
-            secret: PGHOST                           # Secret name
-      port: 
+        - env: PGHOST                                # Environment variable
+        - scope: retail_ai                           # Databricks secret scope
+          secret: PGHOST                             # Secret name
+      port:
         default_value: 5432
         options:
-        - env: PGPORT 
+        - env: PGPORT
         - scope: retail_ai
           secret: PGPORT
-      database: 
+      database:
         default_value: databricks_postgres           # Default database name
         options:
-        - env: PGDATABASE 
+        - env: PGDATABASE
         - scope: retail_ai
           secret: PGDATABASE
 
       client_id:
         options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_ID      # Service principal client ID
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+        - env: RETAIL_AI_DATABRICKS_CLIENT_ID        # Service principal client ID
+        - scope: retail_ai
+          secret: RETAIL_AI_DATABRICKS_CLIENT_ID
       client_secret:
         options:
-          - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET  # Service principal secret
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+        - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET    # Service principal secret
+        - scope: retail_ai
+          secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
       workspace_host:
         options:
-          - env: RETAIL_AI_DATABRICKS_HOST           # Databricks workspace URL
-          - scope: retail_ai
-            secret: RETAIL_AI_DATABRICKS_HOST
+        - env: RETAIL_AI_DATABRICKS_HOST             # Databricks workspace URL
+        - scope: retail_ai
+          secret: RETAIL_AI_DATABRICKS_HOST
 
   genie_rooms:
     # Genie space for retail data queries
@@ -84,14 +84,16 @@ resources:
 
 memory: &memory
   # Conversation checkpointing for state persistence
-  checkpointer: 
+  checkpointer:
     name: default_checkpointer                      # Checkpointer identifier
-    database: *retail_database                     # Reference to database configuration (type inferred from presence)
+    database: *retail_database
+                                                   # Reference to database configuration (type inferred from presence)
 
   # Long-term memory store for agent context
-  store: 
+  store:
     name: default_store                             # Store identifier
-    database: *retail_database                      # Database for persistence (type inferred from presence)
+    database: *retail_database
+                                                    # Database for persistence (type inferred from presence)
     namespace: "{user_id}"
 
 tools:
@@ -103,7 +105,8 @@ tools:
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: "Answer questions about quick serve restaurant, ingredients, inventory, processes and operations."
-        genie_room: *retail_genie_room              # Reference to Genie room config
+        genie_room: *retail_genie_room
+                                                    # Reference to Genie room config
         persist_conversation: true
 
 
@@ -111,9 +114,10 @@ agents:
   genie: &genie
     name: genie                                     # Agent identifier
     description: "Genie Agent"
-    model: *default_llm                             # Reference to LLM configuration
+    model: *default_llm
+                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *genie_tool
+    - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
       Answer questions about quick serve restaurant, ingredients, inventory, processes and operations.
 
@@ -123,23 +127,26 @@ app:
   description: "Multi-agent system that talks to genie"
   log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
-    schema: *retail_schema                          # Schema where model will be registered
+    schema: *retail_schema
+                                                    # Schema where model will be registered
     name: retail_ai_agenie_dao                      # Model name in MLflow registry
   endpoint_name: retail_ai_genie_dao                # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
-    - principals: [users]                           # Grant access to all users
-      entitlements:
-        - CAN_QUERY                                # Full management permissions
+  - principals: [users]                             # Grant access to all users
+    entitlements:
+    - CAN_QUERY                                    # Full management permissions
   agents:                                           # List of agents included in the system
-    - *genie                                        # Order management agent  
-  
+  - *genie
+                                                    # Order management agent  
   orchestration:                                    # Agent orchestration configuration
-    memory: *memory                            # Memory store for conversation context
+    memory: *memory
+                                               # Memory store for conversation context
     swarm:                                     # Supervisor orchestration pattern
-      default_agent: *genie                    # Default agent for routing
+      default_agent: *genie
+                                               # Default agent for routing
 
 
 

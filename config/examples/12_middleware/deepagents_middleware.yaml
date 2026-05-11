@@ -31,13 +31,13 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
       max_tokens: 4096
 
-    summarization_llm: &summarization_llm
+    summarization_llm:
       name: databricks-claude-sonnet-4
       temperature: 0.0
       max_tokens: 2048
@@ -108,7 +108,7 @@ middleware:
   # Example with "volume" backend (Databricks Unity Catalog Volumes):
   # Agent reads and writes files in /Volumes/my_catalog/my_schema/agent_workspace.
   # All file paths the agent sees are relative to this root.
-  filesystem_volume: &filesystem_volume
+  filesystem_volume:
     name: dao_ai.middleware.filesystem.create_filesystem_middleware
     args:
       backend_type: volume
@@ -149,20 +149,20 @@ middleware:
     args:
       subagents:
         # String model -- passed through to deepagents
-        - name: researcher
-          description: "Research agent for gathering information"
-          system_prompt: "You are a research specialist. Find and summarize information."
-          model: "openai:gpt-4o-mini"
-          tools: []
+      - name: researcher
+        description: "Research agent for gathering information"
+        system_prompt: "You are a research specialist. Find and summarize information."
+        model: "openai:gpt-4o-mini"
+        tools: []
         # Dict model -- converted to ChatDatabricks via LLMModel.as_chat_model()
-        - name: analyst
-          description: "Data analysis agent using a Databricks serving endpoint"
-          system_prompt: "You are a data analyst. Analyze data and provide insights."
-          model:
-            name: "databricks-meta-llama-3-3-70b-instruct"
-            temperature: 0.1
-            max_tokens: 4096
-          tools: []
+      - name: analyst
+        description: "Data analysis agent using a Databricks serving endpoint"
+        system_prompt: "You are a data analyst. Analyze data and provide insights."
+        model:
+          name: "databricks-meta-llama-3-3-70b-instruct"
+          temperature: 0.1
+          max_tokens: 4096
+        tools: []
 
   # ---------------------------------------------------------------------------
   # 4. Skill Discovery (SkillsMiddleware)
@@ -170,24 +170,24 @@ middleware:
   # Discovers SKILL.md files and injects a skill listing into the system
   # prompt with progressive disclosure. Agents can read full skill content
   # on demand.
-  skills: &skills
+  skills:
     name: dao_ai.middleware.skills.create_skills_middleware
     args:
       sources:
-        - /skills/base/
-        - /skills/user/
+      - /skills/base/
+      - /skills/user/
 
   # ---------------------------------------------------------------------------
   # 5. AGENTS.md Memory (MemoryMiddleware)
   # ---------------------------------------------------------------------------
   # Loads context from AGENTS.md files at startup and injects it into the
   # system prompt. Encourages the agent to update memory files as it learns.
-  memory: &memory
+  memory:
     name: dao_ai.middleware.memory_agents.create_agents_memory_middleware
     args:
       sources:
-        - ~/.deepagents/AGENTS.md
-        - ./.deepagents/AGENTS.md
+      - ~/.deepagents/AGENTS.md
+      - ./.deepagents/AGENTS.md
 
   # ---------------------------------------------------------------------------
   # 6. Enhanced Summarization (Deep Agents SummarizationMiddleware)
@@ -225,12 +225,12 @@ agents:
     description: "An agent with Deep Agents middleware for task planning and file operations"
     model: *default_llm
     tools:
-      - *time_tool
+    - *time_tool
     middleware:
-      - *todo                  # Task planning via write_todos tool
-      - *filesystem            # File operations (ephemeral state backend)
-      # - *filesystem_volume   # Swap above for Databricks Volume backend
-      - *summarization         # Context management via enhanced summarization
+    - *todo
+    - *filesystem
+    - *summarization
+                               # Context management via enhanced summarization
     prompt: |
       You are a helpful coding assistant with file operation capabilities.
 
@@ -246,10 +246,11 @@ agents:
     description: "A supervisor agent that can delegate to specialized subagents"
     model: *default_llm
     tools:
-      - *time_tool
+    - *time_tool
     middleware:
-      - *todo                  # Task planning
-      - *subagent              # Spawn isolated subagents via task tool
+    - *todo
+    - *subagent
+                               # Spawn isolated subagents via task tool
     prompt: |
       You are a supervisor agent. Break complex tasks into subtasks and
       delegate them to specialized subagents using the task tool.
@@ -267,15 +268,15 @@ app:
     name: deepagents_middleware_dao
   endpoint_name: deepagents_middleware_demo_dao
   agents:
-    - *coding_agent
-    - *supervisor_agent
+  - *coding_agent
+  - *supervisor_agent
   orchestration:
     supervisor:
       model: *default_llm
   input_example:
     messages:
-      - role: user
-        content: Create a todo list for building a REST API
+    - role: user
+      content: Create a todo list for building a REST API
     custom_inputs:
       configurable: {}
       session: {}

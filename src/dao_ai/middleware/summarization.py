@@ -20,10 +20,10 @@ Additionally, a Deep Agents variant is available via
 
 Example:
     from dao_ai.middleware import create_summarization_middleware
-    from dao_ai.config import ChatHistoryModel, LLMModel
+    from dao_ai.config import ChatHistoryModel, InferenceEndpointModel
 
     chat_history = ChatHistoryModel(
-        model=LLMModel(name="gpt-4o-mini"),
+        model=InferenceEndpointModel(name="gpt-4o-mini"),
         max_tokens=256,
         max_tokens_before_summary=4000,
     )
@@ -181,10 +181,10 @@ def create_summarization_middleware(
         List containing LoggingSummarizationMiddleware configured with the specified parameters
 
     Example:
-        from dao_ai.config import ChatHistoryModel, LLMModel
+        from dao_ai.config import ChatHistoryModel, InferenceEndpointModel
 
         chat_history = ChatHistoryModel(
-            model=LLMModel(name="gpt-4o-mini"),
+            model=InferenceEndpointModel(name="gpt-4o-mini"),
             max_tokens=256,
             max_tokens_before_summary=4000,
         )
