@@ -1,7 +1,6 @@
 from textwrap import dedent
 from typing import Annotated, Any, Callable, Optional, Sequence
 
-from databricks_langchain import ChatDatabricks
 from langchain.tools import ToolRuntime
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -57,16 +56,13 @@ def create_agent_endpoint_tool(
 
             workspace_client: WorkspaceClient = llm.workspace_client_from(context)
             logger.debug(
-                "Creating OBO ChatDatabricks for agent endpoint tool",
+                "Creating OBO chat client for agent endpoint tool",
                 model=llm.name,
                 auth_type=workspace_client.config.auth_type,
+                ai_gateway=llm.ai_gateway,
             )
-            model: LanguageModelLike = ChatDatabricks(
-                model=llm.name,
-                temperature=llm.temperature,
-                max_tokens=llm.max_tokens,
-                use_responses_api=llm.use_responses_api,
-                workspace_client=workspace_client,
+            model: LanguageModelLike = llm.chat_model_for_workspace_client(
+                workspace_client
             )
         else:
             model = llm.as_chat_model()

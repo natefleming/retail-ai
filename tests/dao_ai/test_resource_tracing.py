@@ -300,10 +300,8 @@ class TestOBOMiddlewareResourceInfo:
     """Verify OBOModelMiddleware sets resource attributes on model calls."""
 
     @patch("dao_ai.middleware.obo.set_resource_attributes")
-    @patch("dao_ai.middleware.obo.ChatDatabricks")
     def test_sync_wrap_sets_attributes(
         self,
-        mock_chat: MagicMock,
         mock_set: MagicMock,
     ) -> None:
         from dao_ai.config import LLMModel
@@ -315,6 +313,8 @@ class TestOBOMiddlewareResourceInfo:
         llm_model.temperature = 0.0
         llm_model.max_tokens = None
         llm_model.use_responses_api = False
+        llm_model.ai_gateway = False
+        llm_model.chat_model_for_workspace_client.return_value = MagicMock()
 
         middleware = OBOModelMiddleware(llm_model)
 
@@ -331,10 +331,8 @@ class TestOBOMiddlewareResourceInfo:
         assert info.name == "my-obo-model"
 
     @patch("dao_ai.middleware.obo.set_resource_attributes")
-    @patch("dao_ai.middleware.obo.ChatDatabricks")
     def test_async_wrap_sets_attributes(
         self,
-        mock_chat: MagicMock,
         mock_set: MagicMock,
     ) -> None:
         import asyncio
@@ -348,6 +346,8 @@ class TestOBOMiddlewareResourceInfo:
         llm_model.temperature = 0.0
         llm_model.max_tokens = None
         llm_model.use_responses_api = False
+        llm_model.ai_gateway = False
+        llm_model.chat_model_for_workspace_client.return_value = MagicMock()
 
         middleware = OBOModelMiddleware(llm_model)
 

@@ -4568,6 +4568,12 @@
           "title": "Disable Streaming",
           "type": "boolean"
         },
+        "ai_gateway": {
+          "default": false,
+          "description": "Route through the Databricks AI Gateway (/ai-gateway/mlflow/v1/chat/completions) instead of /serving-endpoints/<name>/invocations. When True, `name` is sent as the OpenAI-style model id in the request body. AI Gateway is OpenAI-compatible chat completions only \u2014 not for embeddings, Responses API, or non-chat endpoints.",
+          "title": "Ai Gateway",
+          "type": "boolean"
+        },
         "best_of_n": {
           "anyOf": [
             {

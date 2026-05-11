@@ -846,6 +846,17 @@ class InferenceEndpointModel(IsDatabricksResource):
         default=False,
         description="Disable streaming for this model. Required when the Foundation Model endpoint has output guardrails enabled.",
     )
+    ai_gateway: bool = Field(
+        default=False,
+        description=(
+            "Route through the Databricks AI Gateway "
+            "(/ai-gateway/mlflow/v1/chat/completions) instead of "
+            "/serving-endpoints/<name>/invocations. When True, `name` is "
+            "sent as the OpenAI-style model id in the request body. "
+            "AI Gateway is OpenAI-compatible chat completions only — not "
+            "for embeddings, Responses API, or non-chat endpoints."
+        ),
+    )
     best_of_n: Optional[BestOfNConfig] = Field(
         default=None,
         description=(
@@ -872,6 +883,103 @@ class InferenceEndpointModel(IsDatabricksResource):
             )
         ]
 
+    @model_validator(mode="after")
+    def _validate_ai_gateway_compatibility(self) -> Self:
+        if not self.ai_gateway:
+            return self
+        if self.use_responses_api:
+            raise ValueError(
+                "ai_gateway=True is incompatible with use_responses_api=True. "
+                "AI Gateway exposes only the OpenAI-compatible "
+                "/chat/completions path; Responses API endpoints must stay on "
+                "/serving-endpoints/<name>/invocations."
+            )
+        # NOTE: on_behalf_of_user + ai_gateway is permitted pending live
+        # verification. If a workspace returns 401/403 on AI Gateway with an
+        # OBO token, gate it here with a ValueError.
+        return self
+
+    def _ai_gateway_host(self) -> str:
+        """Return the workspace host without trailing slash."""
+        from dao_ai.utils import normalize_host
+
+        return normalize_host(self.workspace_client.config.host).rstrip("/")
+
+    def _ai_gateway_token_provider(self) -> Callable[[], str]:
+        """Return a callable that resolves a fresh bearer token per call.
+
+        ``ChatOpenAI`` / the ``openai`` SDK invoke this provider on every
+        request, so PAT, service-principal (OAuth-M2M), and OBO tokens are
+        always refreshed through the SDK's auth ladder instead of being
+        captured once at construction time.
+        """
+        wc: WorkspaceClient = self.workspace_client
+
+        def _provider() -> str:
+            headers: Mapping[str, str] = wc.config.authenticate()
+            auth: str = headers.get("Authorization", "")
+            if not auth.lower().startswith("bearer "):
+                raise RuntimeError(
+                    f"Could not extract bearer token for {self.name!r}; "
+                    f"authenticate() returned keys: {list(headers)}"
+                )
+            return auth.split(" ", 1)[1]
+
+        return _provider
+
+    def _resolve_ai_gateway_credentials(self) -> tuple[str, Callable[[], str]]:
+        """Return ``(host, token_provider)`` for AI Gateway HTTP calls."""
+        return self._ai_gateway_host(), self._ai_gateway_token_provider()
+
+    def chat_model_for_workspace_client(
+        self,
+        workspace_client: WorkspaceClient,
+        *,
+        disable_streaming: bool | None = None,
+    ) -> LanguageModelLike:
+        """Build a chat client bound to a specific ``WorkspaceClient``.
+
+        Used by OBO call sites that need to swap in a user-scoped
+        ``WorkspaceClient`` per request. Respects ``self.ai_gateway`` so OBO
+        traffic still routes through the AI Gateway path when enabled.
+        """
+        from dao_ai.utils import normalize_host
+
+        effective_disable_streaming: bool = (
+            self.disable_streaming if disable_streaming is None else disable_streaming
+        )
+
+        if self.ai_gateway:
+            host: str = normalize_host(workspace_client.config.host).rstrip("/")
+
+            def token_provider() -> str:
+                headers: Mapping[str, str] = workspace_client.config.authenticate()
+                auth: str = headers.get("Authorization", "")
+                if not auth.lower().startswith("bearer "):
+                    raise RuntimeError(
+                        f"Could not extract bearer token for {self.name!r}; "
+                        f"authenticate() returned keys: {list(headers)}"
+                    )
+                return auth.split(" ", 1)[1]
+
+            return ChatOpenAI(
+                model=self.name,
+                base_url=f"{host}/ai-gateway/mlflow/v1",
+                api_key=token_provider,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                streaming=not effective_disable_streaming,
+            )
+
+        return ChatDatabricks(
+            model=self.name,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            use_responses_api=self.use_responses_api,
+            disable_streaming=effective_disable_streaming,
+            workspace_client=workspace_client,
+        )
+
     def as_chat_model(self) -> LanguageModelLike:
         # When best_of_n is enabled, force streaming off — the wrapper has to
         # buffer the full candidate response before it can hand it to the judge.
@@ -883,13 +991,25 @@ class InferenceEndpointModel(IsDatabricksResource):
             )
             effective_disable_streaming = True
 
-        chat_client: LanguageModelLike = ChatDatabricks(
-            model=self.name,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            use_responses_api=self.use_responses_api,
-            disable_streaming=effective_disable_streaming,
-        )
+        chat_client: LanguageModelLike
+        if self.ai_gateway:
+            host, token_provider = self._resolve_ai_gateway_credentials()
+            chat_client = ChatOpenAI(
+                model=self.name,
+                base_url=f"{host}/ai-gateway/mlflow/v1",
+                api_key=token_provider,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                streaming=not effective_disable_streaming,
+            )
+        else:
+            chat_client = ChatDatabricks(
+                model=self.name,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                use_responses_api=self.use_responses_api,
+                disable_streaming=effective_disable_streaming,
+            )
 
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
@@ -929,13 +1049,24 @@ class InferenceEndpointModel(IsDatabricksResource):
         return chat_client
 
     def as_open_ai_client(self) -> LanguageModelLike:
-        chat_client: ChatOpenAI = (
-            self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
-                model=self.name
+        chat_client: ChatOpenAI
+        if self.ai_gateway:
+            host, token_provider = self._resolve_ai_gateway_credentials()
+            chat_client = ChatOpenAI(
+                model=self.name,
+                base_url=f"{host}/ai-gateway/mlflow/v1",
+                api_key=token_provider,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
             )
-        )
-        chat_client.temperature = self.temperature
-        chat_client.max_tokens = self.max_tokens
+        else:
+            chat_client = (
+                self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
+                    model=self.name
+                )
+            )
+            chat_client.temperature = self.temperature
+            chat_client.max_tokens = self.max_tokens
 
         return chat_client
 

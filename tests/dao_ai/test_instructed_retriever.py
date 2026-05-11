@@ -679,7 +679,7 @@ class TestLLMCaching:
 
         assert key1 != key2
 
-    @patch("databricks_langchain.ChatDatabricks")
+    @patch("dao_ai.config.ChatDatabricks")
     @patch.object(LLMModel, "workspace_client_from")
     def test_obo_bypasses_cache(
         self,
@@ -708,7 +708,7 @@ class TestLLMCaching:
         assert actual is mock_chat_model
         assert len(_llm_cache) == 0  # cache should not be populated
 
-    @patch("databricks_langchain.ChatDatabricks")
+    @patch("dao_ai.config.ChatDatabricks")
     @patch.object(LLMModel, "workspace_client_from")
     def test_obo_creates_fresh_client_per_call(
         self,
