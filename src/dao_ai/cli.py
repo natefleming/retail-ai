@@ -1796,17 +1796,30 @@ def handle_vars_command(options: Namespace) -> None:
     """
     import yaml
 
-    from dao_ai.config_vars import ParameterDeclarationModel
+    from dao_ai.config_vars import (
+        ParameterDeclarationModel,
+        WorkspaceVariableError,
+        substitute_workspace_refs,
+    )
 
     cli_vars: dict[str, str] = _parse_var_args(options.var)
 
     try:
-        raw_dict: dict[str, Any] = (
-            yaml.safe_load(Path(options.config).read_text()) or {}
-        )
+        raw_text: str = Path(options.config).read_text()
     except FileNotFoundError:
         logger.error(f"Configuration file not found: {options.config}")
         sys.exit(1)
+
+    try:
+        rendered_text: str = substitute_workspace_refs(
+            raw_text, source=options.config
+        )
+    except WorkspaceVariableError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    try:
+        raw_dict: dict[str, Any] = yaml.safe_load(rendered_text) or {}
     except yaml.YAMLError as e:
         logger.error(f"Failed to parse YAML in {options.config}: {e}")
         sys.exit(1)

@@ -13,7 +13,7 @@ parameters:
     default: store_ops
   genie_parent_path:
     description: Workspace folder for the Genie space (path under /Users/<user>/)
-    default: "/Users/nate.fleming@databricks.com/genie"
+    default: "/Users/${workspace.current_user.userName}/genie"
 
 # =============================================================================
 # Brick Store - In-Store Associate Companion

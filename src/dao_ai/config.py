@@ -94,6 +94,7 @@ from pydantic import (
 from dao_ai.config_vars import (
     ParameterDeclarationModel,
     substitute_params,
+    substitute_workspace_refs,
 )
 from dao_ai.resource_protocol import (
     ManagedResource,
@@ -7717,7 +7718,11 @@ class AppConfig(BaseModel):
 
         raw_text: str = Path(path).read_text()
 
-        raw_dict: dict[str, Any] = yaml.safe_load(raw_text) or {}
+        # Resolve ${workspace.*} refs first so they can appear inside
+        # parameter defaults (e.g. default: /Users/${workspace.current_user.userName}/...).
+        workspace_resolved_text: str = substitute_workspace_refs(raw_text, source=path)
+
+        raw_dict: dict[str, Any] = yaml.safe_load(workspace_resolved_text) or {}
         decl_block: dict[str, Any] = raw_dict.get("parameters", {}) or {}
         declarations: dict[str, ParameterDeclarationModel] = {
             name: ParameterDeclarationModel(**(spec or {}))
@@ -7725,7 +7730,7 @@ class AppConfig(BaseModel):
         }
 
         rendered_text: str = substitute_params(
-            raw_text,
+            workspace_resolved_text,
             declarations=declarations,
             cli_vars=params,
             source=path,

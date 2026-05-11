@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -63,6 +63,23 @@ PARAM_PATTERN: re.Pattern[str] = re.compile(
     r"\$\{(?:param|var)\.(?P<name>[a-zA-Z_][a-zA-Z0-9_.\-]*)"
     r"(?::-(?P<default>[^}]*))?\}"
 )
+
+WORKSPACE_PATTERN: re.Pattern[str] = re.compile(
+    r"\$\{workspace\.(?P<path>[a-zA-Z_][a-zA-Z0-9_.]*)\}"
+)
+
+_SUPPORTED_WORKSPACE_PATHS: frozenset[str] = frozenset(
+    {
+        "host",
+        "current_user.userName",
+        "current_user.short_name",
+        "current_user.domain_friendly_name",
+    }
+)
+
+
+class WorkspaceVariableError(ValueError):
+    """Raised when ``${workspace.*}`` substitution fails (unknown path, missing client, etc.)."""
 
 
 class ParameterDeclarationModel(BaseModel):
@@ -242,3 +259,123 @@ def resolve_parameters(
             )
         )
     return results
+
+
+def find_workspace_references(text: str) -> set[str]:
+    """Return the distinct paths referenced via ``${workspace.PATH}``."""
+    return {m.group("path") for m in WORKSPACE_PATTERN.finditer(text)}
+
+
+def _email_short_name(email: str) -> str:
+    """Email prefix before ``@`` (dots intact). Matches the DABs convention."""
+    return email.split("@", 1)[0] if email else ""
+
+
+def _email_domain(email: str) -> str:
+    """Email domain after ``@`` (e.g. ``databricks.com``). Matches the DABs convention."""
+    parts: list[str] = email.split("@", 1) if email else []
+    return parts[1] if len(parts) == 2 else ""
+
+
+def substitute_workspace_refs(
+    text: str,
+    *,
+    workspace_client_factory: Optional[Callable[[], Any]] = None,
+    source: str = "<string>",
+) -> str:
+    """Render ``${workspace.*}`` references to literal values.
+
+    Mirrors the Databricks Asset Bundles substitution namespace. Supported paths:
+
+        ``${workspace.host}``                                 — workspace URL (no trailing slash)
+        ``${workspace.current_user.userName}``                — full email
+        ``${workspace.current_user.short_name}``              — email prefix (dots intact)
+        ``${workspace.current_user.domain_friendly_name}``    — email domain (``databricks.com``)
+
+    The ``workspace_client_factory`` is invoked lazily (only when the text
+    contains at least one ``${workspace.*}`` reference). When omitted, a
+    default ``WorkspaceClient()`` is constructed - it will honour the active
+    profile / environment exactly like ``databricks bundle``.
+
+    Raises:
+        WorkspaceVariableError: if the text references an unsupported path,
+            or if constructing the WorkspaceClient / fetching user info fails.
+    """
+    refs: set[str] = find_workspace_references(text)
+    if not refs:
+        return text
+
+    unknown: list[str] = sorted(r for r in refs if r not in _SUPPORTED_WORKSPACE_PATHS)
+    if unknown:
+        raise WorkspaceVariableError(
+            f"Unsupported ${{workspace.*}} reference(s) in {source}: "
+            f"{', '.join(unknown)}. "
+            f"Supported: {', '.join(sorted(_SUPPORTED_WORKSPACE_PATHS))}."
+        )
+
+    def _default_factory() -> Any:
+        from databricks.sdk import WorkspaceClient
+
+        return WorkspaceClient()
+
+    factory: Callable[[], Any] = workspace_client_factory or _default_factory
+
+    cache: dict[str, str] = {}
+    client_box: dict[str, Any] = {}
+    email_box: dict[str, str] = {}
+
+    def _client() -> Any:
+        if "c" not in client_box:
+            try:
+                client_box["c"] = factory()
+            except Exception as exc:
+                raise WorkspaceVariableError(
+                    f"Failed to build a WorkspaceClient while resolving "
+                    f"${{workspace.*}} in {source}: {exc}"
+                ) from exc
+        return client_box["c"]
+
+    def _email() -> str:
+        if "e" not in email_box:
+            try:
+                user: Any = _client().current_user.me()
+            except WorkspaceVariableError:
+                raise
+            except Exception as exc:
+                raise WorkspaceVariableError(
+                    f"Failed to fetch current user while resolving "
+                    f"${{workspace.current_user.*}} in {source}: {exc}"
+                ) from exc
+            email_box["e"] = str(getattr(user, "user_name", "") or "")
+        return email_box["e"]
+
+    def _resolve(path: str) -> str:
+        if path in cache:
+            return cache[path]
+        try:
+            if path == "host":
+                host: str = str(_client().config.host or "")
+                value: str = host.rstrip("/")
+            elif path == "current_user.userName":
+                value = _email()
+            elif path == "current_user.short_name":
+                value = _email_short_name(_email())
+            elif path == "current_user.domain_friendly_name":
+                value = _email_domain(_email())
+            else:  # pragma: no cover - guarded by _SUPPORTED_WORKSPACE_PATHS
+                raise WorkspaceVariableError(
+                    f"Unsupported workspace path: {path}"
+                )
+        except WorkspaceVariableError:
+            raise
+        except Exception as exc:
+            raise WorkspaceVariableError(
+                f"Failed to resolve ${{workspace.{path}}} in {source}: {exc}"
+            ) from exc
+        cache[path] = value
+        return value
+
+    def _sub(match: re.Match[str]) -> str:
+        return _resolve(match.group("path"))
+
+    return WORKSPACE_PATTERN.sub(_sub, text)
