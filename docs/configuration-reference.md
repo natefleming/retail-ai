@@ -253,7 +253,7 @@ alongside the agent backend.
 
 ## Parameters (Load-Time Substitution)
 
-Configs can declare typed input parameters and reference them inline with `${var.NAME}` (or its alias `${param.NAME}`). Substitution happens once at load time, **before** MLflow's `ModelConfig` parses the YAML. This makes one YAML re-usable across catalogs, schemas, environments, and workshop modules without duplicating files.
+Configs can declare typed input parameters and reference them inline with `${param.NAME}` (or its alias `${var.NAME}`). They can also reference Databricks workspace context (host, current user) via `${workspace.*}` using the same convention as Databricks Asset Bundles. Substitution happens once at load time, **before** MLflow's `ModelConfig` parses the YAML, so one config can re-use across catalogs, schemas, environments, workshop modules, and users without duplicating files.
 
 ### Declaring parameters
 
@@ -270,53 +270,80 @@ parameters:
   module_id:
     description: Workshop module identifier
     # no default => required
+  genie_parent_path:
+    description: Workspace folder for the Genie space
+    default: "/Users/${workspace.current_user.userName}/genie"
 
 schemas:
   workshop_schema:
-    catalog_name: ${var.catalog}
-    schema_name: ${var.schema}
+    catalog_name: ${param.catalog}
+    schema_name: ${param.schema}
 
 app:
-  name: dao_ws_${var.module_id}_orchestration
+  name: dao_ws_${param.module_id}_orchestration
 ```
+
+Inspect declared parameters and their resolved values with [`dao-ai parameters list`](cli-reference.md#inspect-declared-parameters).
 
 ### Reference syntax
 
 Two prefixes are supported as interchangeable aliases:
 
-- `${var.NAME}` - matches the Databricks Asset Bundle convention (recommended).
-- `${param.NAME}` - matches the `parameters:` block name.
+- `${param.NAME}` - matches the `parameters:` block name (recommended).
+- `${var.NAME}` - matches the Databricks Asset Bundle convention.
 
-Both can appear in the same file and resolve against the same declaration. Inline defaults are also supported: `${var.NAME:-fallback}`.
+Both can appear in the same file and resolve against the same declaration. Inline defaults are also supported: `${param.NAME:-fallback}` / `${var.NAME:-fallback}`.
 
 ### Resolution precedence
 
 Each reference is resolved in this order:
 
-1. **CLI** `--var name=value` (or `AppConfig.from_file(params={...})`)
-2. **Process env** - `NAME` upper-cased with `.` and `-` replaced by `_` (e.g. `${var.app.catalog-name}` reads from `APP_CATALOG_NAME`)
+1. **CLI** `--param name=value` (alias `--var`), or `AppConfig.from_file(params={...})`
+2. **Process env** - `NAME` upper-cased with `.` and `-` replaced by `_` (e.g. `${param.app.catalog-name}` reads from `APP_CATALOG_NAME`)
 3. **Declared default** - the `default:` entry in the `parameters:` block
-4. **Inline default** - `${var.NAME:-fallback}` on the reference itself
+4. **Inline default** - `${param.NAME:-fallback}` on the reference itself
 5. **Error** - raises `ConfigVariableError`
+
+### Workspace variables
+
+In addition to declared `${param.*}` / `${var.*}`, configs may reference Databricks workspace context using the Databricks Asset Bundles namespace:
+
+| Reference | Resolves to | Example |
+|---|---|---|
+| `${workspace.host}` | Workspace URL, trailing slash stripped | `https://adb-1234.5.azuredatabricks.net` |
+| `${workspace.current_user.userName}` | Full email address of the loading user | `nate.fleming@databricks.com` |
+| `${workspace.current_user.short_name}` | Email prefix before `@` (dots intact, DABs convention) | `nate.fleming` |
+| `${workspace.current_user.domain_friendly_name}` | Email domain after `@` | `databricks.com` |
+
+Workspace references resolve **before** `${param.*}` / `${var.*}`, so they may appear inside a parameter's `default` (as in the `genie_parent_path` example above). The `WorkspaceClient` is built lazily — configs that don't reference any `${workspace.*}` value never trigger an auth call. When a config does reference one, the SCIM `me()` call is memoized across the three derived user paths for one network round-trip per load.
+
+Authentication for the workspace lookup follows the standard Databricks SDK precedence (`DATABRICKS_HOST` / `DATABRICKS_TOKEN` env vars, `DATABRICKS_CONFIG_PROFILE`, or the `DEFAULT` profile in `~/.databrickscfg`). Failures surface as `WorkspaceVariableError` with the original cause attached. Unsupported paths (e.g. `${workspace.current_user.email}`) are rejected at load time with a list of allowed paths.
 
 ### Error handling
 
-Two classes of error are caught at load time:
+Three classes of error are caught at load time:
 
 **Missing required** - a declared parameter with no `default` and no override:
 
 ```
 Config parameter error in dao_ai.yaml:
   missing required: module_id.
-  Pass with --var name=value or set the equivalent env var.
+  Pass with --param name=value or set the equivalent env var.
 ```
 
-**Undeclared reference** - a `${var.NAME}` used in the YAML but not in the `parameters:` block (typo protection):
+**Undeclared reference** - a `${param.NAME}` used in the YAML but not in the `parameters:` block (typo protection):
 
 ```
 Config parameter error in dao_ai.yaml:
-  undeclared ${var.NAME} / ${param.NAME} references: catlaog.
+  undeclared ${param.NAME} / ${var.NAME} references: catlaog.
   Add them to the top-level parameters: block.
+```
+
+**Unsupported workspace path** - a `${workspace.*}` reference outside the supported set:
+
+```
+Unsupported ${workspace.*} reference(s) in dao_ai.yaml: current_user.email.
+Supported: current_user.domain_friendly_name, current_user.short_name, current_user.userName, host.
 ```
 
 ### YAML quoting caveat
@@ -324,17 +351,17 @@ Config parameter error in dao_ai.yaml:
 Substitution is text-level - the value is spliced into the YAML before parsing. If a value may contain YAML-special characters (`:` followed by a space, `#`, `[`, `{`, newlines, quotes), quote the reference:
 
 ```yaml
-prompt: "${var.user_prompt}"   # safe regardless of value content
-label: ${var.label}            # OK only for plain alphanumeric values
+prompt: "${param.user_prompt}"   # safe regardless of value content
+label: ${param.label}            # OK only for plain alphanumeric values
 ```
 
 ### Non-recursion
 
-Substitution does not recurse. If a substituted value happens to contain `${var.x}` literally, it is preserved as-is and not re-resolved.
+Substitution does not recurse. If a substituted value happens to contain `${param.x}` literally, it is preserved as-is and not re-resolved.
 
 ### Bundle behaviour
 
-When `dao-ai generate-bundle` writes the deployable Apps bundle, the emitted config YAML has every reference substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--var` flags.
+When `dao-ai generate-bundle` writes the deployable Apps bundle, the emitted config YAML has every reference (both `${param.*}` and `${workspace.*}`) substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--param` flags or runtime workspace lookups.
 
 ---
 
@@ -417,7 +444,7 @@ resources:
 | | `parameters:` | `variables:` |
 |---|---|---|
 | **When resolved** | Load time, by `AppConfig.from_file` | Runtime, when `as_value()` is called inside the deployed app |
-| **Source of value** | `--var`, env, declared default, inline `:-default` | `env` / `scope`+`secret` / composite at runtime |
+| **Source of value** | `--param` (alias `--var`), env, declared default, inline `:-default`, or `${workspace.*}` | `env` / `scope`+`secret` / composite at runtime |
 | **Reference syntax** | `${var.NAME}` or `${param.NAME}` (inline string macro) | YAML anchor `*name` (typed mapping spliced into a field) |
 | **Scope of effect** | Anywhere in any string in the YAML | Wherever the anchor expands |
 | **What ends up in the bundle** | Resolved literal value, declarations dropped | The typed mapping itself, evaluated at runtime |
@@ -451,7 +478,7 @@ At load time, `${var.secret_scope}` and `${var.client_id_secret_key}` are text-s
 Override at deploy time:
 
 ```bash
-dao-ai pipeline --deploy -c dao_ai.yaml --var secret_scope=prod_dao_ai --var client_id_secret_key=PROD_SP_CLIENT_ID
+dao-ai pipeline --deploy -c dao_ai.yaml --param secret_scope=prod_dao_ai --param client_id_secret_key=PROD_SP_CLIENT_ID
 ```
 
 **What this does NOT do:** You cannot substitute a parameter for an _entire_ typed mapping - only for string fields inside one. This works:

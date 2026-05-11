@@ -8,7 +8,7 @@ Check your configuration for errors:
 dao-ai validate -c config/my_config.yaml
 
 # With parameter overrides (repeatable)
-dao-ai validate -c config/my_config.yaml --var catalog=main --var module_id=09
+dao-ai validate -c config/my_config.yaml --param catalog=main --param module_id=09
 ```
 
 ## Generate JSON Schema
@@ -27,7 +27,7 @@ Generate a diagram showing how your agent works:
 dao-ai graph -c config/my_config.yaml -o workflow.png
 
 # With parameter overrides
-dao-ai graph -c config/my_config.yaml -o workflow.png --var catalog=main
+dao-ai graph -c config/my_config.yaml -o workflow.png --param catalog=main
 ```
 
 ## Pipeline: Deploy and Run
@@ -41,10 +41,10 @@ The `dao-ai pipeline` subcommand deploys your agent to Databricks (under the hoo
 dao-ai pipeline --deploy -c config/my_config.yaml
 
 # Deploy with parameter overrides
-dao-ai pipeline --deploy -c config/my_config.yaml --var catalog=prod_catalog --var schema=prod_schema
+dao-ai pipeline --deploy -c config/my_config.yaml --param catalog=prod_catalog --param schema=prod_schema
 ```
 
-`--var` flags are forwarded to the underlying `databricks bundle ...` invocation, so Databricks Asset Bundles' own `${var.NAME}` substitution sees the same values when the names overlap.
+`--param` (and the `--var` alias) flags are forwarded to the underlying `databricks bundle ...` invocation as `--var`, so Databricks Asset Bundles' own `${var.NAME}` substitution sees the same values when the names overlap.
 
 ### Multi-Cloud Deployment
 
@@ -88,7 +88,7 @@ dao-ai pipeline --deploy -c config/my_config.yaml --profile aws-field-eng --dry-
 
 Generate a complete, deployable Databricks Apps bundle directory from a dao-ai config file. This is distinct from the `bundle` command -- while `bundle` wraps `databricks bundle deploy/run/destroy`, `generate-bundle` **creates** the bundle project itself.
 
-When the source config uses `${var.NAME}` parameters, the generated bundle writes the **resolved** config (all parameters substituted to literal values, `parameters:` block dropped) so the deployed app does not need the original `--var` flags.
+When the source config uses `${param.NAME}` / `${var.NAME}` parameters or `${workspace.*}` references, the generated bundle writes the **resolved** config (all references substituted to literal values, `parameters:` block dropped) so the deployed app does not need the original `--param` flags or a runtime workspace lookup.
 
 ### Basic Usage
 
@@ -96,7 +96,7 @@ When the source config uses `${var.NAME}` parameters, the generated bundle write
 dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle
 
 # With parameter overrides baked into the generated bundle
-dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --var catalog=prod_catalog
+dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --param catalog=prod_catalog
 ```
 
 ### What Gets Generated
@@ -165,7 +165,7 @@ Start an interactive chat session with your agent:
 dao-ai chat -c config/my_config.yaml
 
 # With parameter overrides
-dao-ai chat -c config/my_config.yaml --var catalog=nfleming --var module_id=09
+dao-ai chat -c config/my_config.yaml --param catalog=nfleming --param module_id=09
 ```
 
 ## List MCP Tools
@@ -180,7 +180,7 @@ List all MCP tools with full descriptions and schemas:
 dao-ai list-mcp-tools -c config/my_config.yaml
 
 # With parameter overrides
-dao-ai list-mcp-tools -c config/my_config.yaml --var catalog=main
+dao-ai list-mcp-tools -c config/my_config.yaml --param catalog=main
 ```
 
 ### Show Only Filtered Tools
@@ -279,11 +279,13 @@ Schemas are displayed in a concise, readable format (53% smaller than JSON):
 Print every parameter declared in a config's `parameters:` block, its current resolved value, and where that value came from.
 
 ```bash
-dao-ai vars list -c config/my_config.yaml
+dao-ai parameters list -c config/my_config.yaml
 
 # With overrides to see how they resolve
-dao-ai vars list -c dao_ai.yaml --var module_id=09
+dao-ai parameters list -c dao_ai.yaml --param module_id=09
 ```
+
+`dao-ai vars` is kept as an alias for backward compatibility, and `--var` continues to work alongside `--param`.
 
 Sample output:
 
@@ -291,12 +293,14 @@ Sample output:
 NAME       REQUIRED  DEFAULT  RESOLVED  SOURCE   DESCRIPTION
 ------------------------------------------------------------
 catalog    no        main     main      default  Unity Catalog catalog name
-module_id  yes       -        09        --var    Workshop module identifier
+module_id  yes       -        09        --param  Workshop module identifier
 ```
 
-Source values: `--var`, `env`, `default`, `inline-default`, `MISSING`.
+Source values: `--param`, `env`, `default`, `inline-default`, `MISSING`.
 
-Exit code is 1 if any required parameter is `MISSING`, 0 otherwise. This makes `vars list` useful in CI pipelines to verify all overrides are wired up before deploying.
+Exit code is 1 if any required parameter is `MISSING`, 0 otherwise. This makes `parameters list` useful in CI pipelines to verify all overrides are wired up before deploying.
+
+Any `${workspace.*}` references in a parameter's `default` are resolved before the table is rendered, so the listed `DEFAULT` reflects the live workspace user / host.
 
 Full reference: [Parameters (Load-Time Substitution)](configuration-reference.md#parameters-load-time-substitution).
 
@@ -320,7 +324,7 @@ dao-ai -vvvv validate -c config/my_config.yaml
 |--------|-------------|
 | `-c, --config FILE` | Path to configuration file (required) |
 | `-p, --profile NAME` | Databricks CLI profile to use |
-| `--var KEY=VALUE` | Override a `${var.KEY}` parameter in the config (repeatable) |
+| `--param KEY=VALUE` | Override a `${param.KEY}` / `${var.KEY}` parameter in the config (repeatable). `--var` is kept as an alias. |
 | `-v, --verbose` | Increase verbosity (can be repeated up to 4 times) |
 | `--help` | Show help message |
 
