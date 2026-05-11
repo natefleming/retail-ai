@@ -29,7 +29,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     # Main agent LLM
     main_llm: &main_llm
       name: databricks-claude-sonnet-4
@@ -64,7 +64,7 @@ tools:
           - Processing returns and refunds
           - Managing customer satisfaction concerns
           - Escalation handling
-          
+
           The agent is trained on customer support best practices and your company's policies.
           Pass the customer's question or issue as the prompt.
 
@@ -84,7 +84,7 @@ tools:
           - Product comparisons and recommendations
           - Compatibility questions
           - Usage instructions and best practices
-          
+
           This agent has deep knowledge of your product catalog and can provide
           expert-level guidance on product selection and usage.
 
@@ -94,23 +94,23 @@ agents:
     name: main_orchestrator
     model: *main_llm
     tools:
-      - *customer_support_tool
-      - *product_expert_tool
+    - *customer_support_tool
+    - *product_expert_tool
     prompt: |
       You are an intelligent routing agent for a retail hardware store.
-      
+
       Your role is to understand customer inquiries and delegate them to the appropriate
       specialist agents:
-      
+
       - For customer service issues, complaints, returns, or satisfaction concerns,
         use the customer_support_specialist tool
       - For detailed product information, technical specifications, or recommendations,
         use the product_knowledge_expert tool
-      
+
       When using these tools, formulate clear and complete prompts that give the
       specialist agent all necessary context. After receiving their response,
       provide it to the user in a helpful and professional manner.
-      
+
       If a question requires both customer support and product expertise, you may
       call both tools in sequence and synthesize the responses.
 
@@ -121,4 +121,4 @@ app:
     schema: *retail_schema
     name: agent_bricks_integration_dao
   agents:
-    - *orchestrator_agent
+  - *orchestrator_agent

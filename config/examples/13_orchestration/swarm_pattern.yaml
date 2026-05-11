@@ -20,7 +20,7 @@ variables:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -87,21 +87,21 @@ agents:
     description: "Product information specialist"
     model: *default_llm
     tools:
-      - *search_products
-      - *transfer_to_inventory
-      - *transfer_to_comparison
+    - *search_products
+    - *transfer_to_inventory
+    - *transfer_to_comparison
     prompt: |
       You are a product information specialist providing details about products.
-      
+
       Your expertise:
       - Product specifications and features
       - Pricing and product details
       - General product information
-      
+
       When to hand off:
       - If customer asks about STOCK or AVAILABILITY → use transfer_to_inventory
       - If customer wants to COMPARE multiple products → use transfer_to_comparison
-      
+
       Use your search tool to find accurate product information, and hand off when
       the conversation moves beyond product details into other specialties.
     handoff_prompt: |
@@ -114,22 +114,22 @@ agents:
     description: "Inventory and availability specialist"
     model: *default_llm
     tools:
-      - *check_inventory
-      - *search_products
-      - *transfer_to_product
-      - *transfer_to_comparison
+    - *check_inventory
+    - *search_products
+    - *transfer_to_product
+    - *transfer_to_comparison
     prompt: |
       You are an inventory management specialist checking stock and availability.
-      
+
       Your expertise:
       - Stock levels and availability
       - Store inventory information
       - Product location in store
-      
+
       When to hand off:
       - If customer asks for DETAILED product specs → use transfer_to_product
       - If customer wants to COMPARE options → use transfer_to_comparison
-      
+
       Check inventory first, provide alternatives if out of stock, and hand off
       when the conversation needs different expertise.
     handoff_prompt: |
@@ -142,21 +142,21 @@ agents:
     description: "Product comparison specialist"
     model: *default_llm
     tools:
-      - *search_products
-      - *transfer_to_product
-      - *transfer_to_inventory
+    - *search_products
+    - *transfer_to_product
+    - *transfer_to_inventory
     prompt: |
       You are a product comparison specialist helping customers compare options.
-      
+
       Your expertise:
       - Side-by-side product comparisons
       - Feature and price analysis
       - Pros and cons evaluation
-      
+
       When to hand off:
       - If customer wants DETAILED specs on one product → use transfer_to_product
       - If customer asks about STOCK of compared items → use transfer_to_inventory
-      
+
       Compare products objectively, highlight key differences, and hand off when
       the conversation focuses on a single product or availability.
     handoff_prompt: |
@@ -170,19 +170,19 @@ app:
   name: swarm_pattern_dao
   description: "Swarm orchestration pattern with peer-to-peer agent handoffs"
   log_level: INFO
-  
+
   registered_model:
     name: swarm_pattern_dao
-  
+
   # List all agents in the swarm (no hierarchy - they're peers)
   agents:
-    - *product_agent
-    - *inventory_agent
-    - *comparison_agent
+  - *product_agent
+  - *inventory_agent
+  - *comparison_agent
 
   # Example input demonstrating the pattern
   input_example:
     messages:
-      - role: user
-        content: "Tell me about the Dewalt cordless drill and check if you have it in stock"
+    - role: user
+      content: "Tell me about the Dewalt cordless drill and check if you have it in stock"
 

@@ -20,13 +20,13 @@ schemas:
     schema_name: ${var.schema}                    # Schema within the catalog
 
 resources:
-  llms:
+  models:
     # Primary LLM for general tasks
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
-      on_behalf_of_user: False
+      on_behalf_of_user: false
 
   genie_rooms:
     # Genie space for retail data queries
@@ -53,16 +53,18 @@ tools:
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: Answers questions about retail products and inventory
-        genie_room: *retail_genie_room              # Reference to Genie room config
+        genie_room: *retail_genie_room
+                                                    # Reference to Genie room config
 
 
 agents:
   genie: &genie
     name: genie                                     # Agent identifier
     description: "Genie Agent"
-    model: *default_llm                             # Reference to LLM configuration
+    model: *default_llm
+                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *genie_tool
+    - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
       Answers questions about retail products and inventory
 
@@ -72,9 +74,11 @@ app:
   name: genie_basic_dao                      # Application name  
   description: "Multi-agent system that talks to genie"
   registered_model:                                 # MLflow registered model configuration
-    schema: *quick_serve_restaurant_schema                          # Schema where model will be registered
+    schema: *quick_serve_restaurant_schema
+                                                                    # Schema where model will be registered
     name: genie_basic_dao
   endpoint_name: dao_genie                    # Model serving endpoint name
   agents:                                           # List of agents included in the system
-    - *genie                                        # Genie agent
+  - *genie
+                                                    # Genie agent
 

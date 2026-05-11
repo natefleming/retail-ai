@@ -36,7 +36,7 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -155,7 +155,7 @@ middleware:
   # INPUT-ONLY PROTECTION
   # ---------------------------------------------------------------------------
   # Only check user inputs, not agent outputs
-  input_email_check: &input_email_check
+  input_email_check:
     name: dao_ai.middleware.create_pii_middleware
     args:
       pii_type: email
@@ -203,31 +203,32 @@ agents:
     description: "Customer service agent with comprehensive PII protection"
     model: *default_llm
     tools:
-      - *genie_tool
-      - *time_tool
+    - *genie_tool
+    - *time_tool
     middleware:
       # Apply multiple PII protections
-      - *email_redact             # Redact email addresses
-      - *phone_mask               # Mask phone numbers
-      - *ssn_block                # Block SSN entirely
-      - *credit_card_hash         # Hash credit card numbers
+    - *email_redact
+    - *phone_mask
+    - *ssn_block
+    - *credit_card_hash
+                                  # Hash credit card numbers
     prompt: |
       You are a customer service assistant for a retail company.
-      
+
       IMPORTANT: For privacy compliance, the system automatically:
       - Redacts email addresses as [REDACTED]
       - Masks phone numbers partially
       - Blocks messages containing Social Security Numbers
       - Hashes credit card numbers
-      
+
       If a customer shares sensitive information, acknowledge that it has
       been protected and assure them their privacy is maintained.
-      
+
       You can help with:
       - Order status inquiries
       - Product questions
       - General customer support
-      
+
       Never ask customers for sensitive personal information. Use account
       lookup tools instead of asking for SSN or credit card numbers.
     handoff_prompt: |
@@ -241,27 +242,27 @@ agents:
     description: "Healthcare assistant with strict PII protection for compliance"
     model: *default_llm
     tools:
-      - *time_tool
+    - *time_tool
     middleware:
       # Strict protection for healthcare
-      - *email_redact
-      - *phone_mask
-      - *ssn_block
-      - *address_redact
+    - *email_redact
+    - *phone_mask
+    - *ssn_block
+    - *address_redact
     prompt: |
       You are a healthcare information assistant.
-      
+
       PRIVACY NOTICE: For HIPAA compliance, this system automatically:
       - Redacts email addresses
       - Masks phone numbers
       - Blocks Social Security Numbers
       - Redacts physical addresses
-      
+
       You can provide general health information, but you cannot:
       - Access or discuss specific patient records
       - Store or transmit protected health information
       - Provide medical diagnoses or treatment recommendations
-      
+
       For specific medical concerns, please consult a healthcare provider.
     handoff_prompt: |
       General health questions (not specific patient information).
@@ -274,21 +275,22 @@ agents:
     description: "Data analyst with PII protection on query results"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *tool_pii_check           # Protect PII in database query results
-      - *output_phone_check       # Mask phone numbers in outputs
+    - *tool_pii_check
+    - *output_phone_check
+                                  # Mask phone numbers in outputs
     prompt: |
       You are a data analyst assistant that queries retail databases.
-      
+
       The system automatically masks or redacts personally identifiable
       information in query results to protect customer privacy.
-      
+
       When analyzing customer data:
       - Focus on aggregated metrics and trends
       - Don't attempt to identify individual customers
       - Report on patterns rather than specific personal details
-      
+
       If query results show masked data like "j***@email.com", this is
       intentional privacy protection.
     handoff_prompt: |
@@ -306,17 +308,16 @@ app:
     name: pii_middleware_dao
   endpoint_name: pii_middleware_demo_dao
   agents:
-    - *customer_service_agent
-    - *healthcare_agent
-    - *data_analysis_agent
+  - *customer_service_agent
+  - *healthcare_agent
+  - *data_analysis_agent
   orchestration:
     supervisor:
       model: *default_llm
-  
   input_example:
     messages:
-      - role: user
-        content: I need help with my order. My email is john@example.com
+    - role: user
+      content: I need help with my order. My email is john@example.com
     custom_inputs:
       configurable:
         thread_id: "privacy-example-123"

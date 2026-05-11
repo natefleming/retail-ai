@@ -29,7 +29,7 @@ resources:
         env: DATABRICKS_WAREHOUSE_ID
 
   # Define the LLM for the agent
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4  # Databricks serving endpoint name
 
@@ -121,13 +121,13 @@ agents:
     name: inventory_analyst
     model: *default_llm
     tools:
-      - *get_product_count
-      - *get_products_by_department
-      - *check_low_inventory
-      - *get_popular_products
+    - *get_product_count
+    - *get_products_by_department
+    - *check_low_inventory
+    - *get_popular_products
     prompt: |
       You are a helpful inventory analyst assistant for a hardware store.
-      
+
       You have access to SQL tools that can query the product catalog and inventory database.
       Use these tools to help answer questions about:
       - Product counts and availability
@@ -135,12 +135,12 @@ agents:
       - Department-level statistics
       - Popular products and pricing
       - Low stock alerts
-      
+
       When presenting data:
       - Format numbers clearly (use commas for thousands)
       - Highlight important findings
       - Provide actionable insights when relevant
-      
+
       Be concise but informative in your responses.
 
 app:
@@ -150,4 +150,4 @@ app:
     schema: *hardware_store_schema
     name: sql_tool_example_agent_dao
   agents:
-    - *inventory_analyst
+  - *inventory_analyst

@@ -1,35 +1,35 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
 variables:
-  tavily_search_key: &tavily_search_key                                                                                       
+  tavily_search_key:
     options:
-      - env: TAVILY_API_KEY                         
-      - scope: retail_consumer_goods                    
-        secret: TAVILY_API_KEY                      
+    - env: TAVILY_API_KEY
+    - scope: retail_consumer_goods
+      secret: TAVILY_API_KEY
 
 schemas:
   executive_research_schema: &executive_research_schema
-    catalog_name: retail_consumer_goods                  
-    schema_name: store_ops                
+    catalog_name: retail_consumer_goods
+    schema_name: store_ops
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
-      name: databricks-claude-3-7-sonnet 
-      temperature: 0.1                             
-      max_tokens: 16384                             
-
-    fast_llm: &fast_llm
-      name: databricks-meta-llama-3-1-8b-instruct 
-      temperature: 0.1                              
-      max_tokens: 8192                             
-
-    tool_calling_llm: &tool_calling_llm
       name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 16384
-      fallbacks:                                   
-        - databricks-claude-sonnet-4
+
+    fast_llm:
+      name: databricks-meta-llama-3-1-8b-instruct
+      temperature: 0.1
+      max_tokens: 8192
+
+    tool_calling_llm:
+      name: databricks-claude-3-7-sonnet
+      temperature: 0.1
+      max_tokens: 16384
+      fallbacks:
+      - databricks-claude-sonnet-4
 
     reasoning_llm: &reasoning_llm
       name: databricks-claude-3-7-sonnet
@@ -40,23 +40,23 @@ resources:
       name: databricks-claude-sonnet-4
       temperature: 0.1
       max_tokens: 32768
-      fallbacks: 
-        - databricks-claude-3-7-sonnet
+      fallbacks:
+      - databricks-claude-3-7-sonnet
 
   tables:
     employee_performance:
-      schema: *executive_research_schema                        
-      name: employee_performance                              
-    
+      schema: *executive_research_schema
+      name: employee_performance
+
     products:
       schema: *executive_research_schema
       name: products
 
-    inventory: 
+    inventory:
       schema: *executive_research_schema
       name: inventory
 
-    customers: 
+    customers:
       schema: *executive_research_schema
       name: customers
 
@@ -64,64 +64,64 @@ resources:
       schema: *executive_research_schema
       name: managers
 
-    employee_tasks: 
+    employee_tasks:
       schema: *executive_research_schema
       name: employee_tasks
 
-    appointments: 
+    appointments:
       schema: *executive_research_schema
       name: appointments
 
-    evaluation: 
+    evaluation:
       schema: *executive_research_schema
       name: evaluation
 
   functions:
-    find_inventory_by_sku: &find_inventory_by_sku
+    find_inventory_by_sku:
       schema: *executive_research_schema
       name: find_inventory_by_sku
 
-    find_inventory_by_upc: &find_inventory_by_upc
+    find_inventory_by_upc:
       schema: *executive_research_schema
-      name: find_inventory_by_upc     
-    
-    find_product_by_sku: &find_product_by_sku
-      schema: *executive_research_schema
-      name: find_product_by_sku     
+      name: find_inventory_by_upc
 
-    find_product_by_upc: &find_product_by_upc
+    find_product_by_sku:
       schema: *executive_research_schema
-      name: find_product_by_upc     
+      name: find_product_by_sku
 
-    find_store_by_number: &find_store_by_number
+    find_product_by_upc:
       schema: *executive_research_schema
-      name: find_store_by_number     
-    
-    find_store_inventory_by_sku: &find_store_inventory_by_sku
-      schema: *executive_research_schema
-      name: find_store_inventory_by_sku     
+      name: find_product_by_upc
 
-    find_store_inventory_by_upc: &find_store_inventory_by_upc
+    find_store_by_number:
+      schema: *executive_research_schema
+      name: find_store_by_number
+
+    find_store_inventory_by_sku:
+      schema: *executive_research_schema
+      name: find_store_inventory_by_sku
+
+    find_store_inventory_by_upc:
       schema: *executive_research_schema
       name: find_store_inventory_by_upc
 
   genie_rooms:
     executive_research_genie_room: &executive_research_genie_room
-      name: "Executive Research Genie Room"                       
-      description: "A specialized room for deep executive research and analysis" 
-      space_id: 01f05dd06c421ad6b522bf7a517cf6d2          
+      name: "Executive Research Genie Room"
+      description: "A specialized room for deep executive research and analysis"
+      space_id: 01f05dd06c421ad6b522bf7a517cf6d2
 
 tools:
   executive_research_genie_tool: &executive_research_genie_tool
     name: executive_research_genie_tool
     function:
-      type: factory                                 
-      name: dao_ai.tools.create_genie_tool     
-      args:                                     
+      type: factory
+      name: dao_ai.tools.create_genie_tool
+      args:
         name: executive_research_genie_tool
-        description: Query the data warehouse for comprehensive business metrics including customer KPIs, financial performance, operational data, employee metrics, inventory levels, and sales data. Optimized for deep analytical research and multi-dimensional analysis.
-        genie_room: *executive_research_genie_room      
-        
+        description: Query the data warehouse for comprehensive business metrics including customer KPIs, financial performance, operational data, employee metrics, inventory levels, and sales data. 
+          Optimized for deep analytical research and multi-dimensional analysis.
+        genie_room: *executive_research_genie_room
 
 agents:
   research_lead: &research_lead
@@ -129,7 +129,7 @@ agents:
     description: "Research Coordinator and Executive Interface Specialist"
     model: *default_llm
     tools:
-      - *executive_research_genie_tool
+    - *executive_research_genie_tool
     prompt: |
       You are the Research Coordinator serving as the primary interface between executives and the deep research team. Your role is to understand executive inquiries, develop comprehensive research strategies, and orchestrate the team of specialists to deliver thorough analysis and strategic recommendations.
 
@@ -163,7 +163,7 @@ agents:
       ## Important Guidelines
       - Limit Graph Recursion to 5 iterations.
       - Run as many tools as you can concurrently
-      
+
       You serve as the intelligent orchestrator ensuring that complex executive research questions receive comprehensive, coordinated analysis from all relevant specialist teams.
     handoff_prompt: |
       Hand off to me when starting any new executive research inquiry, when research scope needs to be defined, when multiple specialist teams need coordination, or when ensuring comprehensive coverage across all business dimensions.
@@ -173,7 +173,7 @@ agents:
     description: "KPI Research and Data Analysis Specialist"
     model: *reasoning_llm
     tools:
-      - *executive_research_genie_tool
+    - *executive_research_genie_tool
     prompt: |
       You are a KPI Research Specialist focused on comprehensive data analysis and performance metrics research. Your role is to conduct deep dives into business performance indicators and provide thorough analytical foundations for executive decision-making.
 
@@ -210,7 +210,7 @@ agents:
     description: "Market Intelligence and Competitive Analysis Specialist"
     model: *reasoning_llm
     tools:
-      - *executive_research_genie_tool
+    - *executive_research_genie_tool
     prompt: |
       You are a Market Intelligence Analyst specializing in external market research, competitive analysis, and industry benchmarking. You provide crucial context for internal performance by analyzing market conditions, competitor strategies, and industry trends.
 
@@ -247,7 +247,7 @@ agents:
     description: "Financial Strategy and ROI Analysis Specialist"
     model: *deep_reasoning_llm
     tools:
-      - *executive_research_genie_tool
+    - *executive_research_genie_tool
     prompt: |
       You are a Financial Strategy Analyst specializing in financial modeling, ROI analysis, and strategic investment recommendations. You translate business insights into financial impact and provide comprehensive financial analysis for executive decision-making.
 
@@ -284,7 +284,7 @@ agents:
     description: "Operations Optimization and Efficiency Specialist"
     model: *reasoning_llm
     tools:
-      - *executive_research_genie_tool
+    - *executive_research_genie_tool
     prompt: |
       You are an Operations Optimization Specialist focused on operational efficiency, process improvement, and tactical implementation strategies. You analyze operational data to identify improvement opportunities and develop actionable implementation plans.
 
@@ -321,7 +321,7 @@ agents:
     description: "Executive Strategy Synthesizer and Decision Support Specialist"
     model: *deep_reasoning_llm
     tools:
-      - *executive_research_genie_tool
+    - *executive_research_genie_tool
     prompt: |
       You are the Executive Strategy Synthesizer responsible for consolidating research from all specialist agents and creating comprehensive strategic recommendations for C-suite decision-making. You synthesize complex analysis into actionable executive insights.
 
@@ -362,51 +362,51 @@ agents:
       Hand off to me when strategic synthesis is needed, when executive-level recommendations are required, when integrating findings from multiple specialists, when creating comprehensive strategic narratives, or when final executive deliverables are needed.
 
 app:
-  name: deep_research_dao                        
+  name: deep_research_dao
   description: "Deep Research Multi-Agent Executive Assistant for KPI Analysis and Strategic Recommendations"
-  log_level: DEBUG                                  
-  registered_model:                                
+  log_level: DEBUG
+  registered_model:
     schema: *executive_research_schema
-    name: deep_research_dao                        
-  endpoint_name: deep_research_executive_assistant_dao    
-  environment_vars: 
-    TAVILY_API_KEY: "{{secrets/retail_consumer_goods/TAVILY_API_KEY}}" 
-  tags:                                            
-    business: rcg                                 
+    name: deep_research_dao
+  endpoint_name: deep_research_executive_assistant_dao
+  environment_vars:
+    TAVILY_API_KEY: "{{secrets/retail_consumer_goods/TAVILY_API_KEY}}"
+  tags:
+    business: rcg
     research: deep
-    orchestration: swarm                                
-  permissions:                                     
-    - principals: [users]                         
-      entitlements:
-        - CAN_QUERY                               
-  agents:                                        
-    - *research_lead
-    - *kpi_analyst
-    - *market_intelligence
-    - *financial_strategy
-    - *operations_expert
-    - *strategy_synthesizer                                     
-  orchestration:                                  
-    swarm:                                    
+    orchestration: swarm
+  permissions:
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
+  agents:
+  - *research_lead
+  - *kpi_analyst
+  - *market_intelligence
+  - *financial_strategy
+  - *operations_expert
+  - *strategy_synthesizer
+  orchestration:
+    swarm:
       default_agent: research_lead
       handoffs:
         research_lead:
-          - kpi_analyst
-          - market_intelligence
-          - financial_strategy
-          - operations_expert
-          - strategy_synthesizer
+        - kpi_analyst
+        - market_intelligence
+        - financial_strategy
+        - operations_expert
+        - strategy_synthesizer
         kpi_analyst:
-          - market_intelligence
-          - financial_strategy
-          - operations_expert
-          - strategy_synthesizer
+        - market_intelligence
+        - financial_strategy
+        - operations_expert
+        - strategy_synthesizer
         market_intelligence:
-          - financial_strategy
-          - strategy_synthesizer
+        - financial_strategy
+        - strategy_synthesizer
         financial_strategy:
-          - operations_expert
-          - strategy_synthesizer
+        - operations_expert
+        - strategy_synthesizer
         operations_expert:
-          - strategy_synthesizer
+        - strategy_synthesizer
         strategy_synthesizer: []

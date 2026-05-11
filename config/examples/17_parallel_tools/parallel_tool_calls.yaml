@@ -21,7 +21,7 @@ parameters:
 #   - "Roll three dice for me"
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -151,17 +151,17 @@ agents:
     name: parallel_test_agent
     model: *default_llm
     tools:
-      - *calculator_tool
-      - *get_time_tool
-      - *random_number_tool
-      - *lookup_tool
+    - *calculator_tool
+    - *get_time_tool
+    - *random_number_tool
+    - *lookup_tool
     middleware:
       # Add observability middleware to track parallel vs sequential calls
-      - name: dao_ai.middleware.tool_call_observability.create_tool_call_observability_middleware
-        args:
-          log_level: INFO
-          include_args: true
-          track_timing: true
+    - name: dao_ai.middleware.tool_call_observability.create_tool_call_observability_middleware
+      args:
+        log_level: INFO
+        include_args: true
+        track_timing: true
     prompt: |
       You are a helpful assistant with access to various tools.
 
@@ -190,4 +190,4 @@ app:
       schema_name: ${var.schema}
     name: parallel_tool_test_dao
   agents:
-    - *parallel_test_agent
+  - *parallel_test_agent

@@ -20,13 +20,13 @@ schemas:
     schema_name: ${var.schema}                    # Schema within the catalog
 
 resources:
-  llms:
+  models:
     # Primary LLM for general tasks
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
-      on_behalf_of_user: False
+      on_behalf_of_user: false
 
   warehouses:
 
@@ -34,7 +34,7 @@ resources:
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
       warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
-      on_behalf_of_user: False
+      on_behalf_of_user: false
 
   genie_rooms:
     # Genie space for retail data queries
@@ -51,7 +51,7 @@ resources:
     items_description_vs_index:
       schema: *quick_serve_restaurant_schema
       name: items_description_vs_index
-      
+
 # =============================================================================
 # MEMORY CONFIGURATION
 # =============================================================================
@@ -59,7 +59,7 @@ resources:
 
 memory: &memory
   # Conversation checkpointing for state persistence
-  checkpointer: 
+  checkpointer:
     name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
 
 
@@ -72,9 +72,11 @@ tools:
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: Answers questions about retail products and inventory
-        genie_room: *retail_genie_room              # Reference to Genie room config
+        genie_room: *retail_genie_room
+                                                    # Reference to Genie room config
         lru_cache_parameters:                       # LRU cache configuration for SQL query caching
-          warehouse: *shared_endpoint_warehouse     # Warehouse used to re-execute cached SQL
+          warehouse: *shared_endpoint_warehouse
+                                                    # Warehouse used to re-execute cached SQL
           capacity: 100                             # Maximum number of queries to cache
           time_to_live_seconds: 86400               # Cache entries expire after 1 day (default)
         persist_conversation: true
@@ -84,9 +86,10 @@ agents:
   genie: &genie
     name: genie                                     # Agent identifier
     description: "Genie Agent"
-    model: *default_llm                             # Reference to LLM configuration
+    model: *default_llm
+                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *genie_tool
+    - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
       Answers questions about retail products and inventory
 
@@ -96,21 +99,25 @@ app:
   description: "Multi-agent system that talks to genie"
   log_level: DEBUG                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
-    schema: *quick_serve_restaurant_schema                          # Schema where model will be registered
+    schema: *quick_serve_restaurant_schema
+                                                                    # Schema where model will be registered
     name: genie_lru_cache_dao
   endpoint_name: dao_genie_lru_cache                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
-    - principals: [users]                           # Grant access to all users
-      entitlements:
-        - CAN_QUERY                                # Full management permissions
+  - principals: [users]                             # Grant access to all users
+    entitlements:
+    - CAN_QUERY                                    # Full management permissions
   agents:                                           # List of agents included in the system
-    - *genie                                        # Order management agent
+  - *genie
+                                                    # Order management agent
   orchestration:                                    # Agent orchestration configuration
-    memory: *memory                                 # In-memory conversation persistence
+    memory: *memory
+                                                    # In-memory conversation persistence
     swarm:                                          # Swarm orchestration pattern
-      default_agent: *genie                         # Default agent for routing
+      default_agent: *genie
+                                                    # Default agent for routing
 
 

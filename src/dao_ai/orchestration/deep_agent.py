@@ -5,7 +5,7 @@ The deep_agent pattern wraps `langchain-ai/deepagents` so its full feature set â
 todo planning, filesystem ops, shell execution, sub-agent delegation via the
 ``task`` tool, skills (deepagents' SkillsMiddleware), AGENTS.md memory, and
 human-in-the-loop interrupts â€” is expressible declaratively in YAML and
-composable with dao-ai primitives (LLMModel, ToolModel, MiddlewareModel,
+composable with dao-ai primitives (InferenceEndpointModel, ToolModel, MiddlewareModel,
 AgentModel, PromptModel, SkillModel).
 
 Based on: https://github.com/langchain-ai/deepagents
@@ -39,7 +39,7 @@ from dao_ai.config import (
     DeepAgentModel,
     FilesystemPermissionModel,
     HumanInTheLoopModel,
-    LLMModel,
+    InferenceEndpointModel,
     MiddlewareModel,
     OrchestrationModel,
     PromptModel,
@@ -58,12 +58,12 @@ from dao_ai.tools import create_tools
 
 
 def _resolve_model(
-    spec: LLMModel | str | None,
+    spec: InferenceEndpointModel | str | None,
 ) -> BaseChatModel | str | None:
     """Resolve a deep_agent ``model`` field to what ``create_deep_agent`` expects.
 
     deepagents accepts ``str | BaseChatModel | None``. We give it:
-    * a fully initialized chat model when an ``LLMModel`` is supplied (so
+    * a fully initialized chat model when an ``InferenceEndpointModel`` is supplied (so
       dao-ai's temperature/max_tokens/fallbacks/best_of_n configuration is honored)
     * the raw string when a string is supplied (deepagents passes it to
       ``init_chat_model`` itself)
@@ -71,7 +71,7 @@ def _resolve_model(
     """
     if spec is None:
         return None
-    if isinstance(spec, LLMModel):
+    if isinstance(spec, InferenceEndpointModel):
         return spec.as_chat_model()
     return spec
 

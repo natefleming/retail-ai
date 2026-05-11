@@ -46,7 +46,7 @@ resources:
   # ---------------------------------------------------------------------------
   # LANGUAGE MODELS (LLMs)
   # ---------------------------------------------------------------------------
-  llms:
+  models:
     # Primary LLM for agent responses
     # Claude 3.7 Sonnet produces consistently high-quality responses that typically
     # pass guardrails on first try. To see retry behavior, try:
@@ -79,17 +79,17 @@ prompts:
     default_template: |
       Evaluate if the following response is professional, helpful, and appropriate 
       for customer service.
-      
+
       User Request: {{ inputs }}
       Agent Response: {{ outputs }}
-      
+
       The response should:
       - Use professional language (no slang or jargon)
       - Be respectful and courteous
       - Be clear and easy to understand
       - Maintain a helpful, service-oriented tone
       - Avoid being overly casual or too formal
-      
+
       Rate as true if the response meets these criteria, false if it doesn't.
     tags:
       type: guardrail
@@ -103,10 +103,10 @@ prompts:
     description: "Evaluates if responses fully address the user's question"
     default_template: |
       Evaluate if the response fully addresses the user's question.
-      
+
       User Request: {{ inputs }}
       Agent Response: {{ outputs }}
-      
+
       The response should:
       - Should be more than one word.
       - Directly answer the question asked
@@ -114,7 +114,7 @@ prompts:
       - Not omit important relevant information
       - Include next steps or follow-up guidance when appropriate
       - Address all parts of multi-part questions
-      
+
       Rate as true if the response is complete and thorough, false if it's incomplete,
       vague, or doesn't fully address the question.
     tags:
@@ -183,7 +183,7 @@ guardrails:
     model: *judge_llm
     prompt: *completeness_guardrail_prompt
     num_retries: 2
-  
+
   # Tone guardrail - ensures professional, appropriate tone
   tone_guardrail: &tone_guardrail
     name: tone_check
@@ -194,7 +194,7 @@ guardrails:
   # Veracity guardrail - ensures responses are grounded in tool context
   # This guardrail uses tool results (search, SQL, Genie) as reference context
   # to check if the agent's response is factually grounded.
-  veracity_guardrail: &veracity_guardrail
+  veracity_guardrail:
     name: veracity_check
     model: *judge_llm
     prompt: *veracity_guardrail_prompt
@@ -227,7 +227,7 @@ middleware:
 
   # Tone check - validates tone against a preset profile.
   # Profiles: professional, casual, technical, empathetic, concise
-  tone_middleware: &tone_middleware
+  tone_middleware:
     name: dao_ai.middleware.create_tone_guardrail_middleware
     args:
       model: "databricks:/databricks-claude-3-7-sonnet"
@@ -259,34 +259,32 @@ agents:
     name: assistant
     description: "General purpose assistant with comprehensive quality guardrails"
     model: *default_llm
-    
     # All available tools
     tools:
-      - *search_tool
-      - *greeting_tool
+    - *search_tool
+    - *greeting_tool
 
     
     # Prompt-based guardrails (requires writing an evaluation prompt)
     guardrails:
-      - *tone_guardrail
-      - *completeness_guardrail
+    - *tone_guardrail
+    - *completeness_guardrail
 
     # Specialized guardrails (zero-config, built-in expert prompts)
     middleware:
-      - *veracity_middleware
-      - *relevance_middleware
-      - *conciseness_middleware
-    
+    - *veracity_middleware
+    - *relevance_middleware
+    - *conciseness_middleware
     prompt: |
       You are a helpful, knowledgeable assistant designed to provide accurate and 
       professional responses to a wide range of user inquiries.
-      
+
       Your capabilities:
       - Answer questions on various topics with accuracy and completeness
       - Use search tools when you need current information or specific facts
       - Greet users warmly and check the current time when needed
       - Maintain a professional, courteous tone in all interactions
-      
+
       Guidelines:
       - Always maintain a professional, helpful, and respectful tone
       - Never make up information - use search tools or acknowledge limitations
@@ -302,22 +300,20 @@ app:
   name: guardrails_basic_dao
   description: "General purpose assistant with comprehensive guardrails"
   log_level: DEBUG
-  
+
   registered_model:
     schema: *retail_schema
     name: guardrails_example_agent_dao
-  
+
   agents:
-    - *general_agent
-  
+  - *general_agent
   # Single agent - no orchestration needed
   # The agent handles all requests directly
-  
   # Example input for testing
   input_example:
     input:
-      - role: user
-        content: How can I help you today?
+    - role: user
+      content: How can I help you today?
     custom_inputs:
       configurable:
         user_id: test_user

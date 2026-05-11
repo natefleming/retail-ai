@@ -503,7 +503,7 @@ def optimize_prompt(
         OptimizationResult with optimization details
 
     Example:
-        from dao_ai.config import AgentModel, PromptModel, LLMModel
+        from dao_ai.config import AgentModel, PromptModel, InferenceEndpointModel
         from dao_ai.optimization import optimize_prompt
 
         prompt = PromptModel(
@@ -512,7 +512,7 @@ def optimize_prompt(
         )
         agent = AgentModel(
             name="my_agent",
-            model=LLMModel(name="databricks-meta-llama-3-3-70b-instruct"),
+            model=InferenceEndpointModel(name="databricks-meta-llama-3-3-70b-instruct"),
             prompt=prompt,
         )
 

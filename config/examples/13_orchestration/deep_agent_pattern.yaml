@@ -18,7 +18,7 @@
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -59,7 +59,7 @@ app:
     name: deep_agent_minimal
 
   agents:
-    - *main_agent
+  - *main_agent
 
   # ---------------------------------------------------------------------------
   # ORCHESTRATION
@@ -73,7 +73,7 @@ app:
       # Tools merge with deepagents' built-in suite:
       # write_todos, ls, read_file, write_file, edit_file, glob, grep, execute, task
       tools:
-        - *current_time
+      - *current_time
 
       # Inline system prompt. PromptModel references also work.
       system_prompt: |
@@ -83,5 +83,5 @@ app:
 
   input_example:
     messages:
-      - role: user
-        content: "Plan a research task about cordless drills under $200, then summarize."
+    - role: user
+      content: "Plan a research task about cordless drills under $200, then summarize."

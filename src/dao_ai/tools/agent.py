@@ -8,13 +8,13 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
 
-from dao_ai.config import LLMModel
+from dao_ai.config import InferenceEndpointModel
 from dao_ai.state import Context
 from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
 
 def create_agent_endpoint_tool(
-    llm: LLMModel | dict[str, Any],
+    llm: InferenceEndpointModel | dict[str, Any],
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> Callable[..., Any]:
@@ -27,7 +27,7 @@ def create_agent_endpoint_tool(
     """)
 
     if isinstance(llm, dict):
-        llm = LLMModel(**llm)
+        llm = InferenceEndpointModel(**llm)
 
     if description is None:
         description = default_description

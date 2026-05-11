@@ -30,12 +30,12 @@ parameters:
 #   3. Apply the optimized thresholds to your cache configuration
 
 schemas:
-  quick_serve_restaurant_schema: &quick_serve_restaurant_schema
+  quick_serve_restaurant_schema:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     # Judge model for semantic equivalence evaluation
     # Used when expected_match is not provided for an entry
     judge_model: &judge_model
@@ -69,7 +69,7 @@ optimizations:
     # ---------------------------------------------------------------------------
     optimize_retail_cache_thresholds:
       name: optimize_retail_cache_thresholds
-      
+
       # Current thresholds to improve (optional - uses defaults if not provided)
       cache_parameters:
         database: *context_aware_cache_db
@@ -79,7 +79,7 @@ optimizations:
         context_similarity_threshold: 0.80   # Context matching threshold
         question_weight: 0.6                 # Weight for question (context = 1 - question)
         time_to_live_seconds: 86400
-      
+
       # Evaluation dataset with question pairs
       # Each entry contains:
       #   - question/context: The incoming query
@@ -127,10 +127,8 @@ optimizations:
         #     cached_context: "Previous: Filter by electronics"
         #     cached_context_embedding: [0.1, 0.4, ...]
         #     # expected_match omitted - will use LLM judge
-      
       # LLM for judging unlabeled entries
       judge_model: *judge_model
-      
       # Optimization parameters
       n_trials: 50                              # Number of Optuna trials (more = better results)
       metric: f1                                # Metric to optimize: f1, precision, recall, fbeta

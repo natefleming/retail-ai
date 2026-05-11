@@ -13,12 +13,13 @@ parameters:
     default: default
 
 schemas:
-  default_schema: &default_schema                   # Unity Catalog schema configuration
+  default_schema: &default_schema
+                                                    # Unity Catalog schema configuration
     catalog_name: ${var.catalog}                              # Unity Catalog name
     schema_name: ${var.schema}                            # Schema within the catalog
 
 resources:
-  llms:
+  models:
     # Primary LLM for Slack agent
     default_llm: &default_llm
       name: databricks-claude-sonnet-4  # Databricks serving endpoint name
@@ -40,7 +41,8 @@ tools:
       type: factory                                 # Tool type: factory function
       name: dao_ai.tools.create_send_slack_message_tool  # Factory function path
       args:                                         # Arguments passed to factory
-        connection: *slack_connection               # Reference to Slack UC connection
+        connection: *slack_connection
+                                                    # Reference to Slack UC connection
         channel_name: "general"                     # Slack channel name (can also use channel_id)
         name: send_slack_message
         description: Send a message to the #general Slack channel
@@ -50,9 +52,10 @@ agents:
   slack_agent: &slack_agent
     name: slack_agent                               # Agent identifier
     description: "Agent that can send notifications to Slack"
-    model: *default_llm                             # Reference to LLM configuration
+    model: *default_llm
+                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *slack_tool
+    - *slack_tool
     prompt: |                                       # System prompt defining agent behavior
       You are a helpful assistant that can send notifications to Slack.
       When asked to notify someone or send a message, use the send_slack_message tool
@@ -63,19 +66,22 @@ app:
   description: "Agent system that can send notifications to Slack"
   log_level: INFO                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
-    schema: *default_schema                         # Schema where model will be registered
+    schema: *default_schema
+                                                    # Schema where model will be registered
     name: slack_notification_agent_dao              # Model name in MLflow registry
   endpoint_name: slack_notification_agent_dao       # Model serving endpoint name
   tags:                                             # Tags for resource organization
     integration: slack                              # Integration type
     notification: true                              # Indicates notification capabilities
   permissions:                                      # Model serving permissions
-    - principals: [users]                           # Grant access to all users
-      entitlements:
-        - CAN_QUERY                                 # Query permissions
+  - principals: [users]                             # Grant access to all users
+    entitlements:
+    - CAN_QUERY                                     # Query permissions
   agents:                                           # List of agents included in the system
-    - *slack_agent                                  # Slack notification agent
+  - *slack_agent
+                                                    # Slack notification agent
   orchestration:                                    # Agent orchestration configuration
     swarm:                                          # Swarm orchestration pattern
-      default_agent: *slack_agent                   # Default agent for routing
+      default_agent: *slack_agent
+                                                    # Default agent for routing
 

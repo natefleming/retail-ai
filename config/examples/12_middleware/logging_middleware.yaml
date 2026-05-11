@@ -23,7 +23,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -108,10 +108,11 @@ agents:
     description: "Agent with request logging enabled"
     model: *default_llm
     tools:
-      - *genie_tool
-      - *current_time
+    - *genie_tool
+    - *current_time
     middleware:
-      - *request_logger                     # Logs all requests
+    - *request_logger
+                                            # Logs all requests
     prompt: |
       You are a helpful assistant with request logging enabled.
       All interactions are logged for quality assurance.
@@ -124,9 +125,10 @@ agents:
     description: "Agent with performance monitoring"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *performance_monitor                # Tracks execution time
+    - *performance_monitor
+                                            # Tracks execution time
     prompt: |
       You are a helpful assistant with performance monitoring.
       Slow operations will be flagged for optimization.
@@ -139,10 +141,11 @@ agents:
     description: "Agent with comprehensive audit logging"
     model: *default_llm
     tools:
-      - *genie_tool
-      - *current_time
+    - *genie_tool
+    - *current_time
     middleware:
-      - *audit_trail                        # Full audit logs
+    - *audit_trail
+                                            # Full audit logs
     prompt: |
       You are a helpful assistant with comprehensive audit logging.
       All actions are tracked for compliance and security purposes.
@@ -156,16 +159,16 @@ app:
     name: logging_middleware_dao
   endpoint_name: logging_middleware_demo_dao
   agents:
-    - *logged_agent
-    - *monitored_agent
-    - *audited_agent
+  - *logged_agent
+  - *monitored_agent
+  - *audited_agent
   orchestration:
     supervisor:
       model: *default_llm
   input_example:
     messages:
-      - role: user
-        content: What time is it?
+    - role: user
+      content: What time is it?
     custom_inputs:
       configurable:
         user_id: "test_user_123"

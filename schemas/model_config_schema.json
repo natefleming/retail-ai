@@ -1,3 +1,5 @@
+Resolved 302 packages in 8ms
+Checked 271 packages in 17ms
 {
   "$defs": {
     "AgentModel": {
@@ -23,7 +25,7 @@
           "title": "Description"
         },
         "model": {
-          "$ref": "#/$defs/LLMModel",
+          "$ref": "#/$defs/InferenceEndpointModel",
           "description": "LLM model configuration (serving endpoint name, temperature, etc.)."
         },
         "tools": {
@@ -598,7 +600,7 @@
     },
     "BestOfNConfig": {
       "additionalProperties": false,
-      "description": "Opt-in best-of-N + LLM-as-judge wrapper around an LLMModel.\n\nWhen attached to an LLMModel, every model invocation fans out N parallel\ncandidate generations at elevated temperature, then asks a judge model to\nscore the candidates. The wrapper returns the highest-scoring candidate\nverbatim (no synthesis).\n\nCost: roughly N+1 LLM calls per protected step. Generator calls run in\nparallel so wall-clock latency is approximately one generator call plus\none judge call. Token cost is ~N x baseline plus the judge.\n\nDiversity is non-negotiable: with low generator temperature, the N\ncandidates collapse to near-identical outputs and best-of-N degenerates\ninto best-of-1 with extra cost. The wrapper enforces an effective\ngenerator temperature of max(LLMModel.temperature, 0.7) unless\n`temperature_override` is set.",
+      "description": "Opt-in best-of-N + LLM-as-judge wrapper around an InferenceEndpointModel.\n\nWhen attached to an InferenceEndpointModel, every model invocation fans out N parallel\ncandidate generations at elevated temperature, then asks a judge model to\nscore the candidates. The wrapper returns the highest-scoring candidate\nverbatim (no synthesis).\n\nCost: roughly N+1 LLM calls per protected step. Generator calls run in\nparallel so wall-clock latency is approximately one generator call plus\none judge call. Token cost is ~N x baseline plus the judge.\n\nDiversity is non-negotiable: with low generator temperature, the N\ncandidates collapse to near-identical outputs and best-of-N degenerates\ninto best-of-1 with extra cost. The wrapper enforces an effective\ngenerator temperature of max(InferenceEndpointModel.temperature, 0.7) unless\n`temperature_override` is set.",
       "properties": {
         "n": {
           "default": 8,
@@ -612,10 +614,10 @@
               "type": "string"
             },
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             }
           ],
-          "description": "Judge model: a serving endpoint name (string) or a full LLMModel config.",
+          "description": "Judge model: a serving endpoint name (string) or a full InferenceEndpointModel config.",
           "title": "Judge"
         },
         "temperature_override": {
@@ -628,7 +630,7 @@
             }
           ],
           "default": null,
-          "description": "If set, the parallel candidate calls use this temperature regardless of the generator's configured temperature. If unset, the wrapper uses max(LLMModel.temperature, 0.7) so candidates have meaningful diversity.",
+          "description": "If set, the parallel candidate calls use this temperature regardless of the generator's configured temperature. If unset, the wrapper uses max(InferenceEndpointModel.temperature, 0.7) so candidates have meaningful diversity.",
           "title": "Temperature Override"
         }
       },
@@ -643,7 +645,7 @@
       "description": "Configuration for chat history summarization.\n\nAttributes:\n    model: The LLM to use for generating summaries.\n    max_tokens: Maximum tokens to keep after summarization (the \"keep\" threshold).\n        After summarization, recent messages totaling up to this many tokens are preserved.\n    max_tokens_before_summary: Token threshold that triggers summarization.\n        When conversation exceeds this, summarization runs. Mutually exclusive with\n        max_messages_before_summary. If neither is set, defaults to max_tokens * 10.\n    max_messages_before_summary: Message count threshold that triggers summarization.\n        When conversation exceeds this many messages, summarization runs.\n        Mutually exclusive with max_tokens_before_summary.",
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLMModel",
+          "$ref": "#/$defs/InferenceEndpointModel",
           "description": "LLM used to generate conversation summaries."
         },
         "max_tokens": {
@@ -1194,7 +1196,7 @@
               "type": "string"
             },
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -2032,7 +2034,7 @@
         "model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -2101,14 +2103,14 @@
               "type": "string"
             },
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Primary LLM. ``LLMModel`` is resolved via ``as_chat_model()``; strings pass through to ``init_chat_model`` (e.g. ``'openai:gpt-4o'``). Defaults to deepagents' default (``claude-sonnet-4-6``) when omitted.",
+          "description": "Primary LLM. ``InferenceEndpointModel`` is resolved via ``as_chat_model()``; strings pass through to ``init_chat_model`` (e.g. ``'openai:gpt-4o'``). Defaults to deepagents' default (``claude-sonnet-4-6``) when omitted.",
           "title": "Model"
         },
         "tools": {
@@ -2401,7 +2403,7 @@
       "additionalProperties": false,
       "description": "An MLflow evaluation dataset containing input/expectation pairs.",
       "properties": {
-        "schema": {
+        "schema_model": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -2458,7 +2460,7 @@
       "description": "Configuration for MLflow GenAI offline evaluation.\n\nAttributes:\n    model: LLM model used as the judge for LLM-based scorers (e.g., Guidelines, Safety).\n           This model evaluates agent responses during evaluation.\n    table: Table to store evaluation results.\n    num_evals: Number of evaluation samples to generate.\n    replace: If True, drop and recreate the evaluation table and dataset.\n        If False, reuse existing resources. Defaults to False.\n    agent_description: Description of the agent for evaluation data generation.\n    question_guidelines: Guidelines for generating evaluation questions.\n    custom_inputs: Custom inputs to pass to the agent during evaluation.\n    guidelines: List of guideline configurations for Guidelines scorers.",
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLMModel",
+          "$ref": "#/$defs/InferenceEndpointModel",
           "description": "LLM model used as the judge for LLM-based evaluation scorers."
         },
         "table": {
@@ -2787,7 +2789,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema": {
+        "schema_model": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -2962,7 +2964,7 @@
               "type": "string"
             },
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             }
           ],
           "default": "databricks-gte-large-en",
@@ -3912,7 +3914,7 @@
     },
     "GuardrailModel": {
       "additionalProperties": false,
-      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nTwo configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n\nThe two modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``LLMModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge mode.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    hub: Optional guardrails-ai hub URI for the scorer validator\n        (e.g. ``\"hub://guardrails/toxic_language\"``).  When set,\n        the validator is auto-installed at startup if the\n        ``GUARDRAILSAI_API_KEY`` environment variable is present.\n        Only valid when *scorer* is also set.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
+      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nTwo configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n\nThe two modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``InferenceEndpointModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge mode.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    hub: Optional guardrails-ai hub URI for the scorer validator\n        (e.g. ``\"hub://guardrails/toxic_language\"``).  When set,\n        the validator is auto-installed at startup if the\n        ``GUARDRAILSAI_API_KEY`` environment variable is present.\n        Only valid when *scorer* is also set.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
       "properties": {
         "name": {
           "description": "Name identifying this guardrail.",
@@ -3925,7 +3927,7 @@
               "type": "string"
             },
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -4294,7 +4296,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema": {
+        "schema_model": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -4318,173 +4320,9 @@
       "title": "IndexModel",
       "type": "object"
     },
-    "InlineFunctionModel": {
+    "InferenceEndpointModel": {
       "additionalProperties": false,
-      "description": "Inline function model for defining tool code directly in YAML configuration.\n\nThis allows you to define simple tools without creating separate Python files.\nThe code should define a function decorated with @tool from langchain.tools.\n\nSECURITY WARNING: This model uses exec() to execute arbitrary Python code\nfrom the YAML configuration. Only load configurations from trusted sources.\nA malicious configuration could execute arbitrary code on the host system.\n\nExample YAML:\n    tools:\n      calculator:\n        name: calculator\n        function:\n          type: inline\n          code: |\n            from langchain.tools import tool\n\n            @tool\n            def calculator(expression: str) -> str:\n                '''Evaluate a mathematical expression.'''\n                return str(eval(expression))\n\nThe code block must:\n- Import @tool from langchain.tools\n- Define exactly one function decorated with @tool\n- The function name becomes the tool name",
-      "properties": {
-        "type": {
-          "const": "inline",
-          "default": "inline",
-          "description": "Function type discriminator. Must be 'inline'.",
-          "title": "Type",
-          "type": "string"
-        },
-        "human_in_the_loop": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HumanInTheLoopModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Human-in-the-loop approval configuration for this tool."
-        },
-        "code": {
-          "description": "Python code defining a tool function decorated with @tool",
-          "title": "Code",
-          "type": "string"
-        }
-      },
-      "required": [
-        "code"
-      ],
-      "title": "InlineFunctionModel",
-      "type": "object"
-    },
-    "InstructedRetrieverModel": {
-      "additionalProperties": false,
-      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nGroups all schema-aware, LLM-driven features: query decomposition, instruction-aware\nreranking, query routing, and result verification. These features share schema context\n(columns, constraints) and are co-located here to enforce that dependency at the type\nlevel.\n\nColumn metadata is the single source of truth for schema context. Each pipeline\ncomponent (decomposition, routing, verification, reranking) generates the specific\ncontext it needs from the structured ``columns`` data:\n- Decomposition embeds column info into the JSON schema for ``with_structured_output``\n- Routing generates a compact column summary\n- Verification generates a context with column descriptions (no operator syntax)\n- Reranking uses column names and types for instruction generation\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        columns:\n          - name: brand_name\n            type: string\n            description: \"Brand/manufacturer (MILWAUKEE, DEWALT, etc.)\"\n          - name: price\n            type: number\n            operators: [\"\", \"<\", \"<=\", \">\", \">=\"]\n            description: \"Product price in USD\"\n        constraints:\n          - \"Prefer recent products\"\n        decomposition:\n          model: *fast_llm\n          max_subqueries: 3\n          examples:\n            - query: \"cheap drills\"\n              filters: {\"price <\": 100}\n        rerank:\n          model: *fast_llm\n          instructions: \"Prioritize by brand preferences\"\n          top_n: 10\n        router:\n          model: *fast_llm\n          default_mode: standard\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n    ```",
-      "properties": {
-        "columns": {
-          "description": "Structured column info used by all pipeline components. Column names, types, operators, and descriptions are embedded into JSON schemas and prompts for each component automatically.",
-          "items": {
-            "$ref": "#/$defs/ColumnInfo"
-          },
-          "title": "Columns",
-          "type": "array"
-        },
-        "constraints": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Default constraints to always apply",
-          "title": "Constraints"
-        },
-        "decomposition": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DecompositionModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Query decomposition settings for breaking complex queries into subqueries."
-        },
-        "rerank": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InstructionAwareRerankModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional LLM-based instruction-aware reranking stage."
-        },
-        "router": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RouterModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional query router for selecting execution mode (standard vs instructed)."
-        },
-        "verifier": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/VerifierModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional result verification with structured feedback for retry."
-        }
-      },
-      "required": [
-        "columns"
-      ],
-      "title": "InstructedRetrieverModel",
-      "type": "object"
-    },
-    "InstructionAwareRerankModel": {
-      "additionalProperties": false,
-      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    instructed:\n      columns:\n        - name: brand_name\n          type: string\n      rerank:\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
-      "properties": {
-        "model": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "LLM for instruction reranking (fast model recommended)"
-        },
-        "instructions": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Custom reranking instructions for constraint prioritization",
-          "title": "Instructions"
-        },
-        "top_n": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Number of documents to return after instruction reranking",
-          "title": "Top N"
-        }
-      },
-      "title": "InstructionAwareRerankModel",
-      "type": "object"
-    },
-    "LLMModel": {
-      "additionalProperties": false,
-      "description": "Configuration for an LLM served via a Databricks Model Serving endpoint.",
+      "description": "Configuration for a Databricks Model Serving endpoint used for inference.\n\nThis is the single config type for *any* serving endpoint dao-ai calls at\nruntime \u2014 not just chat LLMs. The same class backs:\n\n- Chat LLMs declared under ``resources.models`` (e.g. claude-sonnet,\n  meta-llama-3-3-70b-instruct).\n- Embedding endpoints referenced by ``VectorStoreModel.embedding_model``\n  (e.g. databricks-gte-large-en).\n- Judge / extraction / reflection / query models inside\n  ``BestOfNConfig.judge``, ``MemoryConfig.extraction_model``,\n  ``MemoryConfig.query_model``, ``DeepAgentOrchestrationConfig.judge_model``,\n  ``DeepAgentOrchestrationConfig.reflection_model``.\n- Custom agent endpoints (any model packaged behind\n  ``/serving-endpoints/<name>/invocations``).\n\nThe previous class name ``LLMModel`` is still importable as a module-level\nalias (``LLMModel = InferenceEndpointModel``) for backward compatibility;\nthe legacy name will be removed in a future major release.",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -4700,7 +4538,7 @@
                     "type": "string"
                   },
                   {
-                    "$ref": "#/$defs/LLMModel"
+                    "$ref": "#/$defs/InferenceEndpointModel"
                   }
                 ]
               },
@@ -4710,7 +4548,7 @@
               "type": "null"
             }
           ],
-          "description": "Ordered list of fallback model names or LLMModel configs tried on primary model failure.",
+          "description": "Ordered list of fallback endpoint names or InferenceEndpointModel configs tried on primary failure.",
           "title": "Fallbacks"
         },
         "use_responses_api": {
@@ -4748,7 +4586,171 @@
       "required": [
         "name"
       ],
-      "title": "LLMModel",
+      "title": "InferenceEndpointModel",
+      "type": "object"
+    },
+    "InlineFunctionModel": {
+      "additionalProperties": false,
+      "description": "Inline function model for defining tool code directly in YAML configuration.\n\nThis allows you to define simple tools without creating separate Python files.\nThe code should define a function decorated with @tool from langchain.tools.\n\nSECURITY WARNING: This model uses exec() to execute arbitrary Python code\nfrom the YAML configuration. Only load configurations from trusted sources.\nA malicious configuration could execute arbitrary code on the host system.\n\nExample YAML:\n    tools:\n      calculator:\n        name: calculator\n        function:\n          type: inline\n          code: |\n            from langchain.tools import tool\n\n            @tool\n            def calculator(expression: str) -> str:\n                '''Evaluate a mathematical expression.'''\n                return str(eval(expression))\n\nThe code block must:\n- Import @tool from langchain.tools\n- Define exactly one function decorated with @tool\n- The function name becomes the tool name",
+      "properties": {
+        "type": {
+          "const": "inline",
+          "default": "inline",
+          "description": "Function type discriminator. Must be 'inline'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "code": {
+          "description": "Python code defining a tool function decorated with @tool",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "InlineFunctionModel",
+      "type": "object"
+    },
+    "InstructedRetrieverModel": {
+      "additionalProperties": false,
+      "description": "Configuration for instructed retrieval with query decomposition and RRF merging.\n\nGroups all schema-aware, LLM-driven features: query decomposition, instruction-aware\nreranking, query routing, and result verification. These features share schema context\n(columns, constraints) and are co-located here to enforce that dependency at the type\nlevel.\n\nColumn metadata is the single source of truth for schema context. Each pipeline\ncomponent (decomposition, routing, verification, reranking) generates the specific\ncontext it needs from the structured ``columns`` data:\n- Decomposition embeds column info into the JSON schema for ``with_structured_output``\n- Routing generates a compact column summary\n- Verification generates a context with column descriptions (no operator syntax)\n- Reranking uses column names and types for instruction generation\n\nExample:\n    ```yaml\n    retriever:\n      vector_store: *products_vector_store\n      instructed:\n        columns:\n          - name: brand_name\n            type: string\n            description: \"Brand/manufacturer (MILWAUKEE, DEWALT, etc.)\"\n          - name: price\n            type: number\n            operators: [\"\", \"<\", \"<=\", \">\", \">=\"]\n            description: \"Product price in USD\"\n        constraints:\n          - \"Prefer recent products\"\n        decomposition:\n          model: *fast_llm\n          max_subqueries: 3\n          examples:\n            - query: \"cheap drills\"\n              filters: {\"price <\": 100}\n        rerank:\n          model: *fast_llm\n          instructions: \"Prioritize by brand preferences\"\n          top_n: 10\n        router:\n          model: *fast_llm\n          default_mode: standard\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n    ```",
+      "properties": {
+        "columns": {
+          "description": "Structured column info used by all pipeline components. Column names, types, operators, and descriptions are embedded into JSON schemas and prompts for each component automatically.",
+          "items": {
+            "$ref": "#/$defs/ColumnInfo"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "constraints": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default constraints to always apply",
+          "title": "Constraints"
+        },
+        "decomposition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecompositionModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Query decomposition settings for breaking complex queries into subqueries."
+        },
+        "rerank": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstructionAwareRerankModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional LLM-based instruction-aware reranking stage."
+        },
+        "router": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouterModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional query router for selecting execution mode (standard vs instructed)."
+        },
+        "verifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VerifierModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional result verification with structured feedback for retry."
+        }
+      },
+      "required": [
+        "columns"
+      ],
+      "title": "InstructedRetrieverModel",
+      "type": "object"
+    },
+    "InstructionAwareRerankModel": {
+      "additionalProperties": false,
+      "description": "LLM-based reranking considering user instructions and constraints.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~100ms).\nRuns AFTER FlashRank as an additional constraint-aware reranking stage.\nSkipped for 'standard' mode when auto_bypass=true in router config.\n\nExample:\n    ```yaml\n    instructed:\n      columns:\n        - name: brand_name\n          type: string\n      rerank:\n        model: *fast_llm\n        instructions: |\n          Prioritize results matching price and brand constraints.\n        top_n: 10\n    ```",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceEndpointModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LLM for instruction reranking (fast model recommended)"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom reranking instructions for constraint prioritization",
+          "title": "Instructions"
+        },
+        "top_n": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of documents to return after instruction reranking",
+          "title": "Top N"
+        }
+      },
+      "title": "InstructionAwareRerankModel",
       "type": "object"
     },
     "LogLevel": {
@@ -5261,7 +5263,7 @@
         "extraction_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -5273,7 +5275,7 @@
         "query_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -5669,7 +5671,7 @@
       "additionalProperties": false,
       "description": "A prompt backed by the MLflow Prompt Registry with versioning and alias support.",
       "properties": {
-        "schema": {
+        "schema_model": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -5799,7 +5801,7 @@
               "type": "string"
             },
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -5870,7 +5872,7 @@
       "additionalProperties": false,
       "description": "Unity Catalog registered model where the agent artifact is logged.",
       "properties": {
-        "schema": {
+        "schema_model": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -5960,12 +5962,12 @@
       "additionalProperties": false,
       "description": "Databricks resource declarations used by agents and tools.\n\nEach resource type is a named dictionary so entries can be referenced\nelsewhere in the config via YAML anchors.",
       "properties": {
-        "llms": {
+        "models": {
           "additionalProperties": {
-            "$ref": "#/$defs/LLMModel"
+            "$ref": "#/$defs/InferenceEndpointModel"
           },
-          "description": "LLM serving endpoint configurations keyed by name.",
-          "title": "Llms",
+          "description": "Databricks Model Serving endpoint configurations keyed by name. Holds chat LLMs, embedding models, judge/extraction/reflection/query models, and custom agent endpoints \u2014 anything reachable via /serving-endpoints/<name>/invocations. Renamed from `llms` in dao-ai 0.1.75; the old key is still accepted via field alias and will be removed in a future major release.",
+          "title": "Models",
           "type": "object"
         },
         "vector_stores": {
@@ -6155,7 +6157,7 @@
         "model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -6475,7 +6477,7 @@
         "embedding_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -6531,7 +6533,7 @@
     },
     "SubAgentModel": {
       "additionalProperties": false,
-      "description": "A deepagents sub-agent invoked by the main deep_agent via the ``task`` tool.\n\nMirrors ``deepagents.SubAgent`` (a ``TypedDict``) but lifted into Pydantic so\nevery field can accept dao-ai primitives:\n\n* ``model`` \u2014 string serving-endpoint name OR an ``LLMModel``\n* ``tools`` \u2014 list of strings (looked up in ``config.tools``) OR ``ToolModel`` entries\n* ``skills`` \u2014 list of skill paths OR named ``SkillModel`` references\n* ``system_prompt`` \u2014 string OR ``PromptModel`` (resolved through ``make_prompt``)\n\nRequired fields per deepagents are ``name``, ``description``, and\n``system_prompt``. Optional fields override the parent deep_agent's defaults.",
+      "description": "A deepagents sub-agent invoked by the main deep_agent via the ``task`` tool.\n\nMirrors ``deepagents.SubAgent`` (a ``TypedDict``) but lifted into Pydantic so\nevery field can accept dao-ai primitives:\n\n* ``model`` \u2014 string serving-endpoint name OR an ``InferenceEndpointModel``\n* ``tools`` \u2014 list of strings (looked up in ``config.tools``) OR ``ToolModel`` entries\n* ``skills`` \u2014 list of skill paths OR named ``SkillModel`` references\n* ``system_prompt`` \u2014 string OR ``PromptModel`` (resolved through ``make_prompt``)\n\nRequired fields per deepagents are ``name``, ``description``, and\n``system_prompt``. Optional fields override the parent deep_agent's defaults.",
       "properties": {
         "name": {
           "description": "Unique sub-agent identifier. The main agent uses this when calling the ``task`` tool.",
@@ -6576,7 +6578,7 @@
               "type": "string"
             },
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -6662,7 +6664,7 @@
       "description": "Configuration for the supervisor agent in a supervisor orchestration pattern.",
       "properties": {
         "model": {
-          "$ref": "#/$defs/LLMModel",
+          "$ref": "#/$defs/InferenceEndpointModel",
           "description": "LLM model used by the supervisor to route tasks to sub-agents."
         },
         "tools": {
@@ -6943,7 +6945,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema": {
+        "schema_model": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -7017,7 +7019,7 @@
       "additionalProperties": false,
       "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nAccepts either a SchemaModel reference (aliased to \"schema\") or a string\nin \"catalog.schema\" format. When configured on AppModel, traces are stored\nin UC Delta tables via set_experiment_trace_location().",
       "properties": {
-        "schema": {
+        "schema_model": {
           "$ref": "#/$defs/SchemaModel",
           "description": "Unity Catalog schema (catalog.schema) where OTEL trace tables are stored."
         },
@@ -7035,7 +7037,7 @@
         }
       },
       "required": [
-        "schema",
+        "schema_model",
         "warehouse"
       ],
       "title": "TraceLocationModel",
@@ -7440,7 +7442,7 @@
         "embedding_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -7537,7 +7539,7 @@
         "model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMModel"
+              "$ref": "#/$defs/InferenceEndpointModel"
             },
             {
               "type": "null"
@@ -7732,7 +7734,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema": {
+        "schema_model": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"

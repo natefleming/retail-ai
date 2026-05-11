@@ -29,18 +29,18 @@ variables:
   # fallback to the pre-1.0 spec's ``/.well-known/agent.json`` on 404.
   a2a_endpoint: &a2a_endpoint
     options:
-      - env: A2A_AGENT_ENDPOINT
-      - scope: a2a_demo
-        secret: A2A_AGENT_ENDPOINT
-      - value: "http://localhost:9999"
+    - env: A2A_AGENT_ENDPOINT
+    - scope: a2a_demo
+      secret: A2A_AGENT_ENDPOINT
+    - value: "http://localhost:9999"
 
   # Bearer token / API key for the A2A agent. Leave unset (and set auth_type
   # to ``none``) for public agents.
   a2a_auth: &a2a_auth
     options:
-      - env: A2A_AGENT_TOKEN
-      - scope: a2a_demo
-        secret: A2A_AGENT_TOKEN
+    - env: A2A_AGENT_TOKEN
+    - scope: a2a_demo
+      secret: A2A_AGENT_TOKEN
 
   # Uncomment for GCP service-account auth (e.g. Vertex-AI-hosted A2A).
   # Accepts a local file path, a Databricks Volume path (/Volumes/...), or
@@ -53,7 +53,7 @@ variables:
   #       secret: GOOGLE_APPLICATION_CREDENTIALS
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -122,7 +122,7 @@ agents:
       any A2A-compatible toolkit.
     model: *default_llm
     tools:
-      - *remote_a2a_tool
+    - *remote_a2a_tool
     prompt: *a2a_delegate_prompt
 
 app:
@@ -133,9 +133,9 @@ app:
   log_level: INFO
   deployment_target: apps
   agents:
-    - *a2a_delegate_agent
+  - *a2a_delegate_agent
 
   input_example:
     messages:
-      - role: user
-        content: "Ask the remote agent what it specializes in."
+    - role: user
+      content: "Ask the remote agent what it specializes in."

@@ -30,7 +30,7 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -60,15 +60,15 @@ middleware:
     args:
       fields:
         # Required field - must be provided (no 'required: false')
-        - name: store_num
-          description: "Your store number for inventory lookups"
-          example_value: "12345"
-        
+      - name: store_num
+        description: "Your store number for inventory lookups"
+        example_value: "12345"
+
         # Optional field - shown in error message if missing, but not required
-        - name: user_id
-          description: "Your unique user identifier"
-          required: false
-          example_value: "user_abc123"
+      - name: user_id
+        description: "Your unique user identifier"
+        required: false
+        example_value: "user_abc123"
 
   # ---------------------------------------------------------------------------
   # API Key Validation
@@ -79,14 +79,13 @@ middleware:
     name: dao_ai.middleware.create_custom_field_validation_middleware
     args:
       fields:
-        - name: external_api_key
-          description: "API key for external service integration"
-          example_value: "sk-proj-xxxxxxxxxxxxx"
-        
-        - name: api_region
-          description: "API region (us-east, us-west, eu-west)"
-          required: false
-          example_value: "us-east"
+      - name: external_api_key
+        description: "API key for external service integration"
+        example_value: "sk-proj-xxxxxxxxxxxxx"
+      - name: api_region
+        description: "API region (us-east, us-west, eu-west)"
+        required: false
+        example_value: "us-east"
 
   # ---------------------------------------------------------------------------
   # Multi-Tenant Validation
@@ -97,19 +96,17 @@ middleware:
     name: dao_ai.middleware.create_custom_field_validation_middleware
     args:
       fields:
-        - name: tenant_id
-          description: "Your organization's tenant identifier"
-          example_value: "org_2a8d9c3b"
-        
-        - name: workspace_id
-          description: "Workspace ID within the tenant"
-          required: false
-          example_value: "ws_abc123"
-        
-        - name: user_role
-          description: "User's role (admin, manager, user)"
-          required: false
-          example_value: "manager"
+      - name: tenant_id
+        description: "Your organization's tenant identifier"
+        example_value: "org_2a8d9c3b"
+      - name: workspace_id
+        description: "Workspace ID within the tenant"
+        required: false
+        example_value: "ws_abc123"
+      - name: user_role
+        description: "User's role (admin, manager, user)"
+        required: false
+        example_value: "manager"
 
 # =============================================================================
 # TOOLS
@@ -137,17 +134,18 @@ agents:
     description: "Retail store assistant that requires store context"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *store_validation                           # Validates store_num before execution
+    - *store_validation
+                                                    # Validates store_num before execution
     prompt: |
       ### Store Context
       - **Store Number**: {store_num}
       - **User ID**: {user_id}
-      
+
       You are a helpful store assistant. You have access to store-specific data
       and can answer questions about inventory, products, and store operations.
-      
+
       Always use the store_num context when querying data to ensure accurate,
       location-specific information.
     handoff_prompt: |
@@ -162,17 +160,18 @@ agents:
     description: "Agent that integrates with external APIs"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *api_key_validation                        # Validates API credentials
+    - *api_key_validation
+                                                   # Validates API credentials
     prompt: |
       ### API Configuration
       - **API Key**: (provided securely)
       - **Region**: {api_region}
-      
+
       You are an integration specialist that can connect to external services.
       Use the provided API credentials to fetch data from third-party systems.
-      
+
       Always ensure API calls are secure and properly authenticated.
     handoff_prompt: |
       Questions that require data from external APIs or third-party integrations.
@@ -185,19 +184,20 @@ agents:
     description: "Multi-tenant agent with organization context"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *tenant_validation                         # Validates tenant context
+    - *tenant_validation
+                                                   # Validates tenant context
     prompt: |
       ### Tenant Context
       - **Tenant ID**: {tenant_id}
       - **Workspace**: {workspace_id}
       - **User Role**: {user_role}
-      
+
       You are an enterprise assistant serving multiple organizations.
       Always scope your responses and data access to the current tenant context
       to ensure proper data isolation and security.
-      
+
       Respect user roles and permissions when providing information.
     handoff_prompt: |
       Enterprise-level questions that require tenant-specific context.
@@ -214,31 +214,28 @@ app:
     name: field_validation_middleware_dao
   endpoint_name: field_validation_middleware_demo_dao
   agents:
-    - *store_agent
-    - *api_agent
-    - *tenant_agent
+  - *store_agent
+  - *api_agent
+  - *tenant_agent
   orchestration:
     supervisor:
       model: *default_llm
-  
   # ---------------------------------------------------------------------------
   # Input Examples
   # ---------------------------------------------------------------------------
   # These show the correct format for providing validated fields
   input_example:
     messages:
-      - role: user
-        content: What products do we have in stock?
+    - role: user
+      content: What products do we have in stock?
     custom_inputs:
       configurable:
         # Store Agent requires these fields:
         store_num: "12345"              # Required by store_validation
         user_id: "user_abc123"          # Optional but recommended
-        
         # API Agent requires these fields:
         # external_api_key: "sk-xxxxx"  # Required by api_key_validation
         # api_region: "us-east"         # Optional
-        
         # Tenant Agent requires these fields:
         # tenant_id: "org_2a8d9c3b"     # Required by tenant_validation
         # workspace_id: "ws_abc123"     # Optional

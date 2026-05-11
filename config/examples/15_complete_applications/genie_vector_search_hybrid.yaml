@@ -18,7 +18,7 @@ schemas:
     schema_name: ${var.schema}                    # Schema within the catalog
 
 resources:
-  llms:
+  models:
     # Primary LLM for general tasks
     default_llm: &default_llm
       name: databricks-claude-sonnet-4  # Databricks serving endpoint name
@@ -31,28 +31,30 @@ resources:
   vector_stores:
     # Product information vector store for similarity search
     products_vector_store: &products_vector_store
-      embedding_model: *embedding_model             # Reference to embedding model above
+      embedding_model: *embedding_model
+                                                    # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
         name: one-env-shared-endpoint-12            # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
-        schema: *retail_schema                      # Unity Catalog schema for the index
+        schema: *retail_schema
+                                                    # Unity Catalog schema for the index
         name: products_index                        # Index name
       source_table:                                 # Table containing source data
         schema: *retail_schema
         name: products
       primary_key: product_id                       # Primary key column
-      doc_uri: ~                                    # Optional document URI column (null in this case)
+      doc_uri:                                      # Optional document URI column (null in this case)
       embedding_source_column: description          # Column to create embeddings from
       columns:                                      # Columns to include in vector store
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - class_cd
-        - description
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - class_cd
+      - description
 
   genie_rooms:
     # Genie space for retail data queries
@@ -66,16 +68,17 @@ resources:
 retrievers:
   # Product information retriever using vector search
   products_retriever: &products_retriever
-    vector_store: *products_vector_store            # Reference to vector store defined above
+    vector_store: *products_vector_store
+                                                    # Reference to vector store defined above
     columns:                                        # Columns to return in search results
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - class_cd
-      - description
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - class_cd
+    - description
     search_parameters:                              # Search configuration
       num_results: 10                               # Maximum number of results to return
       filters: {}                                   # Additional filters (empty in this case)
@@ -90,7 +93,8 @@ tools:
       args:                                         # Arguments passed to factory
         name: my_genie_tool
         description: My Answers questions about genie
-        genie_room: *retail_genie_room              # Reference to Genie room config
+        genie_room: *retail_genie_room
+                                                    # Reference to Genie room config
 
   vector_search_tool: &vector_search_tool
     name: vector_search
@@ -98,7 +102,8 @@ tools:
       type: factory
       name: dao_ai.tools.create_vector_search_tool
       args:
-        retriever: *products_retriever              # Reference to retriever config
+        retriever: *products_retriever
+                                                    # Reference to retriever config
         name: product_vector_search_tool            # Tool instance name
         description: "Search for products using vector search"  # Tool description
 
@@ -107,9 +112,10 @@ agents:
   genie: &genie
     name: genie                                     # Agent identifier
     description: "Genie Agent"
-    model: *default_llm                             # Reference to LLM configuration
+    model: *default_llm
+                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *genie_tool
+    - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
       Answers questions about foo
     handoff_prompt: |                               # Conditions for routing to this agent
@@ -118,9 +124,10 @@ agents:
   vector_search: &vector_search
     name: vector_search                                   # Agent identifier
     description: "Vector Search Agent"
-    model: *default_llm                             # Reference to LLM configuration
+    model: *default_llm
+                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
-      - *vector_search_tool
+    - *vector_search_tool
     prompt: |                                       # System prompt defining agent behavior
       Answers questions about bar
     handoff_prompt: |                               # Conditions for routing to this agent
@@ -131,20 +138,23 @@ app:
   description: "Multi-agent system that talks to genie and vector search"  # Application description
   log_level: INFO                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
-    schema: *retail_schema                          # Schema where model will be registered
+    schema: *retail_schema
+                                                    # Schema where model will be registered
     name: genie_vector_search_hybrid_dao
   endpoint_name: genie_and_vector_search_agent_dao  # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
   permissions:                                      # Model serving permissions
-    - principals: [users]                           # Grant access to all users
-      entitlements:
-        - CAN_MANAGE                                # Full management permissions
+  - principals: [users]                             # Grant access to all users
+    entitlements:
+    - CAN_MANAGE                                    # Full management permissions
   agents:                                           # List of agents included in the system
-    - *genie                                       # Order management agent
-    - *vector_search                               # Vector search agent
+  - *genie
+  - *vector_search
+                                                   # Vector search agent
   orchestration:                                    # Agent orchestration configuration
     supervisor:                                     # Supervisor orchestration pattern
-      model: *default_llm                      # LLM for routing decisions
+      model: *default_llm
+                                               # LLM for routing decisions
 

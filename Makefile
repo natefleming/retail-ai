@@ -61,7 +61,7 @@ distclean: clean
 	$(FIND) $(SRC_DIR) $(TEST_DIR) \( -name __pycache__ -a -type d \) -prune -exec rm -rf {} \;
 
 schema: depends
-	@$(PYTHON) -c "from dao_ai.config import AppConfig; import json; print(json.dumps(AppConfig.model_json_schema(), indent=2))"
+	@$(PYTHON) -c "from dao_ai.config import AppConfig; import json; print(json.dumps(AppConfig.model_json_schema(by_alias=False), indent=2))"
 
 test: 
 	$(PYTEST) -ra --tb=short $(TEST_DIR)

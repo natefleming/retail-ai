@@ -150,7 +150,7 @@ class BestOfNChatModel(BaseChatModel):
 
         The temperature is bound onto the generator via `.bind(temperature=...)`
         so each parallel call carries the elevated temperature without mutating
-        the original LLMModel state.
+        the original InferenceEndpointModel state.
         """
 
         if temperature_override is not None:

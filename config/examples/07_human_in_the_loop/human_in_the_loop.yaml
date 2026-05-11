@@ -44,7 +44,7 @@ schemas:
     schema_name: retail_ai                    
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4 
       temperature: 0.1

@@ -34,7 +34,7 @@ parameters:
 # DATABRICKS SCHEMAS
 # =============================================================================
 schemas:
-  retail_schema: &retail_schema
+  retail_schema:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
 
@@ -42,7 +42,7 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     # Main agent model - more expensive, more capable
     main_llm: &main_llm
       name: databricks-claude-sonnet-4
@@ -188,10 +188,12 @@ middleware:
   basic_selector: &basic_selector
     name: dao_ai.middleware.create_llm_tool_selector_middleware
     args:
-      model: *selector_llm          # Fast, cheap model for filtering
+      model: *selector_llm
+                                    # Fast, cheap model for filtering
       max_tools: 3                   # Select top 3 most relevant tools
       always_include:                # Tools to always keep available
-        - *search_tool               # Web search often useful
+      - *search_tool
+                                     # Web search often useful
 
   # ---------------------------------------------------------------------------
   # RESEARCH-FOCUSED SELECTOR
@@ -203,8 +205,9 @@ middleware:
       model: *selector_llm
       max_tools: 5                   # Allow more tools for research
       always_include:
-        - *search_tool               # Web search
-        - *wikipedia_tool            # Wikipedia
+      - *search_tool
+      - *wikipedia_tool
+                                     # Wikipedia
 
   # ---------------------------------------------------------------------------
   # DATA-FOCUSED SELECTOR
@@ -216,8 +219,9 @@ middleware:
       model: *selector_llm
       max_tools: 4
       always_include:
-        - *genie_tool                # Always include Genie for data queries
-        - *sql_query_tool            # Direct SQL access
+      - *genie_tool
+      - *sql_query_tool
+                                     # Direct SQL access
 
   # ---------------------------------------------------------------------------
   # AGGRESSIVE SELECTOR (Cost Optimization)
@@ -230,7 +234,7 @@ middleware:
       model: *selector_llm
       max_tools: 2                   # Very selective
       always_include:
-        - search_web                 # Use tool name string instead of alias
+      - search_web                   # Use tool name string instead of alias
 
 # =============================================================================
 # AGENT DEFINITIONS
@@ -249,20 +253,21 @@ agents:
     llm: *main_llm
     tools:
       # Register ALL tools - selector will filter at runtime
-      - *genie_tool
-      - *sql_query_tool
-      - *search_tool
-      - *wikipedia_tool
-      - *email_tool
-      - *slack_tool
-      - *read_file_tool
-      - *write_file_tool
-      - *time_tool
-      - *calculator_tool
-      - *weather_tool
-      - *calendar_tool
+    - *genie_tool
+    - *sql_query_tool
+    - *search_tool
+    - *wikipedia_tool
+    - *email_tool
+    - *slack_tool
+    - *read_file_tool
+    - *write_file_tool
+    - *time_tool
+    - *calculator_tool
+    - *weather_tool
+    - *calendar_tool
     middleware:
-      - *basic_selector              # Dynamically select 3 most relevant
+    - *basic_selector
+                                     # Dynamically select 3 most relevant
 
   # ---------------------------------------------------------------------------
   # DATA ANALYST AGENT
@@ -275,15 +280,16 @@ agents:
       Prioritizes data query tools but can access others as needed.
     llm: *main_llm
     tools:
-      - *genie_tool
-      - *sql_query_tool
-      - *search_tool
-      - *calculator_tool
-      - *time_tool
-      - *read_file_tool
-      - *write_file_tool
+    - *genie_tool
+    - *sql_query_tool
+    - *search_tool
+    - *calculator_tool
+    - *time_tool
+    - *read_file_tool
+    - *write_file_tool
     middleware:
-      - *data_selector               # Always includes Genie + SQL
+    - *data_selector
+                                     # Always includes Genie + SQL
 
   # ---------------------------------------------------------------------------
   # RESEARCH AGENT
@@ -296,15 +302,16 @@ agents:
       Always has access to search tools, selects others as needed.
     llm: *main_llm
     tools:
-      - *search_tool
-      - *wikipedia_tool
-      - *genie_tool                  # For internal data research
-      - *read_file_tool
-      - *write_file_tool
-      - *calculator_tool
-      - *time_tool
+    - *search_tool
+    - *wikipedia_tool
+    - *genie_tool
+    - *read_file_tool
+    - *write_file_tool
+    - *calculator_tool
+    - *time_tool
     middleware:
-      - *research_selector           # Always includes search + wikipedia
+    - *research_selector
+                                     # Always includes search + wikipedia
 
   # ---------------------------------------------------------------------------
   # COST-OPTIMIZED AGENT
@@ -317,14 +324,15 @@ agents:
       Only 2 tools selected per turn to minimize token usage.
     llm: *main_llm
     tools:
-      - *search_tool
-      - *genie_tool
-      - *calculator_tool
-      - *time_tool
-      - *weather_tool
-      - *calendar_tool
+    - *search_tool
+    - *genie_tool
+    - *calculator_tool
+    - *time_tool
+    - *weather_tool
+    - *calendar_tool
     middleware:
-      - *cost_optimized_selector     # Very selective: only 2 tools
+    - *cost_optimized_selector
+                                     # Very selective: only 2 tools
 
 # =============================================================================
 # CONFIGURATION

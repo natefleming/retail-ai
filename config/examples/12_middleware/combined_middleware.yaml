@@ -23,7 +23,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -48,13 +48,13 @@ middleware:
     name: dao_ai.middleware.create_custom_field_validation_middleware
     args:
       fields:
-        - name: store_num
-          description: "Store number for context"
-          example_value: "12345"
-        - name: user_id
-          description: "User identifier"
-          required: false
-          example_value: "user_abc"
+      - name: store_num
+        description: "Store number for context"
+        example_value: "12345"
+      - name: user_id
+        description: "User identifier"
+        required: false
+        example_value: "user_abc"
 
   # Step 2: Log the request
   request_logging: &request_logging
@@ -113,22 +113,23 @@ agents:
     description: "Production-ready agent with comprehensive middleware"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
       # Middleware executes in order:
-      - *input_validation                   # 1. Validate required fields
-      - *request_logging                    # 2. Log incoming request
-      - *rate_limiting                      # 3. Check rate limits
-      - *performance_tracking               # 4. Monitor execution time
-      - *audit_logging                      # 5. Create audit trail
+    - *input_validation
+    - *request_logging
+    - *rate_limiting
+    - *performance_tracking
+    - *audit_logging
+                                            # 5. Create audit trail
     prompt: |
       ### Store Context
       - **Store Number**: {store_num}
       - **User ID**: {user_id}
-      
+
       You are a production-ready store assistant with comprehensive
       middleware for validation, logging, rate limiting, and auditing.
-      
+
       Your responses are monitored for quality and performance.
     handoff_prompt: |
       Store-related questions that require validated context and
@@ -143,9 +144,10 @@ agents:
     description: "Development agent with minimal middleware"
     model: *default_llm
     tools:
-      - *genie_tool
+    - *genie_tool
     middleware:
-      - *request_logging                    # Only logging for debugging
+    - *request_logging
+                                            # Only logging for debugging
     prompt: |
       You are a development assistant with minimal middleware.
       This configuration is suitable for testing and debugging.
@@ -159,15 +161,15 @@ app:
     name: combined_middleware_dao
   endpoint_name: combined_middleware_demo_dao
   agents:
-    - *production_agent
-    - *dev_agent
+  - *production_agent
+  - *dev_agent
   orchestration:
     supervisor:
       model: *default_llm
   input_example:
     messages:
-      - role: user
-        content: What products are available in my store?
+    - role: user
+      content: What products are available in my store?
     custom_inputs:
       configurable:
         store_num: "12345"

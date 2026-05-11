@@ -21,7 +21,7 @@ schemas:
     schema_name: ${var.schema}
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.0
@@ -33,7 +33,7 @@ agents:
     prompt: |
       Extract contact information from the user's message.
       Return the name, email, and phone number (if available).
-    
+
     response_format:
       response_schema: |
         {
@@ -54,7 +54,7 @@ app:
     name: structured_output_dao
     schema: *demo_schema
   agents:
-    - *contact_extractor
+  - *contact_extractor
 
 # Example prompt for testing:
 # "John Doe, john.doe@example.com, (555) 123-4567"

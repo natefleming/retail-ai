@@ -23,7 +23,7 @@ schemas:
 
 resources:
   # Define the LLM for the agent
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4  # Databricks serving endpoint name
 
@@ -37,10 +37,10 @@ resources:
       on_behalf_of_user: true                        # Execute SQL as the calling user
 
   tables:
-    products: 
+    products:
       schema: *hardware_store_schema
       name: products
-    inventory: 
+    inventory:
       schema: *hardware_store_schema
       name: inventory
 
@@ -88,8 +88,8 @@ agents:
     name: analyst_with_charts
     model: *default_llm
     tools:
-      - *chart_tool
-      - *get_department_sales
+    - *chart_tool
+    - *get_department_sales
     prompt: |
       You are a data analyst assistant that can query data and create
       visualizations. When the user asks for a chart or plot:
@@ -112,4 +112,4 @@ app:
     schema: *hardware_store_schema
     name: viz_dept_sales_dao
   agents:
-    - *analyst_with_charts
+  - *analyst_with_charts

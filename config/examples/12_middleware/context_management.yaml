@@ -36,7 +36,7 @@ schemas:
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -116,7 +116,7 @@ middleware:
   # CONSERVATIVE CONTEXT EDITING
   # ---------------------------------------------------------------------------
   # For agents that need more history preserved
-  conservative_context_editor: &conservative_context_editor
+  conservative_context_editor:
     name: dao_ai.middleware.create_context_editing_middleware
     args:
       trigger: 150000             # Higher threshold - wait longer to clear
@@ -139,21 +139,22 @@ middleware:
   # CONTEXT EDITING WITH EXCLUDED TOOLS
   # ---------------------------------------------------------------------------
   # Exclude certain tools from clearing (using YAML alias)
-  selective_context_editor: &selective_context_editor
+  selective_context_editor:
     name: dao_ai.middleware.create_context_editing_middleware
     args:
       trigger: 80000
       keep: 3
       exclude_tools:
-        - *time_tool              # Never clear time tool outputs
-        - current_time            # Can also use string name
+      - *time_tool
+                                  # Never clear time tool outputs
+      - current_time              # Can also use string name
       placeholder: "[cleared]"
 
   # ---------------------------------------------------------------------------
   # MODEL-BASED TOKEN COUNTING
   # ---------------------------------------------------------------------------
   # Uses model's tokenizer for accurate counting (slower but precise)
-  precise_context_editor: &precise_context_editor
+  precise_context_editor:
     name: dao_ai.middleware.create_context_editing_middleware
     args:
       trigger: 90000
@@ -174,22 +175,23 @@ agents:
     description: "Data analyst agent with context management for long sessions"
     model: *default_llm
     tools:
-      - *genie_tool
-      - *search_tool
-      - *time_tool
+    - *genie_tool
+    - *search_tool
+    - *time_tool
     middleware:
-      - *basic_context_editor     # Manage context for long conversations
+    - *basic_context_editor
+                                  # Manage context for long conversations
     prompt: |
       You are a data analyst assistant that helps users explore retail data.
-      
+
       You may make many queries during a session. The system automatically
       manages conversation context by clearing older tool outputs while
       keeping recent ones available.
-      
+
       If you see "[cleared]" in previous tool outputs, those results have been
       summarized for context management. You can re-run queries if you need
       the original data again.
-      
+
       Your capabilities:
       - Query retail data using the genie tool
       - Search the web for additional context
@@ -205,20 +207,20 @@ agents:
     description: "Research agent with aggressive context management"
     model: *default_llm
     tools:
-      - *search_tool
-      - *time_tool
+    - *search_tool
+    - *time_tool
     middleware:
-      - *aggressive_context_editor
+    - *aggressive_context_editor
     prompt: |
       You are a research assistant that performs extensive web searches.
-      
+
       Web search results can be verbose. The system aggressively manages
       context to keep conversations within token limits.
-      
+
       When you see "[output cleared for context management]", previous search
       results have been cleared. If you need that information again, perform
       a new search.
-      
+
       Tips:
       - Summarize key findings before moving to new searches
       - Reference specific facts rather than expecting full outputs to persist
@@ -233,17 +235,18 @@ agents:
     description: "Agent for extended sessions with full context clearing"
     model: *default_llm
     tools:
-      - *genie_tool
-      - *search_tool
+    - *genie_tool
+    - *search_tool
     middleware:
-      - *full_context_editor      # Clear both inputs and outputs
+    - *full_context_editor
+                                  # Clear both inputs and outputs
     prompt: |
       You are an assistant designed for extended analysis sessions.
-      
+
       To maximize the length of our conversation, the system clears both
       tool inputs AND outputs from older messages. This means previous
       queries and their results are summarized as "[cleared]".
-      
+
       Best practices:
       - Keep a mental summary of key findings
       - Re-query when you need specific data points
@@ -263,17 +266,16 @@ app:
     name: context_management_dao
   endpoint_name: context_management_demo_dao
   agents:
-    - *data_analyst_agent
-    - *research_agent
-    - *long_running_agent
+  - *data_analyst_agent
+  - *research_agent
+  - *long_running_agent
   orchestration:
     supervisor:
       model: *default_llm
-  
   input_example:
     messages:
-      - role: user
-        content: Analyze our top 10 products and compare them to industry trends.
+    - role: user
+      content: Analyze our top 10 products and compare them to industry trends.
     custom_inputs:
       configurable:
         thread_id: "long-session-123"

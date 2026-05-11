@@ -30,18 +30,18 @@ parameters:
 variables:
   client_id: &client_id
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
 
   client_secret: &client_secret
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
 service_principals:
-  retail_consumer_goods_sp: &retail_consumer_goods_sp
+  retail_consumer_goods_sp:
     name: retail_consumer_goods_sp
     client_id: *client_id
     client_secret: *client_secret
@@ -54,12 +54,12 @@ schemas:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
     permissions:
-      - principals: [users]
-        privileges:
-          - USE_CATALOG
-          - USE_SCHEMA
-          - SELECT
-          - EXECUTE
+    - principals: [users]
+      privileges:
+      - USE_CATALOG
+      - USE_SCHEMA
+      - SELECT
+      - EXECUTE
 
 # =============================================================================
 # RESOURCES
@@ -68,7 +68,7 @@ resources:
   # ---------------------------------------------------------------------------
   # LANGUAGE MODELS
   # ---------------------------------------------------------------------------
-  llms:
+  models:
     fast_llm: &fast_llm
       name: databricks-gpt-5-4-mini
       temperature: 0.1
@@ -87,7 +87,7 @@ resources:
       max_tokens: 4096
       on_behalf_of_user: true
       fallbacks:
-        - databricks-claude-sonnet-4-6
+      - databricks-claude-sonnet-4-6
 
     judge_llm: &judge_llm
       name: databricks-claude-sonnet-4-5
@@ -126,19 +126,19 @@ resources:
         schema: *sporting_goods_schema
         name: products
       primary_key: product_id
-      doc_uri: ~
+      doc_uri:
       embedding_source_column: long_description
       columns:
-        - product_id
-        - sku
-        - upc
-        - brand_name
-        - product_name
-        - merchandise_class
-        - department_name
-        - sport_category
-        - base_price
-        - long_description
+      - product_id
+      - sku
+      - upc
+      - brand_name
+      - product_name
+      - merchandise_class
+      - department_name
+      - sport_category
+      - base_price
+      - long_description
 
   # ---------------------------------------------------------------------------
   # WAREHOUSES
@@ -214,74 +214,75 @@ retrievers:
   products_retriever: &products_retriever
     vector_store: *products_vector_store
     columns:
-      - product_id
-      - sku
-      - upc
-      - brand_name
-      - product_name
-      - merchandise_class
-      - department_name
-      - sport_category
-      - base_price
-      - long_description
+    - product_id
+    - sku
+    - upc
+    - brand_name
+    - product_name
+    - merchandise_class
+    - department_name
+    - sport_category
+    - base_price
+    - long_description
     search_parameters:
       num_results: 50
       filters: {}
       query_type: HYBRID
     instructed:
       columns:
-        - name: product_id
-          type: number
-          description: "Unique product identifier"
-        - name: sku
-          type: string
-          description: "Stock keeping unit - internal product code (e.g., NKE-RUN-001)"
-        - name: upc
-          type: string
-          description: "Universal Product Code - barcode number"
-        - name: brand_name
-          type: string
-          description: "Brand/manufacturer (Nike, Adidas, Under Armour, New Balance, Patagonia, The North Face, Columbia, Wilson, Spalding, Coleman, YETI, Osprey, Trek, Giro, Oakley, Garmin, Hydro Flask, Callaway, Lululemon, Bowflex, Rogue Fitness)"
-        - name: product_name
-          type: string
-          description: "Product display name"
-        - name: merchandise_class
-          type: string
-          description: "Product category (Footwear, Apparel, Equipment, Accessories, etc.)"
-        - name: department_name
-          type: string
-          description: "Department (Athletic Footwear, Athletic Apparel, Team Sports, Fitness Equipment, Outdoor & Camping, Cycling, Accessories, Golf)"
-        - name: sport_category
-          type: string
-          description: "Sport or activity (Running, Basketball, Football, Soccer, Golf, Training, Outdoor, Camping, Hiking, Cycling, Yoga, Fitness, Lifestyle, General)"
-        - name: base_price
-          type: number
-          description: "Base retail price in USD"
-        - name: long_description
-          type: string
-          description: "Detailed product description with features and specifications"
+      - name: product_id
+        type: number
+        description: "Unique product identifier"
+      - name: sku
+        type: string
+        description: "Stock keeping unit - internal product code (e.g., NKE-RUN-001)"
+      - name: upc
+        type: string
+        description: "Universal Product Code - barcode number"
+      - name: brand_name
+        type: string
+        description: "Brand/manufacturer (Nike, Adidas, Under Armour, New Balance, Patagonia, The North Face, Columbia, Wilson, Spalding, Coleman, YETI, Osprey, Trek, Giro, Oakley, Garmin, Hydro Flask,
+          Callaway, Lululemon, Bowflex, Rogue Fitness)"
+      - name: product_name
+        type: string
+        description: "Product display name"
+      - name: merchandise_class
+        type: string
+        description: "Product category (Footwear, Apparel, Equipment, Accessories, etc.)"
+      - name: department_name
+        type: string
+        description: "Department (Athletic Footwear, Athletic Apparel, Team Sports, Fitness Equipment, Outdoor & Camping, Cycling, Accessories, Golf)"
+      - name: sport_category
+        type: string
+        description: "Sport or activity (Running, Basketball, Football, Soccer, Golf, Training, Outdoor, Camping, Hiking, Cycling, Yoga, Fitness, Lifestyle, General)"
+      - name: base_price
+        type: number
+        description: "Base retail price in USD"
+      - name: long_description
+        type: string
+        description: "Detailed product description with features and specifications"
       constraints:
-        - "Use brand_name for brand filtering"
-        - "Use sport_category for sport-based queries"
-        - "Use merchandise_class for product type filtering"
-        - "Use department_name for department-level queries"
-        - "Only use columns listed above"
+      - "Use brand_name for brand filtering"
+      - "Use sport_category for sport-based queries"
+      - "Use merchandise_class for product type filtering"
+      - "Use department_name for department-level queries"
+      - "Only use columns listed above"
       decomposition:
         model: *decomposition_llm
         max_subqueries: 3
         rrf_k: 60
         normalize_filter_case: uppercase
         examples:
-          - query: "Nike running shoes"
-            filters: {"brand_name": "NIKE", "sport_category": "RUNNING", "merchandise_class": "FOOTWEAR"}
-          - query: "Patagonia or North Face outdoor jackets"
-            filters: {"brand_name": ["PATAGONIA", "THE NORTH FACE"], "merchandise_class": "APPAREL", "sport_category": "OUTDOOR"}
-          - query: "basketball equipment excluding Spalding"
-            filters: {"sport_category": "BASKETBALL", "merchandise_class": "EQUIPMENT", "brand_name NOT": "SPALDING"}
-          - query: "Under Armour training apparel"
-            filters: {"brand_name": "UNDER ARMOUR", "merchandise_class": "APPAREL", "sport_category": "TRAINING"}
-          - query: "golf clubs and equipment"
-            filters: {"sport_category": "GOLF", "merchandise_class": "EQUIPMENT"}
+        - query: "Nike running shoes"
+          filters: {"brand_name": "NIKE", "sport_category": "RUNNING", "merchandise_class": "FOOTWEAR"}
+        - query: "Patagonia or North Face outdoor jackets"
+          filters: {"brand_name": ["PATAGONIA", "THE NORTH FACE"], "merchandise_class": "APPAREL", "sport_category": "OUTDOOR"}
+        - query: "basketball equipment excluding Spalding"
+          filters: {"sport_category": "BASKETBALL", "merchandise_class": "EQUIPMENT", "brand_name NOT": "SPALDING"}
+        - query: "Under Armour training apparel"
+          filters: {"brand_name": "UNDER ARMOUR", "merchandise_class": "APPAREL", "sport_category": "TRAINING"}
+        - query: "golf clubs and equipment"
+          filters: {"sport_category": "GOLF", "merchandise_class": "EQUIPMENT"}
       rerank:
         model: *decomposition_llm
         instructions: |
@@ -299,10 +300,10 @@ retrievers:
       model: ms-marco-MiniLM-L-12-v2
       top_n: 20
       columns:
-        - brand_name
-        - product_name
-        - sport_category
-        - merchandise_class
+      - brand_name
+      - product_name
+      - sport_category
+      - merchandise_class
 
 # =============================================================================
 # TOOLS
@@ -422,27 +423,27 @@ tools:
           covering assortment planning, forecasting, buying, pricing,
           sales analytics, and inventory across all sporting goods categories.
         agents:
-          - name: assortment_planning
-            description: "Assortment planning and planogram strategy"
-          - name: forecasting
-            description: "Demand forecasting and trend analysis"
-          - name: purchase_order
-            description: "Purchase orders and vendor management"
-          - name: pricing
-            description: "Pricing strategy, markdowns, and promotions"
-          - name: sales
-            description: "Sales performance and revenue analytics"
-          - name: inventory
-            description: "Stock levels, replenishment, and availability"
-          - name: general
-            description: "Product info and general store inquiries"
+        - name: assortment_planning
+          description: "Assortment planning and planogram strategy"
+        - name: forecasting
+          description: "Demand forecasting and trend analysis"
+        - name: purchase_order
+          description: "Purchase orders and vendor management"
+        - name: pricing
+          description: "Pricing strategy, markdowns, and promotions"
+        - name: sales
+          description: "Sales performance and revenue analytics"
+        - name: inventory
+          description: "Stock levels, replenishment, and availability"
+        - name: general
+          description: "Product info and general store inquiries"
         sample_prompts:
-          - "What Nike running shoes do we carry?"
-          - "What's the demand forecast for running shoes next quarter?"
-          - "Show me open purchase orders from Nike"
-          - "What are our margin targets for footwear?"
-          - "How are trail running shoes performing this month?"
-          - "What's the stock level on SKU NKE-RUN-001?"
+        - "What Nike running shoes do we carry?"
+        - "What's the demand forecast for running shoes next quarter?"
+        - "Show me open purchase orders from Nike"
+        - "What are our margin targets for footwear?"
+        - "How are trail running shoes performing this month?"
+        - "What's the stock level on SKU NKE-RUN-001?"
 
 
 # =============================================================================
@@ -809,9 +810,9 @@ memory: &memory
 
   extraction:
     schemas:
-      - user_profile
-      - preference
-      - episode
+    - user_profile
+    - preference
+    - episode
     instructions: |
       Extract the user's name, role, and merchandising focus areas. Track their
       preferred product categories, brands of interest, stores they manage, and
@@ -832,13 +833,13 @@ middleware:
     name: dao_ai.middleware.create_custom_field_validation_middleware
     args:
       fields:
-        - name: store_num
-          description: "Your store number for inventory and sales lookups"
-          example_value: "DEN-FLAG"
-        - name: user_id
-          description: "Your unique user identifier"
-          required: false
-          example_value: "merchandiser_01"
+      - name: store_num
+        description: "Your store number for inventory and sales lookups"
+        example_value: "DEN-FLAG"
+      - name: user_id
+        description: "Your unique user identifier"
+        required: false
+        example_value: "merchandiser_01"
 
 # =============================================================================
 # AGENTS
@@ -849,8 +850,8 @@ agents:
     description: "Assortment planning specialist managing category mix, planogram strategy, seasonal transitions, and product lifecycle for sporting goods"
     model: *tool_calling_llm
     tools:
-      - *merchandising_analytics_tool
-      - *find_product_details_by_description_tool
+    - *merchandising_analytics_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: *assortment_planning_prompt
     handoff_prompt: "Assortment strategy, category mix, planogram planning, seasonal transitions, new product introductions, or SKU rationalization."
@@ -860,8 +861,8 @@ agents:
     description: "Demand forecasting analyst providing predictions, trend analysis, seasonal projections, and stockout risk assessment for sporting goods"
     model: *tool_calling_llm
     tools:
-      - *merchandising_analytics_tool
-      - *current_time_tool
+    - *merchandising_analytics_tool
+    - *current_time_tool
     guardrails: []
     prompt: *forecasting_prompt
     handoff_prompt: "Demand forecasting, sales predictions, trend analysis, seasonal demand patterns, or stockout risk assessment."
@@ -871,8 +872,8 @@ agents:
     description: "Purchase order and buying specialist managing PO lifecycle, vendor relationships, buying decisions, and receiving for sporting goods"
     model: *tool_calling_llm
     tools:
-      - *merchandising_analytics_tool
-      - *find_inventory_by_sku_tool
+    - *merchandising_analytics_tool
+    - *find_inventory_by_sku_tool
     guardrails: []
     prompt: *purchase_order_prompt
     handoff_prompt: "Purchase orders, buying decisions, vendor management, reorder quantities, PO tracking, receiving, or supplier performance."
@@ -882,9 +883,9 @@ agents:
     description: "Pricing strategy specialist managing initial pricing, markdowns, promotions, competitive pricing, and clearance for sporting goods"
     model: *tool_calling_llm
     tools:
-      - *sales_pricing_analytics_tool
-      - *find_product_by_sku_tool
-      - *find_product_by_upc_tool
+    - *sales_pricing_analytics_tool
+    - *find_product_by_sku_tool
+    - *find_product_by_upc_tool
     guardrails: []
     prompt: *pricing_prompt
     handoff_prompt: "Pricing strategy, markdowns, promotional pricing, competitive pricing, margin analysis, or clearance pricing."
@@ -894,9 +895,9 @@ agents:
     description: "Sales analytics specialist providing performance analysis, revenue tracking, store comparisons, and return analysis for sporting goods"
     model: *tool_calling_llm
     tools:
-      - *sales_pricing_analytics_tool
-      - *find_inventory_by_sku_tool
-      - *find_product_details_by_description_tool
+    - *sales_pricing_analytics_tool
+    - *find_inventory_by_sku_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: *sales_prompt
     recursion_limit: 12
@@ -907,11 +908,11 @@ agents:
     description: "Inventory management specialist providing stock levels, replenishment, allocation, and product availability for sporting goods"
     model: *tool_calling_llm
     tools:
-      - *find_inventory_by_sku_tool
-      - *find_inventory_by_upc_tool
-      - *find_store_inventory_by_sku_tool
-      - *find_store_inventory_by_upc_tool
-      - *find_product_details_by_description_tool
+    - *find_inventory_by_sku_tool
+    - *find_inventory_by_upc_tool
+    - *find_store_inventory_by_sku_tool
+    - *find_store_inventory_by_upc_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: *inventory_prompt
     handoff_prompt: "Stock levels, product availability, replenishment, store transfers, warehouse stock, or out-of-stock situations."
@@ -921,7 +922,7 @@ agents:
     description: "General merchandising assistant for product information, store inquiries, and questions not handled by specialist agents"
     model: *tool_calling_llm
     tools:
-      - *find_product_details_by_description_tool
+    - *find_product_details_by_description_tool
     guardrails: []
     prompt: *general_prompt
     handoff_prompt: "General product info, store inquiries, policies, or questions not handled by other specialist agents."
@@ -943,30 +944,30 @@ app:
   monitoring:
     sample_rate: 1.0
     scorers:
-      - safety
-      - completeness
-      - relevance_to_query
-      - tool_call_efficiency
+    - safety
+    - completeness
+    - relevance_to_query
+    - tool_call_efficiency
     guidelines_sample_rate: 0.5
     guidelines:
-      - name: merchandising_accuracy
-        guidelines:
-          - Inventory counts and stock levels must come from tool results, not fabricated
-          - Pricing recommendations must reference actual product data from the catalog
-          - Purchase order statuses and vendor information must be sourced from analytics tools
-          - Demand forecasts must clearly state the data sources and confidence level
-      - name: tool_usage_quality
-        guidelines:
-          - The agent must call the appropriate tool before answering product, inventory, or pricing questions
-          - Genie analytics tools should be used for trend analysis and aggregate metrics, not UC functions
-          - UC function tools should be used for specific SKU or UPC lookups, not analytics queries
-          - Vector search should be used when the user describes products by attributes rather than by SKU or UPC
-      - name: response_professionalism
-        guidelines:
-          - Responses should use merchandising terminology appropriate for retail professionals
-          - Financial figures (margin, revenue, cost) should be formatted consistently with currency symbols
-          - Recommendations should include actionable next steps with specific SKUs or categories
-          - Seasonal context and timing should be considered in all planning recommendations
+    - name: merchandising_accuracy
+      guidelines:
+      - Inventory counts and stock levels must come from tool results, not fabricated
+      - Pricing recommendations must reference actual product data from the catalog
+      - Purchase order statuses and vendor information must be sourced from analytics tools
+      - Demand forecasts must clearly state the data sources and confidence level
+    - name: tool_usage_quality
+      guidelines:
+      - The agent must call the appropriate tool before answering product, inventory, or pricing questions
+      - Genie analytics tools should be used for trend analysis and aggregate metrics, not UC functions
+      - UC function tools should be used for specific SKU or UPC lookups, not analytics queries
+      - Vector search should be used when the user describes products by attributes rather than by SKU or UPC
+    - name: response_professionalism
+      guidelines:
+      - Responses should use merchandising terminology appropriate for retail professionals
+      - Financial figures (margin, revenue, cost) should be formatted consistently with currency symbols
+      - Recommendations should include actionable next steps with specific SKUs or categories
+      - Seasonal context and timing should be considered in all planning recommendations
  # service_principal: *retail_consumer_goods_sp
   environment_vars:
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
@@ -979,33 +980,33 @@ app:
   enable_chat_proxy: true
 
   permissions:
-    - principals: [users]
-      entitlements:
-        - CAN_QUERY
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
   agents:
-    - *assortment_planning
-    - *forecasting
-    - *purchase_order
-    - *pricing
-    - *sales
-    - *inventory
-    - *general
+  - *assortment_planning
+  - *forecasting
+  - *purchase_order
+  - *pricing
+  - *sales
+  - *inventory
+  - *general
   orchestration:
     memory: *memory
     supervisor:
       model: *supervisor_llm
       tools:
-        - *app_info_tool
+      - *app_info_tool
       prompt: |
         You are a routing coordinator for a sporting goods merchandising system. You do NOT answer questions yourself. Your ONLY job is to analyze incoming requests and hand off to the most appropriate specialist agent using the handoff tools.
 
         IMPORTANT: You do NOT have access to product data, inventory systems, sales data, or any merchandising tools. You MUST hand off every request to an agent. Never attempt to answer a merchandising question yourself. Always hand off. Never answer directly.
       middleware:
-        - *store_validation
+      - *store_validation
   input_example:
     messages:
-      - role: user
-        content: What Nike running shoes do we carry?
+    - role: user
+      content: What Nike running shoes do we carry?
     custom_inputs:
       configurable:
         user_id: merchandiser_01
@@ -1016,38 +1017,38 @@ app:
 # UNITY CATALOG FUNCTIONS
 # =============================================================================
 unity_catalog_functions:
-  - function: *find_product_by_sku
-    ddl: ../functions/sporting_goods_store/find_product_by_sku.sql
-    test:
-      parameters:
-        sku: ["NKE-RUN-001"]
-  - function: *find_product_by_upc
-    ddl: ../functions/sporting_goods_store/find_product_by_upc.sql
-    test:
-      parameters:
-        upc: ["194501234567"]
-  - function: *find_inventory_by_sku
-    ddl: ../functions/sporting_goods_store/find_inventory_by_sku.sql
-    test:
-      parameters:
-        sku: ["NKE-RUN-001"]
-  - function: *find_inventory_by_upc
-    ddl: ../functions/sporting_goods_store/find_inventory_by_upc.sql
-    test:
-      parameters:
-        upc: ["194501234567"]
-  - function: *find_store_inventory_by_sku
-    ddl: ../functions/sporting_goods_store/find_store_inventory_by_sku.sql
-    test:
-      parameters:
-        store: "DEN-FLAG"
-        sku: ["NKE-RUN-001"]
-  - function: *find_store_inventory_by_upc
-    ddl: ../functions/sporting_goods_store/find_store_inventory_by_upc.sql
-    test:
-      parameters:
-        store: "DEN-FLAG"
-        upc: ["194501234567"]
+- function: *find_product_by_sku
+  ddl: ../functions/sporting_goods_store/find_product_by_sku.sql
+  test:
+    parameters:
+      sku: ["NKE-RUN-001"]
+- function: *find_product_by_upc
+  ddl: ../functions/sporting_goods_store/find_product_by_upc.sql
+  test:
+    parameters:
+      upc: ["194501234567"]
+- function: *find_inventory_by_sku
+  ddl: ../functions/sporting_goods_store/find_inventory_by_sku.sql
+  test:
+    parameters:
+      sku: ["NKE-RUN-001"]
+- function: *find_inventory_by_upc
+  ddl: ../functions/sporting_goods_store/find_inventory_by_upc.sql
+  test:
+    parameters:
+      upc: ["194501234567"]
+- function: *find_store_inventory_by_sku
+  ddl: ../functions/sporting_goods_store/find_store_inventory_by_sku.sql
+  test:
+    parameters:
+      store: "DEN-FLAG"
+      sku: ["NKE-RUN-001"]
+- function: *find_store_inventory_by_upc
+  ddl: ../functions/sporting_goods_store/find_store_inventory_by_upc.sql
+  test:
+    parameters:
+      store: "DEN-FLAG"
+      upc: ["194501234567"]
 
 # =============================================================================
 # EVALUATION
@@ -1104,55 +1105,55 @@ evaluation:
       store_num: DEN-FLAG
     session: {}
   guidelines:
-    - name: merchandising_relevance
-      guidelines:
-        - Responses should be relevant to sporting goods merchandising operations
-        - Recommendations should reference specific products, brands, or categories from the catalog
-        - Pricing and inventory data should be accurate and sourced from tool results
-        - Seasonal context should be considered in all merchandising recommendations
+  - name: merchandising_relevance
+    guidelines:
+    - Responses should be relevant to sporting goods merchandising operations
+    - Recommendations should reference specific products, brands, or categories from the catalog
+    - Pricing and inventory data should be accurate and sourced from tool results
+    - Seasonal context should be considered in all merchandising recommendations
 
 # =============================================================================
 # DATASETS
 # =============================================================================
 datasets:
-  - table:
-      schema: *sporting_goods_schema
-      name: products
-    ddl: ../data/sporting_goods_store/products.sql
-    data: ../data/sporting_goods_store/product_data.sql
-    format: sql
+- table:
+    schema: *sporting_goods_schema
+    name: products
+  ddl: ../data/sporting_goods_store/products.sql
+  data: ../data/sporting_goods_store/product_data.sql
+  format: sql
 
-  - table:
-      schema: *sporting_goods_schema
-      name: inventory
-    ddl: ../data/sporting_goods_store/inventory.sql
-    data: ../data/sporting_goods_store/inventory_data.sql
-    format: sql
+- table:
+    schema: *sporting_goods_schema
+    name: inventory
+  ddl: ../data/sporting_goods_store/inventory.sql
+  data: ../data/sporting_goods_store/inventory_data.sql
+  format: sql
 
-  - table:
-      schema: *sporting_goods_schema
-      name: dim_stores
-    ddl: ../data/sporting_goods_store/dim_stores.sql
-    data: ../data/sporting_goods_store/dim_stores_data.sql
-    format: sql
+- table:
+    schema: *sporting_goods_schema
+    name: dim_stores
+  ddl: ../data/sporting_goods_store/dim_stores.sql
+  data: ../data/sporting_goods_store/dim_stores_data.sql
+  format: sql
 
-  - table:
-      schema: *sporting_goods_schema
-      name: sales_orders
-    ddl: ../data/sporting_goods_store/sales_orders.sql
-    data: ../data/sporting_goods_store/sales_orders_data.sql
-    format: sql
+- table:
+    schema: *sporting_goods_schema
+    name: sales_orders
+  ddl: ../data/sporting_goods_store/sales_orders.sql
+  data: ../data/sporting_goods_store/sales_orders_data.sql
+  format: sql
 
-  - table:
-      schema: *sporting_goods_schema
-      name: purchase_orders
-    ddl: ../data/sporting_goods_store/purchase_orders.sql
-    data: ../data/sporting_goods_store/purchase_orders_data.sql
-    format: sql
+- table:
+    schema: *sporting_goods_schema
+    name: purchase_orders
+  ddl: ../data/sporting_goods_store/purchase_orders.sql
+  data: ../data/sporting_goods_store/purchase_orders_data.sql
+  format: sql
 
-  - table:
-      schema: *sporting_goods_schema
-      name: pricing_history
-    ddl: ../data/sporting_goods_store/pricing_history.sql
-    data: ../data/sporting_goods_store/pricing_history_data.sql
-    format: sql
+- table:
+    schema: *sporting_goods_schema
+    name: pricing_history
+  ddl: ../data/sporting_goods_store/pricing_history.sql
+  data: ../data/sporting_goods_store/pricing_history_data.sql
+  format: sql

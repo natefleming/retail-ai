@@ -10,7 +10,7 @@ from loguru import logger
 
 from dao_ai.config import (
     CheckpointerModel,
-    LLMModel,
+    InferenceEndpointModel,
     StorageType,
     StoreModel,
 )
@@ -40,7 +40,7 @@ class InMemoryStoreManager(StoreManagerBase):
         self.store_model = store_model
 
     def store(self) -> BaseStore:
-        embedding_model: LLMModel = self.store_model.embedding_model
+        embedding_model: InferenceEndpointModel = self.store_model.embedding_model
 
         logger.debug(
             "Creating in-memory store", embeddings_enabled=embedding_model is not None

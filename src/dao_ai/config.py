@@ -751,9 +751,9 @@ class TableModel(IsDatabricksResource, HasFullName):
 
 
 class BestOfNConfig(BaseModel):
-    """Opt-in best-of-N + LLM-as-judge wrapper around an LLMModel.
+    """Opt-in best-of-N + LLM-as-judge wrapper around an InferenceEndpointModel.
 
-    When attached to an LLMModel, every model invocation fans out N parallel
+    When attached to an InferenceEndpointModel, every model invocation fans out N parallel
     candidate generations at elevated temperature, then asks a judge model to
     score the candidates. The wrapper returns the highest-scoring candidate
     verbatim (no synthesis).
@@ -765,7 +765,7 @@ class BestOfNConfig(BaseModel):
     Diversity is non-negotiable: with low generator temperature, the N
     candidates collapse to near-identical outputs and best-of-N degenerates
     into best-of-1 with extra cost. The wrapper enforces an effective
-    generator temperature of max(LLMModel.temperature, 0.7) unless
+    generator temperature of max(InferenceEndpointModel.temperature, 0.7) unless
     `temperature_override` is set.
     """
 
@@ -775,15 +775,15 @@ class BestOfNConfig(BaseModel):
         default=8,
         description="Number of parallel candidate generations. Must be in [1, 16].",
     )
-    judge: Union[str, "LLMModel"] = Field(
-        description="Judge model: a serving endpoint name (string) or a full LLMModel config.",
+    judge: Union[str, "InferenceEndpointModel"] = Field(
+        description="Judge model: a serving endpoint name (string) or a full InferenceEndpointModel config.",
     )
     temperature_override: Optional[float] = Field(
         default=None,
         description=(
             "If set, the parallel candidate calls use this temperature regardless "
             "of the generator's configured temperature. If unset, the wrapper uses "
-            "max(LLMModel.temperature, 0.7) so candidates have meaningful diversity."
+            "max(InferenceEndpointModel.temperature, 0.7) so candidates have meaningful diversity."
         ),
     )
 
@@ -795,8 +795,27 @@ class BestOfNConfig(BaseModel):
         return v
 
 
-class LLMModel(IsDatabricksResource):
-    """Configuration for an LLM served via a Databricks Model Serving endpoint."""
+class InferenceEndpointModel(IsDatabricksResource):
+    """Configuration for a Databricks Model Serving endpoint used for inference.
+
+    This is the single config type for *any* serving endpoint dao-ai calls at
+    runtime — not just chat LLMs. The same class backs:
+
+    - Chat LLMs declared under ``resources.models`` (e.g. claude-sonnet,
+      meta-llama-3-3-70b-instruct).
+    - Embedding endpoints referenced by ``VectorStoreModel.embedding_model``
+      (e.g. databricks-gte-large-en).
+    - Judge / extraction / reflection / query models inside
+      ``BestOfNConfig.judge``, ``MemoryConfig.extraction_model``,
+      ``MemoryConfig.query_model``, ``DeepAgentOrchestrationConfig.judge_model``,
+      ``DeepAgentOrchestrationConfig.reflection_model``.
+    - Custom agent endpoints (any model packaged behind
+      ``/serving-endpoints/<name>/invocations``).
+
+    The previous class name ``LLMModel`` is still importable as a module-level
+    alias (``LLMModel = InferenceEndpointModel``) for backward compatibility;
+    the legacy name will be removed in a future major release.
+    """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str = Field(
@@ -814,9 +833,9 @@ class LLMModel(IsDatabricksResource):
         default=8192,
         description="Maximum number of tokens in the model response.",
     )
-    fallbacks: Optional[list[Union[str, "LLMModel"]]] = Field(
+    fallbacks: Optional[list[Union[str, "InferenceEndpointModel"]]] = Field(
         default_factory=list,
-        description="Ordered list of fallback model names or LLMModel configs tried on primary model failure.",
+        description="Ordered list of fallback endpoint names or InferenceEndpointModel configs tried on primary failure.",
     )
     use_responses_api: Optional[bool] = Field(
         default=False,
@@ -873,9 +892,9 @@ class LLMModel(IsDatabricksResource):
 
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
-            fallback: str | LLMModel
+            fallback: str | InferenceEndpointModel
             if isinstance(fallback, str):
-                fallback = LLMModel(
+                fallback = InferenceEndpointModel(
                     name=fallback,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
@@ -895,7 +914,7 @@ class LLMModel(IsDatabricksResource):
 
             judge_cfg = self.best_of_n.judge
             if isinstance(judge_cfg, str):
-                judge_cfg = LLMModel(name=judge_cfg)
+                judge_cfg = InferenceEndpointModel(name=judge_cfg)
             judge_chat_model = judge_cfg.as_chat_model()
 
             chat_client = BestOfNChatModel.from_components(
@@ -923,9 +942,18 @@ class LLMModel(IsDatabricksResource):
         return DatabricksEmbeddings(endpoint=self.name)
 
 
-# Resolve the forward reference BestOfNConfig.judge -> LLMModel now that
-# LLMModel is in scope. Without this, instantiating BestOfNConfig with a dict
-# judge config would fail with a forward-reference error.
+# Backward-compatible alias. The class was renamed from LLMModel to
+# InferenceEndpointModel to reflect its real scope (every Databricks Model
+# Serving endpoint dao-ai calls — chat LLMs, embeddings, judges, extraction /
+# reflection / query models, custom agent endpoints). Customer code importing
+# the old name (`from dao_ai.config import LLMModel`) keeps working unchanged;
+# `isinstance(x, LLMModel)` continues to return True because both names point
+# at the same class. The legacy name will be removed in a future major release.
+LLMModel = InferenceEndpointModel
+
+# Resolve the forward reference BestOfNConfig.judge -> InferenceEndpointModel
+# now that the class is in scope. Without this, instantiating BestOfNConfig
+# with a dict judge config would fail with a forward-reference error.
 BestOfNConfig.model_rebuild()
 
 
@@ -2654,7 +2682,7 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
         default=None,
         description="Column in the source table containing text to embed. Required in provisioning mode.",
     )
-    embedding_model: Optional[LLMModel] = Field(
+    embedding_model: Optional[InferenceEndpointModel] = Field(
         default=None,
         description="Embedding model endpoint. Defaults to 'databricks-gte-large-en' in provisioning mode.",
     )
@@ -2716,7 +2744,7 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
     def set_default_embedding_model(self) -> Self:
         # Only set default embedding model in provisioning mode
         if self.source_table is not None and not self.embedding_model:
-            self.embedding_model = LLMModel(name="databricks-gte-large-en")
+            self.embedding_model = InferenceEndpointModel(name="databricks-gte-large-en")
         return self
 
     def ensure_resolved(self) -> None:
@@ -2856,7 +2884,7 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
                 self.embedding_source_column = first.get("name")
                 model_endpoint_name = first.get("embedding_model_endpoint_name")
                 if model_endpoint_name:
-                    self.embedding_model = LLMModel(name=model_endpoint_name)
+                    self.embedding_model = InferenceEndpointModel(name=model_endpoint_name)
 
         endpoint_name = details.get("endpoint_name")
         if endpoint_name:
@@ -3449,7 +3477,7 @@ class GenieContextAwareCacheParametersBase(BaseModel):
         default=None,
         description="Weight for context similarity in the combined score (0-1). Computed as 1 - question_weight if omitted.",
     )
-    embedding_model: str | LLMModel = Field(
+    embedding_model: str | InferenceEndpointModel = Field(
         default="databricks-gte-large-en",
         description="Embedding model endpoint for generating similarity vectors.",
     )
@@ -3669,7 +3697,7 @@ class InstructionAwareRerankModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    model: Optional["LLMModel"] = Field(
+    model: Optional["InferenceEndpointModel"] = Field(
         default=None,
         description="LLM for instruction reranking (fast model recommended)",
     )
@@ -3858,7 +3886,7 @@ class DecompositionModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    model: Optional["LLMModel"] = Field(
+    model: Optional["InferenceEndpointModel"] = Field(
         default=None,
         description="LLM for query decomposition (smaller/faster model recommended)",
     )
@@ -3988,7 +4016,7 @@ class RouterModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    model: Optional["LLMModel"] = Field(
+    model: Optional["InferenceEndpointModel"] = Field(
         default=None,
         description="LLM for routing decision (fast model recommended)",
     )
@@ -4060,7 +4088,7 @@ class VerifierModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
-    model: Optional["LLMModel"] = Field(
+    model: Optional["InferenceEndpointModel"] = Field(
         default=None,
         description="LLM for verification (fast model recommended)",
     )
@@ -4875,7 +4903,7 @@ class GuardrailModel(BaseModel):
     Attributes:
         name: Name identifying this guardrail.
         model: LLM model for the judge.  Accepts a string (model name) or
-            ``LLMModel``.  Required when using the custom judge mode.
+            ``InferenceEndpointModel``.  Required when using the custom judge mode.
         prompt: Evaluation instructions using ``{{ inputs }}`` and
             ``{{ outputs }}`` template variables.  Required when using
             the custom judge mode.
@@ -4906,7 +4934,7 @@ class GuardrailModel(BaseModel):
     name: str = Field(
         description="Name identifying this guardrail.",
     )
-    model: Optional[str | LLMModel] = Field(
+    model: Optional[str | InferenceEndpointModel] = Field(
         default=None,
         description="LLM model for the judge. Required for custom judge mode.",
     )
@@ -4971,7 +4999,7 @@ class GuardrailModel(BaseModel):
     @model_validator(mode="after")
     def validate_llm_model(self) -> Self:
         if self.model is not None and isinstance(self.model, str):
-            self.model = LLMModel(name=self.model)
+            self.model = InferenceEndpointModel(name=self.model)
         return self
 
     def as_scorer(self) -> Any:
@@ -5070,7 +5098,7 @@ class StoreModel(BaseModel):
     name: str = Field(
         description="Unique name for this store instance.",
     )
-    embedding_model: Optional[LLMModel] = Field(
+    embedding_model: Optional[InferenceEndpointModel] = Field(
         default=None,
         description="Embedding model for semantic memory search. Required for vector-based recall.",
     )
@@ -5152,14 +5180,14 @@ class MemoryExtractionModel(BaseModel):
             "conversation turn (no latency impact on responses)."
         ),
     )
-    extraction_model: Optional[LLMModel] = Field(
+    extraction_model: Optional[InferenceEndpointModel] = Field(
         default=None,
         description=(
             "Separate LLM for memory extraction. Can be a smaller, "
             "cheaper model. When None, uses the agent's primary model."
         ),
     )
-    query_model: Optional[LLMModel] = Field(
+    query_model: Optional[InferenceEndpointModel] = Field(
         default=None,
         description=(
             "Separate LLM for optimizing memory search queries. "
@@ -5349,7 +5377,7 @@ class AgentModel(BaseModel):
         default=None,
         description="Human-readable description shown when the LLM selects handoff targets.",
     )
-    model: LLMModel = Field(
+    model: InferenceEndpointModel = Field(
         description="LLM model configuration (serving endpoint name, temperature, etc.).",
     )
     tools: list[ToolModel] = Field(
@@ -5469,7 +5497,7 @@ class SupervisorModel(BaseModel):
     """Configuration for the supervisor agent in a supervisor orchestration pattern."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: LLMModel = Field(
+    model: InferenceEndpointModel = Field(
         description="LLM model used by the supervisor to route tasks to sub-agents.",
     )
     tools: list[ToolModel] = Field(
@@ -5713,7 +5741,7 @@ class SubAgentModel(BaseModel):
     Mirrors ``deepagents.SubAgent`` (a ``TypedDict``) but lifted into Pydantic so
     every field can accept dao-ai primitives:
 
-    * ``model`` — string serving-endpoint name OR an ``LLMModel``
+    * ``model`` — string serving-endpoint name OR an ``InferenceEndpointModel``
     * ``tools`` — list of strings (looked up in ``config.tools``) OR ``ToolModel`` entries
     * ``skills`` — list of skill paths OR named ``SkillModel`` references
     * ``system_prompt`` — string OR ``PromptModel`` (resolved through ``make_prompt``)
@@ -5736,7 +5764,7 @@ class SubAgentModel(BaseModel):
         default_factory=list,
         description="Tools available to this sub-agent. Strings are resolved against ``config.tools``.",
     )
-    model: Optional[LLMModel | str] = Field(
+    model: Optional[InferenceEndpointModel | str] = Field(
         default=None,
         description=(
             "LLM model. Inherits from the parent deep_agent if omitted. "
@@ -5787,10 +5815,10 @@ class DeepAgentModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: Optional[LLMModel | str] = Field(
+    model: Optional[InferenceEndpointModel | str] = Field(
         default=None,
         description=(
-            "Primary LLM. ``LLMModel`` is resolved via ``as_chat_model()``; "
+            "Primary LLM. ``InferenceEndpointModel`` is resolved via ``as_chat_model()``; "
             "strings pass through to ``init_chat_model`` (e.g. ``'openai:gpt-4o'``). "
             "Defaults to deepagents' default (``claude-sonnet-4-6``) when omitted."
         ),
@@ -5898,7 +5926,7 @@ class DeepAgentModel(BaseModel):
 
         which gets normalized to the equivalent list form ``[{name: research, ...}]``
         before the regular validator runs. Mirrors the dict-keyed pattern used by
-        ``resources.llms``, ``tools``, and ``swarm.handoffs``.
+        ``resources.models``, ``tools``, and ``swarm.handoffs``.
         """
         if not isinstance(data, dict):
             return data
@@ -6174,7 +6202,7 @@ class ChatHistoryModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: LLMModel = Field(
+    model: InferenceEndpointModel = Field(
         description="LLM used to generate conversation summaries.",
     )
     max_tokens: int = Field(
@@ -6768,7 +6796,7 @@ class EvaluationModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    model: LLMModel = Field(
+    model: InferenceEndpointModel = Field(
         ..., description="LLM model used as the judge for LLM-based evaluation scorers."
     )
     table: TableModel = Field(
@@ -6949,7 +6977,7 @@ class PromptOptimizationModel(BaseModel):
     dataset: EvaluationDatasetModel = Field(
         description="Training dataset with input/expectation pairs for fitness evaluation.",
     )
-    reflection_model: Optional[LLMModel | str] = Field(
+    reflection_model: Optional[InferenceEndpointModel | str] = Field(
         default=None,
         description="LLM used for reflective mutation during GEPA optimization.",
     )
@@ -7205,7 +7233,7 @@ class ContextAwareCacheOptimizationModel(BaseModel):
     dataset: ContextAwareCacheEvalDatasetModel = Field(
         description="Evaluation dataset with question/context pairs and expected match labels.",
     )
-    judge_model: Optional[LLMModel | str] = Field(
+    judge_model: Optional[InferenceEndpointModel | str] = Field(
         default="databricks-meta-llama-3-3-70b-instruct",
         description="LLM judge for evaluating match quality when expected_match is None.",
     )
@@ -7380,10 +7408,25 @@ class ResourcesModel(BaseModel):
     elsewhere in the config via YAML anchors.
     """
 
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    llms: dict[str, LLMModel] = Field(
+    # populate_by_name=True so the legacy `llms:` key (declared via the
+    # field's `alias`) parses alongside the canonical `models:` key under
+    # the otherwise-strict `extra="forbid"` policy. Both keys produce the
+    # same `self.models` dict at runtime.
+    model_config = ConfigDict(
+        use_enum_values=True,
+        extra="forbid",
+        populate_by_name=True,
+    )
+    models: dict[str, InferenceEndpointModel] = Field(
         default_factory=dict,
-        description="LLM serving endpoint configurations keyed by name.",
+        alias="llms",
+        description=(
+            "Databricks Model Serving endpoint configurations keyed by name. "
+            "Holds chat LLMs, embedding models, judge/extraction/reflection/query "
+            "models, and custom agent endpoints — anything reachable via "
+            "/serving-endpoints/<name>/invocations. Renamed from `llms` in dao-ai 0.1.75; "
+            "the old key is still accepted via field alias and will be removed in a future major release."
+        ),
     )
     vector_stores: dict[str, VectorStoreModel] = Field(
         default_factory=dict,
@@ -7429,6 +7472,24 @@ class ResourcesModel(BaseModel):
             "Local skills ship via ``code_paths``; volume-backed skills are wired as deployment resources."
         ),
     )
+
+    @property
+    def llms(self) -> dict[str, InferenceEndpointModel]:
+        """Deprecated alias for :attr:`models`.
+
+        Old customer code accessing ``config.resources.llms`` keeps working
+        for now. Use :attr:`models` for new code. The alias will be removed
+        in a future major release.
+        """
+        import warnings
+
+        warnings.warn(
+            "ResourcesModel.llms is a deprecated alias for ResourcesModel.models; "
+            "use `.models` instead. The alias will be removed in a future major release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.models
 
     @model_validator(mode="after")
     def update_genie_warehouses(self) -> Self:

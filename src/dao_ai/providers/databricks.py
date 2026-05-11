@@ -61,7 +61,7 @@ from dao_ai.config import (
     HasFullName,
     IndexModel,
     IsDatabricksResource,
-    LLMModel,
+    InferenceEndpointModel,
     PromptModel,
     SchemaModel,
     TableModel,
@@ -376,7 +376,7 @@ class DatabricksProvider(ServiceProvider):
             experiment_id=experiment.experiment_id,
         )
 
-        llms: Sequence[LLMModel] = list(config.resources.llms.values())
+        llms: Sequence[InferenceEndpointModel] = list(config.resources.models.values())
         vector_indexes: Sequence[IndexModel] = list(
             config.resources.vector_stores.values()
         )

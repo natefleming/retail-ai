@@ -23,15 +23,15 @@ parameters:
 variables:
   client_id: &client_id
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
 
   client_secret: &client_secret
     options:
-      - scope: retail_consumer_goods
-        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
 # =============================================================================
 # SCHEMAS
@@ -41,18 +41,18 @@ schemas:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
     permissions:
-      - principals: [users]
-        privileges:
-          - USE_CATALOG
-          - USE_SCHEMA
-          - SELECT
-          - EXECUTE
+    - principals: [users]
+      privileges:
+      - USE_CATALOG
+      - USE_SCHEMA
+      - SELECT
+      - EXECUTE
 
 # =============================================================================
 # RESOURCES
 # =============================================================================
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.3
@@ -112,12 +112,12 @@ app:
     feature: long_running_agents
 
   permissions:
-    - principals: [users]
-      entitlements:
-        - CAN_QUERY
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
 
   agents:
-    - *researcher
+  - *researcher
 
   long_running:
     database: *retail_database
@@ -127,8 +127,8 @@ app:
 
   input_example:
     messages:
-      - role: user
-        content: "What is Databricks Lakebase?"
+    - role: user
+      content: "What is Databricks Lakebase?"
     custom_inputs:
       configurable:
         thread_id: "deep_research_demo_1"
