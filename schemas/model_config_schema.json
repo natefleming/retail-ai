@@ -79,6 +79,21 @@
           "title": "Middleware",
           "type": "array"
         },
+        "skills": {
+          "description": "Skills available to this agent. Each entry produces a SkillsMiddleware (via :meth:`SkillModel.as_middleware`) appended to the agent's middleware stack. Strings are resolved against ``config.resources.skills``; inline ``SkillModel`` entries are accepted directly. Works uniformly across supervisor, swarm, and deep_agent orchestration \u2014 including when this AgentModel becomes an implicit sub-agent under deep_agent.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SkillModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Skills",
+          "type": "array"
+        },
         "response_format": {
           "anyOf": [
             {
@@ -557,6 +572,28 @@
         "entitlements"
       ],
       "title": "AppPermissionModel",
+      "type": "object"
+    },
+    "BackendModel": {
+      "additionalProperties": false,
+      "description": "Storage/execution backend for a deep_agent.\n\nMirrors deepagents' ``BackendProtocol`` factory pattern. ``name`` is a\nfully-qualified factory function or class (e.g. ``deepagents.backends.StateBackend``)\nand ``args`` are passed as keyword arguments. If omitted, deepagents'\ndefault ``StateBackend`` is used.",
+      "properties": {
+        "name": {
+          "description": "Fully qualified name of the backend class or factory function.",
+          "title": "Name",
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": true,
+          "description": "Keyword arguments forwarded to the backend factory.",
+          "title": "Args",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "BackendModel",
       "type": "object"
     },
     "BestOfNConfig": {
@@ -2054,6 +2091,207 @@
       "title": "DecompositionModel",
       "type": "object"
     },
+    "DeepAgentModel": {
+      "additionalProperties": false,
+      "description": "Configuration for the ``deep_agent`` orchestration pattern.\n\nWraps `deepagents.create_deep_agent` so every parameter is declarative in YAML\nand dao-ai primitives can be substituted wherever the deepagents API takes a\nstring or callable.\n\nLayered with the existing ``OrchestrationModel.memory`` block: the\n``checkpointer`` and ``store`` passed to ``create_deep_agent`` are derived\nfrom that block, not redeclared here.\n\nSee ``orchestration/deep_agent.py::create_deep_agent_graph`` for resolution\nsemantics.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary LLM. ``LLMModel`` is resolved via ``as_chat_model()``; strings pass through to ``init_chat_model`` (e.g. ``'openai:gpt-4o'``). Defaults to deepagents' default (``claude-sonnet-4-6``) when omitted.",
+          "title": "Model"
+        },
+        "tools": {
+          "description": "Tools merged with deepagents' built-in suite (todo, filesystem, execute, task). Strings are resolved against ``config.tools``.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ToolModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "system_prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/PromptModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "System prompt prepended to deepagents' base prompt. Inline string or MLflow ``PromptModel`` (resolved via ``make_prompt``).",
+          "title": "System Prompt"
+        },
+        "middleware": {
+          "description": "User middleware inserted between the deepagents base stack and tail stack.",
+          "items": {
+            "$ref": "#/$defs/MiddlewareModel"
+          },
+          "title": "Middleware",
+          "type": "array"
+        },
+        "subagents": {
+          "description": "Sub-agents callable via the ``task`` tool. Three forms accepted: (1) inline ``SubAgentModel`` dict, (2) string referencing an entry in ``app.agents`` by name, (3) full ``AgentModel`` (carries over name/description/prompt/tools/model/middleware/response_format).",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SubAgentModel"
+              },
+              {
+                "$ref": "#/$defs/AgentModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Subagents",
+          "type": "array"
+        },
+        "skills": {
+          "description": "Skill source paths exposed via deepagents' ``SkillsMiddleware``. Strings are inline relative paths; ``SkillModel`` references provide named, governed skills with optional Unity Catalog volume backing.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SkillModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Skills",
+          "type": "array"
+        },
+        "instruction_files": {
+          "description": "Paths to ``AGENTS.md``-style instruction files loaded into the system prompt at startup (deepagents' MemoryMiddleware feature). Renamed from ``memory`` to avoid collision with ``OrchestrationModel.memory`` (checkpointer/store/extraction). Despite deepagents' upstream naming these files are static instructions, not runtime memory.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Instruction Files",
+          "type": "array"
+        },
+        "permissions": {
+          "description": "Filesystem permission rules applied to the main agent and inherited by sub-agents.",
+          "items": {
+            "$ref": "#/$defs/FilesystemPermissionModel"
+          },
+          "title": "Permissions",
+          "type": "array"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResponseFormatModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Structured output format. Same semantics as ``AgentModel.response_format``.",
+          "title": "Response Format"
+        },
+        "interrupt_on": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "$ref": "#/$defs/HumanInTheLoopModel"
+              }
+            ]
+          },
+          "description": "Per-tool human-in-the-loop config. ``true`` enables defaults; a ``HumanInTheLoopModel`` customizes the review prompt and allowed decisions.",
+          "title": "Interrupt On",
+          "type": "object"
+        },
+        "backend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BackendModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Backend factory. If omitted, deepagents uses ``StateBackend()``."
+        },
+        "context_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fully qualified name of a TypedDict/dataclass class defining run-scoped context. Resolved via importlib at graph-build time.",
+          "title": "Context Schema"
+        },
+        "recursion_limit": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-run graph recursion limit. ``None`` uses LangGraph's default (25).",
+          "title": "Recursion Limit"
+        },
+        "debug": {
+          "default": false,
+          "description": "Enable verbose debug output from deepagents.",
+          "title": "Debug",
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable name attached to the compiled graph. Useful in MLflow trace dashboards.",
+          "title": "Name"
+        }
+      },
+      "title": "DeepAgentModel",
+      "type": "object"
+    },
     "DeploymentTarget": {
       "description": "Target platform for agent deployment.",
       "enum": [
@@ -2333,6 +2571,55 @@
         "name"
       ],
       "title": "FactoryFunctionModel",
+      "type": "object"
+    },
+    "FilesystemPermissionModel": {
+      "additionalProperties": false,
+      "description": "Filesystem permission rule for deepagents tools.\n\nMirrors ``deepagents.middleware.permissions.FilesystemPermission`` (a TypedDict).\nRules are evaluated in declaration order; the first match wins. If no rule\nmatches, the call is allowed.",
+      "properties": {
+        "paths": {
+          "description": "Path patterns covered by this rule (e.g. ``['/skills/**', '/tmp/*']``).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "mode": {
+          "default": "allow",
+          "description": "Whether to allow or deny operations on paths matching the patterns.",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "operations": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "read",
+                  "write"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File operations this rule applies to. Defaults to both read and write when omitted.",
+          "title": "Operations"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "title": "FilesystemPermissionModel",
       "type": "object"
     },
     "FunctionModel": {
@@ -3809,7 +4096,7 @@
     },
     "HumanInTheLoopModel": {
       "additionalProperties": false,
-      "description": "Configuration for Human-in-the-Loop tool approval.\n\nThis model configures when and how tools require human approval before execution.\nIt maps to LangChain's HumanInTheLoopMiddleware.\n\nLangChain supports three decision types:\n- \"approve\": Execute tool with original arguments\n- \"edit\": Modify arguments before execution\n- \"reject\": Skip execution with optional feedback message",
+      "description": "Configuration for Human-in-the-Loop tool approval.\n\nThis model configures when and how tools require human approval before execution.\nIt maps to LangChain's HumanInTheLoopMiddleware.\n\nLangChain supports four decision types:\n- \"approve\": Execute tool with original arguments\n- \"edit\": Modify arguments before execution\n- \"reject\": Skip execution with optional feedback message\n- \"respond\": Reply with a message in place of executing the tool. The\n  reviewer's text becomes a synthetic ToolMessage that the LLM consumes\n  as if the tool had returned it. Distinct from \"reject\", which skips\n  the tool and ends the turn.",
       "properties": {
         "review_prompt": {
           "anyOf": [
@@ -3825,12 +4112,13 @@
           "title": "Review Prompt"
         },
         "allowed_decisions": {
-          "description": "List of allowed decision types for this tool",
+          "description": "List of allowed decision types for this tool. Defaults to ``['approve', 'edit', 'reject']``; add ``'respond'`` to let the reviewer reply in place of executing the tool.",
           "items": {
             "enum": [
               "approve",
               "edit",
-              "reject"
+              "reject",
+              "respond"
             ],
             "type": "string"
           },
@@ -5184,7 +5472,7 @@
     },
     "OrchestrationModel": {
       "additionalProperties": false,
-      "description": "Multi-agent orchestration configuration.\n\n`supervisor` and `swarm` are mutually exclusive. If neither is set\n(e.g. the user only supplies `memory:`), AppConfig will auto-pick a\nsensible router at the AppConfig level based on the number of agents.",
+      "description": "Multi-agent orchestration configuration.\n\nExactly one of ``supervisor``, ``swarm``, ``deep_agent`` may be set. If none\nare set (e.g. the user only supplies ``memory:``), AppConfig auto-picks a\nsensible router based on the number of agents \u2014 ``deep_agent`` is opt-in\nonly and never auto-selected.",
       "properties": {
         "supervisor": {
           "anyOf": [
@@ -5214,6 +5502,18 @@
           "default": null,
           "description": "Swarm pattern: agents hand off to each other via tool calls. Set to true for defaults.",
           "title": "Swarm"
+        },
+        "deep_agent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeepAgentModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deep_agent pattern: a single planning agent with built-in todo/filesystem/shell/sub-agent tools, plus first-class skills and memory. Wraps ``deepagents.create_deep_agent``."
         },
         "memory": {
           "anyOf": [
@@ -5739,6 +6039,14 @@
           "description": "Databricks App references used as MCP endpoints or tool backends.",
           "title": "Apps",
           "type": "object"
+        },
+        "skills": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SkillModel"
+          },
+          "description": "Reusable deepagents skills keyed by name. Referenced from ``orchestration.deep_agent.skills`` and ``subagents[].skills``. Local skills ship via ``code_paths``; volume-backed skills are wired as deployment resources.",
+          "title": "Skills",
+          "type": "object"
         }
       },
       "title": "ResourcesModel",
@@ -6113,6 +6421,48 @@
       "title": "ServicePrincipalModel",
       "type": "object"
     },
+    "SkillModel": {
+      "additionalProperties": false,
+      "description": "A deepagents skill \u2014 a directory of Markdown content that teaches a deep_agent how to do a task.\n\nA skill at minimum contains ``SKILL.md`` (deepagents convention). It may also contain\n``AGENTS.md`` for memory, plus arbitrary supporting files referenced by the SKILL.\n\nSkills can live in two places, both expressed via the ``path`` field:\n\n* **Local** \u2014 a plain string relative path under the project root\n  (e.g. ``skills/research``). The directory is bundled with the model\n  artifact via ``code_paths`` and shipped with both Model Serving and\n  Databricks Apps deployments.\n* **Volume** \u2014 a ``VolumePathModel`` referencing a Unity Catalog volume\n  (``/Volumes/<cat>/<schema>/<vol>/...``). The path is read directly at\n  runtime and the volume is wired as a deployment resource for permission\n  grants. Use this when skills are governed centrally.\n\nA raw absolute string starting with ``/Volumes/`` is auto-promoted to a\n``VolumePathModel`` by the pre-validator, so users may copy-paste paths\nfrom the UC explorer without writing the structured form. The structured\nform (``volume:`` + ``path:``) is preferred for governed skills because\nit gives the deployment pipeline a typed handle to the volume.\n\nSkills are referenced from ``orchestration.deep_agent.skills`` (or per-subagent\n``subagents[].skills``) and resolved to filesystem paths that deepagents'\n``SkillsMiddleware`` can load.",
+      "properties": {
+        "name": {
+          "description": "Unique skill name. Used by deepagents' SkillsMiddleware as the skill identifier.",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/VolumePathModel"
+            }
+          ],
+          "description": "Skill source directory. Either a local relative path string (e.g. ``skills/research``) or a ``VolumePathModel`` referencing a Unity Catalog volume. Raw ``/Volumes/...`` strings are auto-promoted to ``VolumePathModel`` by the pre-validator.",
+          "title": "Path"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable description of what this skill does. Surfaced in docs and traces.",
+          "title": "Description"
+        }
+      },
+      "required": [
+        "name",
+        "path"
+      ],
+      "title": "SkillModel",
+      "type": "object"
+    },
     "StoreModel": {
       "additionalProperties": false,
       "description": "Long-term memory store for cross-thread memories (user profiles, preferences, episodes).",
@@ -6177,6 +6527,134 @@
         "name"
       ],
       "title": "StoreModel",
+      "type": "object"
+    },
+    "SubAgentModel": {
+      "additionalProperties": false,
+      "description": "A deepagents sub-agent invoked by the main deep_agent via the ``task`` tool.\n\nMirrors ``deepagents.SubAgent`` (a ``TypedDict``) but lifted into Pydantic so\nevery field can accept dao-ai primitives:\n\n* ``model`` \u2014 string serving-endpoint name OR an ``LLMModel``\n* ``tools`` \u2014 list of strings (looked up in ``config.tools``) OR ``ToolModel`` entries\n* ``skills`` \u2014 list of skill paths OR named ``SkillModel`` references\n* ``system_prompt`` \u2014 string OR ``PromptModel`` (resolved through ``make_prompt``)\n\nRequired fields per deepagents are ``name``, ``description``, and\n``system_prompt``. Optional fields override the parent deep_agent's defaults.",
+      "properties": {
+        "name": {
+          "description": "Unique sub-agent identifier. The main agent uses this when calling the ``task`` tool.",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "description": "What this sub-agent does. Used by the main agent to decide when to delegate.",
+          "title": "Description",
+          "type": "string"
+        },
+        "system_prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/PromptModel"
+            }
+          ],
+          "description": "Instructions for the sub-agent. Inline string or MLflow Prompt Registry reference.",
+          "title": "System Prompt"
+        },
+        "tools": {
+          "description": "Tools available to this sub-agent. Strings are resolved against ``config.tools``.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ToolModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/LLMModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LLM model. Inherits from the parent deep_agent if omitted. Strings are passed verbatim to ``langchain.chat_models.init_chat_model`` (e.g. ``'openai:gpt-4o'``).",
+          "title": "Model"
+        },
+        "middleware": {
+          "description": "Additional middleware applied to this sub-agent on top of the deepagents base stack.",
+          "items": {
+            "$ref": "#/$defs/MiddlewareModel"
+          },
+          "title": "Middleware",
+          "type": "array"
+        },
+        "interrupt_on": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "$ref": "#/$defs/HumanInTheLoopModel"
+              }
+            ]
+          },
+          "description": "Per-tool human-in-the-loop config. ``true`` enables defaults; a ``HumanInTheLoopModel`` customizes the review prompt and allowed decisions. Same model used for tool-level ``human_in_the_loop:`` annotations (one concept, one shape).",
+          "title": "Interrupt On",
+          "type": "object"
+        },
+        "skills": {
+          "description": "Skill source directories or SkillModel references scoped to this sub-agent.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SkillModel"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Skills",
+          "type": "array"
+        },
+        "permissions": {
+          "description": "Filesystem permission rules. Replace (not extend) the parent's rules when present.",
+          "items": {
+            "$ref": "#/$defs/FilesystemPermissionModel"
+          },
+          "title": "Permissions",
+          "type": "array"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResponseFormatModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Structured output format. Same semantics as ``AgentModel.response_format``.",
+          "title": "Response Format"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "system_prompt"
+      ],
+      "title": "SubAgentModel",
       "type": "object"
     },
     "SupervisorModel": {

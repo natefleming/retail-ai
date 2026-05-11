@@ -58,7 +58,7 @@ dependencies = [
     "langchain-mcp-adapters>=0.2.2",
     "langchain-tavily>=0.2.15",
     "langgraph-checkpoint-postgres==3.0.5",
-    "langgraph>=1.1.6",
+    "langgraph>=1.1.10",
     "langmem>=0.0.30",
     "loguru>=0.7.3",
     "mcp>=1.26.0",
@@ -75,7 +75,7 @@ dependencies = [
     "sqlparse>=0.5.4",
     "tomli>=2.3.0",
     "unitycatalog-ai[databricks]>=0.3.2",
-    "deepagents>=0.4.11",
+    "deepagents>=0.5.6",
     "guardrails-ai>=0.9.2",
 ]
 

@@ -160,14 +160,17 @@ def _parse_var_args(raw: Optional[list[str]]) -> dict[str, str]:
 
 
 def _add_var_argument(parser: ArgumentParser) -> None:
-    """Add a repeatable ``--var KEY=VALUE`` flag to a subparser."""
+    """Add a repeatable ``--param KEY=VALUE`` flag (alias: ``--var``) to a subparser."""
     parser.add_argument(
+        "--param",
         "--var",
+        dest="var",
         action="append",
         metavar="KEY=VALUE",
         help=(
-            "Override a ${var.KEY} / ${param.KEY} substitution in the config "
-            "file. Repeatable (e.g. --var catalog=main --var schema=dao_ai)."
+            "Override a ${param.KEY} / ${var.KEY} substitution in the config "
+            "file. Repeatable (e.g. --param catalog=main --param schema=dao_ai). "
+            "Alias: --var."
         ),
     )
 
@@ -610,30 +613,32 @@ Examples:
         help="Thread ID for the chat session (default: auto-generated UUID)",
     )
 
-    # Vars command
+    # Parameters command (alias: vars)
     vars_parser: ArgumentParser = subparsers.add_parser(
-        "vars",
+        "parameters",
+        aliases=["vars"],
         help="Inspect declared parameters in a configuration",
         description="""
 Inspect the declared parameters: block in a DAO AI config file.
 
 Shows each declared parameter, whether it is required, its declared default,
 and the value that would be substituted into the YAML for the current
-combination of --var overrides and process environment variables.
+combination of --param overrides and process environment variables.
 
 Use this to discover what knobs a config exposes before deploying or running it.
         """,
         epilog="""
 Examples:
-  dao-ai vars list -c config/model_config.yaml
-  dao-ai vars list -c config/retail.yaml --var catalog=nfleming
+  dao-ai parameters list -c config/model_config.yaml
+  dao-ai parameters list -c config/retail.yaml --param catalog=nfleming
+  dao-ai vars list -c config/model_config.yaml             # legacy alias
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     vars_parser.add_argument(
         "action",
         choices=["list"],
-        help="Vars action: 'list' prints declared parameters and resolved values.",
+        help="Parameters action: 'list' prints declared parameters and resolved values.",
     )
     vars_parser.add_argument(
         "-c",
@@ -1791,17 +1796,30 @@ def handle_vars_command(options: Namespace) -> None:
     """
     import yaml
 
-    from dao_ai.config_vars import ParameterDeclarationModel
+    from dao_ai.config_vars import (
+        ParameterDeclarationModel,
+        WorkspaceVariableError,
+        substitute_workspace_refs,
+    )
 
     cli_vars: dict[str, str] = _parse_var_args(options.var)
 
     try:
-        raw_dict: dict[str, Any] = (
-            yaml.safe_load(Path(options.config).read_text()) or {}
-        )
+        raw_text: str = Path(options.config).read_text()
     except FileNotFoundError:
         logger.error(f"Configuration file not found: {options.config}")
         sys.exit(1)
+
+    try:
+        rendered_text: str = substitute_workspace_refs(
+            raw_text, source=options.config
+        )
+    except WorkspaceVariableError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    try:
+        raw_dict: dict[str, Any] = yaml.safe_load(rendered_text) or {}
     except yaml.YAMLError as e:
         logger.error(f"Failed to parse YAML in {options.config}: {e}")
         sys.exit(1)
@@ -1884,7 +1902,7 @@ def main() -> None:
             handle_chat_command(options)
         case "list-mcp-tools":
             handle_list_mcp_tools_command(options)
-        case "vars":
+        case "parameters" | "vars":
             handle_vars_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")

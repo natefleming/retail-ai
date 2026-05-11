@@ -26,6 +26,7 @@ from langchain.agents.middleware.human_in_the_loop import (
     EditDecision,
     HITLRequest,
     RejectDecision,
+    RespondDecision,
     ReviewConfig,
 )
 from langchain_community.adapters.openai import convert_openai_messages
@@ -459,12 +460,13 @@ def _format_action_requests_message(interrupt_data: list[HITLRequest]) -> str:
     lines.append("")
     lines.append(
         "**You can respond in natural language** (e.g., 'approve both', 'reject the first one', "
-        "'change the email to new@example.com')"
+        "'change the email to new@example.com', 'reply that the meeting is cancelled')"
     )
     lines.append("")
     lines.append(
         "Or provide structured decisions in `custom_inputs` with key `decisions`: "
-        '`[{"type": "approve"}, {"type": "reject", "message": "reason"}]`'
+        '`[{"type": "approve"}, {"type": "reject", "message": "reason"}, '
+        '{"type": "respond", "message": "synthetic tool output"}]`'
     )
 
     return "\n".join(lines)
@@ -652,7 +654,7 @@ def _create_decision_schema(interrupt_data: list[HITLRequest]) -> type[BaseModel
     Dynamically create a Pydantic model for structured output based on interrupt actions.
 
     This creates a schema that matches the expected decision format for the interrupted actions.
-    Each action gets a corresponding decision field that can be approve, edit, or reject.
+    Each action gets a corresponding decision field that can be approve, edit, reject, or respond.
     Includes validation fields to ensure the response is complete and valid.
 
     Args:
@@ -666,10 +668,11 @@ def _create_decision_schema(interrupt_data: list[HITLRequest]) -> type[BaseModel
         class Decisions(BaseModel):
             is_valid: bool
             validation_message: Optional[str]
-            decision_1: Literal["approve", "edit", "reject"]
-            decision_1_message: Optional[str]  # For reject
-            decision_1_edited_args: Optional[dict]  # For edit
-            decision_2: Literal["approve", "edit", "reject"]
+            decision_1: Literal["approve", "edit", "reject", "respond"]
+            decision_1_message: Optional[str]      # For reject
+            decision_1_edited_args: Optional[dict] # For edit
+            decision_1_response: Optional[str]     # For respond
+            decision_2: Literal["approve", "edit", "reject", "respond"]
             ...
     """
     # Collect all actions
@@ -746,6 +749,21 @@ def _create_decision_schema(interrupt_data: list[HITLRequest]) -> type[BaseModel
                 ),
             )
 
+        # Add required-when-chosen response field for respond
+        if "respond" in allowed_decisions:
+            fields[f"decision_{i}_response"] = (
+                Optional[str],
+                Field(
+                    None,
+                    description=(
+                        f"Reviewer response message for action {i}. Used when "
+                        f"the decision is 'respond' — this text is fed back to "
+                        f"the LLM as a synthetic ToolMessage in place of "
+                        f"executing the tool."
+                    ),
+                ),
+            )
+
     # Create the dynamic model
     DecisionsModel = create_model(
         "InterruptDecisions",
@@ -811,6 +829,15 @@ def _convert_schema_to_decisions(
                 },
             }
             decisions.append(edit_decision)  # type: ignore
+        elif decision_type == "respond":
+            response_message: str = (
+                getattr(parsed_output, f"decision_{i}_response", None) or ""
+            )
+            respond_decision: RespondDecision = {
+                "type": "respond",
+                "message": response_message,
+            }
+            decisions.append(respond_decision)  # type: ignore
 
     return decisions
 

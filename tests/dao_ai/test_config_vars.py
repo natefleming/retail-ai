@@ -12,11 +12,15 @@ from dao_ai.cli import _parse_var_args
 from dao_ai.config import AppConfig
 from dao_ai.config_vars import (
     PARAM_PATTERN,
+    WORKSPACE_PATTERN,
     ConfigVariableError,
     ParameterDeclarationModel,
+    WorkspaceVariableError,
     find_param_references,
+    find_workspace_references,
     resolve_parameters,
     substitute_params,
+    substitute_workspace_refs,
 )
 
 
@@ -211,7 +215,7 @@ def test_resolve_parameters_reports_sources_correctly() -> None:
         env={"FROM_ENV": "env-value"},
     )
     by_name = {p.name: p for p in resolved}
-    assert by_name["from_cli"].source == "--var"
+    assert by_name["from_cli"].source == "--param"
     assert by_name["from_cli"].value == "cli-value"
     assert by_name["from_env"].source == "env"
     assert by_name["from_env"].value == "env-value"
@@ -220,6 +224,128 @@ def test_resolve_parameters_reports_sources_correctly() -> None:
     assert by_name["missing"].source == "MISSING"
     assert by_name["missing"].value is None
     assert by_name["missing"].required is True
+
+
+class _FakeUser:
+    def __init__(self, user_name: str) -> None:
+        self.user_name = user_name
+
+
+class _FakeWorkspaceClient:
+    def __init__(self, *, host: str, user_name: str) -> None:
+        self.config = type("Cfg", (), {"host": host})()
+        self.current_user = type(
+            "CU", (), {"me": lambda _self: _FakeUser(user_name)}
+        )()
+
+
+@pytest.mark.unit
+def test_workspace_pattern_only_matches_known_prefix() -> None:
+    text = "a: ${workspace.host}\nb: ${param.x}\nc: ${var.y}\nd: ${other.z}"
+    assert find_workspace_references(text) == {"host"}
+    assert WORKSPACE_PATTERN.findall("e: ${workspace}") == []
+
+
+@pytest.mark.unit
+def test_substitute_workspace_refs_no_refs_skips_factory() -> None:
+    def _boom() -> None:
+        raise AssertionError("factory should not be called when no refs present")
+
+    assert (
+        substitute_workspace_refs("a: 1\nb: 2", workspace_client_factory=_boom)
+        == "a: 1\nb: 2"
+    )
+
+
+@pytest.mark.unit
+def test_substitute_workspace_refs_resolves_all_four_dabs_paths() -> None:
+    client = _FakeWorkspaceClient(
+        host="https://example.cloud.databricks.com/",
+        user_name="nate.fleming@databricks.com",
+    )
+    text = (
+        "host: ${workspace.host}\n"
+        "email: ${workspace.current_user.userName}\n"
+        "short: ${workspace.current_user.short_name}\n"
+        "domain: ${workspace.current_user.domain_friendly_name}\n"
+    )
+    rendered = substitute_workspace_refs(
+        text, workspace_client_factory=lambda: client
+    )
+    assert "host: https://example.cloud.databricks.com" in rendered
+    assert "host: https://example.cloud.databricks.com/" not in rendered
+    assert "email: nate.fleming@databricks.com" in rendered
+    assert "short: nate.fleming" in rendered
+    assert "domain: databricks.com" in rendered
+
+
+@pytest.mark.unit
+def test_substitute_workspace_refs_caches_user_calls() -> None:
+    calls: dict[str, int] = {"me": 0}
+
+    class CountingCurrentUser:
+        def me(self) -> _FakeUser:
+            calls["me"] += 1
+            return _FakeUser("a.b@c.com")
+
+    class CountingClient:
+        config = type("Cfg", (), {"host": "https://x"})()
+        current_user = CountingCurrentUser()
+
+    text = (
+        "${workspace.current_user.userName} "
+        "${workspace.current_user.short_name} "
+        "${workspace.current_user.domain_friendly_name}"
+    )
+    substitute_workspace_refs(text, workspace_client_factory=lambda: CountingClient())
+    assert calls["me"] == 1  # cached across multiple paths derived from email
+
+
+@pytest.mark.unit
+def test_substitute_workspace_refs_rejects_unsupported_path() -> None:
+    with pytest.raises(WorkspaceVariableError) as exc:
+        substitute_workspace_refs(
+            "x: ${workspace.current_user.email}",
+            workspace_client_factory=lambda: None,
+            source="t.yaml",
+        )
+    assert "current_user.email" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_substitute_workspace_refs_wraps_client_failures() -> None:
+    def _broken() -> None:
+        raise RuntimeError("no auth")
+
+    with pytest.raises(WorkspaceVariableError) as exc:
+        substitute_workspace_refs(
+            "x: ${workspace.host}", workspace_client_factory=_broken, source="t.yaml"
+        )
+    assert "no auth" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_workspace_refs_resolve_inside_parameter_defaults(tmp_path: Path) -> None:
+    """Workspace refs inside a `parameters:` default must resolve before param substitution."""
+    client = _FakeWorkspaceClient(
+        host="https://x", user_name="nate.fleming@databricks.com"
+    )
+    text = (
+        "parameters:\n"
+        "  genie_parent_path:\n"
+        "    default: \"/Users/${workspace.current_user.userName}/genie\"\n"
+        "value: ${var.genie_parent_path}\n"
+    )
+    workspace_resolved = substitute_workspace_refs(
+        text, workspace_client_factory=lambda: client
+    )
+    parsed = yaml.safe_load(workspace_resolved) or {}
+    declarations = {
+        name: ParameterDeclarationModel(**(spec or {}))
+        for name, spec in (parsed.get("parameters") or {}).items()
+    }
+    rendered = substitute_params(workspace_resolved, declarations=declarations)
+    assert "value: /Users/nate.fleming@databricks.com/genie" in rendered
 
 
 @pytest.mark.unit
@@ -764,11 +890,7 @@ def test_write_bundle_preserves_user_resources_yml(
 
     user_resource = out_dir / "resources" / "jobs.yml"
     user_payload = (
-        "resources:\n"
-        "  jobs:\n"
-        "    user_job:\n"
-        "      name: user_job\n"
-        "      tasks: []\n"
+        "resources:\n  jobs:\n    user_job:\n      name: user_job\n      tasks: []\n"
     )
     user_resource.write_text(user_payload)
 

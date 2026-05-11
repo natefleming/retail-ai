@@ -202,18 +202,23 @@ app:
 #          database: your_db_name
 #
 # 3. Decision Types:
-#    LangChain's HumanInTheLoopMiddleware supports 3 decision types:
-#    
+#    LangChain's HumanInTheLoopMiddleware supports 4 decision types:
+#
 #    | Decision Type | Description                                              |
 #    |---------------|----------------------------------------------------------|
 #    | approve       | Execute tool with original arguments (no modifications)  |
 #    | edit          | Modify tool arguments before execution                   |
 #    | reject        | Skip tool execution with optional feedback message       |
-#    
+#    | respond       | Reply with a synthetic ToolMessage in place of executing |
+#    |               | the tool. The reviewer's text is fed to the LLM as if    |
+#    |               | the tool had returned it.                                |
+#
 #    Configure allowed decisions directly in human_in_the_loop:
-#      allowed_decisions: [approve, edit, reject]  # Allow all three
-#      allowed_decisions: [approve, reject]        # Review-only (no edits)
-#      allowed_decisions: [approve]                # Auto-approve only
+#      allowed_decisions: [approve, edit, reject]           # default
+#      allowed_decisions: [approve, edit, reject, respond]  # all four
+#      allowed_decisions: [approve, reject]                 # review-only (no edits)
+#      allowed_decisions: [approve]                         # auto-approve only
+#      allowed_decisions: [respond]                         # mock-response only
 #
 # 4. Best Practices:
 #    - Use HITL for: destructive operations, external APIs, costly operations

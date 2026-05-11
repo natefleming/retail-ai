@@ -1,5 +1,17 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: sporting_goods_store
+
 # =============================================================================
 # Sporting Goods Store - Merchandiser 360
 # =============================================================================
@@ -39,8 +51,8 @@ service_principals:
 # =============================================================================
 schemas:
   sporting_goods_schema: &sporting_goods_schema
-    catalog_name: retail_consumer_goods
-    schema_name: sporting_goods_store
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
     permissions:
       - principals: [users]
         privileges:

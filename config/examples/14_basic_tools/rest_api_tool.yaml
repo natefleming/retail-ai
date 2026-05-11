@@ -1,5 +1,17 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: main
+  schema:
+    description: Schema within the catalog
+    default: default
+
 # Example configuration demonstrating the generic REST API tool.
 # Two mutually exclusive modes are shown:
 #   1. UC Connection mode  – calls go through a Unity Catalog connection
@@ -9,8 +21,8 @@
 
 schemas:
   default_schema: &default_schema
-    catalog_name: main
-    schema_name: default
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 resources:
   llms:

@@ -1,5 +1,17 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: enterprise_data
+  schema:
+    description: Schema within the catalog
+    default: operations
+
 # ==============================================================================
 # Kasal Integration Example
 # ==============================================================================
@@ -12,8 +24,8 @@
 
 schemas:
   enterprise_schema: &enterprise_schema
-    catalog_name: enterprise_data
-    schema_name: operations
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 resources:
   llms:

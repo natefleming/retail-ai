@@ -486,9 +486,7 @@ def generate_resources_app_yaml(
     files (e.g. ``resources/jobs.yml``, ``resources/pipelines.yml``) are
     written by users and are never touched by the generator.
     """
-    _app_name, experiments_block, apps_block = _build_app_block(
-        config, config_filename
-    )
+    _app_name, experiments_block, apps_block = _build_app_block(config, config_filename)
 
     resources_doc: dict[str, Any] = {
         "resources": {
@@ -585,6 +583,42 @@ def write_bundle(
             written.append(config_filename)
     else:
         logger.warning("No source config path found -- skipping config copy")
+
+    # Copy local skill directories into the bundle so they're uploaded with
+    # the app source and reachable by deepagents' SkillsMiddleware at
+    # runtime. Volume-backed skills are NOT copied (they live on UC volumes
+    # and are read directly via the ``/Volumes/...`` path).
+    from dao_ai.skills import _project_root, collect_local_skill_dirs
+
+    project_root: Path = _project_root()
+    for skill_dir_str in collect_local_skill_dirs(config):
+        src_dir: Path = Path(skill_dir_str)
+        if not src_dir.exists():
+            continue
+        # Preserve the relative layout under the project root (e.g.
+        # skills/<vertical>/<skill>) so that ``Path.cwd() / spec.path`` resolves
+        # at runtime when the bundle root is the app's CWD.
+        try:
+            rel: Path = src_dir.relative_to(project_root)
+        except ValueError:
+            # Skill dir is not under the project root — fall back to copying
+            # under skills/<basename>. The user can still reference the skill
+            # via the rendered absolute path in the deployed config.
+            rel = Path("skills") / src_dir.name
+        dest = output_dir / rel
+        if dest.exists() and not force:
+            logger.info(
+                "Skipping skill directory copy (exists; use --force)",
+                skill=str(rel),
+            )
+            skipped.append(str(rel))
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src_dir, dest)
+        logger.info("Copied skill directory into bundle", skill=str(rel))
+        written.append(str(rel))
 
     package_name = app_name.replace("-", "_")
 

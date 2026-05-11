@@ -1,4 +1,16 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+
 #
 # Example: Filtering MCP Server Tools
 #
@@ -48,8 +60,8 @@ variables:
 
 schemas:
   retail_schema: &retail_schema
-    catalog_name: retail_consumer_goods
-    schema_name: hardware_store
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 # =============================================================================
 # RESOURCES

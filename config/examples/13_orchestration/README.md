@@ -39,6 +39,9 @@ flowchart TB
 | [`supervisor_pattern.yaml`](./supervisor_pattern.yaml) | 👔 Supervisor | Central LLM routes to specialized agents |
 | [`swarm_pattern.yaml`](./swarm_pattern.yaml) | 🐝 Swarm | Agents use handoff tools to transfer |
 | [`deterministic_handoff_pattern.yaml`](./deterministic_handoff_pattern.yaml) | 🔗 Deterministic | Pipeline-style predetermined routing |
+| [`deep_agent_pattern.yaml`](./deep_agent_pattern.yaml) | 🧠 Deep Agent | Single planner with todo, filesystem, shell, sub-agents (langgraph deepagents) |
+| [`deep_agent_with_subagents.yaml`](./deep_agent_with_subagents.yaml) | 🧠 Deep Agent | Three sub_agent declaration forms: anchor, name, inline |
+| [`deep_agent_with_skills.yaml`](./deep_agent_with_skills.yaml) | 🧠 Deep Agent | Local + volume-backed skills, AGENTS.md memory, permissions, HITL |
 
 ## Pattern Comparison
 
@@ -65,13 +68,72 @@ graph TB
     style SwarmFeatures fill:#e8f5e9,stroke:#2e7d32
 ```
 
-| Aspect | 👔 Supervisor | 🐝 Swarm |
-|--------|--------------|----------|
-| **Control** | Centralized LLM | Distributed agents |
-| **Routing** | Supervisor prompt | Handoff tools per agent |
-| **Configuration** | `orchestration.supervisor` | Handoff tools |
-| **Best For** | Clear categories | Fluid collaboration |
-| **Overhead** | Single router call | Per-agent logic |
+| Aspect | 👔 Supervisor | 🐝 Swarm | 🧠 Deep Agent |
+|--------|--------------|----------|---------------|
+| **Control** | Centralized LLM | Distributed agents | Single planner with sub-agents |
+| **Routing** | Supervisor prompt | Handoff tools per agent | `task` tool delegation |
+| **Configuration** | `orchestration.supervisor` | `orchestration.swarm` | `orchestration.deep_agent` |
+| **Built-in tools** | None | Handoff tools | Todo, filesystem, shell, task |
+| **Skills** | n/a | n/a | First-class — local + UC volume |
+| **Best For** | Clear categories | Fluid collaboration | Long-horizon planning |
+| **Overhead** | Single router call | Per-agent logic | Heavier base middleware |
+
+## 🧠 Deep Agent Pattern
+
+A single planning agent equipped with deepagents' built-in tool suite —
+`write_todos`, filesystem ops (`ls`, `read_file`, `write_file`, `edit_file`,
+`glob`, `grep`), shell `execute`, and the `task` tool that delegates to
+sub-agents. Skills (Markdown workflow files) and AGENTS.md memory are
+first-class concepts that ship with the model artifact.
+
+```yaml
+orchestration:
+  deep_agent:
+    model: *default_llm                  # LLMModel anchor or "provider:name" string
+    system_prompt: |
+      You are a planner. Break complex tasks into todos before answering.
+    tools: [*current_time]               # ToolModel anchors or string refs
+    skills: [*research_skill]            # SkillModel refs (local or volume-backed)
+    instruction_files: [skills/.../AGENTS.md]   # AGENTS.md instruction files loaded into prompt
+    subagents:                           # three accepted forms
+      - *product_specialist              #   1. AgentModel anchor (full carry-over)
+      - inventory_specialist             #   2. name lookup in app.agents
+      - name: math_helper                #   3. inline SubAgentModel dict
+        description: ...
+        system_prompt: ...
+    permissions:                         # Filesystem permission rules
+      - paths: ["/workspace/**"]
+        mode: allow
+        operations: [read, write]
+    interrupt_on:                        # HITL on selected tools
+      write_file: true
+```
+
+**When to use deep_agent:**
+- Long-horizon, multi-step tasks where the agent needs to plan, scratchpad
+  intermediate state, and iterate.
+- Workflows where pre-authored Markdown skills capture institutional
+  knowledge that should ship with the agent.
+- Apps where you want a single API surface (one `CompiledStateGraph`) but
+  still want delegation to specialists.
+
+**Skills layout** — by convention, skills live in a `skills/` directory at
+the project root, organized by vertical (mirrors `functions/`):
+
+```
+skills/
+└── sporting_goods_store/
+    ├── research/
+    │   ├── SKILL.md       # what the skill does
+    │   └── AGENTS.md      # persistent memory
+    └── product-lookup/
+        └── SKILL.md
+```
+
+Local skills are bundled via `code_paths` (Model Serving) and the app source
+(Databricks Apps). Volume-backed skills (`/Volumes/...`) live on Unity Catalog
+and are read at runtime — declare them as `SkillModel` with a `volume:` field
+so deployment wires the read permission automatically.
 
 ---
 
@@ -343,12 +405,17 @@ flowchart TB
 # Validate patterns
 dao-ai validate -c config/examples/13_orchestration/supervisor_pattern.yaml
 dao-ai validate -c config/examples/13_orchestration/swarm_pattern.yaml
+dao-ai validate -c config/examples/13_orchestration/deep_agent_with_skills.yaml
 
-# Chat with supervisor
+# Chat with supervisor or deep_agent
 dao-ai chat -c config/examples/13_orchestration/supervisor_pattern.yaml
+dao-ai chat -c config/examples/13_orchestration/deep_agent_pattern.yaml
 
 # Visualize architecture
 dao-ai graph -c config/examples/13_orchestration/supervisor_pattern.yaml -o graph.png
+
+# Generate a Databricks Asset Bundle for a deep_agent app
+dao-ai generate-bundle -c config/examples/13_orchestration/deep_agent_with_skills.yaml
 ```
 
 ## Prerequisites

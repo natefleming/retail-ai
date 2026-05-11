@@ -574,8 +574,9 @@ def create_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
     """
     Create the main orchestration graph based on the configuration.
 
-    This factory function creates either a supervisor or swarm graph
-    depending on the configuration.
+    Dispatches to ``supervisor``, ``swarm``, or ``deep_agent`` depending on which
+    block is set under ``app.orchestration``. The three modes are mutually
+    exclusive (validated at config load time).
 
     Args:
         config: The application configuration
@@ -583,6 +584,7 @@ def create_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
     Returns:
         A compiled LangGraph state machine
     """
+    from dao_ai.orchestration.deep_agent import create_deep_agent_graph
     from dao_ai.orchestration.supervisor import create_supervisor_graph
     from dao_ai.orchestration.swarm import create_swarm_graph
 
@@ -592,5 +594,8 @@ def create_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
 
     if orchestration.swarm:
         return create_swarm_graph(config)
+
+    if orchestration.deep_agent:
+        return create_deep_agent_graph(config)
 
     raise ValueError("No valid orchestration model found in the configuration.")

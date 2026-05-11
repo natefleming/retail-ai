@@ -44,7 +44,6 @@ from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
     DatabricksResource,
 )
-from pyspark.sql import SparkSession
 from unitycatalog.ai.core.base import FunctionExecutionResult
 from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
@@ -528,8 +527,10 @@ class DatabricksProvider(ServiceProvider):
             pip_requirements += get_installed_packages()
 
         from dao_ai.guardrails_hub import collect_hub_code_paths
+        from dao_ai.skills import collect_skills_code_paths
 
         code_paths.extend(collect_hub_code_paths(config))
+        code_paths.extend(collect_skills_code_paths(config))
 
         code_paths = list(dict.fromkeys(code_paths))
 
@@ -1532,6 +1533,8 @@ class DatabricksProvider(ServiceProvider):
         return path
 
     def create_dataset(self, dataset: DatasetModel) -> None:
+        from pyspark.sql import SparkSession
+
         spark: SparkSession = SparkSession.getActiveSession()
         if spark is None:
             raise RuntimeError(

@@ -260,26 +260,43 @@ print(response["message"]["content"])
 
 ### Parameterising a Config
 
-Make one YAML re-usable across catalogs, schemas, and environments by declaring `parameters:` and referencing them with `${var.NAME}`:
+Make one YAML re-usable across catalogs, schemas, environments, and users by declaring `parameters:` and referencing them with `${param.NAME}` (or its alias `${var.NAME}`). The config can also reference workspace context (host, current user) using the same `${workspace.*}` namespace as Databricks Asset Bundles.
 
 ```yaml
 parameters:
   catalog:
     description: Unity Catalog catalog name
     default: main
+  genie_parent_path:
+    description: Workspace folder for the Genie space
+    default: "/Users/${workspace.current_user.userName}/genie"
 
 schemas:
   s:
-    catalog_name: ${var.catalog}
+    catalog_name: ${param.catalog}
     schema_name: dao_ai
+
+genie_rooms:
+  ops:
+    parent_path: ${param.genie_parent_path}
+    workspace_url: ${workspace.host}
 ```
 
-Override at runtime:
+Supported workspace references (match the DABs convention):
+
+- `${workspace.host}` — workspace URL, no trailing slash
+- `${workspace.current_user.userName}` — full email
+- `${workspace.current_user.short_name}` — email prefix, dots intact
+- `${workspace.current_user.domain_friendly_name}` — email domain
+
+Override declared parameters at runtime, or inspect them:
 
 ```bash
-dao-ai chat -c dao_ai.yaml --var catalog=nfleming
-dao-ai vars list -c dao_ai.yaml          # see all declared parameters
+dao-ai chat -c dao_ai.yaml --param catalog=nfleming
+dao-ai parameters list -c dao_ai.yaml      # see all declared parameters + resolved workspace values
 ```
+
+`dao-ai vars` and `--var` remain as aliases for backwards compatibility.
 
 Full reference: [Parameters (Load-Time Substitution)](docs/configuration-reference.md#parameters-load-time-substitution).
 
@@ -294,6 +311,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | **Dual Deployment Targets** | Deploy to Databricks Model Serving or Databricks Apps with a single config |
 | **Long-Running Agents** | OpenAI Responses API–compatible background kickoff + poll / stream retrieve backed by Lakebase; survives Model Serving's 5 min worker timeout and Databricks Apps' 120 s proxy timeout |
 | **Multi-Tool Support** | Python functions, Unity Catalog, MCP, Agent Endpoints |
+| **Orchestration Patterns** | Supervisor, Swarm, **Deep Agent** (langgraph deepagents — todo, filesystem, shell, sub-agents, skills, AGENTS.md memory) |
 | **On-Behalf-Of User** | Per-user permissions and governance |
 | **Advanced Caching** | Two-tier (LRU + Semantic) caching for cost optimization |
 | **Vector Search Reranking** | Improve RAG quality with FlashRank |
@@ -328,7 +346,7 @@ graph TB
     
     subgraph langgraph["LangGraph Runtime"]
         direction LR
-        msg_hook[Message<br/>Hook] --> supervisor[Supervisor/<br/>Swarm] --> specialized[Specialized<br/>Agents]
+        msg_hook[Message<br/>Hook] --> supervisor[Supervisor/<br/>Swarm/<br/>Deep Agent] --> specialized[Specialized<br/>Agents]
     end
     
     subgraph databricks["Databricks Platform"]
@@ -392,7 +410,7 @@ dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
 dao-ai chat -c config/my_config.yaml
 
 # Inspect declared parameters and resolved values
-dao-ai vars list -c config/my_config.yaml --var catalog=nfleming
+dao-ai parameters list -c config/my_config.yaml --param catalog=nfleming
 ```
 
 ### Multi-Cloud Deployment

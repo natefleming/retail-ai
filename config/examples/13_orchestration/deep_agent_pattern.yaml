@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# DEEP_AGENT PATTERN - Single-Agent Orchestration via langgraph deepagents
+# =============================================================================
+# This example demonstrates the deep_agent orchestration pattern, where a
+# single planning agent has built-in todo, filesystem, shell, and sub-agent
+# tools, plus first-class skills and AGENTS.md memory.
+#
+# Pattern: One planning agent with deep tooling
+# Use case: Long-horizon tasks where the agent needs to plan, write to a
+#           scratchpad filesystem, delegate to sub-agents, and reload past
+#           context from memory files.
+#
+# See: https://github.com/langchain-ai/deepagents
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  current_time: &current_time
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.time.current_time_tool
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+# A deep_agent only needs ONE agent declared in app.agents (the registry slot
+# is required for AppConfig validation). The actual agent behavior is defined
+# under orchestration.deep_agent below.
+agents:
+  main_agent: &main_agent
+    name: main_agent
+    description: "Deep agent main planner"
+    model: *default_llm
+    prompt: "Placeholder; real behavior is set under orchestration.deep_agent.system_prompt"
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: deep_agent_minimal
+  description: "Minimal deep_agent example: model + tools + system_prompt"
+  log_level: INFO
+
+  registered_model:
+    name: deep_agent_minimal
+
+  agents:
+    - *main_agent
+
+  # ---------------------------------------------------------------------------
+  # ORCHESTRATION
+  # ---------------------------------------------------------------------------
+  orchestration:
+    deep_agent:
+      # The deepagents API accepts strings (passed to init_chat_model) OR
+      # any dao-ai LLMModel via YAML anchor. Both work.
+      model: *default_llm
+
+      # Tools merge with deepagents' built-in suite:
+      # write_todos, ls, read_file, write_file, edit_file, glob, grep, execute, task
+      tools:
+        - *current_time
+
+      # Inline system prompt. PromptModel references also work.
+      system_prompt: |
+        You are a helpful planning assistant. For complex requests, use the
+        write_todos tool to break the work into steps before answering.
+        Prefer explaining your plan before executing.
+
+  input_example:
+    messages:
+      - role: user
+        content: "Plan a research task about cordless drills under $200, then summarize."

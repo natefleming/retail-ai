@@ -1,5 +1,17 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+
 # =============================================================================
 # Long-Running Agent Example — Deep Research (aws-field-eng / retail-consumer-goods)
 # =============================================================================
@@ -26,8 +38,8 @@ variables:
 # =============================================================================
 schemas:
   retail_schema: &retail_schema
-    catalog_name: retail_consumer_goods
-    schema_name: hardware_store
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
     permissions:
       - principals: [users]
         privileges:
