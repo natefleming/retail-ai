@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.76]
+
+### Fixed
+- **Schema regeneration restored alias names** so existing example configs validate cleanly against the JSON schema again. 0.1.75 set `model_json_schema(by_alias=False)` to make `resources.models:` canonical, but that change cascaded to *every* field with a Pydantic alias — most importantly `TableModel.schema_model` / `VolumeModel.schema_model` / etc., which are Python-side aliased to `schema:` because `schema` collides with `BaseModel.schema()`. The result: yaml-language-server lit up every `schema:` key in every config as "additional property not allowed", even though runtime parsing was unaffected. The fix:
+  - Reverted the `Makefile` schema target to default `model_json_schema()` (`by_alias=True`), so aliased fields like `schema_model→schema` emit their alias as the canonical schema property.
+  - Switched `ResourcesModel.models` from `Field(alias="llms")` to `Field(validation_alias=AliasChoices("models", "llms"))` so the *rename* keeps `models` as canonical in the schema while still accepting `llms` as input. This is the right Pydantic tool for "rename with input-only back-compat".
+  - Removed the now-unneeded `populate_by_name=True` from `ResourcesModel.model_config` (AliasChoices handles both keys directly).
+- Schema regenerated; `config/examples/15_complete_applications/brick_store.yaml` and other in-repo examples that use `schema:` and `models:` now validate cleanly. All 11 alias regression tests still pass.
+
 ## [0.1.75]
 
 ### Changed

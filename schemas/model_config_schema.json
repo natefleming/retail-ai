@@ -2401,7 +2401,7 @@
       "additionalProperties": false,
       "description": "An MLflow evaluation dataset containing input/expectation pairs.",
       "properties": {
-        "schema_model": {
+        "schema": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -2787,7 +2787,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema_model": {
+        "schema": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -4294,7 +4294,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema_model": {
+        "schema": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -5669,7 +5669,7 @@
       "additionalProperties": false,
       "description": "A prompt backed by the MLflow Prompt Registry with versioning and alias support.",
       "properties": {
-        "schema_model": {
+        "schema": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -5870,7 +5870,7 @@
       "additionalProperties": false,
       "description": "Unity Catalog registered model where the agent artifact is logged.",
       "properties": {
-        "schema_model": {
+        "schema": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -5964,7 +5964,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/InferenceEndpointModel"
           },
-          "description": "Databricks Model Serving endpoint configurations keyed by name. Holds chat LLMs, embedding models, judge/extraction/reflection/query models, and custom agent endpoints \u2014 anything reachable via /serving-endpoints/<name>/invocations. Renamed from `llms` in dao-ai 0.1.75; the old key is still accepted via field alias and will be removed in a future major release.",
+          "description": "Databricks Model Serving endpoint configurations keyed by name. Holds chat LLMs, embedding models, judge/extraction/reflection/query models, and custom agent endpoints \u2014 anything reachable via /serving-endpoints/<name>/invocations. Renamed from `llms` in dao-ai 0.1.75; the legacy key is still accepted via validation alias and will be removed in a future major release.",
           "title": "Models",
           "type": "object"
         },
@@ -6943,7 +6943,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema_model": {
+        "schema": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"
@@ -7017,7 +7017,7 @@
       "additionalProperties": false,
       "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nAccepts either a SchemaModel reference (aliased to \"schema\") or a string\nin \"catalog.schema\" format. When configured on AppModel, traces are stored\nin UC Delta tables via set_experiment_trace_location().",
       "properties": {
-        "schema_model": {
+        "schema": {
           "$ref": "#/$defs/SchemaModel",
           "description": "Unity Catalog schema (catalog.schema) where OTEL trace tables are stored."
         },
@@ -7035,7 +7035,7 @@
         }
       },
       "required": [
-        "schema_model",
+        "schema",
         "warehouse"
       ],
       "title": "TraceLocationModel",
@@ -7732,7 +7732,7 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
-        "schema_model": {
+        "schema": {
           "anyOf": [
             {
               "$ref": "#/$defs/SchemaModel"

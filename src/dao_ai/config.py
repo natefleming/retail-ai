@@ -82,6 +82,7 @@ from mlflow.types.responses import (
     ResponsesAgentRequest,
 )
 from pydantic import (
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -7408,24 +7409,25 @@ class ResourcesModel(BaseModel):
     elsewhere in the config via YAML anchors.
     """
 
-    # populate_by_name=True so the legacy `llms:` key (declared via the
-    # field's `alias`) parses alongside the canonical `models:` key under
-    # the otherwise-strict `extra="forbid"` policy. Both keys produce the
-    # same `self.models` dict at runtime.
+    # `validation_alias=AliasChoices("models", "llms")` accepts both YAML
+    # keys at parse time while keeping `models` as the canonical Python
+    # field name (and therefore the canonical JSON-schema property). This
+    # is the right tool for a *rename with back-compat* — `Field(alias=...)`
+    # would have flipped the schema's canonical name to `llms`, defeating
+    # the rename for IDE / linting purposes.
     model_config = ConfigDict(
         use_enum_values=True,
         extra="forbid",
-        populate_by_name=True,
     )
     models: dict[str, InferenceEndpointModel] = Field(
         default_factory=dict,
-        alias="llms",
+        validation_alias=AliasChoices("models", "llms"),
         description=(
             "Databricks Model Serving endpoint configurations keyed by name. "
             "Holds chat LLMs, embedding models, judge/extraction/reflection/query "
             "models, and custom agent endpoints — anything reachable via "
             "/serving-endpoints/<name>/invocations. Renamed from `llms` in dao-ai 0.1.75; "
-            "the old key is still accepted via field alias and will be removed in a future major release."
+            "the legacy key is still accepted via validation alias and will be removed in a future major release."
         ),
     )
     vector_stores: dict[str, VectorStoreModel] = Field(
