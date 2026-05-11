@@ -1,5 +1,17 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: nfleming
+  schema:
+    description: Schema within the catalog
+    default: retail_ai
+
 # =============================================================================
 # MLflow Scorer-Based Guardrails Example
 # =============================================================================
@@ -48,8 +60,8 @@ variables:
 
 schemas:
   retail_schema: &retail_schema
-    catalog_name: nfleming
-    schema_name: retail_ai
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 resources:
   llms:

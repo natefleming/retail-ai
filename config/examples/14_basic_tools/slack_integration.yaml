@@ -1,9 +1,21 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: main
+  schema:
+    description: Schema within the catalog
+    default: default
+
 schemas:
   default_schema: &default_schema                   # Unity Catalog schema configuration
-    catalog_name: main                              # Unity Catalog name
-    schema_name: default                            # Schema within the catalog
+    catalog_name: ${var.catalog}                              # Unity Catalog name
+    schema_name: ${var.schema}                            # Schema within the catalog
 
 resources:
   llms:

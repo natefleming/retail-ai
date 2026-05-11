@@ -1,5 +1,20 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: store_ops
+  genie_parent_path:
+    description: Workspace folder for the Genie space (path under /Users/<user>/)
+    default: "/Users/nate.fleming@databricks.com/genie"
+
 # =============================================================================
 # Brick Store - In-Store Associate Companion
 # =============================================================================
@@ -46,8 +61,8 @@ service_principals:
 # =============================================================================
 schemas:
   brickstore_schema: &brickstore_schema
-    catalog_name: retail_consumer_goods
-    schema_name: store_ops
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
     permissions:
       - principals: [users]
         privileges:
@@ -88,6 +103,7 @@ resources:
       name: databricks-claude-3-7-sonnet
       temperature: 0.5
       max_tokens: 8192
+      on_behalf_of_user: true
 
     decomposition_llm: &decomposition_llm
       name: databricks-gpt-5-4-mini
@@ -97,6 +113,7 @@ resources:
 
     embedding_model: &embedding_model
       name: databricks-gte-large-en
+      on_behalf_of_user: true
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
@@ -180,40 +197,48 @@ resources:
       # space (update mode) instead of creating a new one.
       space_id: 01f14b11e9dd164483458833e7aa840e
       on_behalf_of_user: true
-      parent_path: "/Users/nate.fleming@databricks.com/genie"
+      parent_path: "${var.genie_parent_path}"
       warehouse: *brickstore_warehouse
       table_sources:
         - table:
             schema: *brickstore_schema
             name: products
+            on_behalf_of_user: true
           description: "Product catalog with SKU, UPC, brand, department, category, price."
         - table:
             schema: *brickstore_schema
             name: inventory
+            on_behalf_of_user: true
           description: "Per-store inventory with on-hand quantity, warehouse backstock, retail amount, popularity, aisle location."
         - table:
             schema: *brickstore_schema
             name: dim_stores
+            on_behalf_of_user: true
           description: "Store directory: id, name, address, city/state, manager id, hours, type, latitude/longitude, departments offered."
         - table:
             schema: *brickstore_schema
             name: customers
+            on_behalf_of_user: true
           description: "Customer profiles: tier, preferences (style/size/color/brand), lifetime spend, satisfaction, upcoming appointments, alerts."
         - table:
             schema: *brickstore_schema
             name: employee_performance
+            on_behalf_of_user: true
           description: "Monthly employee performance: sales achievement, task completion, customer satisfaction, attendance, by department."
         - table:
             schema: *brickstore_schema
             name: employee_tasks
+            on_behalf_of_user: true
           description: "Per-task assignments: store, employee, type, priority, status, due time, customer/order linkage."
         - table:
             schema: *brickstore_schema
             name: managers
+            on_behalf_of_user: true
           description: "Manager directory: contact info, department, communication preferences, work schedule."
         - table:
             schema: *brickstore_schema
             name: appointments
+            on_behalf_of_user: true
           description: "Customer appointment scheduling: type, date/time, store, stylist, status."
       sample_questions:
         - "How many BOPIS-style task assignments are open at store 101 right now?"

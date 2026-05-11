@@ -221,7 +221,7 @@ def resolve_parameters(
         source: str
         if name in overrides:
             value = str(overrides[name])
-            source = "--var"
+            source = "--param"
         elif _env_key(name) in env_map:
             value = env_map[_env_key(name)]
             source = "env"

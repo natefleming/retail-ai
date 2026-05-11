@@ -1,9 +1,21 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: nfleming
+  schema:
+    description: Schema within the catalog
+    default: retail_ai
+
 schemas:
   retail_schema: &retail_schema
-    catalog_name: nfleming                    # Unity Catalog name
-    schema_name: retail_ai                    # Schema within the catalog
+    catalog_name: ${var.catalog}                    # Unity Catalog name
+    schema_name: ${var.schema}                    # Schema within the catalog
 
 resources:
   llms:

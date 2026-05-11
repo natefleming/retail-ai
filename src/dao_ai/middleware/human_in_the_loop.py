@@ -6,7 +6,7 @@ It re-exports LangChain's built-in HumanInTheLoopMiddleware.
 
 LangChain's HumanInTheLoopMiddleware automatically:
 - Pauses agent execution for human approval of tool calls
-- Allows humans to approve, edit, or reject tool calls
+- Allows humans to approve, edit, reject, or respond to tool calls
 - Uses LangGraph's interrupt mechanism for persistence across pauses
 
 Example:
@@ -64,16 +64,17 @@ def _hitl_config_to_allowed_decisions(
     """
     Extract allowed decisions from HumanInTheLoopModel.
 
-    LangChain's HumanInTheLoopMiddleware supports 3 decision types:
+    LangChain's HumanInTheLoopMiddleware supports 4 decision types:
     - "approve": Execute tool with original arguments
     - "edit": Modify arguments before execution
     - "reject": Skip execution with optional feedback message
+    - "respond": Reply with a synthetic ToolMessage in place of executing the tool
 
     Args:
         hitl_config: HumanInTheLoopModel with allowed_decisions
 
     Returns:
-        List of allowed decision types (e.g., ["approve", "edit", "reject"])
+        List of allowed decision types (e.g., ["approve", "edit", "reject", "respond"])
     """
     return hitl_config.allowed_decisions  # type: ignore
 
@@ -126,7 +127,7 @@ def create_human_in_the_loop_middleware(
         interrupt_on: Dictionary mapping tool names to HITL configuration.
             Each tool can be configured with:
             - HumanInTheLoopModel: Full configuration with custom settings
-            - True: Enable HITL with default settings (approve, edit, reject)
+            - True: Enable HITL with default settings (approve, edit, reject; respond opt-in)
             - False: Disable HITL for this tool
             - dict: Raw interrupt_on config (e.g., {"allowed_decisions": [...]})
         description_prefix: Message prefix shown when pausing for review

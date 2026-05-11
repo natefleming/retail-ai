@@ -91,7 +91,31 @@ class TestCreateDecisionSchema:
 
         fields = DecisionsModel.model_fields
         assert "decision_1" in fields
-        # Should not have message or edited_args since only approve is allowed
+        # Should not have message, edited_args, or response since only approve is allowed
+        assert "decision_1_message" not in fields
+        assert "decision_1_edited_args" not in fields
+        assert "decision_1_response" not in fields
+
+    def test_schema_includes_response_field_for_respond(self):
+        """``respond`` adds a ``decision_N_response`` field for the synthetic ToolMessage."""
+        interrupt_data = [
+            {
+                "action_requests": [{"name": "send_email", "args": {}}],
+                "review_configs": [
+                    {
+                        "action_name": "send_email",
+                        "allowed_decisions": ["approve", "respond"],
+                    }
+                ],
+            }
+        ]
+
+        DecisionsModel = _create_decision_schema(interrupt_data)
+
+        fields = DecisionsModel.model_fields
+        assert "decision_1" in fields
+        assert "decision_1_response" in fields
+        # Reject/edit fields should NOT be present.
         assert "decision_1_message" not in fields
         assert "decision_1_edited_args" not in fields
 
@@ -168,6 +192,47 @@ class TestConvertSchemaToDecisions:
         # Should merge original and edited args
         assert decisions[0]["edited_action"]["args"]["to"] == "new@example.com"
         assert decisions[0]["edited_action"]["args"]["subject"] == "Test"
+
+    def test_converts_respond_decision_with_message(self):
+        """``respond`` is converted into ``RespondDecision`` with the reviewer's text."""
+
+        class TestDecisions(BaseModel):
+            decision_1: str = "respond"
+            decision_1_response: str = "Tell the user the meeting is cancelled."
+
+        parsed = TestDecisions()
+        interrupt_data = [
+            {
+                "action_requests": [{"name": "send_email", "args": {}}],
+                "review_configs": [],
+            }
+        ]
+
+        decisions = _convert_schema_to_decisions(parsed, interrupt_data)
+
+        assert len(decisions) == 1
+        assert decisions[0]["type"] == "respond"
+        assert decisions[0]["message"] == "Tell the user the meeting is cancelled."
+
+    def test_converts_respond_with_empty_message(self):
+        """A respond decision with no message yields an empty string (LangChain accepts this)."""
+
+        class TestDecisions(BaseModel):
+            decision_1: str = "respond"
+            decision_1_response: str = ""
+
+        parsed = TestDecisions()
+        interrupt_data = [
+            {
+                "action_requests": [{"name": "send_email", "args": {}}],
+                "review_configs": [],
+            }
+        ]
+
+        decisions = _convert_schema_to_decisions(parsed, interrupt_data)
+
+        assert decisions[0]["type"] == "respond"
+        assert decisions[0]["message"] == ""
 
     def test_converts_multiple_decisions(self):
         """Verify multiple decisions are converted in order."""

@@ -1,13 +1,25 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+
 # Example configuration demonstrating the Vega-Lite visualization tool
 # This tool generates portable Vega-Lite JSON specs from structured data.
 # Specs are delivered to clients via custom_outputs.visualizations.
 
 schemas:
   hardware_store_schema: &hardware_store_schema
-    catalog_name: retail_consumer_goods                    # Unity Catalog name
-    schema_name: hardware_store                            # Schema within the catalog
+    catalog_name: ${var.catalog}                    # Unity Catalog name
+    schema_name: ${var.schema}                            # Schema within the catalog
 
 resources:
   # Define the LLM for the agent

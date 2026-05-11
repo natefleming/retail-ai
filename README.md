@@ -294,6 +294,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | **Dual Deployment Targets** | Deploy to Databricks Model Serving or Databricks Apps with a single config |
 | **Long-Running Agents** | OpenAI Responses API–compatible background kickoff + poll / stream retrieve backed by Lakebase; survives Model Serving's 5 min worker timeout and Databricks Apps' 120 s proxy timeout |
 | **Multi-Tool Support** | Python functions, Unity Catalog, MCP, Agent Endpoints |
+| **Orchestration Patterns** | Supervisor, Swarm, **Deep Agent** (langgraph deepagents — todo, filesystem, shell, sub-agents, skills, AGENTS.md memory) |
 | **On-Behalf-Of User** | Per-user permissions and governance |
 | **Advanced Caching** | Two-tier (LRU + Semantic) caching for cost optimization |
 | **Vector Search Reranking** | Improve RAG quality with FlashRank |
@@ -328,7 +329,7 @@ graph TB
     
     subgraph langgraph["LangGraph Runtime"]
         direction LR
-        msg_hook[Message<br/>Hook] --> supervisor[Supervisor/<br/>Swarm] --> specialized[Specialized<br/>Agents]
+        msg_hook[Message<br/>Hook] --> supervisor[Supervisor/<br/>Swarm/<br/>Deep Agent] --> specialized[Specialized<br/>Agents]
     end
     
     subgraph databricks["Databricks Platform"]

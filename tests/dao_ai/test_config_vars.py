@@ -211,7 +211,7 @@ def test_resolve_parameters_reports_sources_correctly() -> None:
         env={"FROM_ENV": "env-value"},
     )
     by_name = {p.name: p for p in resolved}
-    assert by_name["from_cli"].source == "--var"
+    assert by_name["from_cli"].source == "--param"
     assert by_name["from_cli"].value == "cli-value"
     assert by_name["from_env"].source == "env"
     assert by_name["from_env"].value == "env-value"
@@ -764,11 +764,7 @@ def test_write_bundle_preserves_user_resources_yml(
 
     user_resource = out_dir / "resources" / "jobs.yml"
     user_payload = (
-        "resources:\n"
-        "  jobs:\n"
-        "    user_job:\n"
-        "      name: user_job\n"
-        "      tasks: []\n"
+        "resources:\n  jobs:\n    user_job:\n      name: user_job\n      tasks: []\n"
     )
     user_resource.write_text(user_payload)
 

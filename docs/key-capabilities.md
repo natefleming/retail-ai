@@ -1889,6 +1889,49 @@ middleware:
 - See [`config/examples/12_middleware/deepagents_middleware.yaml`](../config/examples/12_middleware/deepagents_middleware.yaml) for a complete example
 - See [`config/examples/12_middleware/README.md`](../config/examples/12_middleware/README.md) for all middleware examples
 
+### Deep Agent Orchestration (alternative to middleware)
+
+The middleware factories above bolt deepagents capabilities onto existing dao-ai
+agents. For new applications you can also use the **`deep_agent` orchestration
+mode**, which wraps `deepagents.create_deep_agent(...)` directly and exposes
+every parameter declaratively:
+
+```yaml
+app:
+  orchestration:
+    deep_agent:
+      model: *default_llm                # LLMModel anchor or "provider:name" string
+      tools: [*current_time]              # ToolModel anchors or string refs
+      system_prompt: |
+        You are a planner. Break complex tasks into todos before answering.
+      skills: [*research_skill]           # local or volume-backed SkillModel
+      instruction_files: [skills/.../AGENTS.md]   # AGENTS.md instruction files
+      subagents:
+        - *product_specialist             # AgentModel anchor (full carry-over)
+        - inventory_specialist            # name lookup in app.agents
+        - name: math_helper               # inline SubAgentModel
+          description: ...
+          system_prompt: ...
+      permissions:                        # FilesystemPermission rules
+        - paths: ["/workspace/**"]
+          mode: allow
+          operations: [read, write]
+      interrupt_on:                       # human-in-the-loop on selected tools
+        write_file: true
+```
+
+**When to use deep_agent orchestration vs. middleware:**
+- **Orchestration mode** is better when the agent is a single planner with
+  delegation — it produces one `CompiledStateGraph` that drops in wherever
+  supervisor/swarm graphs are used today, and skills/memory ship cleanly with
+  the model artifact via `code_paths` (local) or as Unity Catalog Volume
+  resources (volume-backed).
+- **Middleware mode** is better when you're augmenting an existing dao-ai
+  agent that already participates in a swarm or supervisor graph.
+
+The two are mutually exclusive for a given graph — you don't need both at
+once. See [`config/examples/13_orchestration/deep_agent_*.yaml`](../config/examples/13_orchestration/) for working examples and the full pattern comparison.
+
 ---
 
 ## 17. Visualization (Vega-Lite)

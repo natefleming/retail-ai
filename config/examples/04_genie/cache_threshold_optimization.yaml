@@ -1,4 +1,16 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: quick_serve_restaurant
+
 #
 # Example configuration for context-aware cache threshold optimization.
 #
@@ -19,8 +31,8 @@
 
 schemas:
   quick_serve_restaurant_schema: &quick_serve_restaurant_schema
-    catalog_name: retail_consumer_goods
-    schema_name: quick_serve_restaurant
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 resources:
   llms:

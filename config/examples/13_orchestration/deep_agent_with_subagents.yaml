@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# DEEP_AGENT PATTERN WITH SUB-AGENTS
+# =============================================================================
+# Demonstrates all THREE accepted forms of declaring sub_agents:
+#
+#   1. AgentModel anchor   — full carry-over of an existing dao-ai agent
+#   2. String reference    — looks up a name in app.agents
+#   3. Inline SubAgentModel — declarative dict with deepagents-style fields
+#
+# Sub-agents are invoked from the main agent via the built-in `task` tool.
+# deepagents also auto-injects a `general-purpose` sub-agent when none is
+# declared with that name.
+#
+# See: https://github.com/langchain-ai/deepagents
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+    fast_llm: &fast_llm
+      name: databricks-claude-haiku
+      temperature: 0.0
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  current_time: &current_time
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.time.current_time_tool
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  main_agent: &main_agent
+    name: main_agent
+    description: "Deep agent main planner"
+    model: *default_llm
+    prompt: "Placeholder; real behavior set under orchestration.deep_agent."
+
+  # A reusable AgentModel — usable in supervisor, swarm, AND deep_agent. When
+  # referenced as a deep_agent sub_agent, name/description/prompt/tools/model/
+  # middleware/response_format carry over.
+  product_specialist: &product_specialist
+    name: product_specialist
+    description: "Product information specialist for sporting goods"
+    model: *default_llm
+    tools:
+      - *current_time
+    prompt: |
+      You answer detailed product questions: specifications, features, pricing,
+      use cases. When a question is about availability or stock counts, defer
+      back to the main agent.
+
+  # A second agent referenced by name (form 2 below).
+  inventory_specialist: &inventory_specialist
+    name: inventory_specialist
+    description: "Inventory and availability specialist"
+    model: *fast_llm
+    tools:
+      - *current_time
+    prompt: |
+      You answer questions about stock counts, store availability, and
+      restocking ETAs.
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: deep_agent_subagents
+  description: "Deep_agent showcasing all three sub_agent declaration forms"
+  log_level: INFO
+
+  registered_model:
+    name: deep_agent_subagents
+
+  agents:
+    - *main_agent
+    - *product_specialist
+    - *inventory_specialist
+
+  orchestration:
+    deep_agent:
+      model: *default_llm
+
+      system_prompt: |
+        You are the planner for a sporting goods store. For complex requests,
+        decompose into steps with write_todos, and delegate specialized
+        questions to your sub-agents via the `task` tool.
+
+      subagents:
+        # Form 1: AgentModel anchor — full carry-over.
+        - *product_specialist
+
+        # Form 2: string reference — looked up in app.agents by name.
+        - inventory_specialist
+
+        # Form 3: inline SubAgentModel — declarative dict.
+        - name: math_helper
+          description: >-
+            Quick math helper. Use for unit conversions, percentage discounts,
+            and arithmetic on prices.
+          system_prompt: |
+            You are a precise calculator. Show your work briefly before
+            stating the final number.
+          model: *fast_llm
+
+  input_example:
+    messages:
+      - role: user
+        content: "I need a softball bat under $200. Find me one and tell me if it's in stock."

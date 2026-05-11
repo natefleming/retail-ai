@@ -12,9 +12,10 @@ class TestAllowedDecisions:
     """Tests for allowed_decisions validation in HumanInTheLoopModel."""
 
     def test_default_config(self):
-        """Test that default config allows all three decision types."""
+        """Default config allows the three classic decision types (respond opt-in)."""
         model = HumanInTheLoopModel()
         assert model.allowed_decisions == ["approve", "edit", "reject"]
+        assert "respond" not in model.allowed_decisions
 
     def test_custom_allowed_decisions(self):
         """Test setting custom allowed decisions."""
@@ -45,6 +46,28 @@ class TestAllowedDecisions:
         """Test that invalid decision types raise validation error."""
         with pytest.raises(ValidationError):
             HumanInTheLoopModel(allowed_decisions=["invalid_decision"])
+
+    def test_respond_in_allowed_decisions(self):
+        """``respond`` is now an accepted decision type (LangChain v1.x)."""
+        model = HumanInTheLoopModel(allowed_decisions=["approve", "respond"])
+        assert "respond" in model.allowed_decisions
+
+    def test_all_four_decisions(self):
+        """All four decision types may be enabled together."""
+        model = HumanInTheLoopModel(
+            allowed_decisions=["approve", "edit", "reject", "respond"]
+        )
+        assert model.allowed_decisions == ["approve", "edit", "reject", "respond"]
+
+    def test_respond_only(self):
+        """A respond-only config is valid (e.g. tools that should never auto-execute)."""
+        model = HumanInTheLoopModel(allowed_decisions=["respond"])
+        assert model.allowed_decisions == ["respond"]
+
+    def test_respond_dedup(self):
+        """Duplicate respond entries are deduplicated like every other decision."""
+        model = HumanInTheLoopModel(allowed_decisions=["respond", "respond", "approve"])
+        assert model.allowed_decisions == ["respond", "approve"]
 
 
 class TestHumanInTheLoopModel:

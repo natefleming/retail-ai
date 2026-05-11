@@ -2466,6 +2466,146 @@ class VolumePathModel(BaseModel, HasFullName, Provisionable):
         provider.create_path(self)
 
 
+class SkillModel(BaseModel):
+    """A deepagents skill — a directory of Markdown content that teaches a deep_agent how to do a task.
+
+    A skill at minimum contains ``SKILL.md`` (deepagents convention). It may also contain
+    ``AGENTS.md`` for memory, plus arbitrary supporting files referenced by the SKILL.
+
+    Skills can live in two places, both expressed via the ``path`` field:
+
+    * **Local** — a plain string relative path under the project root
+      (e.g. ``skills/research``). The directory is bundled with the model
+      artifact via ``code_paths`` and shipped with both Model Serving and
+      Databricks Apps deployments.
+    * **Volume** — a ``VolumePathModel`` referencing a Unity Catalog volume
+      (``/Volumes/<cat>/<schema>/<vol>/...``). The path is read directly at
+      runtime and the volume is wired as a deployment resource for permission
+      grants. Use this when skills are governed centrally.
+
+    A raw absolute string starting with ``/Volumes/`` is auto-promoted to a
+    ``VolumePathModel`` by the pre-validator, so users may copy-paste paths
+    from the UC explorer without writing the structured form. The structured
+    form (``volume:`` + ``path:``) is preferred for governed skills because
+    it gives the deployment pipeline a typed handle to the volume.
+
+    Skills are referenced from ``orchestration.deep_agent.skills`` (or per-subagent
+    ``subagents[].skills``) and resolved to filesystem paths that deepagents'
+    ``SkillsMiddleware`` can load.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str = Field(
+        description="Unique skill name. Used by deepagents' SkillsMiddleware as the skill identifier.",
+    )
+    path: str | VolumePathModel = Field(
+        description=(
+            "Skill source directory. Either a local relative path string "
+            "(e.g. ``skills/research``) or a ``VolumePathModel`` referencing "
+            "a Unity Catalog volume. Raw ``/Volumes/...`` strings are auto-promoted "
+            "to ``VolumePathModel`` by the pre-validator."
+        ),
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description of what this skill does. Surfaced in docs and traces.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _promote_volume_path_string(cls, data: Any) -> Any:
+        """Auto-promote raw ``/Volumes/...`` strings to a ``VolumePathModel``.
+
+        This lets users paste an absolute UC volume path verbatim without
+        having to spell out the ``volume:`` + ``path:`` structure. The
+        structured form remains preferred for governed skills.
+        """
+        if isinstance(data, dict):
+            raw_path = data.get("path")
+            if isinstance(raw_path, str) and raw_path.startswith("/Volumes/"):
+                data = {**data, "path": {"path": raw_path}}
+        return data
+
+    @property
+    def is_volume_backed(self) -> bool:
+        """True if ``path`` is a Unity Catalog volume reference."""
+        return isinstance(self.path, VolumePathModel)
+
+    @property
+    def runtime_path(self) -> str:
+        """The filesystem path passed to ``deepagents.create_deep_agent``.
+
+        For local skills this is the raw relative string. For volume skills
+        this is the fully-qualified ``/Volumes/<cat>/<schema>/<vol>/<sub>``
+        path composed by ``VolumePathModel.full_name``.
+        """
+        if isinstance(self.path, VolumePathModel):
+            return self.path.full_name
+        return self.path
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        """Emit deployment resources for the underlying volume, if any.
+
+        Local skills emit nothing — they're shipped via ``code_paths``. Volume
+        skills delegate to their underlying ``VolumeModel`` so existing
+        volume-permission logic is reused without duplication.
+        """
+        if isinstance(self.path, VolumePathModel) and self.path.volume:
+            return self.path.volume.as_resources()
+        return []
+
+    def as_middleware(self) -> "MiddlewareModel":
+        """Build a ``MiddlewareModel`` invoking the SkillsMiddleware factory.
+
+        Returns a single-source ``MiddlewareModel`` pointed at
+        :func:`dao_ai.middleware.skills.create_skills_middleware`. Used by
+        :class:`AgentModel` to convert ``agent.skills`` entries into middleware
+        on the agent's stack at config-load time.
+
+        Path resolution: ``sources`` is set to the *parent* of the skill leaf
+        (the deepagents SkillsMiddleware source-dir convention — it lists
+        subdirs and reads ``SKILL.md`` from each). For local skills the
+        leaf is resolved against the runtime anchors (env var, CWD, ``sys.path``)
+        at call time so the absolute path is baked into the MiddlewareModel.
+        Volume-backed skills use the volume root.
+
+        For the filesystem backend, ``root_dir="/"`` is used because the
+        runtime resolver returns absolute paths.
+        """
+        # Lazy import to avoid touching dao_ai.skills at class definition time
+        # (would create an import cycle via config → skills → config).
+        from dao_ai.skills import _resolve_runtime_path
+
+        if isinstance(self.path, VolumePathModel):
+            # Parent of /Volumes/.../<skill> is the volume root or a subdir
+            # of it — pass that as the source dir.
+            full = self.runtime_path.rstrip("/")
+            parent = full.rsplit("/", 1)[0] or "/"
+            return MiddlewareModel(
+                name="dao_ai.middleware.skills.create_skills_middleware",
+                args={
+                    "sources": [parent],
+                    "backend_type": "volume",
+                    "volume_path": self.path,
+                },
+            )
+
+        # Local skill: resolve to absolute parent dir against runtime anchors.
+        resolved = _resolve_runtime_path(self.path)
+        # Fall back to the raw path if not found (will log a warning at
+        # SkillsMiddleware.ls() time but won't crash agent build).
+        leaf = str(resolved) if resolved is not None else self.path
+        parent = leaf.rstrip("/").rsplit("/", 1)[0] or "/"
+        return MiddlewareModel(
+            name="dao_ai.middleware.skills.create_skills_middleware",
+            args={
+                "sources": [parent],
+                "backend_type": "filesystem",
+                "root_dir": "/",
+            },
+        )
+
+
 class VectorStoreModel(IsDatabricksResource, ManagedResource):
     """
     Configuration model for a Databricks Vector Search store.
@@ -4008,10 +4148,14 @@ class HumanInTheLoopModel(BaseModel):
     This model configures when and how tools require human approval before execution.
     It maps to LangChain's HumanInTheLoopMiddleware.
 
-    LangChain supports three decision types:
+    LangChain supports four decision types:
     - "approve": Execute tool with original arguments
     - "edit": Modify arguments before execution
     - "reject": Skip execution with optional feedback message
+    - "respond": Reply with a message in place of executing the tool. The
+      reviewer's text becomes a synthetic ToolMessage that the LLM consumes
+      as if the tool had returned it. Distinct from "reject", which skips
+      the tool and ends the turn.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -4021,9 +4165,13 @@ class HumanInTheLoopModel(BaseModel):
         description="Message shown to the reviewer when approval is requested",
     )
 
-    allowed_decisions: list[Literal["approve", "edit", "reject"]] = Field(
+    allowed_decisions: list[Literal["approve", "edit", "reject", "respond"]] = Field(
         default_factory=lambda: ["approve", "edit", "reject"],
-        description="List of allowed decision types for this tool",
+        description=(
+            "List of allowed decision types for this tool. Defaults to "
+            "``['approve', 'edit', 'reject']``; add ``'respond'`` to let the "
+            "reviewer reply in place of executing the tool."
+        ),
     )
 
     @model_validator(mode="after")
@@ -4034,7 +4182,7 @@ class HumanInTheLoopModel(BaseModel):
 
         # Remove duplicates while preserving order
         seen: set[str] = set()
-        unique_decisions: list[Literal["approve", "edit", "reject"]] = []
+        unique_decisions: list[Literal["approve", "edit", "reject", "respond"]] = []
         for decision in self.allowed_decisions:
             if decision not in seen:
                 seen.add(decision)
@@ -5223,6 +5371,17 @@ class AgentModel(BaseModel):
         default_factory=list,
         description="List of middleware to apply to this agent.",
     )
+    skills: list[SkillModel | str] = Field(
+        default_factory=list,
+        description=(
+            "Skills available to this agent. Each entry produces a SkillsMiddleware "
+            "(via :meth:`SkillModel.as_middleware`) appended to the agent's middleware "
+            "stack. Strings are resolved against ``config.resources.skills``; inline "
+            "``SkillModel`` entries are accepted directly. Works uniformly across "
+            "supervisor, swarm, and deep_agent orchestration — including when this "
+            "AgentModel becomes an implicit sub-agent under deep_agent."
+        ),
+    )
     response_format: Optional[ResponseFormatModel | type | str] = Field(
         default=None,
         description="Structured output format (Pydantic type, JSON schema, or ResponseFormatModel).",
@@ -5496,12 +5655,270 @@ class SwarmModel(BaseModel):
         return self
 
 
+class FilesystemPermissionModel(BaseModel):
+    """Filesystem permission rule for deepagents tools.
+
+    Mirrors ``deepagents.middleware.permissions.FilesystemPermission`` (a TypedDict).
+    Rules are evaluated in declaration order; the first match wins. If no rule
+    matches, the call is allowed.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    paths: list[str] = Field(
+        description="Path patterns covered by this rule (e.g. ``['/skills/**', '/tmp/*']``).",
+    )
+    mode: Literal["allow", "deny"] = Field(
+        default="allow",
+        description="Whether to allow or deny operations on paths matching the patterns.",
+    )
+    operations: Optional[list[Literal["read", "write"]]] = Field(
+        default=None,
+        description=(
+            "File operations this rule applies to. Defaults to both read and write "
+            "when omitted."
+        ),
+    )
+
+
+class BackendModel(BaseModel):
+    """Storage/execution backend for a deep_agent.
+
+    Mirrors deepagents' ``BackendProtocol`` factory pattern. ``name`` is a
+    fully-qualified factory function or class (e.g. ``deepagents.backends.StateBackend``)
+    and ``args`` are passed as keyword arguments. If omitted, deepagents'
+    default ``StateBackend`` is used.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str = Field(
+        description="Fully qualified name of the backend class or factory function.",
+    )
+    args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments forwarded to the backend factory.",
+    )
+
+    @model_validator(mode="after")
+    def resolve_args(self) -> Self:
+        """Resolve any variable references in args (mirrors MiddlewareModel)."""
+        for key, value in self.args.items():
+            self.args[key] = value_of(value)
+        return self
+
+
+class SubAgentModel(BaseModel):
+    """A deepagents sub-agent invoked by the main deep_agent via the ``task`` tool.
+
+    Mirrors ``deepagents.SubAgent`` (a ``TypedDict``) but lifted into Pydantic so
+    every field can accept dao-ai primitives:
+
+    * ``model`` — string serving-endpoint name OR an ``LLMModel``
+    * ``tools`` — list of strings (looked up in ``config.tools``) OR ``ToolModel`` entries
+    * ``skills`` — list of skill paths OR named ``SkillModel`` references
+    * ``system_prompt`` — string OR ``PromptModel`` (resolved through ``make_prompt``)
+
+    Required fields per deepagents are ``name``, ``description``, and
+    ``system_prompt``. Optional fields override the parent deep_agent's defaults.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str = Field(
+        description="Unique sub-agent identifier. The main agent uses this when calling the ``task`` tool.",
+    )
+    description: str = Field(
+        description="What this sub-agent does. Used by the main agent to decide when to delegate.",
+    )
+    system_prompt: str | PromptModel = Field(
+        description="Instructions for the sub-agent. Inline string or MLflow Prompt Registry reference.",
+    )
+    tools: list[ToolModel | str] = Field(
+        default_factory=list,
+        description="Tools available to this sub-agent. Strings are resolved against ``config.tools``.",
+    )
+    model: Optional[LLMModel | str] = Field(
+        default=None,
+        description=(
+            "LLM model. Inherits from the parent deep_agent if omitted. "
+            "Strings are passed verbatim to ``langchain.chat_models.init_chat_model`` "
+            "(e.g. ``'openai:gpt-4o'``)."
+        ),
+    )
+    middleware: list[MiddlewareModel] = Field(
+        default_factory=list,
+        description="Additional middleware applied to this sub-agent on top of the deepagents base stack.",
+    )
+    interrupt_on: dict[str, bool | HumanInTheLoopModel] = Field(
+        default_factory=dict,
+        description=(
+            "Per-tool human-in-the-loop config. ``true`` enables defaults; a "
+            "``HumanInTheLoopModel`` customizes the review prompt and allowed "
+            "decisions. Same model used for tool-level ``human_in_the_loop:`` "
+            "annotations (one concept, one shape)."
+        ),
+    )
+    skills: list[SkillModel | str] = Field(
+        default_factory=list,
+        description="Skill source directories or SkillModel references scoped to this sub-agent.",
+    )
+    permissions: list[FilesystemPermissionModel] = Field(
+        default_factory=list,
+        description="Filesystem permission rules. Replace (not extend) the parent's rules when present.",
+    )
+    response_format: Optional[ResponseFormatModel | type | str] = Field(
+        default=None,
+        description="Structured output format. Same semantics as ``AgentModel.response_format``.",
+    )
+
+
+class DeepAgentModel(BaseModel):
+    """Configuration for the ``deep_agent`` orchestration pattern.
+
+    Wraps `deepagents.create_deep_agent` so every parameter is declarative in YAML
+    and dao-ai primitives can be substituted wherever the deepagents API takes a
+    string or callable.
+
+    Layered with the existing ``OrchestrationModel.memory`` block: the
+    ``checkpointer`` and ``store`` passed to ``create_deep_agent`` are derived
+    from that block, not redeclared here.
+
+    See ``orchestration/deep_agent.py::create_deep_agent_graph`` for resolution
+    semantics.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    model: Optional[LLMModel | str] = Field(
+        default=None,
+        description=(
+            "Primary LLM. ``LLMModel`` is resolved via ``as_chat_model()``; "
+            "strings pass through to ``init_chat_model`` (e.g. ``'openai:gpt-4o'``). "
+            "Defaults to deepagents' default (``claude-sonnet-4-6``) when omitted."
+        ),
+    )
+    tools: list[ToolModel | str] = Field(
+        default_factory=list,
+        description=(
+            "Tools merged with deepagents' built-in suite (todo, filesystem, execute, task). "
+            "Strings are resolved against ``config.tools``."
+        ),
+    )
+    system_prompt: Optional[str | PromptModel] = Field(
+        default=None,
+        description=(
+            "System prompt prepended to deepagents' base prompt. "
+            "Inline string or MLflow ``PromptModel`` (resolved via ``make_prompt``)."
+        ),
+    )
+    middleware: list[MiddlewareModel] = Field(
+        default_factory=list,
+        description="User middleware inserted between the deepagents base stack and tail stack.",
+    )
+    subagents: list[SubAgentModel | AgentModel | str] = Field(
+        default_factory=list,
+        # The before-validator below also accepts dict[str, SubAgentModel | AgentModel]
+        # and rewrites it to the list form, injecting the dict key as `name`.
+        description=(
+            "Sub-agents callable via the ``task`` tool. Three forms accepted: "
+            "(1) inline ``SubAgentModel`` dict, (2) string referencing an entry in ``app.agents`` by name, "
+            "(3) full ``AgentModel`` (carries over name/description/prompt/tools/model/middleware/response_format)."
+        ),
+    )
+    skills: list[SkillModel | str] = Field(
+        default_factory=list,
+        description=(
+            "Skill source paths exposed via deepagents' ``SkillsMiddleware``. "
+            "Strings are inline relative paths; ``SkillModel`` references provide "
+            "named, governed skills with optional Unity Catalog volume backing."
+        ),
+    )
+    instruction_files: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Paths to ``AGENTS.md``-style instruction files loaded into the system "
+            "prompt at startup (deepagents' MemoryMiddleware feature). Renamed from "
+            "``memory`` to avoid collision with ``OrchestrationModel.memory`` "
+            "(checkpointer/store/extraction). Despite deepagents' upstream naming "
+            "these files are static instructions, not runtime memory."
+        ),
+    )
+    permissions: list[FilesystemPermissionModel] = Field(
+        default_factory=list,
+        description="Filesystem permission rules applied to the main agent and inherited by sub-agents.",
+    )
+    response_format: Optional[ResponseFormatModel | type | str] = Field(
+        default=None,
+        description="Structured output format. Same semantics as ``AgentModel.response_format``.",
+    )
+    interrupt_on: dict[str, bool | HumanInTheLoopModel] = Field(
+        default_factory=dict,
+        description=(
+            "Per-tool human-in-the-loop config. ``true`` enables defaults; "
+            "a ``HumanInTheLoopModel`` customizes the review prompt and "
+            "allowed decisions."
+        ),
+    )
+    backend: Optional[BackendModel] = Field(
+        default=None,
+        description="Backend factory. If omitted, deepagents uses ``StateBackend()``.",
+    )
+    context_schema: Optional[str] = Field(
+        default=None,
+        description=(
+            "Fully qualified name of a TypedDict/dataclass class defining run-scoped context. "
+            "Resolved via importlib at graph-build time."
+        ),
+    )
+    recursion_limit: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Per-run graph recursion limit. ``None`` uses LangGraph's default (25).",
+    )
+    debug: bool = Field(
+        default=False,
+        description="Enable verbose debug output from deepagents.",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Human-readable name attached to the compiled graph. Useful in MLflow trace dashboards.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_subagents(cls, data: Any) -> Any:
+        """Accept ``subagents`` as a dict and rewrite to the list form.
+
+        Allows the more idiomatic YAML shape:
+
+        .. code-block:: yaml
+
+            subagents:
+              research:
+                description: ...
+                system_prompt: ...
+
+        which gets normalized to the equivalent list form ``[{name: research, ...}]``
+        before the regular validator runs. Mirrors the dict-keyed pattern used by
+        ``resources.llms``, ``tools``, and ``swarm.handoffs``.
+        """
+        if not isinstance(data, dict):
+            return data
+        subs = data.get("subagents")
+        if not isinstance(subs, dict):
+            return data
+        normalized: list[Any] = []
+        for name, spec in subs.items():
+            if isinstance(spec, dict) and "name" not in spec:
+                spec = {**spec, "name": name}
+            normalized.append(spec)
+        return {**data, "subagents": normalized}
+
+
 class OrchestrationModel(BaseModel):
     """Multi-agent orchestration configuration.
 
-    `supervisor` and `swarm` are mutually exclusive. If neither is set
-    (e.g. the user only supplies `memory:`), AppConfig will auto-pick a
-    sensible router at the AppConfig level based on the number of agents.
+    Exactly one of ``supervisor``, ``swarm``, ``deep_agent`` may be set. If none
+    are set (e.g. the user only supplies ``memory:``), AppConfig auto-picks a
+    sensible router based on the number of agents — ``deep_agent`` is opt-in
+    only and never auto-selected.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -5512,6 +5929,13 @@ class OrchestrationModel(BaseModel):
     swarm: Optional[SwarmModel | Literal[True]] = Field(
         default=None,
         description="Swarm pattern: agents hand off to each other via tool calls. Set to true for defaults.",
+    )
+    deep_agent: Optional[DeepAgentModel] = Field(
+        default=None,
+        description=(
+            "Deep_agent pattern: a single planning agent with built-in todo/filesystem/shell/sub-agent tools, "
+            "plus first-class skills and memory. Wraps ``deepagents.create_deep_agent``."
+        ),
     )
     memory: Optional[MemoryModel] = Field(
         default=None,
@@ -5538,12 +5962,24 @@ class OrchestrationModel(BaseModel):
         if self.swarm is True:
             self.swarm = SwarmModel()
 
-        # Validate mutually exclusive. Allowing neither -- AppConfig fills
-        # in a default router (supervisor for >1 agent, swarm for 1) so
-        # that `orchestration: { memory: ... }` is valid for single-agent
-        # apps that only want the memory wiring.
-        if self.supervisor is not None and self.swarm is not None:
-            raise ValueError("Cannot specify both supervisor and swarm")
+        # At most one orchestration mode may be set. Allowing none -- AppConfig
+        # fills in a default router (supervisor for >1 agent, swarm for 1) so
+        # that `orchestration: { memory: ... }` is valid for single-agent apps
+        # that only want the memory wiring. deep_agent is opt-in only and is
+        # never auto-selected.
+        active_modes: list[str] = [
+            name
+            for name, value in (
+                ("supervisor", self.supervisor),
+                ("swarm", self.swarm),
+                ("deep_agent", self.deep_agent),
+            )
+            if value is not None
+        ]
+        if len(active_modes) > 1:
+            raise ValueError(
+                f"Cannot specify more than one orchestration mode at a time; got {active_modes}."
+            )
         return self
 
 
@@ -6092,9 +6528,15 @@ class AppModel(BaseModel):
 
     @model_validator(mode="after")
     def validate_agents_not_empty(self) -> Self:
-        if not self.agents:
-            raise ValueError("At least one agent must be specified")
-        return self
+        if self.agents:
+            return self
+        # Under the deep_agent orchestration the "main agent" IS the
+        # orchestration block itself (its model/system_prompt/tools), so
+        # ``app.agents`` may be empty — any agents declared here will be
+        # treated as implicit sub-agents by create_deep_agent_graph.
+        if self.orchestration is not None and self.orchestration.deep_agent is not None:
+            return self
+        raise ValueError("At least one agent must be specified")
 
     @model_validator(mode="after")
     def validate_agent_requires(self) -> Self:
@@ -6195,16 +6637,28 @@ class AppModel(BaseModel):
 
     @model_validator(mode="after")
     def set_default_orchestration(self) -> Self:
+        # deep_agent solo (no app.agents) is allowed — the orchestration
+        # block itself acts as the main agent and there's nothing to default.
         if not self.agents:
+            if (
+                self.orchestration is not None
+                and self.orchestration.deep_agent is not None
+            ):
+                return self
             raise ValueError("At least one agent must be specified")
 
         if self.orchestration is None:
             self.orchestration = OrchestrationModel()
 
-        # If neither supervisor nor swarm is set (e.g. user only supplied
+        # If no orchestration mode is set (e.g. user only supplied
         # `orchestration: { memory: ... }`), pick a sensible default based
-        # on agent count.
-        if self.orchestration.supervisor is None and self.orchestration.swarm is None:
+        # on agent count. ``deep_agent`` is opt-in only and is never
+        # auto-selected; it counts as "set" if present so the auto-fill skips.
+        if (
+            self.orchestration.supervisor is None
+            and self.orchestration.swarm is None
+            and self.orchestration.deep_agent is None
+        ):
             default_agent: AgentModel = self.agents[0]
             if len(self.agents) > 1:
                 self.orchestration.supervisor = SupervisorModel(
@@ -6223,6 +6677,10 @@ class AppModel(BaseModel):
 
     @model_validator(mode="after")
     def set_default_agent(self) -> Self:
+        # Only meaningful when agents are declared. Under deep_agent solo
+        # (empty ``app.agents``) the swarm default_agent path is unreachable.
+        if not self.agents:
+            return self
         default_agent_name: str = self.agents[0].name
 
         if self.orchestration.swarm and not self.orchestration.swarm.default_agent:
@@ -6962,6 +7420,14 @@ class ResourcesModel(BaseModel):
         default_factory=dict,
         description="Databricks App references used as MCP endpoints or tool backends.",
     )
+    skills: dict[str, SkillModel] = Field(
+        default_factory=dict,
+        description=(
+            "Reusable deepagents skills keyed by name. Referenced from "
+            "``orchestration.deep_agent.skills`` and ``subagents[].skills``. "
+            "Local skills ship via ``code_paths``; volume-backed skills are wired as deployment resources."
+        ),
+    )
 
     @model_validator(mode="after")
     def update_genie_warehouses(self) -> Self:
@@ -7171,6 +7637,52 @@ class AppConfig(BaseModel):
     _rendered_yaml: str | None = None
     _substitution_vars: dict[str, str] | None = None
     _initialized: bool = False
+
+    @model_validator(mode="after")
+    def _translate_agent_skills_to_middleware(self) -> Self:
+        """Convert each agent's ``skills`` list into ``MiddlewareModel`` entries on ``middleware``.
+
+        Runs once at AppConfig load time. For each agent in ``self.agents``
+        (the dict registry — also covers ``self.app.agents`` via YAML anchor
+        identity), each entry in ``agent.skills`` is rewritten:
+
+        * Inline ``SkillModel`` → ``SkillModel.as_middleware()`` (returns a
+          ``MiddlewareModel`` calling ``dao_ai.middleware.skills.create_skills_middleware``)
+        * String → look up in ``self.resources.skills`` then call ``as_middleware()``
+
+        After translation ``agent.skills`` is cleared so re-running the
+        validator (e.g. if the model is rebuilt) is idempotent. This is also
+        why the runtime never needs to know about ``agent.skills`` — by the
+        time ``create_agent_node`` runs, skills are middleware.
+        """
+        agents_seen: set[int] = set()
+
+        def _translate_one(agent: AgentModel) -> None:
+            if id(agent) in agents_seen:
+                return
+            agents_seen.add(id(agent))
+            if not agent.skills:
+                return
+            for entry in agent.skills:
+                if isinstance(entry, str):
+                    if not self.resources or entry not in self.resources.skills:
+                        raise ValueError(
+                            f"Agent '{agent.name}' references unknown skill '{entry}'. "
+                            f"Add a SkillModel under resources.skills or use an inline anchor."
+                        )
+                    skill_model = self.resources.skills[entry]
+                else:
+                    skill_model = entry
+                agent.middleware.append(skill_model.as_middleware())
+            agent.skills = []
+
+        for agent in (self.agents or {}).values():
+            _translate_one(agent)
+        if self.app and self.app.agents:
+            for agent in self.app.agents:
+                _translate_one(agent)
+
+        return self
 
     @classmethod
     def from_file(

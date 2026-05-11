@@ -160,14 +160,17 @@ def _parse_var_args(raw: Optional[list[str]]) -> dict[str, str]:
 
 
 def _add_var_argument(parser: ArgumentParser) -> None:
-    """Add a repeatable ``--var KEY=VALUE`` flag to a subparser."""
+    """Add a repeatable ``--param KEY=VALUE`` flag (alias: ``--var``) to a subparser."""
     parser.add_argument(
+        "--param",
         "--var",
+        dest="var",
         action="append",
         metavar="KEY=VALUE",
         help=(
-            "Override a ${var.KEY} / ${param.KEY} substitution in the config "
-            "file. Repeatable (e.g. --var catalog=main --var schema=dao_ai)."
+            "Override a ${param.KEY} / ${var.KEY} substitution in the config "
+            "file. Repeatable (e.g. --param catalog=main --param schema=dao_ai). "
+            "Alias: --var."
         ),
     )
 
@@ -610,30 +613,32 @@ Examples:
         help="Thread ID for the chat session (default: auto-generated UUID)",
     )
 
-    # Vars command
+    # Parameters command (alias: vars)
     vars_parser: ArgumentParser = subparsers.add_parser(
-        "vars",
+        "parameters",
+        aliases=["vars"],
         help="Inspect declared parameters in a configuration",
         description="""
 Inspect the declared parameters: block in a DAO AI config file.
 
 Shows each declared parameter, whether it is required, its declared default,
 and the value that would be substituted into the YAML for the current
-combination of --var overrides and process environment variables.
+combination of --param overrides and process environment variables.
 
 Use this to discover what knobs a config exposes before deploying or running it.
         """,
         epilog="""
 Examples:
-  dao-ai vars list -c config/model_config.yaml
-  dao-ai vars list -c config/retail.yaml --var catalog=nfleming
+  dao-ai parameters list -c config/model_config.yaml
+  dao-ai parameters list -c config/retail.yaml --param catalog=nfleming
+  dao-ai vars list -c config/model_config.yaml             # legacy alias
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     vars_parser.add_argument(
         "action",
         choices=["list"],
-        help="Vars action: 'list' prints declared parameters and resolved values.",
+        help="Parameters action: 'list' prints declared parameters and resolved values.",
     )
     vars_parser.add_argument(
         "-c",
@@ -1884,7 +1889,7 @@ def main() -> None:
             handle_chat_command(options)
         case "list-mcp-tools":
             handle_list_mcp_tools_command(options)
-        case "vars":
+        case "parameters" | "vars":
             handle_vars_command(options)
         case _:
             logger.error(f"Unknown command: {options.command}")

@@ -1,5 +1,17 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: nfleming
+  schema:
+    description: Schema within the catalog
+    default: retail_consumer_goods
+
 variables:
   client_id: &client_id                          # Service principal client ID
     options:
@@ -19,8 +31,8 @@ variables:
 
 schemas:
   retail_consumer_goods_schema: &retail_consumer_goods_schema                  # Unity Catalog schema configuration
-    catalog_name: nfleming                       # Unity Catalog name
-    schema_name: retail_consumer_goods                       # Schema within the catalog
+    catalog_name: ${var.catalog}                       # Unity Catalog name
+    schema_name: ${var.schema}                       # Schema within the catalog
 
 resources:
   llms:
