@@ -21,6 +21,20 @@ sync:
     - notebooks/*.py
     - src/**
     - tests/**
+  exclude:
+    - .venv/**
+    - venv/**
+    - venv.bak/**
+    - e2e-chatbot-app-next/**
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/.pytest_cache/**"
+    - "**/.mypy_cache/**"
+    - "**/.ruff_cache/**"
+    - "**/.ipynb_checkpoints/**"
+    - .git/**
+    - dist/*.tar.gz
+    - dist/*.zip
 
 variables:
   config_path:

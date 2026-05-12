@@ -43,7 +43,11 @@ print(config_path)
 # DBTITLE 1,Add Source Directory to System Path
 import sys, os, glob, subprocess
 
-_wheels = glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl")
+_wheels = sorted(
+    glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl"),
+    key=os.path.getmtime,
+    reverse=True,
+)
 if _wheels:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[0]])
 elif os.path.isdir("../src/dao_ai"):
