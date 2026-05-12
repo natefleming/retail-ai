@@ -5044,11 +5044,6 @@ class GuardrailModel(BaseModel):
             Required when using the scorer-based mode.
         scorer_args: Keyword arguments forwarded to the scorer constructor
             (e.g. ``{"pii_entities": ["CREDIT_CARD", "SSN"]}``).
-        hub: Optional guardrails-ai hub URI for the scorer validator
-            (e.g. ``"hub://guardrails/toxic_language"``).  When set,
-            the validator is auto-installed at startup if the
-            ``GUARDRAILSAI_API_KEY`` environment variable is present.
-            Only valid when *scorer* is also set.
         num_retries: Maximum retry attempts when evaluation fails (default: 3).
         fail_on_error: If True, block responses when the evaluation call
             itself errors (e.g. scorer exception, network timeout).
@@ -5081,10 +5076,6 @@ class GuardrailModel(BaseModel):
     scorer_args: dict[str, Any] = Field(
         default_factory=dict,
         description="Keyword arguments forwarded to the scorer constructor (e.g., {'pii_entities': ['CREDIT_CARD', 'SSN']}).",
-    )
-    hub: Optional[str] = Field(
-        default=None,
-        description="Guardrails-AI hub URI for auto-installing the scorer validator (e.g., 'hub://guardrails/toxic_language'). Requires scorer.",
     )
     num_retries: Optional[int] = Field(
         default=3,
@@ -5121,11 +5112,6 @@ class GuardrailModel(BaseModel):
             raise ValueError(
                 "Both 'model' and 'prompt' are required for custom judge guardrails."
             )
-        if self.hub is not None and not has_scorer:
-            raise ValueError(
-                "'hub' requires 'scorer' to be set. The hub URI identifies "
-                "the guardrails-ai hub package for the scorer validator."
-            )
         return self
 
     @model_validator(mode="after")
@@ -5138,19 +5124,13 @@ class GuardrailModel(BaseModel):
         """Return an MLflow ``Scorer`` instance for this guardrail.
 
         For scorer-based guardrails, imports and instantiates the class
-        referenced by ``self.scorer`` with ``self.scorer_args``.  When
-        ``self.hub`` is set, the hub validator is auto-installed first.
+        referenced by ``self.scorer`` with ``self.scorer_args``.
 
         For LLM-judge guardrails, creates a ``JudgeScorer`` wrapping
         ``mlflow.genai.judges.make_judge`` with the resolved prompt and
         model endpoint.
         """
         if self.scorer:
-            if self.hub:
-                from dao_ai.guardrails_hub import ensure_single_hub_validator
-
-                ensure_single_hub_validator(self.hub)
-
             from dao_ai.utils import load_function
 
             scorer_cls = load_function(self.scorer)
@@ -7984,7 +7964,6 @@ class AppConfig(BaseModel):
         if self._initialized:
             return
 
-        from dao_ai.guardrails_hub import ensure_guardrails_hub
         from dao_ai.hooks.core import create_hooks
         from dao_ai.logging import configure_logging
 
@@ -7992,8 +7971,6 @@ class AppConfig(BaseModel):
             configure_logging(level=self.app.log_level)
 
         self._resolve_all_resources()
-
-        ensure_guardrails_hub(self)
 
         logger.debug("Calling initialization hooks...")
         initialization_functions: Sequence[Callable[..., Any]] = create_hooks(

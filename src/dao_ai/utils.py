@@ -283,7 +283,6 @@ def get_installed_packages() -> list[str]:
         f"ddgs=={version('ddgs')}",
         f"deepagents=={version('deepagents')}",
         f"flashrank=={version('flashrank')}",
-        f"guardrails-ai=={version('guardrails-ai')}",
         f"langchain=={version('langchain')}",
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
         f"langchain-openai=={version('langchain-openai')}",

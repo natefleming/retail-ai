@@ -187,11 +187,10 @@ Use `apply_to` to control when each guardrail executes:
 
 ```yaml
 guardrails:
-  toxic_guardrail:
-    name: toxic_check
-    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
-    hub: hub://guardrails/toxic_language
-    apply_to: input        # block toxic user messages before the model runs
+  pii_guardrail:
+    name: pii_check
+    scorer: my_package.scorers.DetectPII
+    apply_to: input        # block PII in user messages before the model runs
 
   tone_guardrail:
     name: tone_check
@@ -259,99 +258,30 @@ middleware:
 
 ## Scorer-Based Guardrails (MLflow Scorers)
 
-Scorer-based guardrails use MLflow's `Scorer` interface to plug in any evaluation logic, including built-in `GuardrailsScorer` validators from `mlflow.genai.scorers.guardrails`. These validators use the [guardrails-ai](https://docs.guardrailsai.com/) library for deterministic safety checks.
-
-### Prerequisites
-
-`GuardrailsScorer` validators require installation from the guardrails-ai hub. DAO AI can **auto-install** them at startup when the `hub` field is set on a guardrail and the `GUARDRAILSAI_API_KEY` environment variable is present:
-
-```bash
-# Set your hub API key (get one at https://hub.guardrailsai.com/keys)
-export GUARDRAILSAI_API_KEY="your-token-here"
-```
-
-Then add `hub:` to your guardrail config:
-
-```yaml
-guardrails:
-  toxic_guardrail:
-    name: toxic_check
-    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
-    hub: hub://guardrails/toxic_language        # auto-installed at startup
-    scorer_args:
-      threshold: 0.7
-```
-
-At startup, `AppConfig.initialize()` will automatically:
-1. Configure guardrails-ai with your token (metrics disabled, remote inferencing enabled)
-2. Install any hub validators that are not yet available
-3. Skip validators that are already installed
-
-If you prefer manual installation, omit the `hub` field and install validators yourself:
-
-```bash
-guardrails configure --token $GUARDRAILSAI_API_KEY --disable-metrics --enable-remote-inferencing
-guardrails hub install hub://guardrails/toxic_language
-guardrails hub install hub://guardrails/gibberish_text
-# etc.
-```
-
-### Available Built-in Scorers
-
-| Scorer | Description | Key Args |
-|--------|-------------|----------|
-| `ToxicLanguage` | Detects toxic/offensive language | `threshold` (0.5) |
-| `NSFWText` | Detects NSFW content | `threshold` (0.5) |
-| `DetectJailbreak` | Detects jailbreak/prompt injection | `threshold` (0.5), `device` |
-| `DetectPII` | Detects personally identifiable information | `pii_entities` |
-| `SecretsPresent` | Detects API keys and secrets | -- |
-| `GibberishText` | Detects gibberish/nonsense text | `threshold` (0.5) |
+Scorer-based guardrails use MLflow's `Scorer` interface to plug in any evaluation logic. Any class extending `mlflow.genai.scorers.base.Scorer` can be referenced by fully-qualified name; install whatever runtime dependencies that scorer requires before deploying.
 
 ### Configuration via `guardrails:` Section
 
 ```yaml
 guardrails:
-  # Scorer-based: provide scorer (FQN), hub URI, and optional scorer_args
   pii_guardrail: &pii_guardrail
     name: pii_check
-    scorer: mlflow.genai.scorers.guardrails.DetectPII
-    hub: hub://guardrails/detect_pii
+    scorer: my_package.scorers.DetectPII
     scorer_args:
       pii_entities: ["CREDIT_CARD", "SSN", "EMAIL_ADDRESS"]
     fail_on_error: true
-
-  toxic_guardrail: &toxic_guardrail
-    name: toxic_check
-    scorer: mlflow.genai.scorers.guardrails.ToxicLanguage
-    hub: hub://guardrails/toxic_language
-    scorer_args:
-      threshold: 0.7
-    num_retries: 1
 ```
 
 ### Configuration via `middleware:` Section
 
 ```yaml
 middleware:
-  secrets_check:
+  custom_check:
     name: dao_ai.middleware.create_scorer_guardrail_middleware
     args:
-      name: secrets_check
-      scorer_name: mlflow.genai.scorers.guardrails.SecretsPresent
+      name: custom_check
+      scorer_name: my_package.scorers.MyCustomScorer
       fail_on_error: true
-```
-
-### Custom Scorers
-
-Any class extending `mlflow.genai.scorers.base.Scorer` can be used:
-
-```yaml
-guardrails:
-  custom_scorer: &custom_scorer
-    name: my_check
-    scorer: my_package.my_module.MyCustomScorer
-    scorer_args:
-      param1: value1
 ```
 
 ## Guardrail Types Summary
@@ -359,7 +289,7 @@ guardrails:
 | Type | Config | Prompt Required | Key Feature |
 |------|--------|----------------|-------------|
 | **Custom Judge** | `guardrails:` with `model`+`prompt` | Yes | Fully customizable LLM evaluation |
-| **Scorer-based** | `guardrails:` with `scorer` | No | MLflow Scorer interface (ToxicLanguage, DetectPII, etc.) |
+| **Scorer-based** | `guardrails:` with `scorer` | No | MLflow Scorer interface (any class extending `Scorer`) |
 | **Veracity** | `middleware:` section | No | Auto-skips when no tool context |
 | **Relevance** | `middleware:` section | No | Topic drift detection |
 | **Tone** | `middleware:` section | No | Preset profiles (professional, etc.) |
@@ -378,7 +308,6 @@ guardrails:
 | `prompt` | string/PromptModel | -- | Evaluation instructions with `{{ inputs }}`/`{{ outputs }}` (required for custom judge mode) |
 | `scorer` | string | -- | FQN of an MLflow `Scorer` class (required for scorer mode) |
 | `scorer_args` | dict | `{}` | Kwargs forwarded to the scorer constructor |
-| `hub` | string | -- | Guardrails-ai hub URI (e.g. `hub://guardrails/toxic_language`). Enables auto-install when `GUARDRAILSAI_API_KEY` is set |
 | `num_retries` | int | 3 | Max retry attempts |
 | `fail_on_error` | bool | false | Block responses when evaluation errors (e.g. scorer exception) |
 | `max_context_length` | int | 8000 | Max chars for extracted tool context |
@@ -416,9 +345,6 @@ resources:
 ```bash
 # Run with custom LLM-judge guardrails
 dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml
-
-# Run with MLflow Scorer guardrails (requires guardrails-ai)
-dao-ai chat -c config/examples/08_guardrails/guardrails_scorers.yaml
 
 # See guardrail evaluation in logs
 dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml --log-level DEBUG

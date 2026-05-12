@@ -526,10 +526,8 @@ class DatabricksProvider(ServiceProvider):
 
             pip_requirements += get_installed_packages()
 
-        from dao_ai.guardrails_hub import collect_hub_code_paths
         from dao_ai.skills import collect_skills_code_paths
 
-        code_paths.extend(collect_hub_code_paths(config))
         code_paths.extend(collect_skills_code_paths(config))
 
         code_paths = list(dict.fromkeys(code_paths))
@@ -1308,51 +1306,69 @@ class DatabricksProvider(ServiceProvider):
             app_body["user_api_scopes"] = user_api_scopes
 
         def _set_app_resources(method: str, path: str, body: dict) -> None:
-            """Create or update app via REST API with progressive fallback.
+            """Create or update app via REST API.
 
-            If the workspace doesn't support VECTOR_SEARCH_INDEX as a UC
-            securable type, or if the resource limit is exceeded, retries
-            without those resources. If that still fails due to permission
-            issues, retries without any resources.
+            If the workspace doesn't support ``VECTOR_SEARCH_INDEX`` as a UC
+            securable type, retry once without those resources (capability
+            gap, not a permissions issue).
+
+            Permission-related failures are raised immediately with an
+            actionable message — the deployer must hold ``MANAGE`` on every
+            resource the app needs, otherwise the deployed app will start
+            without the grants it needs and crash at request time.
             """
-            _retryable_patterns = (
+            _vector_search_unsupported = (
+                "VECTOR_SEARCH_INDEX",
+                "vector_search_index is not a supported",
+            )
+            _permission_patterns = (
                 "permission to grant",
-                "less than or equal to",
                 "MANAGE permission on the resource",
                 "Can View",
             )
+
+            def _describe_resources(rs: list) -> str:
+                return ", ".join(r.get("name", "?") for r in rs[:20]) or "(none)"
 
             try:
                 self.w.api_client.do(method, path, body=body)
             except (BadRequest, InvalidParameterValue, PermissionDenied) as e:
                 err_msg = str(e)
-                if not any(p in err_msg for p in _retryable_patterns):
-                    raise
 
-                body["resources"] = [
-                    r
-                    for r in body.get("resources", [])
-                    if r.get("uc_securable", {}).get("securable_type")
-                    != "VECTOR_SEARCH_INDEX"
-                ]
-                logger.warning(
-                    "Retrying without VECTOR_SEARCH_INDEX resources",
-                    error=err_msg,
-                    remaining_resources=len(body.get("resources", [])),
-                )
-                try:
-                    self.w.api_client.do(method, path, body=body)
-                except (BadRequest, InvalidParameterValue, PermissionDenied) as e2:
-                    err_msg2 = str(e2)
-                    if not any(p in err_msg2 for p in _retryable_patterns):
-                        raise
-
-                    body.pop("resources", None)
+                if any(p in err_msg for p in _vector_search_unsupported):
+                    kept = [
+                        r
+                        for r in body.get("resources", [])
+                        if r.get("uc_securable", {}).get("securable_type")
+                        != "VECTOR_SEARCH_INDEX"
+                    ]
                     logger.warning(
-                        "Retrying without any UC resources",
-                        error=err_msg2,
+                        "Workspace does not support VECTOR_SEARCH_INDEX "
+                        "resources; retrying without them. Grant vector "
+                        "search access manually after deploy.",
+                        error=err_msg,
                     )
+                    body["resources"] = kept
                     self.w.api_client.do(method, path, body=body)
+                    return
+
+                if any(p in err_msg for p in _permission_patterns):
+                    requested = body.get("resources", [])
+                    logger.error(
+                        "App deploy requires the deployer to hold MANAGE on "
+                        "every declared resource so the platform can grant "
+                        "the app service principal access. The deploy will "
+                        "be aborted to avoid leaving the app in a broken "
+                        "state. Resolve by either (a) running the deploy as "
+                        "a principal that owns/manages the underlying "
+                        "catalog, schema, functions, and serving endpoints, "
+                        "or (b) granting MANAGE on each of those securables "
+                        "to the current deployer. Requested resources: "
+                        f"{_describe_resources(requested)}",
+                        error=err_msg,
+                    )
+
+                raise
 
         if not app_exists:
             logger.info("Creating Databricks App", app_name=app_name)
@@ -1654,11 +1670,7 @@ class DatabricksProvider(ServiceProvider):
                 "verbose": True,
             }
             if vector_store.endpoint.target_qps is not None:
-                # SDK kwarg is currently `min_qps`. The Databricks REST API
-                # is renaming this to `target_qps` (the public preview field
-                # name); when the databricks-vectorsearch SDK exposes
-                # `target_qps`, this translation can be removed.
-                create_kwargs["min_qps"] = vector_store.endpoint.target_qps
+                create_kwargs["target_qps"] = vector_store.endpoint.target_qps
             self.vsc.create_endpoint_and_wait(**create_kwargs)
         elif vector_store.endpoint.target_qps is not None:
             logger.debug(
@@ -1689,82 +1701,26 @@ class DatabricksProvider(ServiceProvider):
                 embedding_model_endpoint_name=vector_store.embedding_model.name,
                 columns_to_sync=vector_store.columns,
             )
+            index = self.vsc.get_index(
+                vector_store.endpoint.name, vector_store.index.full_name
+            )
         else:
             logger.debug(
-                "Vector search index already exists, checking status",
+                "Vector search index already exists, triggering sync",
                 index_name=vector_store.index.full_name,
             )
             index = self.vsc.get_index(
                 vector_store.endpoint.name, vector_store.index.full_name
             )
+            # Wait for the index to be queryable before issuing sync, so we
+            # don't race against a still-provisioning index.
+            index.wait_until_ready(verbose=True, wait_for_updates=False)
+            index.sync()
 
-            # Wait for index to be in a syncable state
-            import time
-
-            max_wait_time = 600  # 10 minutes
-            wait_interval = 10  # 10 seconds
-            elapsed = 0
-
-            while elapsed < max_wait_time:
-                try:
-                    index_status = index.describe()
-                    pipeline_status = index_status.get("status", {}).get(
-                        "detailed_state", "UNKNOWN"
-                    )
-                    logger.debug(f"Index pipeline status: {pipeline_status}")
-
-                    if pipeline_status in [
-                        "COMPLETED",
-                        "ONLINE",
-                        "FAILED",
-                        "CANCELED",
-                        "ONLINE_PIPELINE_FAILED",
-                    ]:
-                        logger.debug("Index ready to sync", status=pipeline_status)
-                        break
-                    elif pipeline_status in [
-                        "WAITING_FOR_RESOURCES",
-                        "PROVISIONING",
-                        "INITIALIZING",
-                        "INDEXING",
-                    ]:
-                        logger.trace(
-                            "Index not ready, waiting",
-                            status=pipeline_status,
-                            wait_seconds=wait_interval,
-                        )
-                        time.sleep(wait_interval)
-                        elapsed += wait_interval
-                    else:
-                        logger.warning(
-                            "Unknown pipeline status, attempting sync",
-                            status=pipeline_status,
-                        )
-                        break
-                except Exception as status_error:
-                    logger.warning(
-                        "Could not check index status, attempting sync",
-                        error=str(status_error),
-                    )
-                    break
-
-            if elapsed >= max_wait_time:
-                logger.warning(
-                    "Timed out waiting for index to be ready",
-                    max_wait_seconds=max_wait_time,
-                )
-
-            # Now attempt to sync
-            try:
-                index.sync()
-                logger.success("Index sync completed")
-            except Exception as sync_error:
-                if "not ready to sync yet" in str(sync_error).lower():
-                    logger.warning(
-                        "Index still not ready to sync", error=str(sync_error)
-                    )
-                else:
-                    raise sync_error
+        # create_delta_sync_index_and_wait and index.sync() return before the
+        # underlying data sync completes. wait_for_updates=True blocks until
+        # the index is fully populated (ONLINE_NO_PENDING_UPDATE).
+        index.wait_until_ready(verbose=True, wait_for_updates=True)
 
         logger.success(
             "Vector search index ready",

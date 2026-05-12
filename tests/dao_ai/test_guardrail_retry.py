@@ -1179,37 +1179,13 @@ class TestGuardrailModelConfig:
         from dao_ai.config import GuardrailModel
 
         model = GuardrailModel(
-            name="toxic_check",
-            scorer="mlflow.genai.scorers.guardrails.ToxicLanguage",
+            name="custom_check",
+            scorer="my_package.scorers.MyScorer",
         )
         assert model.scorer_args == {}
-        assert model.hub is None
         assert model.num_retries == 3
         assert model.fail_on_error is False
         assert model.max_context_length == 8000
-
-    def test_scorer_with_hub(self):
-        """GuardrailModel should accept hub with scorer."""
-        from dao_ai.config import GuardrailModel
-
-        model = GuardrailModel(
-            name="toxic_check",
-            scorer="mlflow.genai.scorers.guardrails.ToxicLanguage",
-            hub="hub://guardrails/toxic_language",
-        )
-        assert model.hub == "hub://guardrails/toxic_language"
-
-    def test_rejects_hub_without_scorer(self):
-        """GuardrailModel should reject hub when scorer is not set."""
-        from dao_ai.config import GuardrailModel
-
-        with pytest.raises(ValueError, match="'hub' requires 'scorer'"):
-            GuardrailModel(
-                name="bad",
-                model="databricks-claude-3-7-sonnet",
-                prompt="Evaluate {{ inputs }} and {{ outputs }}.",
-                hub="hub://guardrails/toxic_language",
-            )
 
 
 class TestResolveEnvironmentVarsSecretSource:
