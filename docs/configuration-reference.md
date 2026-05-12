@@ -25,13 +25,36 @@ variables:
 
 # Infrastructure resources
 resources:
-  llms:
+  # Inference endpoint definitions. Backs every serving endpoint dao-ai
+  # calls at runtime: chat LLMs, embeddings, judges, extraction /
+  # reflection / query models, and custom agent endpoints. The previous
+  # key `resources.llms` and class name `LLMModel` remain as
+  # backward-compat aliases — prefer `resources.models` /
+  # `InferenceEndpointModel` in new configs.
+  models:
     model_name: &model_name
-      name: string              # Databricks endpoint name
-      temperature: float        # 0.0 - 2.0
-      max_tokens: int
-      fallbacks: [string]       # Fallback model names
-      on_behalf_of_user: bool   # Use caller's permissions
+      name: string                # Serving endpoint name (e.g. databricks-claude-opus-4-6)
+      description: string         # optional, human-readable
+      temperature: float          # 0.0 - 2.0, default 0.1
+      max_tokens: int             # default 8192
+      fallbacks: [string]         # Fallback endpoint names (or full InferenceEndpointModel configs)
+      on_behalf_of_user: bool     # Forward the caller's identity (OBO)
+      use_responses_api: bool     # Use Responses API for ResponsesAgent endpoints
+      disable_streaming: bool     # Required when output guardrails are enabled; also required when ai_gateway is true and the model uses with_structured_output
+      ai_gateway: bool            # dao-ai 0.1.77+: route via /ai-gateway/mlflow/v1/chat/completions instead of /serving-endpoints/<name>/invocations
+      best_of_n:                  # optional, dao-ai 0.1.72+
+        n: int                    # parallel candidate generations, 1..16
+        judge: string | *model_name   # endpoint name or full InferenceEndpointModel
+        temperature_override: float   # optional candidate-call temperature
+      # Auth fields (all optional — falls back to the App's identity).
+      # Use exactly one of: service_principal, (client_id + client_secret),
+      # or pat. workspace_host is required only when targeting a different
+      # workspace.
+      service_principal: *sp_ref  # or inline ServicePrincipalModel
+      client_id: *api_key
+      client_secret: *secret
+      workspace_host: string
+      pat: *secret
 
   vector_stores:
     store_name: &store_name
@@ -226,6 +249,67 @@ app:
     KEY: "{{secrets/scope/secret}}"
   
   enable_chat_proxy: true          # default; set false for API-only
+```
+
+### AI Gateway routing (`ai_gateway`)
+
+**`resources.models.<name>.ai_gateway`** *(bool, optional, default `false`,
+dao-ai 0.1.77+)* — Route this model through the Databricks AI Gateway
+(`POST /ai-gateway/mlflow/v1/chat/completions`) instead of the legacy
+Model Serving path (`POST /serving-endpoints/<name>/invocations`). When
+`true`, `name` is sent as the OpenAI-style model id in the request
+body, and dao-ai constructs a `langchain_openai.ChatOpenAI` client
+(rather than `databricks_langchain.ChatDatabricks`) pointed at the
+gateway base URL. The flag is additive — existing configs are unaffected.
+
+```yaml
+resources:
+  models:
+    gateway_llm: &gateway_llm
+      name: databricks-claude-opus-4-6
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 1024
+```
+
+**Why this exists.** `ChatDatabricks` (≤ `databricks-langchain` 0.19.0)
+has no `base_url` override and cannot target the AI Gateway path. AI
+Gateway is OpenAI-compatible, so dao-ai swaps to `ChatOpenAI` whenever
+the flag is set.
+
+**Constraints.**
+- **Chat completions only.** AI Gateway exposes `/chat/completions`; it
+  does not implement the Responses API. Combining
+  `ai_gateway: true` with `use_responses_api: true` is rejected by the
+  Pydantic validator at load time.
+- **Structured output requires `disable_streaming: true`.** AI Gateway
+  returns `INVALID_PARAMETER_VALUE: Structured output is not currently
+  supported with streaming.` when a `with_structured_output` call streams.
+  Set `disable_streaming: true` on configs that use structured output.
+- **Not for embedding endpoints.** AI Gateway is chat-only; embedding
+  endpoints (`databricks-gte-large-en` etc.) continue to use the legacy
+  path regardless of the flag.
+
+**Auth.** Every credential mode supported on `InferenceEndpointModel`
+(PAT, service principal / OAuth-M2M, `on_behalf_of_user`) flows through
+the AI Gateway path. dao-ai uses a callable token provider so the
+underlying `openai` SDK re-resolves the bearer token on every request
+via `WorkspaceClient.config.authenticate()` — short-lived OBO and SP
+tokens stay current automatically.
+
+**Fallbacks.** A model with `ai_gateway: true` can fall back to a legacy
+Model Serving endpoint (or vice versa). Both clients are LangChain
+`Runnable`s, so `with_fallbacks(...)` composes the heterogeneous list
+without further configuration:
+
+```yaml
+resources:
+  models:
+    resilient_llm: &resilient_llm
+      name: databricks-claude-opus-4-6
+      ai_gateway: true
+      fallbacks:
+      - databricks-claude-sonnet-4   # legacy Model Serving fallback
 ```
 
 ### Vector Search endpoint capacity (`target_qps`)
