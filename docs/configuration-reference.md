@@ -100,6 +100,41 @@ resources:
       space_id: string             # or omit and provide name instead
       name: string                 # resolves space_id by title if space_id is omitted
 
+  # Unity Catalog references (used to wire deployment resources and grants)
+  tables:
+    table_name: &table_name
+      schema: *my_schema
+      name: string
+
+  volumes:
+    volume_name: &volume_name
+      schema: *my_schema
+      name: string
+
+  functions:
+    function_name: &function_name
+      schema: *my_schema
+      name: string
+
+  # UC Connection references for MCP / external data sources
+  connections:
+    connection_name: &connection_name
+      name: string
+
+  # Other Databricks Apps used as MCP endpoints or tool backends
+  apps:
+    app_name: &app_name
+      name: string
+
+  # Deepagents skills — see "Skills (`resources.skills`)" below for details
+  skills:
+    skill_name: &skill_name
+      name: string                          # Unique skill identifier
+      description: string | null            # Surfaced in docs/traces
+      path: string | *volume_path_model     # Local path string OR VolumePathModel
+                                            # Raw "/Volumes/..." strings auto-promote
+                                            # to VolumePathModel by the validator.
+
 # Retriever configurations
 retrievers:
   retriever_name: &retriever_name
@@ -146,7 +181,12 @@ agents:
                                 # default. See architecture.md → Swarm Pattern →
                                 # Handoff constraints.
     middleware: [*middleware_ref]
+    skills: [*skill_name]       # SkillModel refs OR inline SkillModel entries.
+                                # Each entry produces a SkillsMiddleware appended
+                                # to this agent's middleware stack. Works under
+                                # supervisor, swarm, and deep_agent.
     response_format: *response_format_ref | string | null
+    recursion_limit: int | null # Max LangGraph supersteps per invocation (default 25)
 
 # Prompt definitions (MLflow registry)
 prompts:
@@ -183,6 +223,16 @@ response_formats:
   format_name: &format_name
     response_schema: string | type   # JSON schema string or type reference
     use_tool: bool | null             # null=auto, true=ToolStrategy, false=ProviderStrategy
+
+# Named middleware definitions (cross-cutting concerns reusable via anchors)
+# Each entry is a MiddlewareModel: a factory function FQN + its kwargs.
+# See "Deep Agents Middleware" below for the available factories shipped
+# with dao-ai. Custom middleware can be added by pointing `name` at any
+# importable factory that returns a LangGraph AgentMiddleware instance.
+middleware:
+  middleware_name: &middleware_name
+    name: string                       # FQN of the middleware factory function
+    args: {}                            # Kwargs forwarded to the factory
 
 # Memory configuration
 memory: &memory
@@ -224,7 +274,7 @@ app:
   agents: [*agent_name]
   
   orchestration:
-    supervisor:                 # OR swarm, not both
+    supervisor:                 # Exactly one of supervisor / swarm / deep_agent
       model: *model_name
       prompt: string
     swarm:
@@ -236,7 +286,46 @@ app:
             is_deterministic: true           # deterministic: always route here
           - agent_a                          # agentic: LLM decides via tool
       middleware: [*middleware_ref]
+    deep_agent:                 # Wraps deepagents.create_deep_agent
+      model: *model_name | string | null     # Primary LLM. Strings pass through
+                                             # to init_chat_model (e.g. "openai:gpt-4o").
+                                             # Defaults to deepagents' default if omitted.
+      system_prompt: string | *prompt_ref | null
+      tools: [*tool_name]                    # Merged with deepagents' built-in suite
+                                             # (todo, filesystem, execute, task)
+      middleware: [*middleware_ref]          # User middleware between base & tail stacks
+      subagents:                             # Callable via the `task` tool. Three forms:
+        - *agent_name                        # (1) string → entry in app.agents
+        - name: research                     # (2) inline SubAgentModel
+          description: string
+          system_prompt: string | *prompt_ref
+          model: *model_name | string | null
+          tools: [*tool_name]
+          middleware: [*middleware_ref]
+          skills: [*skill_name]
+          permissions: [*filesystem_permission_ref]
+          interrupt_on:
+            tool_name: true | *human_in_the_loop_ref
+          response_format: *response_format_ref | string | null
+        - *agent_name                        # (3) full AgentModel inline
+      skills: [*skill_name]                  # Skill paths or SkillModel refs exposed
+                                             # via deepagents' SkillsMiddleware.
+      instruction_files: [string]            # AGENTS.md-style files loaded into the
+                                             # system prompt at startup.
+      permissions: [*filesystem_permission_ref] # Inherited by sub-agents
+      interrupt_on:
+        tool_name: true | *human_in_the_loop_ref
+      backend:                               # Optional BackendModel for state/store
+        type: state | filesystem | store | volume
+        root_dir: string | null
+        volume_path: string | null
+      context_schema: string | null          # FQN of TypedDict/dataclass for run context
+      recursion_limit: int | null
+      debug: bool
+      name: string | null                    # Shows in MLflow trace dashboards
+      response_format: *response_format_ref | string | null
     memory: *memory
+    output_mode: full_history | last_message # Default: full_history
   
   initialization_hooks: [string]
   shutdown_hooks: [string]
@@ -249,6 +338,91 @@ app:
     KEY: "{{secrets/scope/secret}}"
   
   enable_chat_proxy: true          # default; set false for API-only
+  scale_to_zero: bool              # default: true
+  workload_size: Small | Medium | Large   # default: Small
+  python_version: string           # default: "3.12"
+  deployment_target: model_serving | apps # default override; CLI --deployment-target wins
+  budget_policy_id: string         # Cost-attribution policy id
+  code_paths: [string]             # Extra Python files bundled with the model artifact
+  pip_requirements: [string]       # Extra pip packages installed in the serving env
+  tags: {}                          # Key-value tags on the registered model version
+  alias: string                     # Model version alias assigned after registration (e.g. "champion")
+  input_example: {}                # Example chat payload logged alongside the model
+
+  # Conversation summarization (long-running chats)
+  chat_history:
+    model: *summary_llm            # LLM used to generate summaries
+    max_tokens: int                # Default 2048; tokens kept after summarization
+    max_tokens_before_summary: int | null     # Triggers summarization at this token count
+    max_messages_before_summary: int | null   # OR triggers at this message count (mutually exclusive)
+
+  # OTEL trace storage in Unity Catalog Delta tables
+  trace_location:
+    # Either provide a schema + warehouse (preferred), or pass a single
+    # "catalog.schema" string and the warehouse separately.
+    schema: *my_schema
+    warehouse: *warehouse | string    # WarehouseModel ref OR warehouse-id string
+
+  # Production monitoring via MLflow GenAI scorers
+  monitoring:
+    sample_rate: float                          # Built-in scorers (default 1.0)
+    scorers: [string | *guardrail_ref] | null   # Names/globs/GuardrailModel refs.
+                                                # Built-ins: safety, completeness,
+                                                # relevance_to_query, tool_call_efficiency.
+                                                # null → all built-ins.
+    guidelines:                                 # Guidelines-scorer configurations
+      - name: string
+        guidelines: [string]
+    guidelines_sample_rate: float               # Guidelines scorers (default 0.5)
+
+  # Opt-in long-running agent (Responses-API kickoff/poll/cancel)
+  long_running:
+    database: *lakebase_db                       # Persistence backend (Lakebase or Postgres)
+    default_background: bool                     # default: false
+    max_duration_seconds: int                    # default: 1800
+    poll_interval_seconds: float                 # default: 1.0
+    responses_table_name: string                 # default: dao_ai_responses
+    messages_table_name: string                  # default: dao_ai_response_messages
+
+# Offline evaluation (MLflow GenAI scorers)
+evaluation:
+  model: *judge_llm                # Judge LLM for LLM-based scorers
+  table: *table_name               # UC table where eval results are stored
+  num_evals: int                    # Number of synthetic samples to generate
+  replace: bool                     # default: false; drop+recreate table & dataset
+  agent_description: string | null # Used by the question generator
+  question_guidelines: string | null
+  custom_inputs: {}                 # Extra inputs forwarded to the agent during eval
+  guidelines:                       # Guidelines-scorer configs
+    - name: string
+      guidelines: [string]
+
+# Prompt + cache-threshold optimization
+optimizations:
+  training_datasets:
+    dataset_name: &eval_dataset
+      schema: *my_schema
+      name: string
+      overwrite: bool                            # default: false
+      data:                                      # Inline EvaluationDatasetEntry list
+        - inputs: {}                             # ChatPayload
+          expectations:
+            expected_response: string | null
+            expected_facts: [string] | null      # Mutually exclusive with expected_response
+
+  prompt_optimizations:
+    optimize_name:
+      name: string
+      prompt: *prompt_name | null                # Falls back to agent.prompt if omitted
+      agent: *agent_name
+      dataset: *eval_dataset
+      reflection_model: *model_name | string | null  # LLM used for reflective mutation
+      num_candidates: int                         # default: 50
+
+  cache_threshold_optimizations:
+    optimize_cache:
+      name: string                                # Bayesian cache-threshold optimization
+      # See config/examples/13_optimization/ for the full schema
 ```
 
 ### AI Gateway routing (`ai_gateway`)
@@ -322,6 +496,103 @@ Endpoint compute scales linearly with `target_qps`, so cost scales linearly too.
 value is ignored (a debug log entry records the configured value but no API call
 is made). To change capacity on a live endpoint, use the Databricks UI, REST API,
 or SDK directly. See the [Databricks Vector Search QPS scaling docs](https://docs.databricks.com/aws/en/generative-ai/vector-search) for the underlying capability.
+
+### Skills (`resources.skills`)
+
+A **skill** is a directory of Markdown content that teaches a deep-agent (or any agent under supervisor/swarm) how to perform a task. Skills follow the deepagents convention: a `SKILL.md` file with task instructions, optionally accompanied by `AGENTS.md` for memory plus arbitrary supporting files referenced from `SKILL.md`.
+
+Skills are loaded by deepagents' `SkillsMiddleware`. dao-ai exposes them as a first-class config entity so they can be declared once under `resources.skills` and referenced by name from any agent, sub-agent, or deep_agent definition.
+
+#### Object Model
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Unique identifier used by `SkillsMiddleware` |
+| `path` | string \| VolumePathModel | yes | Skill source directory — see "Path forms" below |
+| `description` | string | no | Human-readable description, surfaced in docs and traces |
+
+#### Path forms
+
+`path` accepts two shapes:
+
+**1. Local (string)** — a relative path under the project root. The directory is bundled with the model artifact via `code_paths` and shipped with both Model Serving and Databricks Apps deployments.
+
+```yaml
+resources:
+  skills:
+    research_skill:
+      name: research
+      description: Multi-source research with citations
+      path: skills/research                  # relative to project root
+```
+
+**2. Volume-backed (VolumePathModel)** — a Unity Catalog volume reference. The skill is read directly from `/Volumes/<cat>/<schema>/<vol>/...` at runtime and the volume is wired as a deployment resource for permission grants. Use this when skills are governed centrally.
+
+```yaml
+resources:
+  volumes:
+    skills_volume: &skills_volume
+      schema: *governance_schema
+      name: dao_ai_skills
+
+  skills:
+    research_skill:
+      name: research
+      description: Multi-source research with citations
+      path:
+        volume: *skills_volume
+        path: research                       # sub-path under the volume
+```
+
+A raw absolute string starting with `/Volumes/` is auto-promoted to a `VolumePathModel` by the pre-validator, so you can paste paths from the UC explorer verbatim:
+
+```yaml
+resources:
+  skills:
+    research_skill:
+      name: research
+      path: /Volumes/governance/skills/dao_ai_skills/research   # auto-promoted
+```
+
+#### Referencing skills
+
+Skills can be attached at three levels:
+
+| Where | Field | Accepts |
+|---|---|---|
+| `agents[].skills` | `list[SkillModel \| str]` | Strings resolved against `resources.skills`, or inline `SkillModel` entries |
+| `orchestration.deep_agent.skills` | `list[SkillModel \| str]` | Same |
+| `orchestration.deep_agent.subagents[].skills` | `list[SkillModel \| str]` | Same |
+
+When the same skill is referenced from multiple places, declare it once under `resources.skills` and reuse the YAML anchor:
+
+```yaml
+resources:
+  skills:
+    research_skill: &research_skill
+      name: research
+      path: skills/research
+
+agents:
+  researcher:
+    name: researcher
+    skills: [*research_skill]                # OR ["research"] to look up by name
+
+app:
+  orchestration:
+    deep_agent:
+      skills: [*research_skill]
+      subagents:
+        - name: deep_research
+          description: Deep multi-source research
+          system_prompt: ...
+          skills: [*research_skill]
+```
+
+#### Deployment behaviour
+
+- **Local skills** ship with the wheel via `code_paths`. No extra grants needed.
+- **Volume-backed skills** emit deployment resources (via the underlying `VolumeModel`) so the app's service principal receives `READ_VOLUME` on the backing volume at deploy time.
 
 ### Chat UI (`enable_chat_proxy`)
 
