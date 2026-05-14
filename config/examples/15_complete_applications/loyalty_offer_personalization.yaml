@@ -889,12 +889,21 @@ evaluation:
 # DATASETS
 # =============================================================================
 datasets:
-# Bronze / source-of-truth tables (loaded from SQL DDL + INSERTs)
+# Bronze / source-of-truth tables. Order matters: each table's data INSERT
+# may reference earlier tables in this list, and customer_features /
+# customers_x_eligible_offers are CTAS-style DDL that depend on bronze.
 - table:
     schema: *loyalty_schema
     name: loyalty_events
   ddl: ../data/loyalty_offer_personalization/loyalty_events.sql
   data: ../data/loyalty_offer_personalization/loyalty_events_data.sql
+  format: sql
+
+- table:
+    schema: *loyalty_schema
+    name: offer_catalog
+  ddl: ../data/loyalty_offer_personalization/offer_catalog.sql
+  data: ../data/loyalty_offer_personalization/offer_catalog_data.sql
   format: sql
 
 - table:
@@ -906,36 +915,29 @@ datasets:
 
 - table:
     schema: *loyalty_schema
-    name: receipt_lines
+    name: receipt_lines  # depends on receipts (join in INSERT)
   ddl: ../data/loyalty_offer_personalization/receipt_lines.sql
   data: ../data/loyalty_offer_personalization/receipt_lines_data.sql
   format: sql
 
 - table:
     schema: *loyalty_schema
-    name: redemptions
+    name: redemptions  # depends on offer_catalog (brand_offer_lookup CTE)
   ddl: ../data/loyalty_offer_personalization/redemptions.sql
   data: ../data/loyalty_offer_personalization/redemptions_data.sql
   format: sql
 
+# Gold / analytical tables (CTAS-style DDL)
 - table:
     schema: *loyalty_schema
-    name: offer_catalog
-  ddl: ../data/loyalty_offer_personalization/offer_catalog.sql
-  data: ../data/loyalty_offer_personalization/offer_catalog_data.sql
-  format: sql
-
-# Gold / analytical tables (built declaratively via CTAS-style DDL)
-- table:
-    schema: *loyalty_schema
-    name: customer_features
+    name: customer_features  # depends on loyalty_events, receipts, receipt_lines, redemptions
   ddl: ../data/loyalty_offer_personalization/customer_features.sql
   data: ../data/loyalty_offer_personalization/customer_features_data.sql
   format: sql
 
 - table:
     schema: *loyalty_schema
-    name: customers_x_eligible_offers
+    name: customers_x_eligible_offers  # depends on customer_features, offer_catalog
   ddl: ../data/loyalty_offer_personalization/customers_x_eligible_offers.sql
   data: ../data/loyalty_offer_personalization/customers_x_eligible_offers_data.sql
   format: sql
