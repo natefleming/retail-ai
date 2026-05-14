@@ -105,8 +105,14 @@ if config.resources is not None and config.resources.genie_rooms:
 
         param: str = parameter_name(room.raw_space_id)
 
-        existing: GenieRoomModel | None = GenieRoomModel.from_space_id(
-            value_of(room.space_id), w=room.workspace_client
+        # Resolution order:
+        #   1. Configured space_id (e.g., operator pre-set via --var)
+        #   2. Existing space matching this room's title (most-recent
+        #      wins — idempotent across deploys without orphans)
+        #   3. Provision a fresh space via room.create()
+        existing: GenieRoomModel | None = (
+            GenieRoomModel.from_space_id(value_of(room.space_id), w=room.workspace_client)
+            or GenieRoomModel.from_name(value_of(room.name), w=room.workspace_client)
         )
         if existing is not None:
             room.space_id = existing.space_id

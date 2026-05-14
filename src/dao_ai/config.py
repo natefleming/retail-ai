@@ -2579,6 +2579,52 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         except NotFound:
             return None
 
+    @classmethod
+    def from_name(
+        cls,
+        name: Optional[str],
+        *,
+        w: WorkspaceClient | None = None,
+        **auth_kwargs: Any,
+    ) -> Optional[Self]:
+        """Find a Genie space by its title. Returns a hydrated
+        ``GenieRoomModel`` for the **most-recently created** match, or
+        ``None`` when no space matches.
+
+        Unlike :meth:`_resolve_space_id_by_name`, this method is *tolerant*
+        of duplicate titles — Genie does not enforce unique titles and
+        re-running provisioning workflows can leave multiple spaces with
+        the same name. We pick the freshest match rather than raise, so
+        repeated runs of a provisioning task converge on a single space.
+
+        Args:
+            name: Genie space title to look up (may be empty or None).
+            w: Optional pre-built ``WorkspaceClient``.
+            **auth_kwargs: Forwarded to :meth:`from_space`.
+
+        Returns:
+            A populated ``GenieRoomModel`` if at least one space matches,
+            else ``None``.
+        """
+        if not name:
+            return None
+        client: WorkspaceClient = w or WorkspaceClient()
+        matches: list = []
+        page_token: Optional[str] = None
+        while True:
+            resp = client.genie.list_spaces(page_token=page_token)
+            if resp.spaces:
+                for sp in resp.spaces:
+                    if sp.title == name:
+                        matches.append(sp)
+            if not resp.next_page_token:
+                break
+            page_token = resp.next_page_token
+        if not matches:
+            return None
+        matches.sort(key=lambda s: getattr(s, "created_time", 0) or 0, reverse=True)
+        return cls.from_space(matches[0].space_id, w=client, **auth_kwargs)
+
     def create(self, w: WorkspaceClient | None = None) -> None:
         """Create or update this Genie space.
 
