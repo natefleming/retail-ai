@@ -23,7 +23,7 @@ WITH brand_offer_lookup AS (
     GROUP BY cohort_idx
 )
 SELECT
-    concat('RED-', lpad(cast(monotonically_increasing_id() AS STRING), 9, '0')) AS redemption_id,
+    concat('RED-', lpad(cast(r.id AS STRING), 9, '0')) AS redemption_id,
     concat('C-', lpad(cast(pmod(cast(rand(601) * 10000 AS BIGINT), 10000) + 1 AS STRING), 5, '0')) AS customer_id,
     element_at(bol.offer_pool, cast(rand(602) * size(bol.offer_pool) AS INT) + 1) AS offer_id,
     NULL AS receipt_id,
@@ -31,4 +31,4 @@ SELECT
     round(rand(604) * 30 + 5, 2) AS redemption_value
 FROM range(15000) r
 JOIN brand_offer_lookup bol
-    ON pmod(cast(rand(605) * 10000 AS BIGINT), 10) = bol.cohort_idx;
+    ON pmod(r.id, 10) = bol.cohort_idx;
