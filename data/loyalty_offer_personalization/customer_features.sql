@@ -90,9 +90,11 @@ SELECT
     coalesce(la.top_brands, array()) AS top_brands,
     coalesce(la.top_categories, array()) AS top_categories,
     -- Inverse-frequency "avoided" lists (brands/categories the customer
-    -- has bought ≤1 unit of in the last 18mo despite >=10 total purchases)
-    array() AS avoided_brands,
-    array() AS avoided_categories,
+    -- has bought ≤1 unit of in the last 18mo despite >=10 total purchases).
+    -- Empty for now; cast to ARRAY<STRING> so Delta accepts the column
+    -- (a bare array() literal has NullType element type).
+    cast(array() AS ARRAY<STRING>) AS avoided_brands,
+    cast(array() AS ARRAY<STRING>) AS avoided_categories,
     -- Redemption history
     coalesce(red.redemptions_lifetime, 0) AS redemptions_lifetime,
     coalesce(red.redemptions_90d, 0) AS redemptions_90d,
