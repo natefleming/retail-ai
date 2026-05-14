@@ -32,7 +32,7 @@ dbutils.widgets.dropdown(
     choices=["", "model_serving", "apps", "both"],
     defaultValue="",
 )
-dbutils.widgets.text(name="genie-space-id", defaultValue="")
+dbutils.widgets.text(name="genie-space-params", defaultValue="")
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
 dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
@@ -40,13 +40,13 @@ dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue
 config_path: str | None = dbutils.widgets.get("config-path") or None
 project_path: str = dbutils.widgets.get("config-paths") or None
 deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
-genie_space_id: str | None = dbutils.widgets.get("genie-space-id") or None
+genie_space_params: str | None = dbutils.widgets.get("genie-space-params") or None
 
 config_path: str = config_path or project_path
 
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
-print(f"Genie space id (from provision-genie task): {genie_space_id or '(unset)'}")
+print(f"Genie space params (from provision-genie task): {genie_space_params or '(unset)'}")
 
 # COMMAND ----------
 
@@ -107,20 +107,27 @@ nest_asyncio.apply()
 from typing import Sequence
 from dao_ai.config import AppConfig, DeploymentTarget
 
+import json
+
 config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
 deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
-genie_space_id: str | None = dbutils.widgets.get("genie-space-id") or None
+genie_space_params: str | None = dbutils.widgets.get("genie-space-params") or None
 
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
-print(f"Genie space id: {genie_space_id or '(unset)'}")
+print(f"Genie space params: {genie_space_params or '(unset)'}")
 
-# Forward the provision-genie task's space_id into the config as a `${var.genie_space_id}`
-# parameter. When the YAML's Genie rooms declare space_id: ${var.genie_space_id},
-# this binds the resolved id and skips downstream name-resolution.
+# Forward the provision-genie task's results into the config as dao-ai
+# parameters. The taskValue is a JSON map of {param_name: space_id};
+# each entry binds a `${var.<param_name>}` reference in the YAML.
 params: dict[str, str] = {}
-if genie_space_id:
-    params["genie_space_id"] = genie_space_id
+if genie_space_params:
+    try:
+        decoded: dict[str, str] = json.loads(genie_space_params)
+        if isinstance(decoded, dict):
+            params.update({k: str(v) for k, v in decoded.items() if v})
+    except json.JSONDecodeError as exc:
+        print(f"WARNING: could not parse genie-space-params as JSON: {exc}")
 
 config: AppConfig = AppConfig.from_file(path=config_path, params=params or None)
 

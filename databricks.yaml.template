@@ -111,7 +111,7 @@ resources:
             base_parameters:
               config-path: ${var.config_path}
               deployment-target: ${var.deployment_target}
-              genie-space-id: "{{tasks.provision-genie.values.genie_space_id}}"
+              genie-space-params: "{{tasks.provision-genie.values.genie_space_params}}"
           environment_key: dao-ai-env
         - task_key: run-evaluation
           depends_on:
