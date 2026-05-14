@@ -1704,6 +1704,24 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
     )
 
     _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
+    _raw_space_id: Optional[str] = PrivateAttr(default=None)
+    """The original ``space_id`` YAML value before parameter substitution.
+
+    Populated by :meth:`AppConfig.from_file` from the pre-substitution
+    raw YAML. Useful for tooling that needs to know whether the field
+    was backed by a ``${var.X}`` reference — e.g., a provisioning task
+    that should forward a resolved value back to that same parameter.
+    Use :func:`is_parameter` and :func:`parameter_name` to inspect.
+    """
+
+    @property
+    def raw_space_id(self) -> Optional[str]:
+        """The original (pre-substitution) ``space_id`` YAML value, or ``None``.
+
+        Use with :func:`is_parameter` / :func:`parameter_name` to detect
+        whether the field was bound to a ``${var.X}`` parameter.
+        """
+        return self._raw_space_id
 
     def _get_space_details(self) -> GenieSpace | None:
         """Fetch Genie space details from the API.
@@ -7973,10 +7991,20 @@ class AppConfig(BaseModel):
         config._rendered_yaml = rendered_text
         config._substitution_vars = dict(params) if params else None
         # Stash the pre-substitution dict so tooling can recover which
-        # YAML fields were backed by ``${var.X}`` references (e.g.,
-        # provisioning tasks that need to forward resolved values back
-        # to those same parameters).
+        # YAML fields were backed by ``${var.X}`` references.
         config._raw_yaml_dict = raw_dict
+
+        # Wire pre-substitution values onto specific models that need to
+        # introspect their own parameter bindings at runtime. Genie rooms
+        # carry the raw space_id so provisioning tasks can detect a
+        # ``${var.X}`` binding via ``is_parameter(room.raw_space_id)``.
+        if config.resources is not None and config.resources.genie_rooms:
+            raw_rooms: dict[str, Any] = (
+                raw_dict.get("resources", {}).get("genie_rooms", {}) or {}
+            )
+            for room_key, room in config.resources.genie_rooms.items():
+                raw_room: dict[str, Any] = raw_rooms.get(room_key) or {}
+                room._raw_space_id = raw_room.get("space_id")
 
         if initialize:
             config.initialize()
@@ -7997,36 +8025,6 @@ class AppConfig(BaseModel):
     def substitution_vars(self) -> dict[str, str] | None:
         """Get the explicit substitution vars used at load time, if any."""
         return self._substitution_vars
-
-    def parameterized_genie_rooms(self) -> dict[str, str]:
-        """Map each ``genie_rooms`` key whose ``space_id`` was a
-        ``${var.NAME}`` / ``${param.NAME}`` reference to that parameter name.
-
-        Walks the *pre-substitution* YAML so the original parameter
-        reference is recoverable (after :meth:`from_file` finishes,
-        ``room.space_id`` already holds the substituted value).
-
-        Use case: a provisioning task that resolves or creates each
-        Genie space and then forwards the resolved id back as the
-        same parameter on the next pipeline step.
-
-        Returns:
-            ``{room_key: parameter_name}``. Rooms with literal or empty
-            ``space_id`` (and configs without a ``genie_rooms`` block) are
-            omitted.
-        """
-        if not self._raw_yaml_dict:
-            return {}
-        rooms_block: dict[str, Any] = (
-            self._raw_yaml_dict.get("resources", {}).get("genie_rooms", {}) or {}
-        )
-        out: dict[str, str] = {}
-        for room_key, room_dict in rooms_block.items():
-            raw_space_id: Any = (room_dict or {}).get("space_id")
-            pname: str | None = parameter_name(raw_space_id)
-            if pname is not None:
-                out[room_key] = pname
-        return out
 
     def _resolve_all_resources(self) -> None:
         """Walk the config tree and call ensure_resolved() on all IsDatabricksResource instances."""

@@ -77,25 +77,35 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-# For each Genie room whose space_id is backed by a ${var.NAME} parameter,
-# either reuse the configured space (when from_space_id returns a hydrated
-# model) or create a fresh one. Forward each resolved id back to the
-# associated parameter via taskValues so deploy-agents can inject it as a
-# dao-ai parameter at config load time.
+# Iterate each declared Genie room. For rooms whose space_id is bound
+# to a `${var.NAME}` parameter (detected via `room.raw_space_id` and
+# `is_parameter`), either reuse the configured space (via
+# `from_space_id`) or create a fresh one (via `room.create()`), then
+# forward the resolved id back to that parameter via taskValues so
+# deploy-agents can inject it at config load time.
 
 import json
 from databricks.sdk import WorkspaceClient
-from dao_ai.config import AppConfig, GenieRoomModel, value_of
+from dao_ai.config import (
+    AppConfig,
+    GenieRoomModel,
+    is_parameter,
+    parameter_name,
+    value_of,
+)
 
 config: AppConfig = AppConfig.from_file(path=config_path, initialize=False)
-room_params: dict[str, str] = config.parameterized_genie_rooms()
-print(f"Genie rooms with parameterized space_id: {room_params}")
-
 provisioned: dict[str, str] = {}
-if room_params:
+
+if config.resources is not None and config.resources.genie_rooms:
     w: WorkspaceClient = WorkspaceClient()
-    for room_key, param_name in room_params.items():
-        room: GenieRoomModel = config.resources.genie_rooms[room_key]
+    for room_key, room in config.resources.genie_rooms.items():
+        room: GenieRoomModel
+        if not is_parameter(room.raw_space_id):
+            print(f"[{room_key}] space_id is literal/unset; skipping")
+            continue
+
+        param: str = parameter_name(room.raw_space_id)
 
         existing: GenieRoomModel | None = GenieRoomModel.from_space_id(
             value_of(room.space_id), w=w
@@ -108,25 +118,22 @@ if room_params:
             room.create(w=w)
             print(f"[{room_key}] created space {value_of(room.space_id)}")
 
-        provisioned[param_name] = value_of(room.space_id)
+        resolved: str = value_of(room.space_id)
+        provisioned[param] = resolved
+        dbutils.jobs.taskValues.set(key=param, value=resolved)
+        print(f"  Set taskValue {param} = {resolved}")
 
 # COMMAND ----------
 
-summary: dict = {
-    "room_params_discovered": room_params,
-    "provisioned": provisioned,
-}
-
+# Also set a consolidated JSON map so deploy-agents can read every
+# resolved parameter via a single base_parameter (the bundle template
+# can't reference N dynamic keys at template-write time).
+summary: dict = {"provisioned": provisioned}
 if provisioned:
-    payload: str = json.dumps(provisioned)
-    dbutils.jobs.taskValues.set(key="genie_space_params", value=payload)
-    print(f"Set taskValue genie_space_params = {payload}")
+    dbutils.jobs.taskValues.set(key="genie_space_params", value=json.dumps(provisioned))
     summary["taskvalue_set"] = True
-    summary["taskvalue_payload"] = payload
 else:
     print("No parameterized Genie space_ids; no taskValues set.")
     summary["taskvalue_set"] = False
 
-# Surface the summary as notebook_output so it's visible via
-# `databricks jobs get-run-output` without scraping cluster logs.
 dbutils.notebook.exit(json.dumps(summary))
