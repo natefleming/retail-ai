@@ -27,8 +27,9 @@ RETURN (
     concat(
       '<task>',
         'You are a retail offer-personalization ranker. Given one customer profile ',
-        'and a list of candidate offers, return a JSON object with key "ranking" ',
-        'whose value is an array of exactly ', cast(least(size(rank_offers_for_customer.candidate_offer_ids), 10) AS STRING),
+        'and a list of candidate offers, return a JSON object of shape ',
+        '{"ranking": {"offers": [ ... ]}}. The offers array contains exactly ',
+        cast(least(size(rank_offers_for_customer.candidate_offer_ids), 10) AS STRING),
         ' objects. Each object has: offer_id (string), rank (1-indexed integer, lowest=best), ',
         'score (0-100 double; higher means more likely to redeem), and reason ',
         '(one sentence citing the specific customer feature(s) that drove the rank — ',
@@ -59,9 +60,9 @@ RETURN (
         to_json(co.candidates),
       '</candidate_offers>'
     ),
-    responseFormat => 'STRUCT<ranking: ARRAY<STRUCT<offer_id: STRING, rank: INT, score: DOUBLE, reason: STRING>>>',
+    responseFormat => 'STRUCT<ranking: STRUCT<offers: ARRAY<STRUCT<offer_id: STRING, rank: INT, score: DOUBLE, reason: STRING>>>>',
     modelParameters => named_struct('temperature', 0.1, 'max_tokens', 1500)
-  ).ranking
+  ).ranking.offers
   FROM {catalog_name}.{schema_name}.customer_features cf
   CROSS JOIN (
     SELECT collect_list(named_struct(
