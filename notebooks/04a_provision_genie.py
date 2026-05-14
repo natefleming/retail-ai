@@ -112,8 +112,21 @@ if room_params:
 
 # COMMAND ----------
 
+summary: dict = {
+    "room_params_discovered": room_params,
+    "provisioned": provisioned,
+}
+
 if provisioned:
-    dbutils.jobs.taskValues.set(key="genie_space_params", value=json.dumps(provisioned))
-    print(f"Set taskValue genie_space_params = {json.dumps(provisioned)}")
+    payload: str = json.dumps(provisioned)
+    dbutils.jobs.taskValues.set(key="genie_space_params", value=payload)
+    print(f"Set taskValue genie_space_params = {payload}")
+    summary["taskvalue_set"] = True
+    summary["taskvalue_payload"] = payload
 else:
     print("No parameterized Genie space_ids; no taskValues set.")
+    summary["taskvalue_set"] = False
+
+# Surface the summary as notebook_output so it's visible via
+# `databricks jobs get-run-output` without scraping cluster logs.
+dbutils.notebook.exit(json.dumps(summary))
