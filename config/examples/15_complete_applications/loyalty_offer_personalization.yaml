@@ -30,8 +30,8 @@ parameters:
     description: Schema within the catalog
     default: loyalty_offers
   genie_parent_path:
-    description: Workspace folder for the Genie space (path under /Users/<user>/)
-    default: "/Users/${workspace.current_user.userName}/genie"
+    description: Workspace folder where the Genie space is created. Must already exist.
+    default: "/Users/${workspace.current_user.userName}"
   lakebase_project:
     description: Existing Lakebase project reused for agent memory + checkpointer
     default: retail-consumer-goods
