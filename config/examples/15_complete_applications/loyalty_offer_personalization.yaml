@@ -189,11 +189,7 @@ resources:
     # the room is stable.
     loyalty_genie_room: &loyalty_genie_room
       name: "Loyalty Offer Personalization Analytics"
-      description: >
-        Natural-language analytics over the loyalty_offers schema: customer
-        features, receipt history, redemption performance, candidate-offer
-        eligibility, and LLM-produced offer rankings. Use for cross-segment
-        and trend questions that don't map to a single-customer lookup.
+      description: "Natural-language analytics over the loyalty_offers schema for cross-segment and trend questions over customer features, redemptions, offer catalog, and LLM rankings."
       on_behalf_of_user: false
       parent_path: "${var.genie_parent_path}"
       warehouse: *loyalty_warehouse
@@ -458,10 +454,7 @@ tools:
       name: dao_ai.tools.create_genie_toolkit
       args:
         name: query_segment_analytics
-        description: >
-          Natural-language analytics over customer_features, receipts, and
-          offer rankings. Use for "which segments...", "top customers by...",
-          "brand mix by tier" — cross-segment, cross-customer questions.
+        description: "Genie analytics over customer_features, receipts, and offer rankings. Use for cross-segment / cross-customer questions: top-N, brand mix, segment-level aggregates."
         genie_room: *loyalty_genie_room
         lru_cache_parameters:
           warehouse: *loyalty_warehouse
@@ -484,10 +477,7 @@ tools:
       name: dao_ai.tools.create_genie_toolkit
       args:
         name: query_redemption_outcomes
-        description: >
-          Natural-language analytics over redemptions joined to offer_catalog
-          and customer_features. Use for "did offer X lift...", "which offers
-          underperformed last week", "redemption rate by tier".
+        description: "Genie analytics over redemptions joined to offer_catalog and customer_features. Use for 'did offer X lift...', under/over-performing offers, redemption rate by tier."
         genie_room: *loyalty_genie_room
         lru_cache_parameters:
           warehouse: *loyalty_warehouse
@@ -519,12 +509,7 @@ tools:
       name: dao_ai.tools.create_app_info_tool
       args:
         app_name: "Loyalty Offer Personalization"
-        description: >
-          Multi-agent companion for loyalty/CRM marketers and merchandiser/
-          category managers. Provides Customer 360 lookups, offer catalog
-          search, ranking explanations, what-if re-ranking, segment analytics,
-          and redemption-outcome analysis on top of LLM-generated offer
-          rankings.
+        description: "Multi-agent companion for CRM marketers + merchandisers. Customer 360 lookups, offer search, ranking explanations, what-if re-rank, segment + redemption analytics."
         agents:
         - name: customer_intelligence
           description: "Customer 360 lookups: profile, recent receipts, preferences."
@@ -784,11 +769,7 @@ memory: &memory
 # =============================================================================
 app:
   name: loyalty_offers_dao
-  description: >
-    Multi-agent operator companion for receipt-driven loyalty offer
-    personalization. Loyalty/CRM marketers and merchandisers use it to
-    investigate, explain, and re-run LLM-ranked offer assignments.
-    Deploys to both Model Serving and Databricks Apps from the same config.
+  description: "Multi-agent operator companion for receipt-driven loyalty offer personalization. CRM marketers + merchandisers investigate, explain, and re-run LLM-ranked offer assignments."
   log_level: INFO
   deployment_target: both
   registered_model:
@@ -852,6 +833,15 @@ app:
         - "Did offer X lift..." / "Which offers under-performed..."
           → redemption_outcomes
         - Anything else → general
+
+        IMPORTANT — emit exactly ONE handoff tool call per response. The
+        system executes the first handoff and drops the rest. If a request
+        needs multiple specialists (e.g., "pull C-00007's profile AND
+        explain why offer O-0001 should rank in their top 3"), hand off
+        to the FIRST specialist now. When that specialist returns control
+        to you, hand off to the next specialist with the prior result
+        available in the conversation. Never emit two handoff_to_* tools
+        in the same response.
   input_example:
     messages:
     - role: user
