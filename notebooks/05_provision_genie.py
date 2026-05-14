@@ -85,7 +85,6 @@ _ = load_dotenv(find_dotenv())
 # deploy-agents can inject it at config load time.
 
 import json
-from databricks.sdk import WorkspaceClient
 from dao_ai.config import (
     AppConfig,
     GenieRoomModel,
@@ -98,7 +97,6 @@ config: AppConfig = AppConfig.from_file(path=config_path, initialize=False)
 provisioned: dict[str, str] = {}
 
 if config.resources is not None and config.resources.genie_rooms:
-    w: WorkspaceClient = WorkspaceClient()
     for room_key, room in config.resources.genie_rooms.items():
         room: GenieRoomModel
         if not is_parameter(room.raw_space_id):
@@ -108,14 +106,14 @@ if config.resources is not None and config.resources.genie_rooms:
         param: str = parameter_name(room.raw_space_id)
 
         existing: GenieRoomModel | None = GenieRoomModel.from_space_id(
-            value_of(room.space_id), w=w
+            value_of(room.space_id), w=room.workspace_client
         )
         if existing is not None:
             room.space_id = existing.space_id
             print(f"[{room_key}] reusing space {room.space_id}")
         else:
             room.space_id = None
-            room.create(w=w)
+            room.create()
             print(f"[{room_key}] created space {value_of(room.space_id)}")
 
         resolved: str = value_of(room.space_id)
