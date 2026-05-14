@@ -188,7 +188,7 @@ resources:
     # the space on first deploy. Switch to OBO + a populated space_id once
     # the room is stable.
     loyalty_genie_room: &loyalty_genie_room
-      name: "Loyalty Offer Personalization Analytics"
+      name: "Loyalty Offers Analytics v2"
       description: "Natural-language analytics over the loyalty_offers schema for cross-segment and trend questions over customer features, redemptions, offer catalog, and LLM rankings."
       on_behalf_of_user: false
       parent_path: "${var.genie_parent_path}"
