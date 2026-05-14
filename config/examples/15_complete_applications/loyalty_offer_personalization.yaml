@@ -38,6 +38,9 @@ parameters:
   warehouse_id:
     description: SQL Warehouse id used by Genie + provisioning. Override per workspace via --var.
     default: 4b9b953939869799
+  genie_space_id:
+    description: Genie space id forwarded from the provision-genie task (taskValue). Leave empty for local runs; the bundle deploy_job fills it in at runtime.
+    default: ""
 
 # =============================================================================
 # VARIABLES (shared secrets for the retail_consumer_goods service principal)
@@ -189,6 +192,7 @@ resources:
     # the room is stable.
     loyalty_genie_room: &loyalty_genie_room
       name: "Loyalty Offers Analytics v2"
+      space_id: "${var.genie_space_id}"
       description: "Natural-language analytics over the loyalty_offers schema for cross-segment and trend questions over customer features, redemptions, offer catalog, and LLM rankings."
       on_behalf_of_user: false
       parent_path: "${var.genie_parent_path}"

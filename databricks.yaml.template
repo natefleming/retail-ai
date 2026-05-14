@@ -95,14 +95,23 @@ resources:
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
-        - task_key: deploy-agents
+        - task_key: provision-genie
           depends_on:
             - task_key: unity-catalog-tools
+          notebook_task:
+            notebook_path: ./notebooks/04a_provision_genie.py
+            base_parameters:
+              config-path: ${var.config_path}
+          environment_key: dao-ai-env
+        - task_key: deploy-agents
+          depends_on:
+            - task_key: provision-genie
           notebook_task:
             notebook_path: ./notebooks/05_deploy_agent.py
             base_parameters:
               config-path: ${var.config_path}
               deployment-target: ${var.deployment_target}
+              genie-space-id: "{{tasks.provision-genie.values.genie_space_id}}"
           environment_key: dao-ai-env
         - task_key: run-evaluation
           depends_on:
