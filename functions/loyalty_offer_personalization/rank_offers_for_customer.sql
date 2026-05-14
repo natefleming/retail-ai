@@ -21,15 +21,15 @@ CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.rank_offers_for_customer
 RETURNS ARRAY<STRUCT<offer_id: STRING, rank: INT, score: DOUBLE, reason: STRING>>
 LANGUAGE SQL
 COMMENT 'Calls the chat-completion endpoint with the personalization prompt for this customer + candidate offers. Returns the parsed 10-element ranking. The prompt body lives inline here so it is the single source of truth across batch, agentic, and real-time surfaces.'
-RETURN
-  from_json(
+RETURN (
+  SELECT from_json(
     ai_query(
       'databricks-claude-sonnet-4-5',
       concat(
         '<task>',
           'You are a retail offer-personalization ranker. Given one customer profile ',
           'and a list of candidate offers, return a JSON object with key "ranking" ',
-          'whose value is an array of exactly ', cast(least(size(candidate_offer_ids), 10) AS STRING),
+          'whose value is an array of exactly ', cast(least(size(rank_offers_for_customer.candidate_offer_ids), 10) AS STRING),
           ' objects. Each object has: offer_id (string), rank (1-indexed integer, lowest=best), ',
           'score (0-100 double; higher means more likely to redeem), and reason ',
           '(one sentence citing the specific customer feature(s) that drove the rank — ',
@@ -65,20 +65,21 @@ RETURN
     ):ranking,
     'ARRAY<STRUCT<offer_id: STRING, rank: INT, score: DOUBLE, reason: STRING>>'
   )
-FROM {catalog_name}.{schema_name}.customer_features cf
-CROSS JOIN (
-  SELECT collect_list(named_struct(
-    'offer_id',      o.offer_id,
-    'name',          o.name,
-    'description',   o.description,
-    'brand',         o.brand,
-    'category',      o.category,
-    'discount_kind', o.discount_kind,
-    'discount_pct',  o.discount_pct,
-    'margin_class',  o.margin_class,
-    'seasonal_tag',  o.seasonal_tag
-  )) AS candidates
-  FROM {catalog_name}.{schema_name}.offer_catalog o
-  WHERE array_contains(rank_offers_for_customer.candidate_offer_ids, o.offer_id)
-) co
-WHERE cf.customer_id = rank_offers_for_customer.customer_id;
+  FROM {catalog_name}.{schema_name}.customer_features cf
+  CROSS JOIN (
+    SELECT collect_list(named_struct(
+      'offer_id',      o.offer_id,
+      'name',          o.name,
+      'description',   o.description,
+      'brand',         o.brand,
+      'category',      o.category,
+      'discount_kind', o.discount_kind,
+      'discount_pct',  o.discount_pct,
+      'margin_class',  o.margin_class,
+      'seasonal_tag',  o.seasonal_tag
+    )) AS candidates
+    FROM {catalog_name}.{schema_name}.offer_catalog o
+    WHERE array_contains(rank_offers_for_customer.candidate_offer_ids, o.offer_id)
+  ) co
+  WHERE cf.customer_id = rank_offers_for_customer.customer_id
+);
