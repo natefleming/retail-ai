@@ -32,15 +32,15 @@ SELECT
     concat('L-', lpad(cast(monotonically_increasing_id() AS STRING), 11, '0')) AS line_id,
     rs.receipt_id,
     -- SKU includes brand prefix so it's plausible
-    concat(substring(b.top_brand, 1, 3), '-', lpad(cast(rand(501 + rs.cust_num) * 999 AS INT), 4, '0')) AS sku,
+    concat(substring(b.top_brand, 1, 3), '-', lpad(cast(rand(501) * 999 AS INT), 4, '0')) AS sku,
     -- 70% chance the line is from the customer's top brand, 30% random
-    CASE WHEN rand(502 + rs.cust_num) < 0.70 THEN b.top_brand
+    CASE WHEN rand(502) < 0.70 THEN b.top_brand
          ELSE element_at(array('Nike','Adidas','Lululemon','Patagonia','REI','Levis','GAP','JCrew','BananaRepublic','Puma'),
-                         cast(rand(503 + rs.cust_num) * 10 AS INT) + 1)
+                         cast(rand(503) * 10 AS INT) + 1)
     END AS brand,
-    CASE WHEN rand(504 + rs.cust_num) < 0.70 THEN b.top_category
+    CASE WHEN rand(504) < 0.70 THEN b.top_category
          ELSE element_at(array('Footwear','Activewear','Outerwear','Denim','Apparel-Tops','Apparel-Bottoms','Accessories'),
-                         cast(rand(505 + rs.cust_num) * 7 AS INT) + 1)
+                         cast(rand(505) * 7 AS INT) + 1)
     END AS category,
     1 AS qty,
     round(rand(506) * 100 + 20, 2) AS line_price,

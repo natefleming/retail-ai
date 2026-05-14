@@ -9,13 +9,13 @@ SELECT
     concat('E-', lpad(cast(id AS STRING), 9, '0')) AS event_id,
     concat('C-', lpad(cast(id AS STRING), 5, '0')) AS customer_id,
     'ENROLL' AS event_type,
-    current_timestamp() - make_interval(0, 0, 0, cast(rand(101 + id) * 1800 + 90 AS INT), 0, 0, 0) AS event_ts,
+    current_timestamp() - make_interval(0, 0, 0, cast(rand(101) * 1800 + 90 AS INT), 0, 0, 0) AS event_ts,
     cast(NULL AS STRING) AS tier_before,
-    CASE WHEN rand(102 + id) < 0.05 THEN 'Premium'
-         WHEN rand(102 + id) < 0.20 THEN 'Gold'
-         WHEN rand(102 + id) < 0.55 THEN 'Silver'
+    CASE WHEN rand(102) < 0.05 THEN 'Premium'
+         WHEN rand(102) < 0.20 THEN 'Gold'
+         WHEN rand(102) < 0.55 THEN 'Silver'
          ELSE 'Standard' END AS tier_after,
-    cast(rand(103 + id) * 8 + 101 AS INT) AS store_id,
+    cast(rand(103) * 8 + 101 AS INT) AS store_id,
     NULL AS payload_json
 FROM range(10000);
 
@@ -25,10 +25,10 @@ SELECT
     concat('E-T-', lpad(cast(id AS STRING), 9, '0')) AS event_id,
     concat('C-', lpad(cast(id AS STRING), 5, '0')) AS customer_id,
     'TIER_CHANGE' AS event_type,
-    current_timestamp() - make_interval(0, 0, 0, cast(rand(201 + id) * 365 + 30 AS INT), 0, 0, 0) AS event_ts,
+    current_timestamp() - make_interval(0, 0, 0, cast(rand(201) * 365 + 30 AS INT), 0, 0, 0) AS event_ts,
     'Silver' AS tier_before,
     'Gold' AS tier_after,
     NULL AS store_id,
     '{"reason":"lifetime_spend_threshold"}' AS payload_json
 FROM range(10000)
-WHERE rand(200 + id) < 0.20;
+WHERE rand(200) < 0.20;
