@@ -2507,6 +2507,37 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         instance.refresh()
         return instance
 
+    @classmethod
+    def from_space_id(
+        cls,
+        space_id: Optional[str],
+        *,
+        w: WorkspaceClient | None = None,
+        **auth_kwargs: Any,
+    ) -> Optional[Self]:
+        """Tolerant variant of :meth:`from_space`: returns ``None`` when the
+        space does not exist (or when ``space_id`` is empty/None) instead of
+        raising.
+
+        Use this when a caller has a *candidate* space_id and wants to know
+        whether it refers to a live space — e.g., a provisioning task that
+        will create a fresh space if the candidate is stale or unset.
+
+        Args:
+            space_id: A candidate space id (may be empty or None).
+            w: Optional pre-built ``WorkspaceClient``.
+            **auth_kwargs: Forwarded to :meth:`from_space`.
+
+        Returns:
+            A populated ``GenieRoomModel`` if the space exists, else ``None``.
+        """
+        if not space_id:
+            return None
+        try:
+            return cls.from_space(space_id, w=w, **auth_kwargs)
+        except NotFound:
+            return None
+
     def create(self, w: WorkspaceClient | None = None) -> None:
         """Create or update this Genie space.
 

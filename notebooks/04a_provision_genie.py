@@ -105,14 +105,19 @@ config: AppConfig = AppConfig.from_file(path=config_path, initialize=False)
 
 # COMMAND ----------
 
-# For each parameterized Genie room: resolve the space by name via
-# dao-ai's native `_resolve_space_id_by_name`, falling back to
-# `room.create()` when no match exists. Both are existing dao-ai
-# primitives — no duplicated lookup/create logic in this notebook.
+# For each parameterized Genie room, resolve a usable space_id using
+# dao-ai's native primitives (no reimplemented lookup/create logic):
+#
+#   1. GenieRoomModel.from_space_id(<configured>) — returns a populated
+#      model if the operator pre-set a valid id, else None.
+#   2. room._resolve_space_id_by_name(<title>) — finds the most-recent
+#      space the same operator created on a prior deploy (idempotency
+#      across re-runs without orphaning new spaces every time).
+#   3. room.create(w) — only when no existing space matches.
 
 import json
 from databricks.sdk import WorkspaceClient
-from dao_ai.config import value_of
+from dao_ai.config import GenieRoomModel, value_of
 
 if not room_params:
     print("No parameterized Genie space_ids; nothing to provision.")
@@ -121,19 +126,25 @@ else:
     w: WorkspaceClient = WorkspaceClient()
     provisioned = {}
     for room_key, param_name in room_params.items():
-        room = config.resources.genie_rooms[room_key]
+        room: GenieRoomModel = config.resources.genie_rooms[room_key]
         title: str = value_of(room.name)
-        try:
-            room.space_id = room._resolve_space_id_by_name(title)
-            print(f"[{room_key}] resolved existing space '{title}' -> {room.space_id}")
-        except ValueError as exc:
-            if "No Genie space found" not in str(exc):
-                # Multi-match: propagate so the operator disambiguates.
-                raise
-            # No existing space — create one via dao-ai's create() primitive.
-            room.space_id = None
-            room.create(w=w)
-            print(f"[{room_key}] created new space '{title}' -> {value_of(room.space_id)}")
+        configured: str | None = value_of(room.space_id) if room.space_id else None
+
+        existing: GenieRoomModel | None = GenieRoomModel.from_space_id(configured, w=w)
+        if existing is not None:
+            room.space_id = existing.space_id
+            print(f"[{room_key}] reusing configured space_id {room.space_id}")
+        else:
+            try:
+                room.space_id = room._resolve_space_id_by_name(title)
+                print(f"[{room_key}] resolved space '{title}' by name -> {room.space_id}")
+            except ValueError as exc:
+                if "No Genie space found" not in str(exc):
+                    raise  # multi-match: propagate so operator disambiguates
+                room.space_id = None
+                room.create(w=w)
+                print(f"[{room_key}] created new space '{title}' -> {value_of(room.space_id)}")
+
         provisioned[param_name] = value_of(room.space_id)
 
 # COMMAND ----------
