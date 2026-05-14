@@ -77,85 +77,43 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-# Discover which Genie rooms in the YAML use a `${var.<param>}` reference
-# for `space_id`. By the time AppConfig.from_file returns, substitution
-# has already collapsed those refs to their parameter defaults — so we
-# re-parse the raw YAML to map (room_key -> param_name). Rooms with
-# literal or empty space_ids are skipped (nothing for provision-genie
-# to inject downstream).
-
-import re
-import yaml
-from dao_ai.config import AppConfig
-
-_PARAM_REF: re.Pattern[str] = re.compile(r"^\$\{(?:var|param)\.([A-Za-z_][A-Za-z0-9_]*)\}$")
-
-with open(config_path) as _f:
-    _raw_yaml: dict = yaml.safe_load(_f) or {}
-
-room_params: dict[str, str] = {}
-for _room_key, _room_dict in (_raw_yaml.get("resources", {}).get("genie_rooms", {}) or {}).items():
-    _m: re.Match[str] | None = _PARAM_REF.match(str((_room_dict or {}).get("space_id", "")).strip())
-    if _m:
-        room_params[_room_key] = _m.group(1)
-
-print(f"Genie rooms with parameterized space_id: {room_params}")
-
-config: AppConfig = AppConfig.from_file(path=config_path, initialize=False)
-
-# COMMAND ----------
-
-# For each parameterized Genie room, resolve a usable space_id using
-# dao-ai's native primitives (no reimplemented lookup/create logic):
-#
-#   1. GenieRoomModel.from_space_id(<configured>) — returns a populated
-#      model if the operator pre-set a valid id, else None.
-#   2. room._resolve_space_id_by_name(<title>) — finds the most-recent
-#      space the same operator created on a prior deploy (idempotency
-#      across re-runs without orphaning new spaces every time).
-#   3. room.create(w) — only when no existing space matches.
+# For each Genie room whose space_id is backed by a ${var.NAME} parameter,
+# either reuse the configured space (when from_space_id returns a hydrated
+# model) or create a fresh one. Forward each resolved id back to the
+# associated parameter via taskValues so deploy-agents can inject it as a
+# dao-ai parameter at config load time.
 
 import json
 from databricks.sdk import WorkspaceClient
-from dao_ai.config import GenieRoomModel, value_of
+from dao_ai.config import AppConfig, GenieRoomModel, value_of
 
-if not room_params:
-    print("No parameterized Genie space_ids; nothing to provision.")
-    provisioned: dict[str, str] = {}
-else:
+config: AppConfig = AppConfig.from_file(path=config_path, initialize=False)
+room_params: dict[str, str] = config.parameterized_genie_rooms()
+print(f"Genie rooms with parameterized space_id: {room_params}")
+
+provisioned: dict[str, str] = {}
+if room_params:
     w: WorkspaceClient = WorkspaceClient()
-    provisioned = {}
     for room_key, param_name in room_params.items():
         room: GenieRoomModel = config.resources.genie_rooms[room_key]
-        title: str = value_of(room.name)
-        configured: str | None = value_of(room.space_id) if room.space_id else None
 
-        existing: GenieRoomModel | None = GenieRoomModel.from_space_id(configured, w=w)
+        existing: GenieRoomModel | None = GenieRoomModel.from_space_id(
+            value_of(room.space_id), w=w
+        )
         if existing is not None:
             room.space_id = existing.space_id
-            print(f"[{room_key}] reusing configured space_id {room.space_id}")
+            print(f"[{room_key}] reusing space {room.space_id}")
         else:
-            try:
-                room.space_id = room._resolve_space_id_by_name(title)
-                print(f"[{room_key}] resolved space '{title}' by name -> {room.space_id}")
-            except ValueError as exc:
-                if "No Genie space found" not in str(exc):
-                    raise  # multi-match: propagate so operator disambiguates
-                room.space_id = None
-                room.create(w=w)
-                print(f"[{room_key}] created new space '{title}' -> {value_of(room.space_id)}")
+            room.space_id = None
+            room.create(w=w)
+            print(f"[{room_key}] created space {value_of(room.space_id)}")
 
         provisioned[param_name] = value_of(room.space_id)
 
 # COMMAND ----------
 
-# Forward to deploy-agents via a single taskValue holding a JSON map of
-# {param_name: space_id}. Skip entirely when nothing was provisioned —
-# deploy-agents treats a missing taskValue as "no genie params to inject"
-# and preserves the prior code path.
-
 if provisioned:
     dbutils.jobs.taskValues.set(key="genie_space_params", value=json.dumps(provisioned))
-    print(f"\nSet taskValue genie_space_params = {json.dumps(provisioned)}")
+    print(f"Set taskValue genie_space_params = {json.dumps(provisioned)}")
 else:
-    print("\nNo Genie spaces provisioned; not setting taskValues.")
+    print("No parameterized Genie space_ids; no taskValues set.")

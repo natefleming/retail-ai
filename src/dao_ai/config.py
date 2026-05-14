@@ -115,6 +115,29 @@ def value_of(value: HasValue | str | int | float | bool) -> Any:
     return value
 
 
+_PARAMETER_REF_PATTERN: re.Pattern[str] = re.compile(
+    r"^\$\{(?:var|param)\.([A-Za-z_][A-Za-z0-9_]*)\}$"
+)
+
+
+def is_parameter(value: Any) -> bool:
+    """Return True if ``value`` is a ``${var.NAME}`` or ``${param.NAME}`` reference.
+
+    Useful for tooling that needs to distinguish operator-supplied parameters
+    from literal values in a YAML field — e.g., a provisioning task that
+    should only forward task-values for fields backed by a CLI/env parameter.
+    """
+    return isinstance(value, str) and bool(_PARAMETER_REF_PATTERN.match(value.strip()))
+
+
+def parameter_name(value: Any) -> str | None:
+    """Return the parameter name if ``value`` is a ``${var.NAME}`` / ``${param.NAME}`` reference, else None."""
+    if not isinstance(value, str):
+        return None
+    m: re.Match[str] | None = _PARAMETER_REF_PATTERN.match(value.strip())
+    return m.group(1) if m else None
+
+
 class HasFullName(ABC):
     @property
     @abstractmethod
@@ -7842,6 +7865,7 @@ class AppConfig(BaseModel):
     _source_config_path: str | None = None
     _rendered_yaml: str | None = None
     _substitution_vars: dict[str, str] | None = None
+    _raw_yaml_dict: dict[str, Any] | None = None
     _initialized: bool = False
 
     @model_validator(mode="after")
@@ -7948,6 +7972,11 @@ class AppConfig(BaseModel):
         config._source_config_path = path
         config._rendered_yaml = rendered_text
         config._substitution_vars = dict(params) if params else None
+        # Stash the pre-substitution dict so tooling can recover which
+        # YAML fields were backed by ``${var.X}`` references (e.g.,
+        # provisioning tasks that need to forward resolved values back
+        # to those same parameters).
+        config._raw_yaml_dict = raw_dict
 
         if initialize:
             config.initialize()
@@ -7968,6 +7997,36 @@ class AppConfig(BaseModel):
     def substitution_vars(self) -> dict[str, str] | None:
         """Get the explicit substitution vars used at load time, if any."""
         return self._substitution_vars
+
+    def parameterized_genie_rooms(self) -> dict[str, str]:
+        """Map each ``genie_rooms`` key whose ``space_id`` was a
+        ``${var.NAME}`` / ``${param.NAME}`` reference to that parameter name.
+
+        Walks the *pre-substitution* YAML so the original parameter
+        reference is recoverable (after :meth:`from_file` finishes,
+        ``room.space_id`` already holds the substituted value).
+
+        Use case: a provisioning task that resolves or creates each
+        Genie space and then forwards the resolved id back as the
+        same parameter on the next pipeline step.
+
+        Returns:
+            ``{room_key: parameter_name}``. Rooms with literal or empty
+            ``space_id`` (and configs without a ``genie_rooms`` block) are
+            omitted.
+        """
+        if not self._raw_yaml_dict:
+            return {}
+        rooms_block: dict[str, Any] = (
+            self._raw_yaml_dict.get("resources", {}).get("genie_rooms", {}) or {}
+        )
+        out: dict[str, str] = {}
+        for room_key, room_dict in rooms_block.items():
+            raw_space_id: Any = (room_dict or {}).get("space_id")
+            pname: str | None = parameter_name(raw_space_id)
+            if pname is not None:
+                out[room_key] = pname
+        return out
 
     def _resolve_all_resources(self) -> None:
         """Walk the config tree and call ensure_resolved() on all IsDatabricksResource instances."""
