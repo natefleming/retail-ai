@@ -83,22 +83,28 @@ resources:
   # ---------------------------------------------------------------------------
   # LANGUAGE MODELS — chat completions all route through AI Gateway
   # ---------------------------------------------------------------------------
+  # All LLMs are OBO so they surface as user_api_scopes (not app resources),
+  # keeping us under the Apps 20-resource budget. Fallbacks remain SP-backed
+  # because the AI-Gateway flag is OBO-compatible per dao-ai v0.1.79.
   models:
     fast_llm: &fast_llm
       name: databricks-gpt-5-4-mini
       ai_gateway: true
+      on_behalf_of_user: true
       temperature: 0.1
       max_tokens: 4096
 
     supervisor_llm: &supervisor_llm
       name: databricks-gpt-5-4-mini
       ai_gateway: true
+      on_behalf_of_user: true
       temperature: 0.1
       max_tokens: 1024
 
     tool_calling_llm: &tool_calling_llm
       name: databricks-claude-sonnet-4-5
       ai_gateway: true
+      on_behalf_of_user: true
       temperature: 0.1
       max_tokens: 4096
       fallbacks:
@@ -107,6 +113,7 @@ resources:
     ranker_llm: &ranker_llm
       name: databricks-claude-sonnet-4-5
       ai_gateway: true
+      on_behalf_of_user: true
       temperature: 0.1
       max_tokens: 1500
       fallbacks:
@@ -115,12 +122,14 @@ resources:
     judge_llm: &judge_llm
       name: databricks-claude-sonnet-4-5
       ai_gateway: true
+      on_behalf_of_user: true
       temperature: 0.5
       max_tokens: 8192
 
     decomposition_llm: &decomposition_llm
       name: databricks-gpt-5-4-mini
       ai_gateway: true
+      on_behalf_of_user: true
       temperature: 0.0
       max_tokens: 1024
 
