@@ -103,7 +103,6 @@ resources:
             base_parameters:
               config-path: ${var.config_path}
               deployment-target: ${var.deployment_target}
-              genie-space-params: "{{tasks.provision-genie.values.genie_space_params}}"
           environment_key: dao-ai-env
         - task_key: generate-evaluation-data
           depends_on:

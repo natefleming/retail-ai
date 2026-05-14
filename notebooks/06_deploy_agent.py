@@ -32,7 +32,6 @@ dbutils.widgets.dropdown(
     choices=["", "model_serving", "apps", "both"],
     defaultValue="",
 )
-dbutils.widgets.text(name="genie-space-params", defaultValue="")
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
 dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
@@ -40,13 +39,11 @@ dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue
 config_path: str | None = dbutils.widgets.get("config-path") or None
 project_path: str = dbutils.widgets.get("config-paths") or None
 deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
-genie_space_params: str | None = dbutils.widgets.get("genie-space-params") or None
 
 config_path: str = config_path or project_path
 
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
-print(f"Genie space params (from provision-genie task): {genie_space_params or '(unset)'}")
 
 # COMMAND ----------
 
@@ -111,23 +108,38 @@ import json
 
 config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
 deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
-genie_space_params: str | None = dbutils.widgets.get("genie-space-params") or None
 
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
-print(f"Genie space params: {genie_space_params or '(unset)'}")
 
-# Forward the provision-genie task's results into the config as dao-ai
-# parameters. The taskValue is a JSON map of {param_name: space_id};
-# each entry binds a `${var.<param_name>}` reference in the YAML.
+# Forward the provision-genie task's resolved space ids into the config
+# as dao-ai parameters. We read the taskValue at *runtime* via
+# dbutils.jobs.taskValues.get rather than via a `{{...}}` template in
+# base_parameters — the latter is unreliable in some bundle/Jobs
+# combinations. The provision-genie task sets each resolved
+# parameter under both its own name AND a consolidated
+# `genie_space_params` JSON map; we read the consolidated map.
 params: dict[str, str] = {}
-if genie_space_params:
+try:
+    raw_map: str = dbutils.jobs.taskValues.get(
+        taskKey="provision-genie",
+        key="genie_space_params",
+        default="",
+        debugValue="",
+    )
+except Exception as exc:
+    print(f"  taskValues.get unavailable ({exc}); skipping genie param injection.")
+    raw_map = ""
+
+print(f"Genie space params (from provision-genie task): {raw_map or '(unset)'}")
+
+if raw_map:
     try:
-        decoded: dict[str, str] = json.loads(genie_space_params)
+        decoded: dict[str, str] = json.loads(raw_map)
         if isinstance(decoded, dict):
             params.update({k: str(v) for k, v in decoded.items() if v})
     except json.JSONDecodeError as exc:
-        print(f"WARNING: could not parse genie-space-params as JSON: {exc}")
+        print(f"WARNING: could not parse genie_space_params as JSON: {exc}")
 
 config: AppConfig = AppConfig.from_file(path=config_path, params=params or None)
 
